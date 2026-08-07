@@ -158,6 +158,7 @@ describe("runMigrations – serverless request runtime", () => {
     it(`does not touch the database when ${key} marks a serverless request`, async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv(key, key === "NETLIFY" ? "true" : "1");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
 
       const plugin = runMigrations(migrations, { table: "guard_migrations" });
       await plugin(null);
@@ -166,6 +167,24 @@ describe("runMigrations – serverless request runtime", () => {
       expect(createDbExec).not.toHaveBeenCalled();
     });
   }
+
+  it("still migrates on the request path for an app with no release step", async () => {
+    // 16 of 17 templates have no release migration entrypoint. For them,
+    // skipping here would not defer the work — it would delete it: a newly
+    // added migration silently never applies and a fresh deploy comes up with
+    // missing tables, with nothing failing to say so. The skip is opt-in, so
+    // an app that has not claimed release ownership keeps the old behavior.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    // AGENT_NATIVE_RELEASE_MIGRATIONS deliberately unset.
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
 
   it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
     // The Netlify BUILD environment sets NETLIFY=true, so the release
@@ -176,6 +195,7 @@ describe("runMigrations – serverless request runtime", () => {
     // is invisible until the first read fails in production.
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
     const exec = makeExec([{ v: 5 }]);
     vi.mocked(getDbExec).mockReturnValue(exec);
 

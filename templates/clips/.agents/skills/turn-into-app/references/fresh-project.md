@@ -50,6 +50,14 @@ skills. For a ChatGPT Project or any host that exposes only the MCP connector,
 also place the skill instructions or this reference in the Project
 instructions/knowledge files. Then add and authenticate the Dispatch MCP
 connector from the packaged `adapters/chatgpt-mcp/connector.json`.
+This single connector is enough: Dispatch provisions or reuses the Builder
+project through the Builder Projects API, so do not ask the user to add a
+separate Builder CMS MCP for app creation.
+Builder's separate Fusion MCP is available as a custom remote connector at
+`https://mcp.builder.io/mcp/fusion` for direct Builder work. It can run an
+existing project, but it cannot provision the repo-backed Agent-Native
+workspace project, so it is optional and not a replacement for the Dispatch
+handoff in this skill. Do not add Builder's CMS MCP for this workflow.
 
 For Claude Web, ChatGPT Web, and their web Projects, the host is an
 orchestrator, not the build environment. After forming the source brief, call

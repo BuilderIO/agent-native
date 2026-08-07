@@ -348,11 +348,29 @@ function isServerlessRequestRuntime(): boolean {
 }
 
 /**
- * A runtime that is ALLOWED to migrate: scheduled jobs and durable background
- * workers, which are off the request path and may take as long as they need.
+ * Whether this app migrates at RELEASE time, so skipping on the request path
+ * is safe.
  *
- * Set by whichever runtime claims migration duty. Analytics sets its own
- * equivalent flag before running the scheduled rollup.
+ * Without this, "skip in serverless" silently means "never migrate" for any app
+ * that has no release entrypoint — and at the time this was written exactly one
+ * of seventeen templates had one. Existing tables keep working, so nothing
+ * fails; a newly added migration just never applies, and a fresh deploy comes
+ * up with missing tables. That is a skip indistinguishable from success, which
+ * is the failure mode this repo bans.
+ *
+ * So the request-path skip is opt-in per app. An app sets this once it owns a
+ * release migration step (see templates/analytics/scripts/migrate-production.ts
+ * and the `migrate:production` build step in its netlify.toml).
+ */
+function appMigratesAtRelease(): boolean {
+  const raw = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim();
+  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
+/**
+ * A runtime that is ALLOWED to migrate: release scripts, scheduled jobs, and
+ * durable background workers, which are off the request path and may take as
+ * long as they need. Claimed with {@link withMigrationRuntime}.
  */
 function isMigrationAuthorizedRuntime(): boolean {
   return (
@@ -447,6 +465,7 @@ export function runMigrations(
     if (
       options?.runInServerlessRequest !== true &&
       isServerlessRequestRuntime() &&
+      appMigratesAtRelease() &&
       !isMigrationAuthorizedRuntime()
     ) {
       console.info(

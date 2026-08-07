@@ -1731,7 +1731,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <CenterPlaybackOverlay
             mode={centerOverlayMode}
             label={centerOverlayLabel}
-            durationMs={resolvedDurationMs}
+            durationMs={scrubberTimeline.durationMs}
             speed={speed}
             playError={playError}
             onPlay={() => {

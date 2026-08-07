@@ -65,16 +65,15 @@ export default defineAction({
     const dash = await getDashboard(args.id, ctx);
     if (!dash || dash.kind !== "sql") {
       const seed = loadDashboardSeed(args.id);
-      if (seed)
-        return buildDashboardSeedAgentContext(
-          args.id,
+      if (seed) {
+        const config =
           args.id === FIRST_PARTY_DASHBOARD_ID
             ? repairCanonicalFirstPartyDashboardQueries(seed).config
-            : seed,
-          {
-            includeConfig: args.includeConfig === true,
-          },
-        );
+            : seed;
+        return buildDashboardSeedAgentContext(args.id, config, {
+          includeConfig: args.includeConfig === true,
+        });
+      }
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
       });

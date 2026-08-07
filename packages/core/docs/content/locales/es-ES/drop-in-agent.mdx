@@ -136,11 +136,11 @@ los niños permanecen en el área principal de la aplicación. El chat del agent
   ]}
 />
 
-Eso es todo. El usuario ahora tiene un agente alternable en cada página, con historial de chat, pestaña de recursos del agente, terminal CLI, entrada de voz y modo de pantalla completa. El estado persiste entre recargas a través de `localStorage`.
+Eso es todo. El usuario ahora tiene un agente alternable en cada página, con historial de chat, pestaña de recursos del agente, terminal CLI, entrada de voz y un panel más ancho. El estado persiste entre recargas a través de `localStorage`.
 
 ### Accesorios
 
-- **`children`**: el diseño y las rutas normales de tu aplicación. Representado en el área principal; el panel del agente se monta junto a él en el escritorio y encima en el móvil/pantalla completa.
+- **`children`**: el diseño y las rutas normales de tu aplicación. Representado en el área principal; el panel del agente se monta junto a él en el escritorio y encima en el móvil.
 - **`emptyStateText`**: saludo que se muestra cuando el chat no tiene mensajes. Valor predeterminado: `"How can I help you?"`.
 - **`suggestions`**: los mensajes de inicio se muestran como chips en los que se puede hacer clic cuando están vacíos.
 - **`dynamicSuggestions`**: chips de aviso contextuales fusionados con `suggestions`. Habilitado de forma predeterminada; pase `false` para mostrar solo sugerencias estáticas o `{ max, includeStatic, getSuggestions }` para personalizar.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` o `"cli"`. Valor predeterminado: `"chat"`.
 - **`className`** — Clase CSS para el contenedor exterior.
 - **`onCollapse`**: si se proporciona, aparece un botón para contraer en el encabezado.
-- **`isFullscreen`** / **`onToggleFullscreen`**: conecte el estado de pantalla completa externo si desea una columna centrada estilo Claude.
+- **`isFullscreen`**: actívelo si desea una columna centrada al estilo Claude en una superficie de página o panel personalizado. La barra lateral usa el panel más ancho.
 - **`storageKey`**: espacio de nombres para claves `localStorage`. Útil cuando renderizas varios paneles (diferentes instancias de aplicaciones o espacios de trabajo) en la misma página.
 
 Accesorios completos: `AgentPanelProps` en `@agent-native/core/client`.

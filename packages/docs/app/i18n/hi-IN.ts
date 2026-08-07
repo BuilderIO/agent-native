@@ -1481,7 +1481,6 @@ const hiIN = {
     templatesSection: "ऐप्स",
     gettingStarted: "शुरुआत",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native क्या है?",
     agentSurfaces: "Agent surfaces",

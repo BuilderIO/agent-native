@@ -3052,9 +3052,19 @@ function createNitroDevPlugin(
   options: Pick<ClientConfigOptions, "nitro">,
   appBasePath: string,
 ) {
+  const nitroOptions = options.nitro ?? {};
   return nitroVitePlugin({
     serverDir: "./server",
-    ...(options.nitro ?? {}),
+    ...nitroOptions,
+    replace: {
+      ...(nitroOptions as { replace?: Record<string, string> }).replace,
+      // Netlify's netlify.toml environment is available to the build but not
+      // injected into deployed Functions. Nitro is a separate server build,
+      // so it needs the release ownership decision in its own replacement map.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+    },
     // Never auto-load test files as server handlers/plugins/middleware.
     // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
     // *.spec.ts would otherwise be loaded at runtime and crash the server
@@ -3464,6 +3474,12 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      // The release migration owner is configured at build time. Netlify's
+      // netlify.toml environment is available to the build but not injected
+      // into deployed Functions, so embed the decision in the server bundle.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
       __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
         process.env.GTM_CONTAINER_ID?.trim() || "",

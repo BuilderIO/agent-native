@@ -136,11 +136,11 @@ as crianças ficam na área principal do aplicativo. O chat do agente é o paine
   ]}
 />
 
-É isso. O usuário agora tem um agente alternável em cada página – com histórico de bate-papo, guia Recursos do Agente, terminal CLI, entrada de voz e modo de tela cheia. O estado persiste durante as recargas via `localStorage`.
+É isso. O usuário agora tem um agente alternável em cada página – com histórico de bate-papo, guia Recursos do Agente, terminal CLI, entrada de voz e um painel mais largo. O estado persiste durante as recargas via `localStorage`.
 
 ### Acessórios
 
-- **`children`** — layout e rotas normais do seu aplicativo. Renderizado na área principal; o painel do agente é montado ao lado dele no desktop e acima dele no celular/tela cheia.
+- **`children`** — layout e rotas normais do seu aplicativo. Renderizado na área principal; o painel do agente é montado ao lado dele no desktop e acima dele no celular.
 - **`emptyStateText`** — saudação mostrada quando o chat não tem mensagens. Padrão: `"How can I help you?"`.
 - **`suggestions`** — prompts iniciais renderizados como chips clicáveis quando vazios.
 - **`dynamicSuggestions`** — chips de prompt com reconhecimento de contexto mesclados com `suggestions`. Habilitado por padrão; passe `false` para mostrar apenas sugestões estáticas ou `{ max, includeStatic, getSuggestions }` para personalizar.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` ou `"cli"`. Padrão: `"chat"`.
 - **`className`** — Classe CSS para o contêiner externo.
 - **`onCollapse`** — se fornecido, um botão de recolhimento aparece no cabeçalho.
-- **`isFullscreen`** / **`onToggleFullscreen`** — conecte o estado de tela cheia externa se desejar uma coluna centralizada no estilo Claude.
+- **`isFullscreen`** — defina esta opção se quiser uma coluna centralizada no estilo Claude em uma superfície de página ou painel personalizado. A barra lateral usa o painel mais largo.
 - **`storageKey`** — namespace para chaves `localStorage`. Útil quando você renderiza vários painéis (diferentes instâncias de aplicativos ou espaços de trabalho) na mesma página.
 
 Acessórios completos: `AgentPanelProps` em `@agent-native/core/client`.

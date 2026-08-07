@@ -3639,9 +3639,13 @@ describe("Brain connector smoke coverage", () => {
         String(call[0]).includes("users.info"),
       ),
     ).toHaveLength(4);
-    expect(
-      mocks.rows.audienceMembers.map((member) => member.principalId),
-    ).toEqual(["ada@example.test"]);
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "slack-private-channel",
+        memberEmails: ["ada@example.test"],
+        upstreamRefHash: "G123",
+      }),
+    );
   });
 
   it("caches private Slack member emails and bounds concurrent user lookups within a sync", async () => {

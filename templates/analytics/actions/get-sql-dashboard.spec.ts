@@ -40,11 +40,8 @@ vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
 
-import {
-  buildPanel,
-  FIRST_PARTY_DASHBOARD_ID,
-  LEGACY_DAU_BY_TEMPLATE_SQL,
-} from "../server/lib/first-party-metric-catalog";
+import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "../server/lib/canonical-first-party-dashboard-repair";
+import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
 
 const { default: getSqlDashboard } = await import("./get-sql-dashboard");
 
@@ -123,23 +120,17 @@ describe("get-sql-dashboard seed fallback", () => {
     expect(result.ownerEmail).toBe("alice@example.com");
   });
 
-  it("repairs legacy template breakdown SQL when reading the canonical dashboard", async () => {
-    const current = buildPanel("dau-over-time");
-    expect(current).not.toBeNull();
+  it("repairs legacy SQL when reading the persisted first-party dashboard", async () => {
     mocks.getDashboard.mockResolvedValue({
       id: FIRST_PARTY_DASHBOARD_ID,
       kind: "sql",
-      title: "Agent Native Templates (First-party)",
       config: {
         name: "Agent Native Templates (First-party)",
         panels: [
           {
-            id: "dau-over-time",
-            title: "Signed-In Daily Active Visitors by Template",
+            id: "new-vs-recurring-users",
             source: "first-party",
-            chartType: "area",
-            width: 2,
-            sql: LEGACY_DAU_BY_TEMPLATE_SQL,
+            sql: LEGACY_NEW_VS_RECURRING_USERS_SQL,
           },
         ],
       },
@@ -161,7 +152,8 @@ describe("get-sql-dashboard seed fallback", () => {
       includeConfig: true,
     })) as { panels: Array<{ sql?: string }> };
 
-    expect(result.panels[0]?.sql).toBe(current?.sql);
+    expect(result.panels[0]?.sql).not.toBe(LEGACY_NEW_VS_RECURRING_USERS_SQL);
+    expect(result.panels[0]?.sql).toContain("<> 'www'");
   });
 
   it("omits full panel SQL by default and returns it when includeConfig is true", async () => {
