@@ -747,7 +747,6 @@ const deDE = {
         surfaceScreen: "Bildschirm",
         audioSource: "Audioquelle",
         defaultMicrophone: "Standardmikrofon",
-        computerAudio: "Computeraudio",
         startRecording: "Aufnahme starten",
         uploadVideo: "Video hochladen",
         importLoom: "Aus Loom importieren",

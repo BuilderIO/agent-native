@@ -743,7 +743,6 @@ const jaJP = {
         surfaceScreen: "画面",
         audioSource: "音声ソース",
         defaultMicrophone: "デフォルトのマイク",
-        computerAudio: "コンピューターの音声",
         startRecording: "録画を開始",
         uploadVideo: "動画をアップロード",
         importLoom: "Loom からインポート",

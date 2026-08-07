@@ -7,7 +7,6 @@ import {
   IconMicrophone,
   IconPlayerRecord,
   IconVideo,
-  IconVolume,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -21,7 +20,6 @@ export function ClipsQuickStart() {
   const [mode, setMode] = useState<RecordingMode>("screen+camera");
   const [surface, setSurface] = useState<CaptureSource>("browser");
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
-  const [computerAudioEnabled, setComputerAudioEnabled] = useState(false);
   const tq = (key: string) => t(`templateLanding.clips.quickStart.${key}`);
   const recordUrl = new URL("https://clips.agent-native.com/record");
   recordUrl.searchParams.set("mode", mode);
@@ -123,19 +121,13 @@ export function ClipsQuickStart() {
         <div className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]">
           {tq("audioSource")}
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2">
           {[
             {
               label: tq("defaultMicrophone"),
               Icon: IconMicrophone,
               enabled: microphoneEnabled,
               setEnabled: setMicrophoneEnabled,
-            },
-            {
-              label: tq("computerAudio"),
-              Icon: IconVolume,
-              enabled: computerAudioEnabled,
-              setEnabled: setComputerAudioEnabled,
             },
           ].map(({ label, Icon, enabled, setEnabled }) => (
             <button

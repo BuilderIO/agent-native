@@ -738,7 +738,6 @@ const arSA = {
         surfaceScreen: "الشاشة",
         audioSource: "مصدر الصوت",
         defaultMicrophone: "الميكروفون الافتراضي",
-        computerAudio: "صوت الكمبيوتر",
         startRecording: "ابدأ التسجيل",
         uploadVideo: "رفع فيديو",
         importLoom: "استيراد من Loom",

@@ -742,7 +742,6 @@ const koKR = {
         surfaceScreen: "화면",
         audioSource: "오디오 소스",
         defaultMicrophone: "기본 마이크",
-        computerAudio: "컴퓨터 오디오",
         startRecording: "녹화 시작",
         uploadVideo: "동영상 업로드",
         importLoom: "Loom에서 가져오기",

@@ -746,7 +746,6 @@ const frFR = {
         surfaceScreen: "Écran",
         audioSource: "Source audio",
         defaultMicrophone: "Microphone par défaut",
-        computerAudio: "Audio de l’ordinateur",
         startRecording: "Démarrer l’enregistrement",
         uploadVideo: "Mettre en ligne une vidéo",
         importLoom: "Importer depuis Loom",

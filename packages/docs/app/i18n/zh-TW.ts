@@ -728,7 +728,6 @@ const messages = {
         surfaceScreen: "螢幕",
         audioSource: "音訊來源",
         defaultMicrophone: "預設麥克風",
-        computerAudio: "電腦音訊",
         startRecording: "開始錄製",
         uploadVideo: "上傳影片",
         importLoom: "匯入 Loom",

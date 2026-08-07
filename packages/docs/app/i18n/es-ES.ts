@@ -746,7 +746,6 @@ const esES = {
         surfaceScreen: "Pantalla",
         audioSource: "Fuente de audio",
         defaultMicrophone: "Micrófono predeterminado",
-        computerAudio: "Audio del ordenador",
         startRecording: "Iniciar grabación",
         uploadVideo: "Subir vídeo",
         importLoom: "Importar desde Loom",

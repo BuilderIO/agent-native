@@ -739,7 +739,6 @@ const enUS = {
         surfaceScreen: "Screen",
         audioSource: "Audio source",
         defaultMicrophone: "Default microphone",
-        computerAudio: "Computer audio",
         startRecording: "Start recording",
         uploadVideo: "Upload video",
         importLoom: "Import Loom",

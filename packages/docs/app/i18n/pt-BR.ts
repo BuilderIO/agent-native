@@ -743,7 +743,6 @@ const ptBR = {
         surfaceScreen: "Tela",
         audioSource: "Fonte de áudio",
         defaultMicrophone: "Microfone padrão",
-        computerAudio: "Áudio do computador",
         startRecording: "Iniciar gravação",
         uploadVideo: "Enviar vídeo",
         importLoom: "Importar do Loom",

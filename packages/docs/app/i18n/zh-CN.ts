@@ -730,7 +730,6 @@ const zhCN = {
         surfaceScreen: "屏幕",
         audioSource: "音频源",
         defaultMicrophone: "默认麦克风",
-        computerAudio: "电脑音频",
         startRecording: "开始录制",
         uploadVideo: "上传视频",
         importLoom: "导入 Loom",

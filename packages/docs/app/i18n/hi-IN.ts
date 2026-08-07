@@ -740,7 +740,6 @@ const hiIN = {
         surfaceScreen: "स्क्रीन",
         audioSource: "ऑडियो स्रोत",
         defaultMicrophone: "डिफ़ॉल्ट माइक्रोफ़ोन",
-        computerAudio: "कंप्यूटर ऑडियो",
         startRecording: "रिकॉर्डिंग शुरू करें",
         uploadVideo: "वीडियो अपलोड करें",
         importLoom: "Loom से इंपोर्ट करें",
