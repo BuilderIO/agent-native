@@ -45,6 +45,7 @@ type CreateEventInput = Omit<
 
 type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
+  targetAccountEmail?: string;
   addGoogleMeet?: boolean;
   addZoom?: boolean;
   addAttendees?: CalendarEvent["attendees"];
@@ -379,6 +380,7 @@ export function useUpdateEvent() {
           addGoogleMeet,
           addZoom,
           addAttendees,
+          targetAccountEmail,
           sendUpdates,
           notificationMessage,
           scope,
@@ -386,6 +388,7 @@ export function useUpdateEvent() {
           workingLocationLabel,
           ...optimisticData
         } = newData;
+        const optimisticPatch = targetAccountEmail ? {} : optimisticData;
         const hasWorkingLocationUpdate =
           workingLocationType !== undefined ||
           workingLocationLabel !== undefined;
@@ -413,7 +416,7 @@ export function useUpdateEvent() {
                 workingLocationLabel ?? getWorkingLocationEditableLabel(e);
               return {
                 ...e,
-                ...optimisticData,
+                ...optimisticPatch,
                 ...(hasWorkingLocationUpdate
                   ? {
                       workingLocationProperties: buildWorkingLocationProperties(

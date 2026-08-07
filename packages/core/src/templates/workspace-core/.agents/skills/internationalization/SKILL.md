@@ -29,6 +29,11 @@ Templates use `app/i18n/`:
 Use BCP-47 filenames from the supported set: `en-US`, `zh-CN`, `es-ES`,
 `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, `ar-SA`.
 
+If an app only ships translations for a subset of that set, set
+`supportedLocales` on the `AgentNativeI18nCatalog` to that subset. Without it,
+`<LanguagePicker />` lists every framework-supported locale regardless of
+whether `loadMessages` can actually resolve it.
+
 ## UI Pattern
 
 - Wrap apps with `AppProviders i18n={{ catalog: i18nCatalog }}`.

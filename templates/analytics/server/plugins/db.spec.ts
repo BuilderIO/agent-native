@@ -248,15 +248,68 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("does not run dashboard repair during database startup", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).not.toContain(
+      "repairPersistedFirstPartyDashboardQueries",
+    );
+  });
+
   it("skips Analytics migrations in non-rollup durable background functions", () => {
     const pluginSource = dbTsSource.slice(
       dbTsSource.lastIndexOf("export default async"),
     );
-    expect(pluginSource).toMatch(
-      /if \(isInBackgroundFunctionRuntime\(\) && !isScheduledRollupRuntime\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
+    const backgroundGuardIdx = pluginSource.indexOf(
+      "if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {",
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    expect(backgroundGuardIdx).toBeGreaterThan(-1);
+    expect(migrationsCallIdx).toBeGreaterThan(backgroundGuardIdx);
+    expect(pluginSource.slice(backgroundGuardIdx, migrationsCallIdx)).toMatch(
+      /return;/,
     );
     expect(pluginSource).toContain(
       "__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__",
+    );
+  });
+
+  it("skips non-authoritative schema convergence in production serverless functions", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    const runtimeGuardIdx = pluginSource.indexOf(
+      "if (isNetlifyServerlessRuntime) {",
+      migrationsCallIdx,
+    );
+    const ensureCallIdx = pluginSource.indexOf("ensureAdditiveColumns({");
+    expect(migrationsCallIdx).toBeGreaterThan(-1);
+    expect(runtimeGuardIdx).toBeGreaterThan(migrationsCallIdx);
+    expect(ensureCallIdx).toBeGreaterThan(runtimeGuardIdx);
+    expect(pluginSource).toContain("const isNetlifyServerlessRuntime =");
+    expect(pluginSource).toMatch(
+      /if \(isNetlifyServerlessRuntime\) \{[\s\S]*?return;/,
+    );
+    expect(pluginSource).toContain(
+      "Skipping post-migration schema convergence in production serverless runtime",
+    );
+  });
+
+  it("supports an explicit incident flag to skip the already-applied migration runner", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).toMatch(
+      /isNetlifyServerlessRuntime[\s\S]*?ANALYTICS_SKIP_BOOT_MIGRATIONS === "1"[\s\S]*?return;[\s\S]*?await runAnalyticsMigrations\(/,
+    );
+    expect(pluginSource).toContain(
+      "Skipping Analytics migrations in production serverless runtime by explicit incident flag",
     );
   });
 });

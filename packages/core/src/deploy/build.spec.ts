@@ -59,7 +59,8 @@ import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
+  "public, durable, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
@@ -676,6 +677,9 @@ export default (event) =>
 
     expect(source).toContain(
       'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+    );
+    expect(source).toContain(
+      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
     );
   });
 
@@ -1992,6 +1996,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).not.toContain("includedFiles");
     expect(entry).toContain("await fetch(url");
     expect(entry).toContain("agent-native-netlify-keep-warm");
+    expect(entry).toContain("return new URL(request.url).origin");
     expect(entry).not.toMatch(/^\s*path:/m);
   });
 
@@ -2019,6 +2024,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain('createHmac("sha256", secret)');
     expect(entry).toContain("__agentNativeProcessorRoute");
     expect(entry).toContain("A2A_SECRET is required");
+    expect(entry).toContain("return new URL(request.url).origin");
   });
 
   it("does not emit a keep-warm function without Nitro's server bundle", () => {

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 
+import { createPollEngine } from "../shared/poll-engine.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -82,6 +83,12 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
 const MAX_POLL_ERROR_BACKOFF_MS = 30_000;
 const FRESH_BACKGROUND_HEARTBEAT_MS = 30_000;
+// Bounds each poll fetch so a hung request can't stall the self-rescheduling
+// setTimeout loop forever (the reschedule only fires once the fetch settles).
+const POLL_ABORT_MIN_MS = 10_000;
+function getPollAbortMs(interval: number): number {
+  return Math.max(POLL_ABORT_MIN_MS, interval * 4);
+}
 
 interface ActiveRunResponse {
   active: boolean;
@@ -127,10 +134,15 @@ export function useRunStuckDetection({
 
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
     let snapshotTransitionTimer: ReturnType<typeof setTimeout> | null = null;
     let snapshotVersion = 0;
     let consecutivePollFailures = 0;
+    // The engine's own cadence varies per tick (idle backoff, error backoff),
+    // which is why intervalMs below reads from this ref instead of a fixed
+    // number. Stagger the very first poll so a freshly-started run isn't
+    // immediately classified as stuck before the server has had a chance to
+    // record any progress events.
+    const nextDelayRef = { current: 2_000 };
 
     const pollFailureDelay = () => {
       consecutivePollFailures += 1;
@@ -276,13 +288,12 @@ export function useRunStuckDetection({
       }, delayMs);
     };
 
-    const poll = async () => {
-      if (cancelled) return;
+    const attempt = async (signal: AbortSignal) => {
       let nextDelay = pollIntervalMs;
       try {
         const res = await fetch(
           `${base}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-          { credentials: "same-origin" },
+          { credentials: "same-origin", signal },
         );
         if (cancelled) return;
         if (res.ok) {
@@ -365,22 +376,40 @@ export function useRunStuckDetection({
         // Network/503 blip — leave previous state and ease polling pressure
         // while the server or database recovers.
         nextDelay = pollFailureDelay();
-      }
-      if (!cancelled) {
-        timer = setTimeout(poll, nextDelay);
+      } finally {
+        nextDelayRef.current = nextDelay;
       }
     };
 
-    // Stagger the first poll so a freshly-started run isn't immediately
-    // classified as stuck before the server has had a chance to record
-    // any progress events.
-    timer = setTimeout(poll, 2_000);
+    // The per-tick backoff above needs a variable cadence, which is why this
+    // uses createPollEngine directly instead of usePollLoop (whose public
+    // intervalMs is a fixed number) — see poll-engine.ts for the
+    // never-overlaps/never-stalls guarantees this still gets for free.
+    const engine = createPollEngine(attempt, {
+      intervalMs: () => nextDelayRef.current,
+      timeoutMs: getPollAbortMs(pollIntervalMs),
+      leading: false,
+    });
+    engine.start();
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        engine.stop();
+      } else {
+        // Resume immediately rather than waiting out whatever delay was
+        // pending before the tab was hidden (which may be a long backoff).
+        engine.start();
+        engine.pollNow();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       cancelled = true;
       snapshotVersion += 1;
-      if (timer) clearTimeout(timer);
+      engine.stop();
       if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [
     threadId,

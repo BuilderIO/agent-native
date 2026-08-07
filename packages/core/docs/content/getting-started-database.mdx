@@ -5,25 +5,20 @@ description: "Save action results to a SQL database so the agent can reference t
 
 # Persist Data in SQL
 
-This is part three of the Getting Started series. In [Add an Action](/docs/getting-started-actions) you defined the `analyze-text` action and rendered its result inline in chat. Here you'll persist those results to a SQL database.
+This is part three of the Getting Started series. In [Add an Action](/docs/getting-started-actions)
+you defined `analyze-text`. Here you'll add a table and two actions so the
+results persist.
 
-## Persist data in SQL {#persist-data}
+## Add a table {#persist-data}
 
-Right now, every time the agent runs `analyze-text` the result appears in chat
-and then disappears. There's nothing to look back at, nothing the agent can
-reference later, and no way to build a page around the data. Persisting to SQL
-fixes that: the agent writes results to a table, and both the agent and your UI
-can read them back at any time.
+The Chat template uses a local SQLite file by default, so no database server is
+needed for this tutorial. Add these three server files:
 
-Agent-Native apps have a SQL database available by default: SQLite locally,
-and your configured provider (Postgres, Turso/libSQL, Cloudflare D1) in
-production.
+1. `server/plugins/db.ts` creates the table with an additive migration.
+2. `server/db/schema.ts` describes the table for typed queries.
+3. `server/db/index.ts` creates the app's typed database client.
 
-### Wire up the database plugin
-
-The Chat template doesn't include a database plugin by default. Create
-`server/plugins/db.ts` to initialize it. This is what runs migrations and
-makes the database available to your actions:
+Create `server/plugins/db.ts`:
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
@@ -32,12 +27,15 @@ export default runMigrations(
   [
     {
       version: 1,
+      name: "create-text-analyses",
       sql: `CREATE TABLE IF NOT EXISTS text_analyses (
         id TEXT PRIMARY KEY,
         input TEXT NOT NULL,
         char_count INTEGER NOT NULL,
         word_count INTEGER NOT NULL,
         sentence_count INTEGER NOT NULL,
+        paragraph_count INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
     },
@@ -46,14 +44,7 @@ export default runMigrations(
 );
 ```
 
-Each entry in the array is an additive migration. When you add new columns or
-tables later, append a new version object. Never edit existing ones.
-
-### Define the schema
-
-Create `server/db/schema.ts`. The `server/db/` directory may not exist yet,
-so create it if needed. This file describes your tables using typed helpers so
-your actions get full TypeScript autocomplete:
+Create `server/db/schema.ts`:
 
 ```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
@@ -64,190 +55,115 @@ export const textAnalyses = table("text_analyses", {
   charCount: integer("char_count").notNull(),
   wordCount: integer("word_count").notNull(),
   sentenceCount: integer("sentence_count").notNull(),
+  paragraphCount: integer("paragraph_count").notNull(),
+  ownerEmail: text("owner_email").notNull(),
   createdAt: text("created_at").notNull().default(now()),
 });
 ```
 
-Use the framework schema helpers (`table`, `text`, `integer`, `now`) rather than
-`sqliteTable`, `pgTable`, or dialect-specific imports. They pick the configured
-SQL backend automatically, so the same schema runs locally on SQLite and in
-production on any supported provider.
+Create `server/db/index.ts`:
 
-After adding both files, restart the dev server so the migration runs:
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
 
-```bash
-pnpm dev
+export const getDb = createGetDb(schema);
+export { schema };
 ```
 
-Look for these two lines in the terminal output. They confirm the table was created:
+Restart `pnpm dev` once so the migration runs. Keep future migrations additive,
+and give each one a new `version` and `name`.
 
-```
-[db] Applying 1 migration(s) on SQLite/libsql…
-[db] Applied migration v1 (1 statement)
-```
+## Add save and list actions
 
-The `NitroViteError` lines, `BETTER_AUTH_SECRET` warning, and
-`SECRETS_ENCRYPTION_KEY` warning that also appear are normal for local dev and
-can be ignored.
-
-### Add actions for the table
-
-Now create the action files that read and write the table. These go in your
-`actions/` directory, the same place as `hello.ts` and `analyze-text.ts`. You
-create them yourself, one file per operation. The agent and your UI will call
-them the same way they call any other action.
-
-**`actions/save-text-analysis.ts`** writes a result row to the database.
-Call this after running `analyze-text` to make the result durable:
+Keep `analyze-text` read-only and make saving explicit with a separate action.
+Create `actions/save-text-analysis.ts`:
 
 ```ts filename="actions/save-text-analysis.ts"
 import { defineAction } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Save a text analysis result to the database.",
   schema: z.object({
-    input: z.string(),
+    input: z.string().min(1),
     charCount: z.number(),
     wordCount: z.number(),
     sentenceCount: z.number(),
+    paragraphCount: z.number(),
   }),
-  run: async ({ input, charCount, wordCount, sentenceCount }) => {
+  run: async (
+    { input, charCount, wordCount, sentenceCount, paragraphCount },
+    ctx,
+  ) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before saving analyses.");
+
     const id = crypto.randomUUID();
-    await getDbExec().execute({
-      sql: `INSERT INTO text_analyses (id, input, char_count, word_count, sentence_count)
-            VALUES (?, ?, ?, ?, ?)`,
-      args: [id, input, charCount, wordCount, sentenceCount],
+    await getDb().insert(schema.textAnalyses).values({
+      id,
+      input,
+      charCount,
+      wordCount,
+      sentenceCount,
+      paragraphCount,
+      ownerEmail,
     });
+
     return { id };
   },
 });
 ```
 
-**`actions/list-text-analyses.ts`** reads all saved results. The agent can
-call this to summarize past analyses, and your UI can use it to populate a page:
+Create `actions/list-text-analyses.ts`:
 
 ```ts filename="actions/list-text-analyses.ts"
 import { defineAction } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+
 export default defineAction({
-  description: "List all saved text analyses, newest first.",
+  description: "List the signed-in user's saved text analyses, newest first.",
   schema: z.object({}),
-  run: async () => {
-    const result = await getDbExec().execute(
-      `SELECT id, input, char_count, word_count, sentence_count, created_at
-       FROM text_analyses
-       ORDER BY created_at DESC`,
-    );
-    return result.rows;
+  http: { method: "GET" },
+  readOnly: true,
+  run: async (_, ctx) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before listing analyses.");
+
+    return getDb()
+      .select({
+        id: schema.textAnalyses.id,
+        input: schema.textAnalyses.input,
+        charCount: schema.textAnalyses.charCount,
+        wordCount: schema.textAnalyses.wordCount,
+        sentenceCount: schema.textAnalyses.sentenceCount,
+        paragraphCount: schema.textAnalyses.paragraphCount,
+        createdAt: schema.textAnalyses.createdAt,
+      })
+      .from(schema.textAnalyses)
+      .where(eq(schema.textAnalyses.ownerEmail, ownerEmail))
+      .orderBy(desc(schema.textAnalyses.createdAt));
   },
 });
 ```
 
-**`actions/delete-text-analysis.ts`** removes a row by id:
+The actions use the typed Drizzle client for app reads and writes. Raw SQL is
+only needed here for the additive migration.
 
-```ts filename="actions/delete-text-analysis.ts"
-import { defineAction } from "@agent-native/core/action";
-import { getDbExec } from "@agent-native/core/db";
-import { z } from "zod";
+## Try it
 
-export default defineAction({
-  description: "Delete a saved text analysis by id.",
-  schema: z.object({ id: z.string() }),
-  run: async ({ id }) => {
-    await getDbExec().execute({
-      sql: `DELETE FROM text_analyses WHERE id = ?`,
-      args: [id],
-    });
-    return { deleted: id };
-  },
-});
-```
+In chat, ask the agent to do the whole flow:
 
-Once these files are saved the dev server picks them up automatically. No
-restart needed. Try listing analyses from the terminal:
+> Run analyze-text on "Hello world", save the result with save-text-analysis, then list my saved text analyses.
 
-```bash
-pnpm action list-text-analyses
-```
+The saved row is now available to the agent and to the page you'll build next.
 
-You should see an empty array. The table exists and the action works; there's
-just nothing saved yet:
+## Continue
 
-```
-[]
-```
-
-Data is saved to `data/app.db`, a SQLite file in your project directory that
-gets created automatically on first run. In production you'd point
-`DATABASE_URL` at a hosted database instead, but locally this file is all you
-need.
-
-To save something, first run `analyze-text` to get the counts:
-
-```bash
-pnpm action analyze-text --text "Hello world"
-```
-
-You'll see output like:
-
-```
-{
-  title: 'Text statistics',
-  points: [
-    { label: 'Characters', value: 11 },
-    { label: 'Words', value: 2 },
-    { label: 'Sentences', value: 1 },
-    { label: 'Paragraphs', value: 1 }
-  ]
-}
-```
-
-Then pass those values to `save-text-analysis`:
-
-```bash
-pnpm action save-text-analysis \
-  --input "Hello world" \
-  --charCount 11 \
-  --wordCount 2 \
-  --sentenceCount 1
-```
-
-Now run `list-text-analyses` again and you'll see the saved row:
-
-```bash
-pnpm action list-text-analyses
-```
-
-Or ask the agent in the chat at `http://localhost:8080` to do both steps at once:
-
-> Run analyze-text on "Hello world", then save the result.
-
-## What's next {#next}
-
-<Cards>
-
-### [Add a Page](/docs/getting-started-pages)
-
-Build a React route that displays your saved analyses and wire it into the
-sidebar. Next in the series.
-
-### [Database](/docs/database)
-
-Migrations, schema helpers, and production database setup — the full reference
-for SQL in Agent Native.
-
-### [Actions](/docs/actions)
-
-Schemas, auth, approvals, hooks, and transport — the full reference for what
-actions can do.
-
-### [Key Concepts](/docs/key-concepts)
-
-The architecture underneath this tutorial: SQL, actions, live sync, and context
-awareness.
-
-</Cards>
+Continue with [Add a Page](/docs/getting-started-pages) to display the saved
+rows in a route.

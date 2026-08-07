@@ -33,6 +33,14 @@ const REGISTRY = resolve(HERE, "../packages/shared-app-config/templates.ts");
 const HEALTH_PATH = "/_agent-native/health";
 const PER_REQUEST_TIMEOUT_MS = 25_000; // Neon pooler cold-start can take ~10s.
 const ATTEMPTS = 2;
+/**
+ * A health route that answers, but slowly, is a warning — not a pass.
+ * Every check we owned reported UP while the docs site degraded from ~60ms to
+ * 10s, because up/down was the only thing measured. Healthy apps answer in
+ * a few hundred ms; this fires well above that so it means "something is
+ * wrong", not "traffic is busy".
+ */
+const SLOW_HEALTH_MS = 3_000;
 
 /** Extract visible hosted { name, prodUrl } pairs without importing TS. */
 async function readApps() {
@@ -46,6 +54,11 @@ async function readApps() {
     const hidden = /\bhidden:\s*true\b/.test(block[0]);
     if (prodUrl && !hidden) apps.push({ name, prodUrl });
   }
+  // The public marketing/docs site is not a template, so it appeared in no
+  // registry and therefore in no monitor. It went permanently cold behind a
+  // hanging health route — cache misses cost ~10x — and every check we owned
+  // stayed green because nothing was checking it at all.
+  apps.push({ name: "docs", prodUrl: "https://www.agent-native.com" });
   return apps;
 }
 
@@ -159,6 +172,7 @@ async function main() {
   const shellByName = new Map(shellResults.map((r) => [r.name, r]));
 
   let warmed = 0;
+  const slowApps = [];
   for (const r of results) {
     const shell = shellByName.get(r.name);
     const ok = r.ok && (!shell || shell.ok);
@@ -167,9 +181,14 @@ async function main() {
       const dbState =
         r.db === true ? "db:warm" : r.db === false ? "db:none" : "db:?";
       const shellState = shell ? ` shell:${shell.ms}ms` : "";
+      const slow =
+        r.ms > SLOW_HEALTH_MS || (shell && shell.ms > SLOW_HEALTH_MS);
       console.log(
-        `  ✓ ${r.name.padEnd(12)} ${String(r.ms).padStart(5)}ms  ${dbState}${shellState}`,
+        `  ${slow ? "!" : "✓"} ${r.name.padEnd(12)} ${String(r.ms).padStart(5)}ms  ${dbState}${shellState}${
+          slow ? `  SLOW (>${SLOW_HEALTH_MS}ms — cold or degrading)` : ""
+        }`,
       );
+      if (slow) slowApps.push(r.name);
     } else {
       const reason = !r.ok ? r.error : `shell: ${shell.error}`;
       console.log(`  ✗ ${r.name.padEnd(12)} ${reason}`);
@@ -177,6 +196,15 @@ async function main() {
   }
   console.log(`\nWarmed ${warmed}/${results.length} apps.`);
 
+  if (slowApps.length > 0) {
+    console.log(
+      `  slow: ${slowApps.join(", ")} — answered, but far above a healthy app's few hundred ms.`,
+    );
+  }
+
+  // Slow counts as a failure under --strict. "It responded" is the check that
+  // let a 10-second page look healthy for weeks.
+  if (strict && slowApps.length > 0) process.exit(1);
   if (strict ? warmed !== results.length : warmed === 0) process.exit(1);
 }
 

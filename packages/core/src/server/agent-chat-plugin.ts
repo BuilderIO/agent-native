@@ -198,6 +198,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
+import { startIntervalJob } from "./interval-job.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
@@ -6190,8 +6191,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
               await import("../agent/run-store.js");
-            setInterval(() => {
-              (async () => {
+            startIntervalJob(
+              async () => {
                 const {
                   listUnclaimedBackgroundRunRows,
                   shouldRedispatchUnclaimedBackgroundRun,
@@ -6219,10 +6220,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     () => {},
                   );
                 }
-              })().catch(() => {
-                // best-effort — never break the server
-              });
-            }, UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS);
+              },
+              { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
+            );
           })().catch(() => {
             // best-effort — if run-store fails to load, the slow sweep below
             // still provides eventual (loud) recovery.
