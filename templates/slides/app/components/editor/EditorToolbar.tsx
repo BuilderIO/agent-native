@@ -355,7 +355,7 @@ export default function EditorToolbar({
   // That row rides on SlideEditor, which only mounts for a real slide, so an
   // empty deck must keep this fallback or it has no way to add one.
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
-  const { undo, redo, canUndo, canRedo } = useDecks();
+  const { undo, redo, canUndo, canRedo, getDeck } = useDecks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
@@ -672,6 +672,15 @@ export default function EditorToolbar({
                     const data = await convertMermaidToExcalidraw(
                       defaultMermaidDefinition,
                     );
+                    // The target slide may have been deleted while the import/
+                    // parse above was in flight — patch-deck rejects the whole
+                    // batch for a missing slide id, so re-check with the live
+                    // deck (not the stale `currentSlide` this closure captured)
+                    // and drop the result instead of enqueueing a dead op.
+                    const stillExists = getDeck(deckId)?.slides.some(
+                      (s) => s.id === targetSlideId,
+                    );
+                    if (!stillExists) return;
                     onUpdateSlide({ excalidrawData: data }, targetSlideId);
                     setLayoutOpen(false);
                   } catch (err) {
@@ -721,6 +730,11 @@ export default function EditorToolbar({
                         const data = await convertMermaidToExcalidraw(
                           match[1].trim(),
                         );
+                        // Same stale-target guard as the insert handler above.
+                        const stillExists = getDeck(deckId)?.slides.some(
+                          (s) => s.id === targetSlideId,
+                        );
+                        if (!stillExists) return;
                         onUpdateSlide({ excalidrawData: data }, targetSlideId);
                         setLayoutOpen(false);
                       } catch (err) {
