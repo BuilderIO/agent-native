@@ -65,6 +65,34 @@ describe("ConnectBuilderCard", () => {
     expect(container.textContent).not.toContain("Send to Builder");
   });
 
+  it("keeps the server-rendered branch CTA when status refresh is unavailable", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: false,
+      configured: false,
+      builderEnabled: false,
+      orgName: null,
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Send this to Builder");
+    expect(container.textContent).toContain("Send to Builder");
+  });
+
   it("sends the background-coding use case when joining the waitlist", async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
       [];

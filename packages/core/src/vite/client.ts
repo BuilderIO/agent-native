@@ -9,12 +9,13 @@ import {
   renderDesignSystemThemeCss,
   type DesignSystemTheme,
 } from "@agent-native/toolkit/design-system/theme";
-import type {
-  ConfigEnv,
-  HotUpdateOptions,
-  NormalizedHotChannel,
-  Plugin,
-  UserConfig,
+import {
+  loadEnv,
+  type ConfigEnv,
+  type HotUpdateOptions,
+  type NormalizedHotChannel,
+  type Plugin,
+  type UserConfig,
 } from "vite";
 
 import {
@@ -53,12 +54,17 @@ import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
+import {
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+} from "../shared/runtime-config.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let nitroFsWatchGuardInstalled = false;
+const emittedRuntimeConfigDiagnostics = new Set<string>();
 
 type FsWatchArgs = [fs.PathLike, ...any[]];
 
@@ -1643,8 +1649,8 @@ export interface ClientConfigOptions {
   define?: UserConfig["define"];
   /**
    * Public app behavior from `agent-native.json` or an optional typed
-   * `agent-native.config.ts` file. Explicit Vite options win over the JSON
-   * file, while the file remains the default project-level source of truth.
+   * `agent-native.ts` file. Explicit Vite options win over the JSON file,
+   * while the file remains the default project-level source of truth.
    */
   agentNativeConfig?: AgentNativeConfigInput;
   /**
@@ -3314,7 +3320,12 @@ function readAgentNativeJsonConfig(cwd: string): AgentNativeConfig {
 async function loadAgentNativeConfigFile(
   cwd: string,
 ): Promise<AgentNativeConfigInput | undefined> {
-  const candidates = ["agent-native.config.ts", "agent-native.config.mts"];
+  const candidates = [
+    "agent-native.ts",
+    "agent-native.mts",
+    "agent-native.config.ts",
+    "agent-native.config.mts",
+  ];
   const configPath = candidates
     .map((filename) => path.join(cwd, filename))
     .find((candidate) => fs.existsSync(candidate));
@@ -3335,6 +3346,47 @@ async function loadAgentNativeConfigFile(
       `Could not load ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+function reportRuntimeConfigDiagnostics(
+  appConfig: AgentNativeConfig,
+  context: AgentNativeConfigContext,
+  mode: string,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  const production =
+    mode === "production" || process.env.NODE_ENV === "production";
+  if (!production) return;
+
+  const report = getRuntimeConfigReport(
+    env,
+    {
+      authEnabled: appConfig.runtime?.auth?.enabled,
+      databaseRequired: appConfig.runtime?.database?.required,
+      requiredEnv: appConfig.runtime?.environment?.required,
+    },
+    {
+      environment: "production",
+      phase: context.isBuild ? "build" : "runtime",
+      appName: process.env.APP_NAME,
+    },
+  );
+  if (report.issues.length === 0) return;
+
+  const key = [
+    process.cwd(),
+    context.command,
+    mode,
+    report.issues.map((issue) => `${issue.code}:${issue.severity}`).join(","),
+  ].join("|");
+  if (emittedRuntimeConfigDiagnostics.has(key)) return;
+  emittedRuntimeConfigDiagnostics.add(key);
+
+  const message = formatRuntimeConfigReport(report);
+  if (context.isBuild && appConfig.diagnostics?.failOnBuild === true) {
+    throw new Error(message);
+  }
+  console.warn(message);
 }
 
 function createAgentNativeConfig(
@@ -3385,6 +3437,15 @@ function createAgentNativeConfig(
       });
     } catch {}
   }
+
+  const runtimeEnv = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+  reportRuntimeConfigDiagnostics(appConfig, configContext, mode, runtimeEnv);
 
   const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";

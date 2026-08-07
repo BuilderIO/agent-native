@@ -251,6 +251,12 @@ export {
   type UseAgentChatHomeHandoffOptions,
 } from "../use-agent-chat-home-handoff.js";
 export {
+  AGENT_SIDEBAR_DEFAULT_MAX_WIDTH,
+  AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_SIDEBAR_WIDE_WIDTH_RATIO,
+  clampAgentSidebarWidth,
+  getAgentSidebarMaxWidth,
+  getAgentSidebarWideWidth,
   requestAgentSidebarOpen,
   SIDEBAR_STATE_CHANGE_EVENT,
   setAgentSidebarOpenPreference,

@@ -1,10 +1,10 @@
 ---
 name: turn-into-app
 description: >-
-  Turn a proven thread, skill, or workflow into a runnable Agent-Native app
-  with simple buttons, visible agent steps, preview, and deployment handoff.
-  Use when a user invokes `/turn-into-app` or asks to make a workflow into an
-  app.
+  Turn visible project context, a proven thread, skill, or workflow into a
+  runnable Agent-Native app with simple buttons, visible agent steps, preview,
+  and deployment handoff. Use when a user invokes `/turn-into-app` or asks to
+  make a workflow into an app.
 user-invocable: true
 scope: both
 metadata:
@@ -17,33 +17,71 @@ metadata:
 
 This is an end-to-end build skill, not a request for an app proposal.
 
-- With no argument, use the current thread as the source. This is the normal
-  invocation at the end of a successful workflow.
+- With no argument, choose the source in this order: visible project context,
+  then the current thread. A fresh Claude or ChatGPT Project is a valid source
+  on its first turn. Treat its visible project instructions, knowledge files,
+  and supplied past runs as the source; a completed thread is not required.
+  Treat the current turn as a request or configuration unless it contains a
+  concrete repeatable workflow.
 - With a named skill or local workflow, read that source and package it
   immediately, even at the beginning of a thread. For example,
   `/turn-into-app /some-skill` means “turn `/some-skill` into an app.”
 - With an attachment or path, read the supplied artifact as the source.
 - Do not ask the user to restate context that is already in the thread.
-- When invoked from an Agent-Native app, keep the current thread as the source
-  and use the available workspace/coding-agent handoff when the current runtime
-  cannot edit files. Do not claim the app exists without an actual path and
-  verification result.
+- When invoked from an Agent-Native app, use its visible project context first,
+  then the current thread, and use the available workspace/coding-agent
+  handoff when the current runtime cannot edit files. Do not claim the app
+  exists without an actual path and verification result.
 
 ## Source support
 
-Supported source paths today are the current Codex thread, a named skill, or a
-local workflow/transcript supplied as a path or attachment. An exported
-ChatGPT or Claude transcript can use the same local-file path today.
+Supported source paths today are visible Claude or ChatGPT Project context, the
+current Codex or host thread, a named skill, or a local workflow/transcript
+supplied as a path or attachment. An exported ChatGPT or Claude transcript can
+use the same local-file path today.
 
-ChatGPT shared-conversation import and Claude web conversation/project import
-are **coming soon**. Do not claim private web access, invent an importer, add
-fake OAuth, or scrape a logged-in page without an explicit supported adapter.
-If a user gives one of those URLs before an adapter exists, ask for an export or
-transcript instead and treat it as imported source material.
+Claude and ChatGPT Project context is supported only when the host supplies it
+to the model in the current context. The MCP connector does not read hidden
+project chats, private URLs, account settings, or credentials. Do not claim
+private web access, invent an importer, add fake OAuth, or scrape a logged-in
+page. If the needed context is not visible, ask for an export, transcript, or
+attachment and treat that artifact as imported source material.
 
 Deliver a fresh app in a new directory, implement the repeatable workflow with
 buttons and agent handoffs, start its dev server, verify the main path, and
 continue through build/deployment handoff. Do not stop at a plan.
+
+## Fresh project context mode
+
+When the source is a fresh Claude or ChatGPT Project, build a short source brief
+before creating the app. Read the host-provided context in this order:
+
+1. Project instructions and configuration: goal, audience, constraints, output
+   standards, approved tools, and integration expectations. Treat these as
+   product configuration, not as a transcript.
+2. Knowledge files and attachments: read the relevant files fully, preserve
+   their provenance, and reduce them to bounded references, IDs, URLs, or
+   summaries for the new app. Do not copy secrets or large raw payloads into
+   prompts or SQL.
+3. Past runs or examples that are actually visible in the context: select at
+   most 1-3 successful, representative runs. Extract repeatable decisions and
+   review criteria. Treat one-off answers and private data as examples, not as
+   product behavior. If no runs are supplied, proceed from the instructions
+   and knowledge files and say that examples were not available.
+4. The current turn: use it for the requested app boundary, target workspace,
+   naming, and any explicit corrections.
+
+Record the brief with these headings before handoff: source and provenance,
+project goal, configuration and constraints, knowledge sources, repeatable
+workflow, inputs and outputs, judgment and review points, representative runs,
+integrations and permissions, and unknowns. This is the compact contract for
+the app. It keeps the new app useful without pretending that hidden Project
+history was imported. See [the fresh Project reference](references/fresh-project.md)
+for the host setup and brief template.
+
+If the visible Project context has no concrete repeatable job, ask for one
+focused clarification or a representative artifact. Do not fall back to a
+generic “what app do you want to make?” builder.
 
 ## Source selection guard
 
@@ -151,6 +189,14 @@ pnpm exec agent-native add-app <slug> --template=chat
 Do not use `create` for an existing workspace; it scaffolds a new standalone
 workspace rather than adding an app to the current one.
 
+When the source came from a fresh external Project and the target is a Builder
+workspace, prefer the available Dispatch MCP workspace handoff after writing
+the source brief. Call `start-workspace-app-creation` with a concise prompt,
+the inferred app id, and the brief's repeatable workflow. Pass selected
+workspace resource IDs when they are available, rather than pasting entire
+knowledge files. Continue from the returned workspace path or Builder handoff
+and report the actual verification result.
+
 Use a first-party template only when it materially fits the workflow. Keep the
 new app independent from the source thread's working tree unless the user
 explicitly asks to extend an existing app.
@@ -167,13 +213,20 @@ should make the repeated path obvious without hiding the agent's judgment:
 - Give each important repeated moment a clear button, such as “Analyze,”
   “Suggest options,” “Draft,” “Review,” or “Publish.” Use the source's actual
   vocabulary when it is clear.
-- Put deterministic reads, writes, approvals, and publishing in `actions/`
-  with `defineAction`. The UI and agent must call the same action surface.
+- Put deterministic reads, writes, approvals, provider fetches, and publishing
+  in focused `actions/` with `defineAction`. The UI and agent must call the
+  same action surface.
+- If a workflow is framed as research, analysis, generation, recommendation,
+  or synthesis, start it in the AgentSidebar and let the agent orchestrate
+  those actions. Do not hide an AI-shaped multi-step workflow behind one
+  opaque action just because the implementation is deterministic.
 - Use application state for the current screen, selected item, and focused
   object so the agent can see where the user is.
-- Use `sendToAgentChat({ message, context, submit: true })` for intentional
-  button-triggered agent work. Use `submit: false` when the user should review
-  or edit the proposed prompt first.
+- Use `sendToAgentChat({ message, context, submit: true, openSidebar: true })`
+  for intentional button-triggered agent work. Use `submit: false` when the
+  user should review or edit the proposed prompt in the AgentSidebar first.
+  Keep follow-up and revision prompts in that same thread; do not add a second
+  freeform textbox beside the result.
 - Pass IDs, URLs, and bounded summaries in context. Do not paste large provider
   dumps into prompts, call an LLM directly from the browser, or invent fake
   progress.

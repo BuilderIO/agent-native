@@ -20,6 +20,24 @@ Before creating any custom REST/API route for app data, inspect `actions/` and t
 
 **Stop trigger:** the moment you are about to create a file under `server/routes/api/` — or add server middleware to guard one — stop and check it against the exception list in *When You Still Need Custom `/api/` Routes* below. If it is not on that list, write a `defineAction` instead. This applies even when you already started the route; abandoning a half-written action to hand-roll routes is the exact failure this rule exists to prevent.
 
+## Keep actions deterministic and composable
+
+An action may call a provider API, validate or normalize data, and persist
+records without being an AI feature. Keep those operations deterministic,
+focused, and independently useful to the agent. Do not put LLM calls or a
+second model runtime in ordinary actions. The only narrow exception is the
+`completeText()` text-in/text-out escape hatch described in
+`delegate-to-agent`; it must not own tools, chat history, run state, side
+effects, or user steering.
+
+When a workflow is framed as research, analysis, generation, recommendation,
+or synthesis, or spans several provider calls and writes, route the user into
+the AgentSidebar and let the agent orchestrate focused actions. Do not hide an
+AI-shaped workflow behind one opaque `generate-*` or `create-*` action just
+because its implementation is deterministic. A visible user-initiated run
+should use `sendToAgentChat({ openSidebar: true })`, and its follow-ups should
+continue in the same thread rather than a separate freeform input.
+
 ## Why
 
 Actions give the agent callable tools with structured input/output, AND they give the frontend a typed client contract through hooks. One implementation serves both the agent and the UI. They keep the agent's chat context clean, they're reusable, and they can be tested independently.

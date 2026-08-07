@@ -1,10 +1,16 @@
 import { getAllSettings, listOrgSettings } from "@agent-native/core/settings";
 
 import { dashboardCatalogEntries } from "./dashboard-catalog";
-import { listDashboards, type DashboardRecord } from "./dashboards-store";
+import {
+  listDashboardSummaries,
+  loadDashboardCatalogDashboards,
+  type DashboardCatalogRecord,
+  type DashboardSummaryRecord,
+} from "./dashboards-store";
 
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
 const MAX_QUERY_LENGTH = 12_000;
+const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
 const STOP_WORDS = new Set([
   "a",
   "all",
@@ -104,6 +110,44 @@ function compactQuery(value: unknown): string | Record<string, unknown> | null {
     return value as Record<string, unknown>;
   }
   return null;
+}
+
+function summaryScore(
+  search: string,
+  dashboard: DashboardSummaryRecord,
+): number {
+  const { score } = matchScore(search, [
+    { value: dashboard.name, weight: 24 },
+    { value: dashboard.description, weight: 12 },
+    { value: dashboard.configName, weight: 10 },
+    { value: dashboard.catalogTemplateId, weight: 6 },
+    { value: dashboard.demoId, weight: 6 },
+  ]);
+  return score;
+}
+
+function shortlistDashboardSummaries(
+  search: string,
+  dashboards: DashboardSummaryRecord[],
+  limit: number,
+): DashboardSummaryRecord[] {
+  const maxHydration = Math.min(
+    Math.max(limit * 4, 12),
+    MAX_CATALOG_DASHBOARD_HYDRATION,
+  );
+  return dashboards
+    .map((dashboard) => ({
+      dashboard,
+      score: summaryScore(search, dashboard),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return JSON.stringify(a.dashboard).localeCompare(
+        JSON.stringify(b.dashboard),
+      );
+    })
+    .slice(0, maxHydration)
+    .map(({ dashboard }) => dashboard);
 }
 
 // Analytics vocabulary the corpus spells out but users abbreviate (or vice versa).
@@ -497,13 +541,15 @@ async function listDictionaryEntries(args: {
   return entries;
 }
 
-function savedDashboardInput(dashboard: DashboardRecord) {
-  const config = dashboard.config as Record<string, unknown>;
+function savedDashboardInput(
+  summary: DashboardSummaryRecord,
+  dashboard: DashboardCatalogRecord,
+) {
   return {
     id: dashboard.id,
-    title: text(config.name) || dashboard.title,
-    description: text(config.description) || undefined,
-    config,
+    title: summary.name,
+    description: summary.description ?? undefined,
+    config: dashboard.config,
     origin: "saved-dashboard" as const,
   };
 }
@@ -514,26 +560,46 @@ export async function searchAnalyticsQueryCatalog(args: {
   orgId: string | null;
   limit: number;
 }): Promise<AnalyticsQueryCatalogCandidate[]> {
-  const [savedDashboardsResult, dictionaryEntriesResult] =
+  const [savedSummariesResult, dictionaryEntriesResult] =
     await Promise.allSettled([
-      listDashboards(
+      listDashboardSummaries(
         { email: args.email, orgId: args.orgId },
-        { kind: "sql", archived: "active", hidden: "visible" },
+        {
+          kind: "sql",
+          archived: "active",
+          hidden: "visible",
+          includeCatalogMetadata: true,
+        },
       ),
       listDictionaryEntries({ email: args.email, orgId: args.orgId }),
     ]);
-  const savedDashboards =
-    savedDashboardsResult.status === "fulfilled"
-      ? savedDashboardsResult.value
+  const savedSummaries =
+    savedSummariesResult.status === "fulfilled"
+      ? savedSummariesResult.value
       : [];
   const dictionaryEntries =
     dictionaryEntriesResult.status === "fulfilled"
       ? dictionaryEntriesResult.value
       : [];
+  const savedSummaryIds = new Set(
+    savedSummaries.map((dashboard) => dashboard.id),
+  );
 
-  const savedIds = new Set(savedDashboards.map((dashboard) => dashboard.id));
+  const shortlistedSummaries = shortlistDashboardSummaries(
+    args.search,
+    savedSummaries,
+    args.limit,
+  );
+  const shortlistedIds = shortlistedSummaries.map((dashboard) => dashboard.id);
+  const savedDashboardsResult = await loadDashboardCatalogDashboards(
+    { email: args.email, orgId: args.orgId },
+    shortlistedIds,
+  );
+  const savedDashboards = new Map(
+    savedDashboardsResult.map((dashboard) => [dashboard.id, dashboard]),
+  );
   const templateDashboards = dashboardCatalogEntries
-    .filter((entry) => !savedIds.has(entry.defaultDashboardId))
+    .filter((entry) => !savedSummaryIds.has(entry.defaultDashboardId))
     .flatMap((entry) => {
       try {
         const config = entry.buildConfig() as unknown as Record<
@@ -557,7 +623,11 @@ export async function searchAnalyticsQueryCatalog(args: {
   return rankAnalyticsQueryCatalog({
     search: args.search,
     dashboards: [
-      ...savedDashboards.map(savedDashboardInput),
+      ...shortlistedSummaries.flatMap((summary) => {
+        const dashboard = savedDashboards.get(summary.id);
+        if (!dashboard) return [];
+        return [savedDashboardInput(summary, dashboard)];
+      }),
       ...templateDashboards,
     ],
     dictionaryEntries,

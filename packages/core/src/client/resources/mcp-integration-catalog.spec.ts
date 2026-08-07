@@ -182,6 +182,7 @@ describe("MCP integration catalog", () => {
       expect(integration.logoUrl).toMatch(
         /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon)(?:;base64,|,)/,
       );
+      expect(integration.logoUrl).not.toContain("%3Ctext");
       expect(["verified", "preflight-only", "restricted"]).toContain(
         integration.verification,
       );

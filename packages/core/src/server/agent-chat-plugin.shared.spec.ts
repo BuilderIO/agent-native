@@ -146,6 +146,34 @@ describe("recurring jobs runtime startup", () => {
     ).toBe(false);
   });
 
+  it("disables every in-process recurring sweep in serverless runtimes", () => {
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        AWS_LAMBDA_FUNCTION_NAME: "analytics-handler",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        CF_PAGES: "1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        NETLIFY_LOCAL: "true",
+      }),
+    ).toBe(false);
+  });
+
   it("supports an explicit local opt-in for scheduler development", () => {
     expect(
       shouldDisableRecurringJobsRuntime({

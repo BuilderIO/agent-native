@@ -59,6 +59,10 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
+import {
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+} from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -189,19 +193,16 @@ function resolveAuthSecret(): string {
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices.
   if (process.env.NODE_ENV === "production") {
-    const sample = crypto.randomBytes(32).toString("hex");
-    throw new Error(
-      "[agent-native] BETTER_AUTH_SECRET is not set. This is required in production " +
-        "so signed session cookies stay valid across deploys. Set it as a deploy " +
-        "environment variable (any 32-byte hex string), e.g.:\n\n" +
-        `  BETTER_AUTH_SECRET=${sample}\n\n` +
-        "Generate your own with `openssl rand -hex 32`. If you already have a " +
-        "running deploy and need to preserve existing sessions, set it to your " +
-        "previously-deployed BETTER_AUTH_SECRET value first, then rotate to a " +
-        "fresh one. Hosted workspace deploys may also " +
-        "set A2A_SECRET; agent-native derives a per-purpose Better Auth secret " +
-        "from that workspace root secret.",
+    const report = getRuntimeConfigReport(
+      process.env,
+      { authEnabled: true, databaseRequired: false },
+      {
+        environment: "production",
+        phase: "runtime",
+        appName: process.env.APP_NAME,
+      },
     );
+    throw new Error(formatRuntimeConfigReport(report));
   }
 
   // SECURITY (audit 09 LOW-2): the previous fallback chain
@@ -842,6 +843,10 @@ export interface BetterAuthInternalAdapter {
     name: string;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
+  createSession: (
+    userId: string,
+    dontRememberMe?: boolean,
+  ) => Promise<{ token: string }>;
   createOAuthUser?: (
     user: { email: string; name: string; emailVerified?: boolean },
     account: { providerId: string; accountId: string },
@@ -995,6 +1000,7 @@ export async function getBetterAuthInternalAdapter(
       typeof ia.findUserByEmail === "function" &&
       typeof ia.linkAccount === "function" &&
       typeof ia.createUser === "function" &&
+      typeof ia.createSession === "function" &&
       typeof ia.findAccountByProviderId === "function"
     ) {
       return {
@@ -1006,6 +1012,25 @@ export async function getBetterAuthInternalAdapter(
     // Context resolution failed — caller falls back to the signup path.
   }
   return undefined;
+}
+
+/** Create a real Better Auth session for an existing user without credentials. */
+export async function createBetterAuthSessionForEmail(
+  email: string,
+  config?: BetterAuthConfig,
+): Promise<{ email: string; token: string; userId: string } | null> {
+  const adapter = await getBetterAuthInternalAdapter(config);
+  if (!adapter) return null;
+  const existing = await adapter.findUserByEmail(email, {
+    includeAccounts: false,
+  });
+  if (!existing) return null;
+  const session = await adapter.createSession(existing.user.id);
+  return {
+    email: existing.user.email,
+    token: session.token,
+    userId: existing.user.id,
+  };
 }
 
 export interface GoogleAuthIdentity {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDbExec: vi.fn(),
@@ -49,12 +49,29 @@ function makeTransactionalDb(options: { postgres: boolean; lock?: boolean }) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("ANALYTICS_ROLLUP_BACKFILL_JOBS", "");
   mocks.getDbExec.mockReset();
   mocks.getDialect.mockReset();
   mocks.isPostgres.mockReset();
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("analytics historical rollup backfill", () => {
+  it("skips the legacy scan when explicitly disabled", async () => {
+    vi.stubEnv("ANALYTICS_ROLLUP_BACKFILL_JOBS", "0");
+    const { db } = makeTransactionalDb({ postgres: true });
+
+    await expect(runAnalyticsRollupBackfillOnce()).resolves.toEqual({
+      status: "disabled",
+      remaining: 1,
+    });
+
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
   it("rebuilds both rollups and records completion in one Postgres transaction", async () => {
     const { db, tx } = makeTransactionalDb({ postgres: true });
 

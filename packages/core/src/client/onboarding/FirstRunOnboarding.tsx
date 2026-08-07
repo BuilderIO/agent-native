@@ -31,6 +31,7 @@ import {
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
   formatMcpServerError,
   useCreateMcpServer,
@@ -865,17 +866,13 @@ function McpIntegrationCard({
   return (
     <article className="flex min-w-0 items-center gap-3 border-b border-border/70 py-3.5 sm:pe-4">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-card text-xs font-semibold text-muted-foreground">
-          {integration.name.slice(0, 1)}
-          <img
-            src={integration.logoUrl}
-            alt=""
-            className="absolute inset-0 size-full object-contain p-1"
-            onError={(event) => {
-              event.currentTarget.hidden = true;
-            }}
-          />
-        </span>
+        <McpIntegrationLogo
+          name={integration.name}
+          logoUrl={integration.logoUrl}
+          integrationId={integration.id}
+          className="size-8 rounded-md"
+          imageClassName="size-full p-1"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-medium text-foreground">

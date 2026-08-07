@@ -24,7 +24,12 @@ cross-cutting work and `self-modifying-code` when changing app source.
   unauthenticated URLs, or non-JSON responses.
 - Keep database code provider-agnostic and migrations additive. Do not use
   adapter-only database methods or production schema push commands.
-- All AI work goes through the agent chat. UIs do not call model providers.
+- All user-facing AI work goes through the agent chat. UI and server code do
+  not call model providers or inline LLM APIs directly, or hide AI-shaped
+  multi-step work in one action.
+  Keep actions deterministic and focused; use the AgentSidebar for research,
+  analysis, generation, recommendation, synthesis, and follow-ups in the same
+  thread.
 - Keep domain workflows on named routes and preserve the scaffold's full-page
   chat route. Use the right AgentSidebar for contextual AI and open it when a
   domain button hands work to the agent.
