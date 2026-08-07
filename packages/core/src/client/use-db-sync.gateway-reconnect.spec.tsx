@@ -129,4 +129,71 @@ describe("hosted SSE reconnect ownership", () => {
 
     unsub();
   });
+
+  it("health-gates to the local stream once the gateway trips the threshold", async () => {
+    const unsub = subscribeSyncEvents({ onEvents: () => {} });
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(FakeEventSource.instances.at(-1)!.url).toContain("gw.example");
+
+    // Three consecutive hard-down (CLOSED) errors trip HOSTED_UNHEALTHY_THRESHOLD.
+    for (let i = 0; i < 3; i++) {
+      const current = FakeEventSource.instances.at(-1)!;
+      current.readyState = FakeEventSource.CLOSED;
+      current.onerror?.();
+      await vi.advanceTimersByTimeAsync(1500);
+    }
+
+    const afterGate = FakeEventSource.instances.at(-1)!;
+    expect(afterGate.url).toContain("/_agent-native/events");
+    expect(afterGate.url).not.toContain("gw.example");
+
+    unsub();
+  });
+
+  it("polls the local app at local cadence after health-gating, not gateway backoff", async () => {
+    const pollUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/_agent-native/realtime-token")) {
+          return {
+            ok: true,
+            json: async () => ({ token: "tok-1", ttlSeconds: 600 }),
+          };
+        }
+        if (url.includes("/poll")) pollUrls.push(url);
+        if (url.includes("gw.example")) throw new Error("gateway down");
+        return { ok: true, json: async () => ({ version: 0, events: [] }) };
+      }),
+    );
+
+    const unsub = subscribeSyncEvents({ onEvents: () => {} });
+    await vi.advanceTimersByTimeAsync(200);
+
+    for (let i = 0; i < 3; i++) {
+      const current = FakeEventSource.instances.at(-1)!;
+      current.readyState = FakeEventSource.CLOSED;
+      current.onerror?.();
+      await vi.advanceTimersByTimeAsync(1500);
+    }
+    expect(FakeEventSource.instances.at(-1)!.url).toContain(
+      "/_agent-native/events",
+    );
+
+    // The failure count was earned against the gateway. The local endpoint just
+    // served this page, so it must not inherit that backoff: one fallback
+    // interval (60s, +20% jitter) is enough to see the first local poll.
+    const before = pollUrls.filter((u) =>
+      u.includes("/_agent-native/poll"),
+    ).length;
+    await vi.advanceTimersByTimeAsync(75_000);
+    const after = pollUrls.filter((u) =>
+      u.includes("/_agent-native/poll"),
+    ).length;
+    expect(after).toBeGreaterThan(before);
+
+    unsub();
+  });
 });
