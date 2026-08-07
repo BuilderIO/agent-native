@@ -236,6 +236,83 @@ describe("docsBodyToMarkdownMirror", () => {
     ).toBe(2);
   });
 
+  it("protects JSX titles whose attribute values have nested braces or a spread", () => {
+    const markdown = [
+      "<Accordion>",
+      "",
+      "### Wrapping <AgentSidebar mode={{ compact: true }} />",
+      "",
+      "Body one.",
+      "",
+      "### Wrapping <AgentSidebar {...props} />",
+      "",
+      "Body two.",
+      "",
+      "</Accordion>",
+    ].join("\n");
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    expect(mirror).toContain(
+      "Wrapping `<AgentSidebar mode={{ compact: true }} />`",
+    );
+    expect(mirror).toContain("Wrapping `<AgentSidebar {...props} />`");
+  });
+
+  it("protects JSX-looking text even when a backslash-escaped attribute quote makes the block invalid MDX", () => {
+    // `\"` inside a double-quoted JSX attribute isn't valid JSX either — real
+    // MDX parsing rejects the whole block and falls back to the raw source
+    // (see the `invalid-block` branch of docsBodyToMarkdownMirror). The raw
+    // fallback must still get JSX-protected, since it still contains
+    // JSX-looking text that would otherwise ship unescaped into the mirror.
+    const markdown = [
+      "<Accordion>",
+      "",
+      '### Wrapping <AgentSidebar body="a \\"quoted\\" value" />',
+      "",
+      "Body one.",
+      "",
+      "</Accordion>",
+    ].join("\n");
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    const unescaped =
+      mirror.match(/(?<!`)<AgentSidebar body="a \\"quoted\\" value" \/>/g) ??
+      [];
+    expect(unescaped).toEqual([]);
+    expect(mirror).toContain(
+      'Wrapping `<AgentSidebar body="a \\"quoted\\" value" />`',
+    );
+  });
+
+  it("carries a nested Notice's title through Tabs/Columns exports", () => {
+    const markdown =
+      '<TabsBlock tabs={[{ id: "setup", label: "Setup", blocks: [{ type: "notice", data: { tone: "risk", title: "Heads up", body: "Read this." } }] }]} />';
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    expect(mirror).toContain("Heads up");
+    expect(mirror).toContain("Read this.");
+  });
+
+  it("protects JSX-looking tags inside Notice and Banner bodies", () => {
+    const markdown = [
+      '<Notice id="n1" tone="risk" title="Heads up">',
+      "",
+      "Wrapping <AgentSidebar /> changes behavior.",
+      "",
+      "</Notice>",
+      "",
+      '<Banner id="b1" tone="warning" body="Wrapping <AgentSidebar /> here." />',
+    ].join("\n");
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    expect(mirror).toContain("Wrapping `<AgentSidebar />` changes behavior.");
+    expect(mirror).toContain("Wrapping `<AgentSidebar />` here.");
+  });
+
   it("lowers Diagram MDX child fences to crawlable markdown", () => {
     const markdown = [
       '<Diagram title="Lifecycle" caption="Runtime lifecycle">',
