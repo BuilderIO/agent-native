@@ -45,7 +45,10 @@ import {
 } from "../../lib/doc-block-segments";
 import { cardsBlock } from "./blocks/cards";
 import { comparisonBlock } from "./blocks/comparison";
+import { imageBlock } from "./blocks/image";
+import { signatureBlock } from "./blocks/signature";
 import { stepsBlock } from "./blocks/steps";
+import { videoBlock } from "./blocks/video";
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 export {
@@ -76,6 +79,9 @@ function getDocBlockRegistry(): BlockRegistry {
   registry.register(stepsBlock);
   registry.register(cardsBlock);
   registry.register(comparisonBlock);
+  registry.register(signatureBlock);
+  registry.register(imageBlock);
+  registry.register(videoBlock);
   cachedRegistry = registry;
   return registry;
 }

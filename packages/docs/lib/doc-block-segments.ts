@@ -15,7 +15,13 @@ import {
   comparisonSchema,
   comparisonMdx,
 } from "../app/components/blocks/comparison.config";
+import { imageSchema, imageMdx } from "../app/components/blocks/image.config";
+import {
+  signatureSchema,
+  signatureMdx,
+} from "../app/components/blocks/signature.config";
 import { stepsSchema, stepsMdx } from "../app/components/blocks/steps.config";
+import { videoSchema, videoMdx } from "../app/components/blocks/video.config";
 
 const BLOCK_TYPE_ALIASES: Record<string, string> = {
   "an-diagram": "diagram",
@@ -95,6 +101,9 @@ const DOCS_EXTRA_BLOCKS: Array<{ type: string; schema: any; mdx: any }> = [
   { type: "steps", schema: stepsSchema, mdx: stepsMdx },
   { type: "cards", schema: cardsSchema, mdx: cardsMdx },
   { type: "comparison", schema: comparisonSchema, mdx: comparisonMdx },
+  { type: "signature", schema: signatureSchema, mdx: signatureMdx },
+  { type: "image", schema: imageSchema, mdx: imageMdx },
+  { type: "video", schema: videoSchema, mdx: videoMdx },
 ];
 
 function getDocBlockConfigRegistry(): BlockRegistry {
