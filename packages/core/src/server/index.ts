@@ -126,9 +126,12 @@ export {
   actionsToEngineTools,
   executeAgentToolCall,
   getOwnerActiveApiKey,
+  getOwnerApiKeyForEngine,
+  resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,
   type ExecuteAgentToolCallOptions,
+  type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
 export {
   mountRealtimeVoiceRoutes,
