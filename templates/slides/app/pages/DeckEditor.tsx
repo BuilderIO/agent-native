@@ -1001,9 +1001,10 @@ export default function DeckEditor() {
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
-        onUpdateSlide={(updates) =>
-          currentSlide && updateSlide(id, currentSlide.id, updates)
-        }
+        onUpdateSlide={(updates, slideIdOverride) => {
+          const targetId = slideIdOverride ?? currentSlide?.id;
+          if (targetId) updateSlide(id, targetId, updates);
+        }}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
