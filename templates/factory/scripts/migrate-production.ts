@@ -1,6 +1,8 @@
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
 import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
 
+import { runFactoryMigrations } from "../server/plugins/factory-migrations.js";
+
 /**
  * Release-time schema entrypoint.
  *
@@ -14,13 +16,11 @@ import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
  * NETLIFY=true, so this script looks like a serverless request to the guard in
  * `runMigrations` — it is allowed to migrate only because it claims duty here.
  * A release entrypoint that forgets the wrapper silently does nothing.
- *
- * If this app owns tables of its own, export its migration runner from
- * `server/plugins/db.ts` and call it inside the same block.
  */
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
+    await runFactoryMigrations(null);
   });
 }
 

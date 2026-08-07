@@ -292,40 +292,52 @@ describe("buildAssistantMessage", () => {
           seq: 0,
           event: {
             type: "tool_start",
-            id: "publish-call",
-            tool: "publish",
-            input: { value: "branch update" },
+            id: "create-builder-branch-call",
+            tool: "create-builder-branch",
+            input: {
+              projectId: "project-1",
+              branchName: "remove-trash-icon",
+              prompt: "Remove the trash can icon from the request queue",
+            },
           },
         },
         {
           seq: 1,
           event: {
             type: "approval_required",
-            tool: "publish",
-            toolCallId: "publish-call",
-            approvalKey: "publish:approval",
-            input: { value: "branch update" },
+            tool: "create-builder-branch",
+            toolCallId: "create-builder-branch-call",
+            approvalKey: "create-builder-branch:approval",
+            input: {
+              projectId: "project-1",
+              branchName: "remove-trash-icon",
+              prompt: "Remove the trash can icon from the request queue",
+            },
           },
         },
         {
           seq: 2,
           event: {
             type: "tool_done",
-            id: "publish-call",
-            tool: "publish",
-            result: "Awaiting human approval. This action did NOT execute.",
+            id: "create-builder-branch-call",
+            tool: "create-builder-branch",
+            result:
+              'Awaiting human approval to run "create-builder-branch". ' +
+              "This action did NOT execute.",
           },
         },
       ],
-      "run-publish-approval",
+      "run-create-builder-branch-approval",
     );
 
     expect(message?.content).toEqual([
       expect.objectContaining({
         type: "tool-call",
-        toolName: "publish",
-        result: "Awaiting human approval. This action did NOT execute.",
-        approval: { approvalKey: "publish:approval" },
+        toolName: "create-builder-branch",
+        result:
+          'Awaiting human approval to run "create-builder-branch". ' +
+          "This action did NOT execute.",
+        approval: { approvalKey: "create-builder-branch:approval" },
       }),
     ]);
   });

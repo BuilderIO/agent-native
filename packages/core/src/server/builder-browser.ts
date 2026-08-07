@@ -17,6 +17,7 @@ import { getAppBasePath, getOrigin } from "./google-oauth.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
+const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
 
@@ -1763,6 +1764,28 @@ async function resolveBuilderApiCredentials() {
   };
 }
 
+async function fetchBuilderApi(
+  input: URL,
+  init: RequestInit,
+  operation: string,
+): Promise<Response> {
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: AbortSignal.timeout(BUILDER_API_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const errorName = error instanceof Error ? error.name : "";
+    if (errorName === "AbortError" || errorName === "TimeoutError") {
+      throw new Error(
+        `Builder ${operation} timed out after ${BUILDER_API_REQUEST_TIMEOUT_MS}ms`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
 async function readBuilderApiObject(
   response: Response,
   operation: string,
@@ -1819,10 +1842,14 @@ export async function findBuilderProjectForRepo(
   url.searchParams.set("apiKey", creds.publicKey);
   url.searchParams.set("includeHidden", "true");
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${creds.privateKey}` },
-  });
+  const response = await fetchBuilderApi(
+    url,
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${creds.privateKey}` },
+    },
+    "project lookup",
+  );
   const parsed = await readBuilderApiObject(response, "project lookup");
   if (!response.ok) {
     throw new Error(
@@ -1864,17 +1891,21 @@ export async function createBuilderProject(args: {
   const url = new URL("/projects/create", getBuilderApiHost());
   url.searchParams.set("apiKey", creds.publicKey);
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.privateKey}`,
-      "Content-Type": "application/json",
+  const response = await fetchBuilderApi(
+    url,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.privateKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        source: { kind: "repo", repoUrl },
+        name,
+      }),
     },
-    body: JSON.stringify({
-      source: { kind: "repo", repoUrl },
-      name,
-    }),
-  });
+    "project creation",
+  );
   const parsed = await readBuilderApiObject(response, "project creation");
   if (!response.ok) {
     throw new Error(
@@ -1976,14 +2007,18 @@ export async function runBuilderAgent(
     if (actor.userEmail) body.userEmail = actor.userEmail;
     if (actor.userId) body.userId = actor.userId;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
-        "Content-Type": "application/json",
+    const response = await fetchBuilderApi(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${creds.privateKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      "agent run",
+    );
     const parsed = (await response.json().catch(() => ({}))) as Record<
       string,
       unknown
@@ -2051,21 +2086,25 @@ export async function requestBuilderBrowserConnection(
     url.searchParams.set("userId", creds.userId);
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.privateKey}`,
-      "Content-Type": "application/json",
+  const response = await fetchBuilderApi(
+    url,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.privateKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId,
+        projectId: args.projectId || undefined,
+        branchName: args.branchName || undefined,
+        proxyOrigin: args.proxyOrigin || undefined,
+        proxyDefaultOrigin: args.proxyDefaultOrigin || undefined,
+        proxyDst: args.proxyDestination || undefined,
+      }),
     },
-    body: JSON.stringify({
-      sessionId,
-      projectId: args.projectId || undefined,
-      branchName: args.branchName || undefined,
-      proxyOrigin: args.proxyOrigin || undefined,
-      proxyDefaultOrigin: args.proxyDefaultOrigin || undefined,
-      proxyDst: args.proxyDestination || undefined,
-    }),
-  });
+    "browser connection request",
+  );
 
   const body = (await response.json().catch(() => ({}))) as Record<
     string,

@@ -255,16 +255,23 @@ describe("mutate-dashboard", () => {
     }
   });
 
-  it("advertises one unambiguous code input to the agent", () => {
+  it("advertises structured operations first and bounds legacy code", () => {
     const parameters = mutateDashboard.tool.parameters as {
-      properties: Record<string, { minLength?: number }>;
+      properties: Record<string, { minLength?: number; maxLength?: number }>;
       required: string[];
     };
 
-    expect(Object.keys(parameters.properties)).toEqual(["dashboardId", "code"]);
-    expect(parameters.required).toEqual(["dashboardId", "code"]);
+    expect(Object.keys(parameters.properties)).toEqual([
+      "dashboardId",
+      "operations",
+      "code",
+      "dryRun",
+      "returnConfig",
+    ]);
+    expect(parameters.required).toEqual(["dashboardId"]);
     expect(parameters.properties.dashboardId.minLength).toBe(1);
-    expect(parameters.properties.code.minLength).toBe(1);
+    expect(parameters.properties.code.maxLength).toBe(12_000);
+    expect(parameters.properties.operations).toBeDefined();
   });
 
   it("accepts structured operations and can dry-run without saving", async () => {

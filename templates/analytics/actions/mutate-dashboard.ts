@@ -19,6 +19,8 @@ import {
   applyDashboardMutationOperations,
   DASHBOARD_MUTATION_API_TYPES,
   DASHBOARD_MUTATION_EXAMPLES,
+  MAX_DASHBOARD_MUTATION_CODE_LENGTH,
+  MAX_DASHBOARD_MUTATION_OPERATIONS,
   parseDashboardMutationScript,
   type DashboardMutationOperation,
   type DashboardMutationResult,
@@ -104,6 +106,11 @@ function parseJsonArrayString(
   if (!Array.isArray(parsed)) {
     throw new Error(`${fieldName} must be a JSON array`);
   }
+  if (parsed.length > MAX_DASHBOARD_MUTATION_OPERATIONS) {
+    throw new Error(
+      `${fieldName} has ${parsed.length} operations; keep it at or below ${MAX_DASHBOARD_MUTATION_OPERATIONS}`,
+    );
+  }
   return parsed.map((op, index) => {
     try {
       return mutationOperationSchema.parse(op) as DashboardMutationOperation;
@@ -115,7 +122,7 @@ function parseJsonArrayString(
 
 const operationsInputSchema = z
   .union([
-    z.array(mutationOperationSchema),
+    z.array(mutationOperationSchema).max(MAX_DASHBOARD_MUTATION_OPERATIONS),
     z.string().transform((value) => {
       const trimmed = value.trim();
       return trimmed ? parseJsonArrayString(trimmed, "operations") : undefined;
@@ -134,7 +141,7 @@ function nonEmptyOperations(
 }
 
 const apiHelp =
-  "Constrained TypeScript-like dashboard mutation script. The server parses only calls on `dashboard`; it does not execute arbitrary JavaScript. " +
+  "Short, constrained TypeScript-like dashboard mutation script for compatibility. Prefer structured `operations` for agent calls; use this only for small layout/config edits. The server parses only calls on `dashboard`; it does not execute arbitrary JavaScript. " +
   "No variables, imports, loops, functions, templates, network, filesystem, or DB access. Arguments must be JSON-compatible literals, so quote object keys. " +
   "Subjects: dashboard.set, dashboard.setFilterDefault, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
   'For a simple default-filter change, use `dashboard.setFilterDefault("emailFilter","exclude_builder");`; it verifies the filter and option value without resending every filter or revalidating unchanged panel SQL. ' +
@@ -148,7 +155,26 @@ const agentInputSchema = z.object({
     .string()
     .min(1)
     .describe("Dashboard id, e.g. 'agent-native-templates-first-party'."),
-  code: z.string().min(1).describe(apiHelp),
+  operations: z
+    .array(mutationOperationSchema)
+    .max(MAX_DASHBOARD_MUTATION_OPERATIONS)
+    .optional()
+    .describe(
+      "Preferred agent input: structured dashboard edits applied atomically in one save. Use panel ids, not array indexes. For first-party metric refreshes, use compose-dashboard with metric keys instead of embedding SQL here.",
+    ),
+  code: z
+    .string()
+    .max(MAX_DASHBOARD_MUTATION_CODE_LENGTH)
+    .optional()
+    .describe(apiHelp),
+  dryRun: z
+    .boolean()
+    .optional()
+    .describe("Validate the mutation without saving it."),
+  returnConfig: z
+    .boolean()
+    .optional()
+    .describe("Include the full resulting config only when it is needed."),
 });
 
 function resolveScope() {
@@ -239,11 +265,11 @@ function helpResult() {
 
 export default defineAction({
   description:
-    "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. " +
+    "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. Prefer structured `operations` for agent calls; use the short `code` form only for compact layout/config edits. " +
     "Prefer this for dashboard layout and panel edits: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
     "For user placement requests like 'second row' or 'next to return rates', use row-aware placement such as `dashboard.insertPanel(...).nextTo(\"retention-over-time\")` or `.atRow(2)`, then verify rendered rows from `get-sql-dashboard.layout.groups`. " +
     "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. First-party SQL must be explicitly time-bound as described in the API help; server validation rejects unbound first-party SQL. " +
-    "The main code argument is a string, so it avoids brittle JSON-pointer indexes and native-array serialization issues. " +
+    "Structured operations avoid brittle JSON-pointer indexes and native-array serialization issues. Do not put a large multi-panel SQL payload in `code`; use `compose-dashboard` for catalog metrics or structured operations for a bounded custom edit. " +
     `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
   schema: z.object({
     dashboardId: z
@@ -254,7 +280,11 @@ export default defineAction({
       .string()
       .optional()
       .describe("Legacy alias for dashboardId. Prefer dashboardId."),
-    code: z.string().optional().describe(apiHelp),
+    code: z
+      .string()
+      .max(MAX_DASHBOARD_MUTATION_CODE_LENGTH)
+      .optional()
+      .describe(apiHelp),
     operations: operationsInputSchema.describe(
       "Structured equivalent of the typed script. Native callers should pass an array of mutation ops; shell/legacy callers may pass a JSON string. " +
         "Supported ops: movePanels, removePanels, updatePanel, updatePanelPath, insertPanel, duplicatePanel, setDashboard, setFilterDefault.",
