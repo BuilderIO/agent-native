@@ -3554,6 +3554,96 @@ describe("Brain connector smoke coverage", () => {
     );
   });
 
+  it("ignores Slack bot and app members when deriving a private-channel audience", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({
+          ok: true,
+          members: ["U123", "BAGENT", "APP1", "UDELETED"],
+        });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        const user = url.searchParams.get("user");
+        if (user === "BAGENT") {
+          return Response.json({ ok: true, user: { is_bot: true } });
+        }
+        if (user === "APP1") {
+          return Response.json({ ok: true, user: { is_app_user: true } });
+        }
+        if (user === "UDELETED") {
+          return Response.json({ ok: true, user: { deleted: true } });
+        }
+        return Response.json({
+          ok: true,
+          user: { profile: { email: "ada@example.test" } },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Decision: publish the roadmap next week.",
+              ts: "1770919200.000100",
+            },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Decision: publish the roadmap next week.",
+              ts: "1770919200.000100",
+            },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/chat.getPermalink")) {
+        return Response.json({
+          ok: true,
+          permalink:
+            "https://example.slack.com/archives/G123/p1770919200000100",
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-bot-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(
+      fetchSpy.mock.calls.filter((call) =>
+        String(call[0]).includes("users.info"),
+      ),
+    ).toHaveLength(4);
+    expect(
+      mocks.rows.audienceMembers.map((member) => member.principalId),
+    ).toEqual(["ada@example.test"]);
+  });
+
   it("caches private Slack member emails and bounds concurrent user lookups within a sync", async () => {
     let activeUserLookups = 0;
     let maxActiveUserLookups = 0;
