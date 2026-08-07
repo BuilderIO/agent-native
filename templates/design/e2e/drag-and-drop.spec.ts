@@ -44,13 +44,22 @@ interface Box {
 
 let baseURL = "";
 
-async function postAction(page: Page, name: string, input: Record<string, unknown>) {
-  const res = await page.request.post(`${baseURL}/_agent-native/actions/${name}`, {
-    data: input,
-    headers: { "Content-Type": "application/json" },
-  });
+async function postAction(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+) {
+  const res = await page.request.post(
+    `${baseURL}/_agent-native/actions/${name}`,
+    {
+      data: input,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
   if (!res.ok()) {
-    throw new Error(`${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`);
+    throw new Error(
+      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
+    );
   }
   return res.json();
 }
@@ -75,15 +84,25 @@ async function indexHtml(page: Page, designId: string): Promise<string> {
   const result = await page.request
     .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
     .then((r) => r.json());
-  return (result.files ?? []).find((f: any) => f.filename === "index.html")?.content ?? "";
+  return (
+    (result.files ?? []).find((f: any) => f.filename === "index.html")
+      ?.content ?? ""
+  );
 }
 
 function styleOf(html: string, id: string): string {
-  return new RegExp(`data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`, "i").exec(html)?.[1] ?? "";
+  return (
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? ""
+  );
 }
 
 function styleNum(style: string, prop: string): number {
-  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(style);
+  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
+    style,
+  );
   return m ? Number(m[1]) : NaN;
 }
 
@@ -107,7 +126,10 @@ function layersTree(page: Page): Locator {
 }
 
 function layerRow(page: Page, name: string): Locator {
-  return layersTree(page).getByRole("treeitem").filter({ hasText: name }).first();
+  return layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: name })
+    .first();
 }
 
 function node(page: Page, id: string): Locator {
@@ -119,12 +141,23 @@ function node(page: Page, id: string): Locator {
 }
 
 async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, { waitUntil: "domcontentloaded" });
-  await toolbar(page).locator('button[aria-label="Move"]').waitFor({ timeout: 45_000 });
-  await page.locator("iframe[data-design-preview-iframe]").first().waitFor({ timeout: 30_000 });
+  await page.goto(`${baseURL}/design/${designId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await toolbar(page)
+    .locator('button[aria-label="Move"]')
+    .waitFor({ timeout: 45_000 });
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .waitFor({ timeout: 30_000 });
   await page.waitForTimeout(2500);
   for (let i = 0; i < 4; i += 1) {
-    await page.getByRole("button", { name: "Expand layer" }).first().click().catch(() => {});
+    await page
+      .getByRole("button", { name: "Expand layer" })
+      .first()
+      .click()
+      .catch(() => {});
     await page.waitForTimeout(250);
   }
   await page.waitForTimeout(500);
@@ -152,7 +185,9 @@ async function chromeBounds(page: Page) {
     .contentFrame()
     .locator("body")
     .evaluate(() => {
-      const el = document.querySelector('[data-agent-native-edit-overlay="selection"]');
+      const el = document.querySelector(
+        '[data-agent-native-edit-overlay="selection"]',
+      );
       if (!el) return null;
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) return null;
@@ -218,7 +253,9 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 test.describe("selection chrome", () => {
-  test("handles wrap the selected element, not the screen", async ({ page }) => {
+  test("handles wrap the selected element, not the screen", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
@@ -228,7 +265,10 @@ test.describe("selection chrome", () => {
       return { x: r.x, y: r.y, width: r.width, height: r.height };
     });
     const chrome = await chromeBounds(page);
-    expect(chrome, "no selection overlay appeared for a selected element").not.toBeNull();
+    expect(
+      chrome,
+      "no selection overlay appeared for a selected element",
+    ).not.toBeNull();
     const width = chrome!.right - chrome!.left;
     const height = chrome!.bottom - chrome!.top;
     expect(
@@ -250,7 +290,9 @@ test.describe("selection chrome", () => {
     expect(await activeOverlays(page)).toContain("selection");
   });
 
-  test("selecting a different element moves the chrome to it", async ({ page }) => {
+  test("selecting a different element moves the chrome to it", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
@@ -291,7 +333,10 @@ test.describe("selection chrome", () => {
         const r = el.getBoundingClientRect();
         return { w: Math.round(r.width), h: Math.round(r.height) };
       });
-    expect(highlight, "hovering an element painted no highlight overlay").not.toBeNull();
+    expect(
+      highlight,
+      "hovering an element painted no highlight overlay",
+    ).not.toBeNull();
     expect(
       [highlight!.w, highlight!.h],
       `hovering a ${Math.round(target.width)}x${Math.round(target.height)} box ` +
@@ -341,8 +386,12 @@ test.describe("moving by drag", () => {
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
     const before = await indexHtml(page, id);
-    const countBefore = (before.match(/data-agent-native-layer-name="Box A"/g) ?? []).length;
-    await dragBy(page, (await node(page, "box-a").boundingBox())!, 150, 0, { modifier: ALT });
+    const countBefore = (
+      before.match(/data-agent-native-layer-name="Box A"/g) ?? []
+    ).length;
+    await dragBy(page, (await node(page, "box-a").boundingBox())!, 150, 0, {
+      modifier: ALT,
+    });
     const after = await indexHtml(page, id);
     expect(
       (after.match(/data-agent-native-layer-name="Box A"/g) ?? []).length,
@@ -355,15 +404,19 @@ test.describe("moving by drag", () => {
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
     const before = await geom(page, id, "box-a");
-    await dragBy(page, (await node(page, "box-a").boundingBox())!, 200, 100, { cancel: true });
+    await dragBy(page, (await node(page, "box-a").boundingBox())!, 200, 100, {
+      cancel: true,
+    });
     const after = await geom(page, id, "box-a");
-    expect([after.left, after.top], "Escape mid-drag must restore the start position").toEqual([
-      before.left,
-      before.top,
-    ]);
+    expect(
+      [after.left, after.top],
+      "Escape mid-drag must restore the start position",
+    ).toEqual([before.left, before.top]);
   });
 
-  test("dragging one element leaves its siblings untouched", async ({ page }) => {
+  test("dragging one element leaves its siblings untouched", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
@@ -386,7 +439,9 @@ test.describe("moving by drag", () => {
 });
 
 test.describe("resizing", () => {
-  test("dragging the bottom-right corner resizes width and height", async ({ page }) => {
+  test("dragging the bottom-right corner resizes width and height", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
@@ -426,7 +481,9 @@ test.describe("resizing", () => {
     const s = await scale(page);
     await page.mouse.move(corner!.x, corner!.y);
     await page.mouse.down();
-    await page.mouse.move(corner!.x + 100 * s, corner!.y + 60 * s, { steps: 14 });
+    await page.mouse.move(corner!.x + 100 * s, corner!.y + 60 * s, {
+      steps: 14,
+    });
     await page.mouse.up();
     await page.waitForTimeout(2000);
 
@@ -445,18 +502,25 @@ test.describe("resizing", () => {
     const before = await geom(page, id, "box-a");
 
     const corner = await page.evaluate(() => {
-      const small = Array.from(document.querySelectorAll("[data-resize-handle]")).filter(
-        (h) => h.getBoundingClientRect().width < 20,
-      );
+      const small = Array.from(
+        document.querySelectorAll("[data-resize-handle]"),
+      ).filter((h) => h.getBoundingClientRect().width < 20);
       if (small.length === 0) return null;
-      const se = small.map((h) => h.getBoundingClientRect()).sort((a, b) => b.x + b.y - (a.x + a.y))[0];
-      return { x: Math.round(se.x + se.width / 2), y: Math.round(se.y + se.height / 2) };
+      const se = small
+        .map((h) => h.getBoundingClientRect())
+        .sort((a, b) => b.x + b.y - (a.x + a.y))[0];
+      return {
+        x: Math.round(se.x + se.width / 2),
+        y: Math.round(se.y + se.height / 2),
+      };
     });
     if (!corner) test.skip(true, "no corner handle to drag");
     const s = await scale(page);
     await page.mouse.move(corner!.x, corner!.y);
     await page.mouse.down();
-    await page.mouse.move(corner!.x + 80 * s, corner!.y + 40 * s, { steps: 12 });
+    await page.mouse.move(corner!.x + 80 * s, corner!.y + 40 * s, {
+      steps: 12,
+    });
     await page.mouse.up();
     await page.waitForTimeout(2000);
 
@@ -481,7 +545,11 @@ test.describe("reparenting and reordering", () => {
     const target = (await node(page, "frame-a").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 20 });
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 20 },
+    );
     await page.waitForTimeout(500);
     await page.mouse.up();
     await page.waitForTimeout(2500);
@@ -492,11 +560,17 @@ test.describe("reparenting and reordering", () => {
       .contentFrame()
       .locator("body")
       .evaluate(() => {
-        const parent = document.querySelector('[data-agent-native-node-id="frame-a"]');
-        const child = document.querySelector('[data-agent-native-node-id="box-a"]');
+        const parent = document.querySelector(
+          '[data-agent-native-node-id="frame-a"]',
+        );
+        const child = document.querySelector(
+          '[data-agent-native-node-id="box-a"]',
+        );
         return !!parent && !!child && parent.contains(child);
       });
-    expect(nested, "dropping Box A onto Container did not reparent it").toBe(true);
+    expect(nested, "dropping Box A onto Container did not reparent it").toBe(
+      true,
+    );
   });
 
   test("dragging within an auto-layout row reorders it", async ({ page }) => {
@@ -505,9 +579,14 @@ test.describe("reparenting and reordering", () => {
     await selectViaTree(page, "Chip 1");
     const first = (await node(page, "chip-1").boundingBox())!;
     const third = (await node(page, "chip-3").boundingBox())!;
-    await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
+    await page.mouse.move(
+      first.x + first.width / 2,
+      first.y + first.height / 2,
+    );
     await page.mouse.down();
-    await page.mouse.move(third.x + third.width, third.y + third.height / 2, { steps: 20 });
+    await page.mouse.move(third.x + third.width, third.y + third.height / 2, {
+      steps: 20,
+    });
     await page.waitForTimeout(500);
     await page.mouse.up();
     await page.waitForTimeout(2500);
@@ -519,7 +598,9 @@ test.describe("reparenting and reordering", () => {
     ).toBeGreaterThan(html.indexOf("chip-3"));
   });
 
-  test("dragging a layer row onto a container row reparents it", async ({ page }) => {
+  test("dragging a layer row onto a container row reparents it", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await layerRow(page, "Box A").dragTo(layerRow(page, "Container"));
@@ -531,16 +612,25 @@ test.describe("reparenting and reordering", () => {
       .contentFrame()
       .locator("body")
       .evaluate(() => {
-        const parent = document.querySelector('[data-agent-native-node-id="frame-a"]');
-        const child = document.querySelector('[data-agent-native-node-id="box-a"]');
+        const parent = document.querySelector(
+          '[data-agent-native-node-id="frame-a"]',
+        );
+        const child = document.querySelector(
+          '[data-agent-native-node-id="box-a"]',
+        );
         return !!parent && !!child && parent.contains(child);
       });
-    expect(nested, "dragging the layer row onto Container did not reparent").toBe(true);
+    expect(
+      nested,
+      "dragging the layer row onto Container did not reparent",
+    ).toBe(true);
   });
 });
 
 test.describe("reparenting rules", () => {
-  test("an object smaller than a frame becomes its child when dropped in", async ({ page }) => {
+  test("an object smaller than a frame becomes its child when dropped in", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
@@ -548,7 +638,11 @@ test.describe("reparenting rules", () => {
     const target = (await node(page, "frame-a").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 20 });
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 20 },
+    );
     await page.mouse.up();
     await page.waitForTimeout(2500);
 
@@ -558,8 +652,12 @@ test.describe("reparenting rules", () => {
       .contentFrame()
       .locator("body")
       .evaluate(() => {
-        const parent = document.querySelector('[data-agent-native-node-id="frame-a"]');
-        const child = document.querySelector('[data-agent-native-node-id="box-a"]');
+        const parent = document.querySelector(
+          '[data-agent-native-node-id="frame-a"]',
+        );
+        const child = document.querySelector(
+          '[data-agent-native-node-id="box-a"]',
+        );
         return !!parent && !!child && parent.contains(child);
       });
     expect(
@@ -568,7 +666,9 @@ test.describe("reparenting rules", () => {
     ).toBe(true);
   });
 
-  test("holding Space while dragging keeps the object in its current parent", async ({ page }) => {
+  test("holding Space while dragging keeps the object in its current parent", async ({
+    page,
+  }) => {
     const inRow = (target: Page) =>
       target
         .locator("iframe[data-design-preview-iframe]")
@@ -576,8 +676,12 @@ test.describe("reparenting rules", () => {
         .contentFrame()
         .locator("body")
         .evaluate(() => {
-          const row = document.querySelector('[data-agent-native-node-id="row"]');
-          const chip = document.querySelector('[data-agent-native-node-id="chip-1"]');
+          const row = document.querySelector(
+            '[data-agent-native-node-id="row"]',
+          );
+          const chip = document.querySelector(
+            '[data-agent-native-node-id="chip-1"]',
+          );
           return !!row && !!chip && row.contains(chip);
         });
 
@@ -590,7 +694,11 @@ test.describe("reparenting rules", () => {
     let outside = (await node(page, "frame-a").boundingBox())!;
     await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
     await page.mouse.down();
-    await page.mouse.move(outside.x + outside.width / 2, outside.y + outside.height / 2, { steps: 18 });
+    await page.mouse.move(
+      outside.x + outside.width / 2,
+      outside.y + outside.height / 2,
+      { steps: 18 },
+    );
     await page.mouse.up();
     await page.waitForTimeout(2200);
     test.skip(
@@ -614,28 +722,39 @@ test.describe("reparenting rules", () => {
     const spaceKey = (type: "keydown" | "keyup") =>
       previewBody.evaluate((_b, t) => {
         document.dispatchEvent(
-          new KeyboardEvent(t, { key: " ", code: "Space", bubbles: true, cancelable: true }),
+          new KeyboardEvent(t, {
+            key: " ",
+            code: "Space",
+            bubbles: true,
+            cancelable: true,
+          }),
         );
       }, type);
 
     await spaceKey("keydown");
     await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
     await page.mouse.down();
-    await page.mouse.move(outside.x + outside.width / 2, outside.y + outside.height / 2, { steps: 20 });
+    await page.mouse.move(
+      outside.x + outside.width / 2,
+      outside.y + outside.height / 2,
+      { steps: 20 },
+    );
     await page.mouse.up();
     await spaceKey("keyup");
     await page.waitForTimeout(2500);
 
     expect(
       await inRow(page),
-      'Figma: "When moving an object out of a frame\'s bounds, hold the Space bar to keep ' +
+      "Figma: \"When moving an object out of a frame's bounds, hold the Space bar to keep " +
         'an object within the current parent."',
     ).toBe(true);
   });
 });
 
 test.describe("drag feedback", () => {
-  test("snap guides appear when an edge aligns with a sibling", async ({ page }) => {
+  test("snap guides appear when an edge aligns with a sibling", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
@@ -659,7 +778,9 @@ test.describe("drag feedback", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("a container highlights as a drop target while dragging over it", async ({ page }) => {
+  test("a container highlights as a drop target while dragging over it", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Box A");
@@ -668,19 +789,28 @@ test.describe("drag feedback", () => {
 
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 18 });
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 18 },
+    );
     await page.waitForTimeout(900);
     const highlights = (await activeOverlays(page)).filter((k) =>
       /insertion-guide|drop/.test(k),
     ).length;
     await page.mouse.up();
     await page.waitForTimeout(1000);
-    expect(highlights, `UNVERIFIED for a plain frame: Figma documents a blue indicator only for auto layout ` +
+    expect(
+      highlights,
+      `UNVERIFIED for a plain frame: Figma documents a blue indicator only for auto layout ` +
         `containers, and says nothing about highlighting a plain frame. Treat as a usability ` +
-        `claim. No feedback of any kind appeared.`).toBeGreaterThan(0);
+        `claim. No feedback of any kind appeared.`,
+    ).toBeGreaterThan(0);
   });
 
-  test("the layers panel shows an insertion line while dragging a row", async ({ page }) => {
+  test("the layers panel shows an insertion line while dragging a row", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     const src = (await layerRow(page, "Box A").boundingBox())!;
@@ -689,10 +819,16 @@ test.describe("drag feedback", () => {
     await page.mouse.down();
     // A short first move starts the native drag; jumping straight to the
     // target never leaves the source row and no dragover fires.
-    await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2 + 8, { steps: 4 });
-    await page.mouse.move(dst.x + dst.width / 2, dst.y + dst.height - 3, { steps: 14 });
+    await page.mouse.move(src.x + src.width / 2, src.y + src.height / 2 + 8, {
+      steps: 4,
+    });
+    await page.mouse.move(dst.x + dst.width / 2, dst.y + dst.height - 3, {
+      steps: 14,
+    });
     await page.waitForTimeout(600);
-    const indicators = await page.locator("[data-layer-drop-indicator]").count();
+    const indicators = await page
+      .locator("[data-layer-drop-indicator]")
+      .count();
     await page.mouse.up();
     await page.waitForTimeout(500);
     expect(
@@ -701,12 +837,16 @@ test.describe("drag feedback", () => {
     ).toBeGreaterThan(0);
   });
 
-  test("the cursor differs between the Move and Hand tools", async ({ page }) => {
+  test("the cursor differs between the Move and Hand tools", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     const read = () =>
       page.evaluate(() => {
-        const world = document.querySelector("[data-multi-screen-canvas-world]");
+        const world = document.querySelector(
+          "[data-multi-screen-canvas-world]",
+        );
         const surface = world?.parentElement ?? null;
         return surface ? getComputedStyle(surface).cursor : null;
       });
@@ -720,7 +860,9 @@ test.describe("drag feedback", () => {
 });
 
 test.describe("drop containers", () => {
-  const dropFixture = (primitive: string) => `<!doctype html><html><head><meta charset="utf-8"><title>Drop</title></head>
+  const dropFixture = (
+    primitive: string,
+  ) => `<!doctype html><html><head><meta charset="utf-8"><title>Drop</title></head>
 <body style="margin:0;min-height:900px;background:#0f1115">
 <div data-agent-native-node-id="mover" data-agent-native-layer-name="Mover"
      style="position:absolute;left:20px;top:300px;width:100px;height:60px;background:#a855f7"></div>
@@ -735,20 +877,38 @@ test.describe("drop containers", () => {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame();
-    const mover = (await preview.locator('[data-agent-native-node-id="mover"]').boundingBox())!;
-    const target = (await preview.locator('[data-agent-native-node-id="target"]').boundingBox())!;
-    await page.mouse.move(mover.x + mover.width / 2, mover.y + mover.height / 2);
+    const mover = (await preview
+      .locator('[data-agent-native-node-id="mover"]')
+      .boundingBox())!;
+    const target = (await preview
+      .locator('[data-agent-native-node-id="target"]')
+      .boundingBox())!;
+    await page.mouse.move(
+      mover.x + mover.width / 2,
+      mover.y + mover.height / 2,
+    );
     await page.mouse.down();
-    await page.mouse.move(mover.x + mover.width / 2 + 10, mover.y + mover.height / 2, { steps: 3 });
-    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 20 });
+    await page.mouse.move(
+      mover.x + mover.width / 2 + 10,
+      mover.y + mover.height / 2,
+      { steps: 3 },
+    );
+    await page.mouse.move(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+      { steps: 20 },
+    );
     await page.waitForTimeout(600);
     await page.mouse.up();
     await page.waitForTimeout(2500);
-    return preview.locator("body").evaluate(() =>
-      document
-        .querySelector('[data-agent-native-node-id="mover"]')
-        ?.parentElement?.getAttribute("data-agent-native-node-id") ?? null,
-    );
+    return preview
+      .locator("body")
+      .evaluate(
+        () =>
+          document
+            .querySelector('[data-agent-native-node-id="mover"]')
+            ?.parentElement?.getAttribute("data-agent-native-node-id") ?? null,
+      );
   };
 
   test("a frame adopts an element dragged into it", async ({ page }) => {
@@ -758,7 +918,9 @@ test.describe("drop containers", () => {
     ).toBe("target");
   });
 
-  test("a rectangle never adopts an element dragged onto it", async ({ page }) => {
+  test("a rectangle never adopts an element dragged onto it", async ({
+    page,
+  }) => {
     expect(
       await dragMoverOntoTarget(page, "rectangle"),
       "a rectangle is a vector shape, not a container — matching Figma and the " +
@@ -788,9 +950,13 @@ test.describe("modifier collisions", () => {
     if (withModifier) await page.keyboard.down(mod);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 100 * s, {
-      steps: 40,
-    });
+    await page.mouse.move(
+      box.x + box.width / 2,
+      box.y + box.height / 2 - 100 * s,
+      {
+        steps: 40,
+      },
+    );
     await page.waitForTimeout(300);
     await page.mouse.up();
     if (withModifier) await page.keyboard.up(mod);
@@ -815,7 +981,9 @@ test.describe("modifier collisions", () => {
 });
 
 test.describe("marquee", () => {
-  test("dragging from empty canvas marquee-selects the elements it covers", async ({ page }) => {
+  test("dragging from empty canvas marquee-selects the elements it covers", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     // Starting outside the screen marquees the BOARD (screens), not the

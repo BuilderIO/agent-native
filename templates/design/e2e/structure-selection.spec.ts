@@ -32,12 +32,22 @@ const FIXTURE = `<!doctype html>
 
 let baseURL = "";
 
-async function postAction(page: Page, name: string, input: Record<string, unknown>) {
-  const res = await page.request.post(`${baseURL}/_agent-native/actions/${name}`, {
-    data: input,
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok()) throw new Error(`${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`);
+async function postAction(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+) {
+  const res = await page.request.post(
+    `${baseURL}/_agent-native/actions/${name}`,
+    {
+      data: input,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  if (!res.ok())
+    throw new Error(
+      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
+    );
   return res.json();
 }
 
@@ -61,15 +71,25 @@ async function indexHtml(page: Page, designId: string): Promise<string> {
   const result = await page.request
     .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
     .then((r) => r.json());
-  return (result.files ?? []).find((f: any) => f.filename === "index.html")?.content ?? "";
+  return (
+    (result.files ?? []).find((f: any) => f.filename === "index.html")
+      ?.content ?? ""
+  );
 }
 
 function styleOf(html: string, id: string): string {
-  return new RegExp(`data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`, "i").exec(html)?.[1] ?? "";
+  return (
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? ""
+  );
 }
 
 function styleNum(style: string, prop: string): number {
-  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(style);
+  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
+    style,
+  );
   return m ? Number(m[1]) : NaN;
 }
 
@@ -82,7 +102,10 @@ function layersTree(page: Page): Locator {
 }
 
 function layerRow(page: Page, name: string): Locator {
-  return layersTree(page).getByRole("treeitem").filter({ hasText: name }).first();
+  return layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: name })
+    .first();
 }
 
 function node(page: Page, id: string): Locator {
@@ -103,12 +126,23 @@ async function selectedLayerName(page: Page): Promise<string | null> {
 }
 
 async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, { waitUntil: "domcontentloaded" });
-  await toolbar(page).locator('button[aria-label="Move"]').waitFor({ timeout: 45_000 });
-  await page.locator("iframe[data-design-preview-iframe]").first().waitFor({ timeout: 30_000 });
+  await page.goto(`${baseURL}/design/${designId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await toolbar(page)
+    .locator('button[aria-label="Move"]')
+    .waitFor({ timeout: 45_000 });
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .waitFor({ timeout: 30_000 });
   await page.waitForTimeout(2500);
   for (let i = 0; i < 5; i += 1) {
-    await page.getByRole("button", { name: "Expand layer" }).first().click().catch(() => {});
+    await page
+      .getByRole("button", { name: "Expand layer" })
+      .first()
+      .click()
+      .catch(() => {});
     await page.waitForTimeout(250);
   }
   await page.waitForTimeout(500);
@@ -165,14 +199,19 @@ test.describe("keyboard selection traversal", () => {
     ).toMatch(/Kid/);
   });
 
-  test("Escape selects the parent of the current selection", async ({ page }) => {
+  test("Escape selects the parent of the current selection", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await selectViaTree(page, "Kid One");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(1500);
     const name = await selectedLayerName(page);
-    expect(name, `Escape should walk up to the parent; selection is "${name}".`).toBe("Wrap");
+    expect(
+      name,
+      `Escape should walk up to the parent; selection is "${name}".`,
+    ).toBe("Wrap");
   });
 
   test("Tab selects the next sibling", async ({ page }) => {
@@ -210,9 +249,10 @@ test.describe("keyboard selection traversal", () => {
     await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(1500);
     const name = await selectedLayerName(page);
-    expect(name, `double-click should drill into the child; selection is "${name}".`).toMatch(
-      /Kid One/,
-    );
+    expect(
+      name,
+      `double-click should drill into the child; selection is "${name}".`,
+    ).toMatch(/Kid One/);
   });
 });
 
@@ -272,7 +312,9 @@ test.describe("groups", () => {
     ).toHaveCount(0);
   });
 
-  test("moving a group moves every child by the same delta", async ({ page }) => {
+  test("moving a group moves every child by the same delta", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await multiSelect(page, ["Loose A", "Loose B"]);
@@ -322,7 +364,9 @@ test.describe("groups", () => {
 });
 
 test.describe("multi-selection", () => {
-  test("dragging a two-element selection moves both by the same delta", async ({ page }) => {
+  test("dragging a two-element selection moves both by the same delta", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await multiSelect(page, ["Loose A", "Loose B"]);
@@ -338,7 +382,11 @@ test.describe("multi-selection", () => {
     await page.keyboard.down(MOD === "Meta" ? "Meta" : "Control");
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 100 * s, box.y + box.height / 2, { steps: 16 });
+    await page.mouse.move(
+      box.x + box.width / 2 + 100 * s,
+      box.y + box.height / 2,
+      { steps: 16 },
+    );
     await page.waitForTimeout(300);
     await page.mouse.up();
     await page.keyboard.up(MOD === "Meta" ? "Meta" : "Control");
@@ -373,7 +421,11 @@ test.describe("multi-selection", () => {
     // drop nests instead of translating.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 100 * s, { steps: 16 });
+    await page.mouse.move(
+      box.x + box.width / 2,
+      box.y + box.height / 2 - 100 * s,
+      { steps: 16 },
+    );
     await page.waitForTimeout(300);
     await page.mouse.up();
     await page.waitForTimeout(2200);
@@ -390,7 +442,9 @@ test.describe("multi-selection", () => {
     ).toBeLessThanOrEqual(6);
   });
 
-  test("a multi-selection shows one combined bounding box", async ({ page }) => {
+  test("a multi-selection shows one combined bounding box", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await multiSelect(page, ["Loose A", "Loose B"]);
@@ -417,13 +471,17 @@ test.describe("multi-selection", () => {
       if (!box) return null;
       const chrome = box.getBoundingClientRect();
       return {
-        contentWidth: Math.max(...union.map((r) => r.right)) -
+        contentWidth:
+          Math.max(...union.map((r) => r.right)) -
           Math.min(...union.map((r) => r.left)),
         chromeWidth: chrome.width,
       };
     });
 
-    expect(measured, "no multi-selection chrome inside the preview").not.toBeNull();
+    expect(
+      measured,
+      "no multi-selection chrome inside the preview",
+    ).not.toBeNull();
     expect(
       measured!.chromeWidth,
       `two boxes spanning ${Math.round(measured!.contentWidth)}px are enclosed ` +
@@ -431,7 +489,9 @@ test.describe("multi-selection", () => {
     ).toBeCloseTo(measured!.contentWidth, -1);
   });
 
-  test("Smart selection exposes spacing handles for evenly spaced layers", async ({ page }) => {
+  test("Smart selection exposes spacing handles for evenly spaced layers", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await multiSelect(page, ["Kid One", "Kid Two", "Kid Three"]);
@@ -454,7 +514,9 @@ test.describe("multi-selection", () => {
 });
 
 test.describe("frames versus groups", () => {
-  test("a frame keeps its explicit size when a child moves", async ({ page }) => {
+  test("a frame keeps its explicit size when a child moves", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     const before = styleOf(await indexHtml(page, id), "wrap");

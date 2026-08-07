@@ -38,7 +38,9 @@ async function postAction(
     { data: input, headers: { "Content-Type": "application/json" } },
   );
   if (!res.ok()) {
-    throw new Error(`${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`);
+    throw new Error(
+      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
+    );
   }
   return res.json();
 }
@@ -71,7 +73,9 @@ async function indexHtml(page: Page, designId: string): Promise<string> {
 }
 
 function numProp(style: string, prop: string): number {
-  const raw = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(style);
+  const raw = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
+    style,
+  );
   return raw ? Number(raw[1]) : NaN;
 }
 
@@ -168,7 +172,11 @@ async function useTool(page: Page, name: string): Promise<void> {
 
 async function dragOnCanvas(page: Page, rect: Rect): Promise<void> {
   const a = await toScreenPoint(page, rect.left, rect.top);
-  const b = await toScreenPoint(page, rect.left + rect.width, rect.top + rect.height);
+  const b = await toScreenPoint(
+    page,
+    rect.left + rect.width,
+    rect.top + rect.height,
+  );
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
   await page.mouse.move(b.x, b.y, { steps: 14 });
@@ -313,7 +321,9 @@ test("8:35 — a frame adopts an element drawn inside it", async ({ page }) => {
   ).toBe(true);
 });
 
-test("a rectangle does NOT adopt children, matching Figma", async ({ page }) => {
+test("a rectangle does NOT adopt children, matching Figma", async ({
+  page,
+}) => {
   const designId = await newDesign(page);
   await openEditor(page, designId);
   await drawRect(page, { left: 20, top: 150, width: 280, height: 300 });
@@ -335,7 +345,11 @@ test("2:35 — Shift+A turns a selected frame into an auto-layout container", as
   const designId = await newDesign(page);
   await openEditor(page, designId);
   await drawFrame(page, { left: 20, top: 120, width: 280, height: 300 });
-  await layersTree(page).getByRole("treeitem").filter({ hasText: "Frame" }).first().click();
+  await layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: "Frame" })
+    .first()
+    .click();
   await page.waitForTimeout(800);
 
   const before = await indexHtml(page, designId);
@@ -348,7 +362,9 @@ test("2:35 — Shift+A turns a selected frame into an auto-layout container", as
     `Shift+A on a selected frame left index.html byte-identical. ` +
       `Clip 2:35 "should make it auto layout but doesn't".`,
   ).not.toBe(before);
-  expect(primitiveStyles(after, "frame")[0] ?? "").toMatch(/display\s*:\s*flex/i);
+  expect(primitiveStyles(after, "frame")[0] ?? "").toMatch(
+    /display\s*:\s*flex/i,
+  );
 });
 
 test("8:09 — enabling auto layout keeps the container's children", async ({
@@ -361,7 +377,11 @@ test("8:09 — enabling auto layout keeps the container's children", async ({
   const before = await indexHtml(page, designId);
   const textsBefore = primitiveStyles(before, "text").length;
 
-  await layersTree(page).getByRole("treeitem").filter({ hasText: "Frame" }).first().click();
+  await layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: "Frame" })
+    .first()
+    .click();
   await page.waitForTimeout(800);
   await page.keyboard.press("Shift+A");
   await page.waitForTimeout(2500);
@@ -432,7 +452,9 @@ test("2:59 — moving a layer raises no 'Could not move that layer' toast", asyn
     await page.waitForTimeout(2000);
   }
   expect(
-    (await readToasts(page)).filter((t) => /could not move that layer/i.test(t)),
+    (await readToasts(page)).filter((t) =>
+      /could not move that layer/i.test(t),
+    ),
     `Clip 2:59 shows this toast on an ordinary move.`,
   ).toHaveLength(0);
 });
@@ -450,7 +472,9 @@ test("5:41 — no internal node-resolution error reaches the user", async ({
   if (box) {
     await page.mouse.move(box.x + 10, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box.x + 320, box.y + box.height / 2 + 80, { steps: 18 });
+    await page.mouse.move(box.x + 320, box.y + box.height / 2 + 80, {
+      steps: 18,
+    });
     await page.mouse.up();
     await page.waitForTimeout(2500);
   }
@@ -483,16 +507,32 @@ test("5:07 — a text layer can be reordered by dragging it on the canvas", asyn
   const designId = await newDesign(page, STACK_SCREEN);
   await openEditor(page, designId);
 
-  const second = (await inFrame(page, '[data-agent-native-node-id="p2"]').boundingBox())!;
-  const first = (await inFrame(page, '[data-agent-native-node-id="p1"]').boundingBox())!;
+  const second = (await inFrame(
+    page,
+    '[data-agent-native-node-id="p2"]',
+  ).boundingBox())!;
+  const first = (await inFrame(
+    page,
+    '[data-agent-native-node-id="p1"]',
+  ).boundingBox())!;
 
   // The in-iframe "shield" overlay swallows locator clicks — drive the
   // pointer directly.
-  await page.mouse.click(second.x + second.width / 2, second.y + second.height / 2);
+  await page.mouse.click(
+    second.x + second.width / 2,
+    second.y + second.height / 2,
+  );
   await page.waitForTimeout(1200);
-  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2);
+  await page.mouse.move(
+    second.x + second.width / 2,
+    second.y + second.height / 2,
+  );
   await page.mouse.down();
-  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2 - 10, { steps: 4 });
+  await page.mouse.move(
+    second.x + second.width / 2,
+    second.y + second.height / 2 - 10,
+    { steps: 4 },
+  );
   await page.mouse.move(first.x + first.width / 2, first.y + 3, { steps: 20 });
   await page.waitForTimeout(700);
   await page.mouse.up();
@@ -523,7 +563,9 @@ test("5:30 — dragging does not repaint the canvas background", async ({
   if (box) {
     await page.mouse.move(box.x + 10, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box.x + 200, box.y + box.height / 2 + 60, { steps: 16 });
+    await page.mouse.move(box.x + 200, box.y + box.height / 2 + 60, {
+      steps: 16,
+    });
     await page.mouse.up();
     await page.waitForTimeout(1800);
   }
@@ -543,7 +585,9 @@ test("4:39 — aligning a multi-selection moves every selected layer", async ({
   await drawRect(page, { left: 20, top: 500, width: 130, height: 120 });
   await drawRect(page, { left: 170, top: 560, width: 130, height: 120 });
 
-  const rows = layersTree(page).getByRole("treeitem").filter({ hasText: "Rectangle" });
+  const rows = layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: "Rectangle" });
   await rows.nth(0).click();
   await rows.nth(1).click({ modifiers: ["Shift"] });
   await page.waitForTimeout(1000);
@@ -573,7 +617,10 @@ test("0:28 — a deleted screen stays deleted", async ({ page }) => {
   });
   await openEditor(page, designId);
 
-  const row = layersTree(page).getByRole("treeitem").filter({ hasText: "Scratch" }).first();
+  const row = layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: "Scratch" })
+    .first();
   await row.click();
   await page.waitForTimeout(600);
   await page.keyboard.press("Delete");
@@ -611,22 +658,23 @@ test("a header + hero + footer landing page renders entirely on the page", async
   await drawRect(page, { left: 20, top: 620, width: 130, height: 140 });
   await drawRect(page, { left: 170, top: 620, width: 130, height: 140 });
 
-  const painted = await inFrame(page, "[data-an-primitive]").evaluateAll((els) =>
-    els.map((el) => {
-      const r = el.getBoundingClientRect();
-      const doc = el.ownerDocument.documentElement;
-      return {
-        kind: el.getAttribute("data-an-primitive"),
-        top: Math.round(r.top),
-        right: Math.round(r.right),
-        withinPage:
-          r.width > 0 &&
-          r.height > 0 &&
-          r.top >= -1 &&
-          r.bottom <= doc.clientHeight + 1 &&
-          r.right <= doc.clientWidth + 1,
-      };
-    }),
+  const painted = await inFrame(page, "[data-an-primitive]").evaluateAll(
+    (els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        const doc = el.ownerDocument.documentElement;
+        return {
+          kind: el.getAttribute("data-an-primitive"),
+          top: Math.round(r.top),
+          right: Math.round(r.right),
+          withinPage:
+            r.width > 0 &&
+            r.height > 0 &&
+            r.top >= -1 &&
+            r.bottom <= doc.clientHeight + 1 &&
+            r.right <= doc.clientWidth + 1,
+        };
+      }),
   );
   const escaped = painted.filter((p) => !p.withinPage);
   expect(

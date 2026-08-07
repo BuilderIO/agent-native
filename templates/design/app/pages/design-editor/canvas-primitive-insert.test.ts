@@ -110,9 +110,9 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     const rectCloses =
       html.indexOf("</div>", html.indexOf('data-an-primitive="rectangle"')) +
       "</div>".length;
-    expect(
-      html.indexOf('data-agent-native-node-id="inner"'),
-    ).toBeGreaterThan(rectCloses);
+    expect(html.indexOf('data-agent-native-node-id="inner"')).toBeGreaterThan(
+      rectCloses,
+    );
   });
 });
 

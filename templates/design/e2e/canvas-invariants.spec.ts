@@ -81,13 +81,22 @@ interface Rect {
 let baseURL = "";
 let pageErrors: string[] = [];
 
-async function postAction(page: Page, name: string, input: Record<string, unknown>) {
-  const res = await page.request.post(`${baseURL}/_agent-native/actions/${name}`, {
-    data: input,
-    headers: { "Content-Type": "application/json" },
-  });
+async function postAction(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+) {
+  const res = await page.request.post(
+    `${baseURL}/_agent-native/actions/${name}`,
+    {
+      data: input,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
   if (!res.ok()) {
-    throw new Error(`${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`);
+    throw new Error(
+      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
+    );
   }
   return res.json();
 }
@@ -112,7 +121,10 @@ async function indexHtml(page: Page, designId: string): Promise<string> {
   const result = await page.request
     .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
     .then((r) => r.json());
-  return (result.files ?? []).find((f: any) => f.filename === "index.html")?.content ?? "";
+  return (
+    (result.files ?? []).find((f: any) => f.filename === "index.html")
+      ?.content ?? ""
+  );
 }
 
 function toolbar(page: Page): Locator {
@@ -124,11 +136,17 @@ function layersTree(page: Page): Locator {
 }
 
 function layerRow(page: Page, name: string): Locator {
-  return layersTree(page).getByRole("treeitem").filter({ hasText: name }).first();
+  return layersTree(page)
+    .getByRole("treeitem")
+    .filter({ hasText: name })
+    .first();
 }
 
 function inFrame(page: Page, selector: string): Locator {
-  return page.frameLocator("iframe[data-design-preview-iframe]").first().locator(selector);
+  return page
+    .frameLocator("iframe[data-design-preview-iframe]")
+    .first()
+    .locator(selector);
 }
 
 function node(page: Page, id: string): Locator {
@@ -136,9 +154,16 @@ function node(page: Page, id: string): Locator {
 }
 
 async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, { waitUntil: "domcontentloaded" });
-  await toolbar(page).locator('button[aria-label="Move"]').waitFor({ timeout: 45_000 });
-  await page.locator("iframe[data-design-preview-iframe]").first().waitFor({ timeout: 30_000 });
+  await page.goto(`${baseURL}/design/${designId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await toolbar(page)
+    .locator('button[aria-label="Move"]')
+    .waitFor({ timeout: 45_000 });
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .waitFor({ timeout: 30_000 });
   await page.waitForTimeout(2500);
   await expandAllLayers(page);
 }
@@ -150,7 +175,10 @@ async function expandAllLayers(page: Page): Promise<void> {
     const count = await toggles.count();
     if (count === 0) break;
     for (let i = 0; i < count; i += 1) {
-      await toggles.nth(0).click().catch(() => {});
+      await toggles
+        .nth(0)
+        .click()
+        .catch(() => {});
       await page.waitForTimeout(200);
     }
     await page.waitForTimeout(400);
@@ -178,7 +206,11 @@ async function inspectorField(page: Page, label: string): Promise<string> {
   return (await input.inputValue()).trim();
 }
 
-async function setInspectorField(page: Page, label: string, value: string): Promise<void> {
+async function setInspectorField(
+  page: Page,
+  label: string,
+  value: string,
+): Promise<void> {
   const input = page
     .getByText(label, { exact: true })
     .first()
@@ -208,19 +240,27 @@ async function renderedRect(page: Page, id: string): Promise<Rect> {
 
 function styleOf(html: string, id: string): string {
   return (
-    new RegExp(`data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`, "i").exec(html)?.[1] ?? ""
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*?style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? ""
   );
 }
 
 function styleNum(style: string, prop: string): number {
-  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(style);
+  const m = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
+    style,
+  );
   return m ? Number(m[1]) : NaN;
 }
 
 async function selectOnCanvas(page: Page, id: string): Promise<void> {
   const box = await node(page, id).boundingBox();
   if (!box) throw new Error(`no hit box for ${id}`);
-  await page.mouse.click(box.x + Math.min(20, box.width / 2), box.y + box.height / 2);
+  await page.mouse.click(
+    box.x + Math.min(20, box.width / 2),
+    box.y + box.height / 2,
+  );
   await page.waitForTimeout(1800);
 }
 
@@ -241,14 +281,21 @@ async function toScreenPoint(page: Page, x: number, y: number) {
   const card = await page.locator("[data-screen-card]").first().boundingBox();
   if (!card) throw new Error("no screen card");
   const size = await contentSize(page);
-  return { x: card.x + (x / size.w) * card.width, y: card.y + (y / size.h) * card.height };
+  return {
+    x: card.x + (x / size.w) * card.width,
+    y: card.y + (y / size.h) * card.height,
+  };
 }
 
 async function drawWith(page: Page, tool: string, rect: Rect): Promise<void> {
   await toolbar(page).locator(`button[aria-label="${tool}"]`).click();
   await page.waitForTimeout(250);
   const a = await toScreenPoint(page, rect.left, rect.top);
-  const b = await toScreenPoint(page, rect.left + rect.width, rect.top + rect.height);
+  const b = await toScreenPoint(
+    page,
+    rect.left + rect.width,
+    rect.top + rect.height,
+  );
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
   await page.mouse.move(b.x, b.y, { steps: 14 });
@@ -273,7 +320,9 @@ test.beforeEach(async ({ page }, testInfo) => {
     process.env.E2E_BASE_URL ??
     `http://127.0.0.1:${process.env.E2E_PORT ?? 9333}`;
   pageErrors = [];
-  page.on("pageerror", (e) => pageErrors.push(`${e.name}: ${e.message}`.slice(0, 160)));
+  page.on("pageerror", (e) =>
+    pageErrors.push(`${e.name}: ${e.message}`.slice(0, 160)),
+  );
 });
 
 test.describe("inspector reports the truth", () => {
@@ -295,7 +344,9 @@ test.describe("inspector reports the truth", () => {
     ).toEqual([wantX, wantY]);
   });
 
-  test("W/H are non-zero for an element that renders with a size", async ({ page }) => {
+  test("W/H are non-zero for an element that renders with a size", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Intro").click();
@@ -321,11 +372,19 @@ test.describe("inspector reports the truth", () => {
     await page.waitForTimeout(1800);
 
     const rendered = await renderedRect(page, "plain-box");
-    expect(num(await inspectorField(page, "W"))).toBeCloseTo(rendered.width, -1);
-    expect(num(await inspectorField(page, "H"))).toBeCloseTo(rendered.height, -1);
+    expect(num(await inspectorField(page, "W"))).toBeCloseTo(
+      rendered.width,
+      -1,
+    );
+    expect(num(await inspectorField(page, "H"))).toBeCloseTo(
+      rendered.height,
+      -1,
+    );
   });
 
-  test("a hug-sized auto-layout container reports its measured width", async ({ page }) => {
+  test("a hug-sized auto-layout container reports its measured width", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Intro").click();
@@ -339,7 +398,9 @@ test.describe("inspector reports the truth", () => {
     ).toBeCloseTo(rendered.width, -1);
   });
 
-  test("an in-flow element reports its real position, not 0,0", async ({ page }) => {
+  test("an in-flow element reports its real position, not 0,0", async ({
+    page,
+  }) => {
     const id = await newDesign(page, FLOW_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Intro").click();
@@ -372,13 +433,18 @@ test.describe("inspector reports the truth", () => {
     ).toEqual([true, true]);
   });
 
-  test("selecting on canvas and in the tree give the same geometry", async ({ page }) => {
+  test("selecting on canvas and in the tree give the same geometry", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
     await layerRow(page, "Plain Box").click();
     await page.waitForTimeout(1600);
-    const viaTree = [await inspectorField(page, "X"), await inspectorField(page, "Y")];
+    const viaTree = [
+      await inspectorField(page, "X"),
+      await inspectorField(page, "Y"),
+    ];
 
     await openEditor(page, id);
     const box = await node(page, "plain-box").boundingBox();
@@ -386,12 +452,19 @@ test.describe("inspector reports the truth", () => {
     await page.mouse.click(box!.x + 10, box!.y + box!.height / 2);
     await page.keyboard.up(MOD === "Meta" ? "Meta" : "Control");
     await page.waitForTimeout(1800);
-    const viaCanvas = [await inspectorField(page, "X"), await inspectorField(page, "Y")];
+    const viaCanvas = [
+      await inspectorField(page, "X"),
+      await inspectorField(page, "Y"),
+    ];
 
-    expect(viaCanvas, `tree said ${viaTree}, canvas said ${viaCanvas}`).toEqual(viaTree);
+    expect(viaCanvas, `tree said ${viaTree}, canvas said ${viaCanvas}`).toEqual(
+      viaTree,
+    );
   });
 
-  test("a child of an auto-layout parent still reports real geometry", async ({ page }) => {
+  test("a child of an auto-layout parent still reports real geometry", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Title").click();
@@ -406,43 +479,61 @@ test.describe("inspector reports the truth", () => {
     ).toEqual([true, true]);
   });
 
-  test("setting X moves the element by exactly that amount", async ({ page }) => {
+  test("setting X moves the element by exactly that amount", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Plain Box").click();
     await page.waitForTimeout(1600);
 
     await setInspectorField(page, "X", "300");
-    expect(styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left")).toBe(300);
+    expect(
+      styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left"),
+    ).toBe(300);
   });
 
-  test("setting Y moves the element by exactly that amount", async ({ page }) => {
+  test("setting Y moves the element by exactly that amount", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Plain Box").click();
     await page.waitForTimeout(1600);
 
     await setInspectorField(page, "Y", "400");
-    expect(styleNum(styleOf(await indexHtml(page, id), "plain-box"), "top")).toBe(400);
+    expect(
+      styleNum(styleOf(await indexHtml(page, id), "plain-box"), "top"),
+    ).toBe(400);
   });
 
-  test("re-entering the value already shown does not move the element", async ({ page }) => {
+  test("re-entering the value already shown does not move the element", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Plain Box").click();
     await page.waitForTimeout(1600);
 
     const shown = await inspectorField(page, "X");
-    const before = styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left");
+    const before = styleNum(
+      styleOf(await indexHtml(page, id), "plain-box"),
+      "left",
+    );
     await setInspectorField(page, "X", String(num(shown)));
-    const after = styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left");
+    const after = styleNum(
+      styleOf(await indexHtml(page, id), "plain-box"),
+      "left",
+    );
     expect(
       after,
       `inspector showed X=${shown}; typing it back moved left from ${before} to ${after}.`,
     ).toBe(before);
   });
 
-  test("changing width does not change the element's position", async ({ page }) => {
+  test("changing width does not change the element's position", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Plain Box").click();
@@ -466,7 +557,9 @@ test.describe("auto layout", () => {
     await openEditor(page, id);
 
     const boxes = await Promise.all(
-      ["intro-title", "intro-sub", "intro-body"].map((n) => renderedRect(page, n)),
+      ["intro-title", "intro-sub", "intro-body"].map((n) =>
+        renderedRect(page, n),
+      ),
     );
     const overlaps: string[] = [];
     for (let i = 1; i < boxes.length; i += 1) {
@@ -492,13 +585,20 @@ test.describe("auto layout", () => {
     for (const child of ["intro-title", "intro-sub", "intro-body"]) {
       const r = await renderedRect(page, child);
       if (r.top < parent.top - 1 || r.left < parent.left - 1) {
-        escaped.push(`${child} at (${r.left},${r.top}) vs parent (${parent.left},${parent.top})`);
+        escaped.push(
+          `${child} at (${r.left},${r.top}) vs parent (${parent.left},${parent.top})`,
+        );
       }
     }
-    expect(escaped, `children escaped their container: ${escaped.join("; ")}`).toEqual([]);
+    expect(
+      escaped,
+      `children escaped their container: ${escaped.join("; ")}`,
+    ).toEqual([]);
   });
 
-  test("the gap declared on the container is honoured between children", async ({ page }) => {
+  test("the gap declared on the container is honoured between children", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
@@ -510,7 +610,9 @@ test.describe("auto layout", () => {
     ).toBeCloseTo(16, -1);
   });
 
-  test("absolutely-positioned children are reflowed, not left stacked", async ({ page }) => {
+  test("absolutely-positioned children are reflowed, not left stacked", async ({
+    page,
+  }) => {
     const id = await newDesign(page, ABSOLUTE_CHILDREN_PAGE);
     await openEditor(page, id);
     await layerRow(page, "Intro").click();
@@ -541,11 +643,15 @@ test.describe("auto layout", () => {
     ).toEqual([]);
   });
 
-  test("Shift+A on a container preserves its children's order", async ({ page }) => {
+  test("Shift+A on a container preserves its children's order", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     const before = await indexHtml(page, id);
-    const orderBefore = ["intro-title", "intro-sub", "intro-body"].map((n) => before.indexOf(n));
+    const orderBefore = ["intro-title", "intro-sub", "intro-body"].map((n) =>
+      before.indexOf(n),
+    );
 
     await layerRow(page, "Intro").click();
     await page.waitForTimeout(1200);
@@ -553,8 +659,13 @@ test.describe("auto layout", () => {
     await page.waitForTimeout(2500);
 
     const after = await indexHtml(page, id);
-    const orderAfter = ["intro-title", "intro-sub", "intro-body"].map((n) => after.indexOf(n));
-    expect(orderAfter.every((v) => v >= 0), "a child vanished from the document").toBe(true);
+    const orderAfter = ["intro-title", "intro-sub", "intro-body"].map((n) =>
+      after.indexOf(n),
+    );
+    expect(
+      orderAfter.every((v) => v >= 0),
+      "a child vanished from the document",
+    ).toBe(true);
     expect(
       orderAfter[0] < orderAfter[1] && orderAfter[1] < orderAfter[2],
       `child order changed: ${JSON.stringify(orderBefore)} → ${JSON.stringify(orderAfter)}`,
@@ -575,7 +686,10 @@ test.describe("drawing fidelity", () => {
       const html = await indexHtml(page, id);
       const kind = tool.toLowerCase();
       const style =
-        new RegExp(`data-an-primitive="${kind}"[^>]*?style="([^"]*)"`, "i").exec(html)?.[1] ?? "";
+        new RegExp(
+          `data-an-primitive="${kind}"[^>]*?style="([^"]*)"`,
+          "i",
+        ).exec(html)?.[1] ?? "";
       expect(style, `${tool} committed nothing`).not.toBe("");
       expect([
         styleNum(style, "left"),
@@ -594,24 +708,38 @@ test.describe("drawing fidelity", () => {
   test("a shape drawn at the page origin lands at 0,0", async ({ page }) => {
     const id = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id);
-    await drawWith(page, "Rectangle", { left: 0, top: 0, width: 200, height: 120 });
+    await drawWith(page, "Rectangle", {
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 120,
+    });
 
     const style =
-      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(await indexHtml(page, id))?.[1] ?? "";
-    expect(style, "nothing committed when drawing from the page origin").not.toBe("");
+      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(
+        await indexHtml(page, id),
+      )?.[1] ?? "";
+    expect(
+      style,
+      "nothing committed when drawing from the page origin",
+    ).not.toBe("");
     expect([styleNum(style, "left"), styleNum(style, "top")]).toEqual([
       expect.closeTo(0, -1),
       expect.closeTo(0, -1),
     ]);
   });
 
-  test("the same drag at a different zoom produces the same rect", async ({ page }) => {
+  test("the same drag at a different zoom produces the same rect", async ({
+    page,
+  }) => {
     const id = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id);
     const want: Rect = { left: 40, top: 200, width: 160, height: 150 };
     await drawWith(page, "Rectangle", want);
     const first =
-      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(await indexHtml(page, id))?.[1] ?? "";
+      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(
+        await indexHtml(page, id),
+      )?.[1] ?? "";
 
     const id2 = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id2);
@@ -619,7 +747,9 @@ test.describe("drawing fidelity", () => {
     await page.waitForTimeout(1200);
     await drawWith(page, "Rectangle", want);
     const second =
-      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(await indexHtml(page, id2))?.[1] ?? "";
+      /data-an-primitive="rectangle"[^>]*?style="([^"]*)"/i.exec(
+        await indexHtml(page, id2),
+      )?.[1] ?? "";
 
     expect(
       [styleNum(second, "width"), styleNum(second, "height")],
@@ -631,10 +761,17 @@ test.describe("drawing fidelity", () => {
     ]);
   });
 
-  test("a drawn shape primitive is visible — it has a fill or stroke", async ({ page }) => {
+  test("a drawn shape primitive is visible — it has a fill or stroke", async ({
+    page,
+  }) => {
     const id = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id);
-    await drawWith(page, "Rectangle", { left: 40, top: 100, width: 200, height: 200 });
+    await drawWith(page, "Rectangle", {
+      left: 40,
+      top: 100,
+      width: 200,
+      height: 200,
+    });
 
     const paint = await inFrame(page, '[data-an-primitive="rectangle"]')
       .first()
@@ -656,7 +793,12 @@ test.describe("drawing fidelity", () => {
   }) => {
     const id = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id);
-    await drawWith(page, "Frame", { left: 40, top: 100, width: 200, height: 200 });
+    await drawWith(page, "Frame", {
+      left: 40,
+      top: 100,
+      width: 200,
+      height: 200,
+    });
 
     // A frame commits as unstyled structure on purpose (see the frame branch
     // in canvas-primitive-insert.ts); baking a tint into the design's real
@@ -664,7 +806,9 @@ test.describe("drawing fidelity", () => {
     const state = await inFrame(page, "body")
       .first()
       .evaluate(() => {
-        const el = document.querySelector('[data-an-primitive="frame"]') as HTMLElement | null;
+        const el = document.querySelector(
+          '[data-an-primitive="frame"]',
+        ) as HTMLElement | null;
         if (!el) return null;
         const selection = document.querySelector(
           '[data-agent-native-edit-overlay="selection"]',
@@ -680,7 +824,10 @@ test.describe("drawing fidelity", () => {
         };
       });
     expect(state, "no frame rendered in the preview").not.toBeNull();
-    expect(state!.inlineBackground, "a committed frame must not bake in a fill").toBe("");
+    expect(
+      state!.inlineBackground,
+      "a committed frame must not bake in a fill",
+    ).toBe("");
     expect(
       state!.selectionTracksFrame,
       "an unstyled frame is only visible via selection chrome, so it must be " +
@@ -692,7 +839,9 @@ test.describe("drawing fidelity", () => {
 // ── Moving things ─────────────────────────────────────────────────────────
 
 test.describe("moving", () => {
-  test("a canvas drag moves the element by the drag delta", async ({ page }) => {
+  test("a canvas drag moves the element by the drag delta", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
     await selectOnCanvas(page, "plain-box");
@@ -703,9 +852,13 @@ test.describe("moving", () => {
     const scale = card!.width / (await contentSize(page)).w;
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
     await page.mouse.down();
-    await page.mouse.move(box!.x + box!.width / 2 + 100 * scale, box!.y + box!.height / 2, {
-      steps: 16,
-    });
+    await page.mouse.move(
+      box!.x + box!.width / 2 + 100 * scale,
+      box!.y + box!.height / 2,
+      {
+        steps: 16,
+      },
+    );
     await page.mouse.up();
     await page.waitForTimeout(2000);
 
@@ -724,10 +877,15 @@ test.describe("moving", () => {
     await openEditor(page, id);
     await layerRow(page, "Plain Box").click();
     await page.waitForTimeout(1400);
-    const before = styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left");
+    const before = styleNum(
+      styleOf(await indexHtml(page, id), "plain-box"),
+      "left",
+    );
     await page.keyboard.press("ArrowRight");
     await page.waitForTimeout(1500);
-    expect(styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left")).toBe(before + 1);
+    expect(
+      styleNum(styleOf(await indexHtml(page, id), "plain-box"), "left"),
+    ).toBe(before + 1);
   });
 
   test("moving one element does not move any other", async ({ page }) => {
@@ -769,7 +927,10 @@ test.describe("selection", () => {
     // the outermost ancestor makes a label select its whole container.
     await selectOnCanvas(page, "intro-title");
     const clicked = (
-      await page.locator('[role="treeitem"][aria-selected="true"]').first().textContent()
+      await page
+        .locator('[role="treeitem"][aria-selected="true"]')
+        .first()
+        .textContent()
     )?.trim();
     expect(
       clicked,
@@ -779,7 +940,10 @@ test.describe("selection", () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(1500);
     const parent = (
-      await page.locator('[role="treeitem"][aria-selected="true"]').first().textContent()
+      await page
+        .locator('[role="treeitem"][aria-selected="true"]')
+        .first()
+        .textContent()
     )?.trim();
     expect(
       parent,
@@ -795,7 +959,9 @@ test.describe("selection", () => {
     await page.waitForTimeout(1200);
     await layerRow(page, "Title").click();
     await page.waitForTimeout(1200);
-    await expect(page.locator('[role="treeitem"][aria-selected="true"]')).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(1);
   });
 });
 
@@ -878,7 +1044,9 @@ test.describe("layers panel", () => {
     await page.waitForTimeout(1200);
     await page.keyboard.press("Delete");
     await page.waitForTimeout(2000);
-    expect(await indexHtml(page, id)).not.toContain('data-agent-native-node-id="plain-box"');
+    expect(await indexHtml(page, id)).not.toContain(
+      'data-agent-native-node-id="plain-box"',
+    );
   });
 
   test("hiding a layer hides it in the preview", async ({ page }) => {
@@ -891,10 +1059,16 @@ test.describe("layers panel", () => {
     const visible = await node(page, "plain-box")
       .evaluate((el) => {
         const cs = getComputedStyle(el);
-        return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) > 0;
+        return (
+          cs.display !== "none" &&
+          cs.visibility !== "hidden" &&
+          Number(cs.opacity) > 0
+        );
       })
       .catch(() => false);
-    expect(visible, "layer marked hidden still paints in the preview").toBe(false);
+    expect(visible, "layer marked hidden still paints in the preview").toBe(
+      false,
+    );
   });
 });
 
@@ -903,8 +1077,18 @@ test.describe("layers panel", () => {
 test("basic authoring raises no uncaught page errors", async ({ page }) => {
   const id = await newDesign(page, BLANK_PAGE);
   await openEditor(page, id);
-  await drawWith(page, "Rectangle", { left: 100, top: 100, width: 200, height: 120 });
-  await drawWith(page, "Frame", { left: 400, top: 100, width: 300, height: 200 });
+  await drawWith(page, "Rectangle", {
+    left: 100,
+    top: 100,
+    width: 200,
+    height: 120,
+  });
+  await drawWith(page, "Frame", {
+    left: 400,
+    top: 100,
+    width: 300,
+    height: 200,
+  });
   await page.keyboard.press(`${MOD}+z`);
   await page.waitForTimeout(1500);
   await page.keyboard.press(`${MOD}+Shift+z`);
