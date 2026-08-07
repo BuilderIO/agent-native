@@ -89,6 +89,13 @@ const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
  */
 const DURABLE_PRUNE_BATCH = 10_000;
 const DURABLE_PRUNE_MAX_BATCHES = 40;
+/**
+ * How far back a cold-started process replays durable action markers.
+ * Covers the gap between a separate action process writing its marker and this
+ * process's first poll — seconds in practice. Anything older is history, and
+ * replaying history is what produced 1,169 sync events/sec on one app.
+ */
+const ACTION_MARKER_REPLAY_WINDOW_MS = 60_000;
 const LEGACY_DB_CHECK_INTERVAL_MS = 1000;
 export const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
 export const POLL_CHANGE_EVENT = "poll-change";
@@ -1429,7 +1436,20 @@ export class AppSyncState {
       // Action markers are durable specifically so a web server can observe work
       // performed by a separate action process. Do not baseline past an existing
       // marker on cold start, or the first poll after the action will miss it.
-      this.lastActionMarkerTs = 0;
+      //
+      // Bounded to a replay window rather than rewound to 0. At 0 the filter
+      // below (`updated_at > lastActionMarkerTs`) passes EVERY row, and the
+      // marker table is one never-pruned row per identity that has ever run a
+      // mutating action — so every cold start re-emitted the entire history.
+      // On one production app that was 2,188 rows replayed ~32 times a minute:
+      // 1,169 sync events/sec, none of it real traffic, against ~1.7/sec that
+      // was. A `> 0` first-run guard like the sibling detectors use would be
+      // wrong here — it would discard the cross-process wakeup this rewind
+      // exists for. Bounding the window keeps that and drops the history.
+      this.lastActionMarkerTs = Math.max(
+        0,
+        actionMarkerTs - ACTION_MARKER_REPLAY_WINDOW_MS,
+      );
       this.replayActionMarkerOnce = actionMarkerTs > 0;
       this.lastScreenRefreshTs = refreshTs;
       this.lastScreenRefreshTsBySession.clear();
@@ -1579,19 +1599,29 @@ export class AppSyncState {
       // serverless action invocations wake the web server's SSE/poll loop as a
       // first-class source:"action" event rather than a generic app-state bump.
       if (actionMarkerTs > this.lastActionMarkerTs) {
+        // Bounded by the same watermark the filter below applies, so a cold
+        // start reads its replay window instead of every marker ever written.
         const actionMarkerResult = await db.execute({
-          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
-          args: [ACTION_CHANGE_MARKER_KEY],
+          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ? ORDER BY updated_at ASC",
+          args: [ACTION_CHANGE_MARKER_KEY, this.lastActionMarkerTs],
         });
         const changedActionMarkers = actionMarkerResult.rows.filter(
           (row) => timestampValue(row.updated_at) > this.lastActionMarkerTs,
         );
-        this.recordActionChanges(
-          changedActionMarkers
-            .map((row) => parseActionChangeMarker(row.session_id, row.value))
-            .filter((target): target is ActionChangeTarget => !!target),
-          `action|${actionMarkerTs}`,
-        );
+        for (const row of changedActionMarkers) {
+          const target = parseActionChangeMarker(row.session_id, row.value);
+          if (!target) continue;
+          // Keyed on the ROW's own timestamp, not the table-wide max: every
+          // process replaying the same marker must produce the same id so
+          // `ON CONFLICT (id) DO NOTHING` collapses them. Keyed on the max,
+          // two processes booting a moment apart hash the same row
+          // differently and each writes its own copy. Matches the extension
+          // marker path.
+          this.recordActionChanges(
+            [target],
+            `action|${timestampValue(row.updated_at)}`,
+          );
+        }
         this.lastActionMarkerTs = actionMarkerTs;
       }
 
@@ -1758,6 +1788,13 @@ export function getDefaultAppSyncState(): AppSyncState {
   if (!_defaultState) {
     _defaultState = new AppSyncState({
       dbAssignedVersions: hostedRealtimeTransportEnabled(),
+      // Only the out-of-band detectors (action markers, extensions, app-state)
+      // pass a dedupeKey, so this changes nothing for ordinary writes — they
+      // keep unique ids. It exists so N processes detecting the SAME external
+      // write collapse to one row via `ON CONFLICT (id) DO NOTHING`. Left off,
+      // it never once executed in production: every dedupeKey threaded through
+      // this file was inert, and each cold start wrote its own duplicate set.
+      deterministicEventIds: true,
     });
   }
   return _defaultState;
