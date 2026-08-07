@@ -1230,9 +1230,7 @@ function injectHeadScript(html, script) {
 }
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
-const SSR_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cache-control"])};
-const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cdn-cache-control"])};
-const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["netlify-cdn-cache-control"])};
+const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
@@ -1331,13 +1329,9 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     else headers.delete("vary");
   }
 
-  headers.set("cache-control", SSR_CACHE_CONTROL);
-  headers.set("cdn-cache-control", SSR_CDN_CACHE_CONTROL);
-  // Netlify function responses are dynamic by default and can otherwise show
-  // Cache-Status fwd=bypass even with Cache-Control: public. Keep this
-  // Netlify-specific header so SSR HTML/.data are served from the shared
-  // durable CDN cache instead of stampeding origin — for every visitor.
-  headers.set("netlify-cdn-cache-control", SSR_NETLIFY_CDN_CACHE_CONTROL);
+  for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
+    headers.set(name, value);
+  }
   for (const [name, value] of Object.entries(SSR_CACHE_KEY_HEADERS)) {
     headers.set(name, value);
   }
@@ -4326,6 +4320,35 @@ function createBrowserOnlyServerStubPlugin() {
   };
 }
 
+export function resolveNitroBuildReplacements(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  return {
+    // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
+    // function so preview OAuth relays can target this immutable deployment
+    // even though the value is unavailable in the function runtime.
+    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
+      env.DEPLOY_ID?.trim() || env.AGENT_NATIVE_BUILD_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
+      env.GA_MEASUREMENT_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
+      env.GTM_CONTAINER_ID?.trim() || "",
+    ),
+    // Netlify's netlify.toml environment is available while this deploy
+    // build runs, but is not injected into the deployed Function. Nitro is
+    // a separate server build, so embed release migration ownership here as
+    // well as in the Vite server bundle.
+    "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+      env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
+      env.CONTEXT?.trim() || "",
+    ),
+  };
+}
+
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
@@ -4426,25 +4449,7 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
-    replace: {
-      // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
-      // function so preview OAuth relays can target this immutable deployment
-      // even though the value is unavailable in the function runtime.
-      "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
-        process.env.DEPLOY_ID?.trim() ||
-          process.env.AGENT_NATIVE_BUILD_ID?.trim() ||
-          "",
-      ),
-      "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
-        process.env.GA_MEASUREMENT_ID?.trim() || "",
-      ),
-      "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
-        process.env.GTM_CONTAINER_ID?.trim() || "",
-      ),
-      "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
-        process.env.CONTEXT?.trim() || "",
-      ),
-    },
+    replace: resolveNitroBuildReplacements(),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render
