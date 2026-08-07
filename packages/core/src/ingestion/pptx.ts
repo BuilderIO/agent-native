@@ -167,6 +167,21 @@ export async function parsePptxPresentation(
     );
   }
   const theme = await parseTheme(zip, parseXml);
+  const masterColorInfo = slideMasterRelationship
+    ? await parseMasterColorInfo({
+        zip,
+        target: slideMasterRelationship.target,
+        parseXml,
+      })
+    : { clrMap: {}, titleFill: null, bodyFill: null };
+  const colorContext: ColorContext = {
+    themeColorsByName: theme.colorsByName,
+    clrMap: masterColorInfo.clrMap,
+  };
+  const placeholderDefaults: PlaceholderDefaultColors = {
+    title: parseColor(masterColorInfo.titleFill, colorContext),
+    body: parseColor(masterColorInfo.bodyFill, colorContext),
+  };
   const slides: ParsedPptxSlide[] = [];
   for (const slidePath of slidePaths) {
     const xml = await zip.file(slidePath)?.async("string");
@@ -199,6 +214,8 @@ export async function parsePptxPresentation(
       slideWidthEmu,
       slideHeightEmu,
       images,
+      colorContext,
+      placeholderDefaults,
     });
     const texts = flattenElementText(elements);
     const number = slideNumber(slidePath);
@@ -221,7 +238,7 @@ export async function parsePptxPresentation(
       elements,
       widthEmu: slideWidthEmu,
       heightEmu: slideHeightEmu,
-      backgroundColor: extractSlideBackgroundColor(slide),
+      backgroundColor: extractSlideBackgroundColor(slide, colorContext),
       ...(backgroundGrid ? { backgroundGrid } : {}),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
@@ -330,6 +347,7 @@ async function parseMasterGrid(args: {
     lineWidthEmu,
   };
 }
+
 /** Resolves a slide master's color-alias mapping plus its title/body default text-color fills (from p:txStyles), so placeholder text without its own explicit color can inherit the right one. */
 async function parseMasterColorInfo(args: {
   zip: ZipArchive;
@@ -396,6 +414,8 @@ async function parseSlideElements(args: {
   slideWidthEmu?: number;
   slideHeightEmu?: number;
   images: ParsedPptxImage[];
+  colorContext?: ColorContext;
+  placeholderDefaults?: PlaceholderDefaultColors;
 }): Promise<ParsedPptxElement[]> {
   const fragments = extractDirectShapeFragments(args.xml, "spTree");
   const elements: ParsedPptxElement[] = [];
@@ -451,6 +471,8 @@ async function parseShapeFragment(
     slideWidthEmu?: number;
     slideHeightEmu?: number;
     images: ParsedPptxImage[];
+    colorContext?: ColorContext;
+    placeholderDefaults?: PlaceholderDefaultColors;
     context: ShapeTransformContext;
   },
 ): Promise<ParsedPptxElement[]> {
@@ -826,6 +848,23 @@ interface ColorContext {
   clrMap: Record<string, string>;
 }
 
+interface PlaceholderDefaultColors {
+  title?: string;
+  body?: string;
+}
+
+/** Placeholder text has no explicit color of its own when the author relied on the slide master's default run properties — apply that inherited color to any run that didn't resolve one. */
+function applyPlaceholderDefaultColor(
+  paragraphs: ParsedPptxParagraph[],
+  color: string | undefined,
+): ParsedPptxParagraph[] {
+  if (!color) return paragraphs;
+  return paragraphs.map((paragraph) => ({
+    ...paragraph,
+    runs: paragraph.runs.map((run) => (run.color ? run : { ...run, color })),
+  }));
+}
+
 /** PowerPoint's default `bg1`/`tx1`-style alias mapping, used whenever a master doesn't declare its own `<p:clrMap>`. */
 const IDENTITY_CLR_MAP: Record<string, string> = {
   bg1: "lt1",
@@ -1015,11 +1054,14 @@ function flattenElementText(
   return output;
 }
 
-function extractSlideBackgroundColor(value: unknown): string | undefined {
+function extractSlideBackgroundColor(
+  value: unknown,
+  context?: ColorContext,
+): string | undefined {
   const root = record(value);
   const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
   const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
-  return parseColor(record(bgPr?.["a:solidFill"]));
+  return parseColor(record(bgPr?.["a:solidFill"]), context);
 }
 
 export function parsePptxSlideMetadata(
@@ -1172,6 +1214,7 @@ function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
 function runProperties(
   value: Record<string, unknown> | null,
   inherited: Omit<ParsedPptxTextRun, "content">,
+  context?: ColorContext,
 ): Omit<ParsedPptxTextRun, "content"> {
   if (!value) return inherited;
   const size = Number(value["@_sz"]);

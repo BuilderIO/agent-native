@@ -218,10 +218,10 @@ function fakePage(fnArray: number[], argsArray: unknown[][]) {
 const VIEWPORT = { transform: IDENTITY, width: 100, height: 100 };
 
 describe("walkPageGraphics", () => {
-  it("reads the real color from a recognized rg op", async () => {
+  it("reads the real color from a recognized rg op (pdf.js pre-resolves it to a hex string, not raw r/g/b numbers)", async () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.showText],
-      [[0, 0, 1], [{}]],
+      [["#0000ff"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textColors).toEqual(["#0000ff"]);
@@ -236,16 +236,19 @@ describe("walkPageGraphics", () => {
     expect(graphics.textColors).toEqual([undefined]);
   });
 
-  it("decodes a numeric-only scn as RGB — ICCBased/CalRGB colors are commonly routed through scn instead of rg", async () => {
-    const page = fakePage([OPS.setFillColorN, OPS.showText], [[1, 1, 1], [{}]]);
+  it("decodes a resolved hex color from a setFillColorN op (ICCBased/CalRGB/Separation colors routed through scn are pre-resolved to a hex string the same way rg is)", async () => {
+    const page = fakePage(
+      [OPS.setFillColorN, OPS.showText],
+      [["#ffffff"], [{}]],
+    );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textColors).toEqual(["#ffffff"]);
   });
 
-  it("decodes a single-number scn as gray, matching a solid black page background set via scn instead of rg/g", async () => {
+  it("decodes a resolved hex color from a setFillColorN op, matching a solid black page background set via scn instead of rg/g", async () => {
     const page = fakePage(
       [OPS.setFillColorN, OPS.constructPath],
-      [[0], [OPS.fill, [], [0, 0, 100, 100]]],
+      [["#000000"], [OPS.fill, [], [0, 0, 100, 100]]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.backgroundColor).toBe("#000000");
@@ -255,7 +258,7 @@ describe("walkPageGraphics", () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
       [
-        [0, 0, 0],
+        ["#000000"],
         [OPS.fill, [], [0, 0, 100, 100]],
       ],
     );
@@ -276,7 +279,7 @@ describe("walkPageGraphics", () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
       [
-        [0, 0, 0],
+        ["#000000"],
         [OPS.fill, [], [10, 50, 40, 51]],
       ],
     );
@@ -290,7 +293,7 @@ describe("walkPageGraphics", () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
       [
-        [0, 0, 0],
+        ["#000000"],
         [OPS.stroke, [], [10, 50, 40, 50]],
       ],
     );
@@ -304,7 +307,7 @@ describe("walkPageGraphics", () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
       [
-        [0, 0, 0],
+        ["#000000"],
         [OPS.stroke, [], [10, 50, 10, 50]],
       ],
     );
@@ -316,7 +319,7 @@ describe("walkPageGraphics", () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
       [
-        [0, 0, 0],
+        ["#000000"],
         [OPS.fill, [], [10, 10, 40, 40]],
       ],
     );

@@ -99,19 +99,6 @@ const UNDERLINE_PROXIMITY = 0.6;
 
 const DEFAULT_TEXT_COLOR = "#000000"; // guard:allow-raw-color - fallback when the page's real fill color can't be determined
 
-/** `rg`/`g`/`k` operator args (0..1 components) converted to a `#rrggbb` string. */
-function rgbToHex(r: number, g: number, b: number): string {
-  const toByte = (v: number) =>
-    Math.max(0, Math.min(255, Math.round(v * 255)))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
-}
-
-function cmykToHex(c: number, m: number, y: number, k: number): string {
-  return rgbToHex((1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k));
-}
-
 /**
  * When a run's real fill color can't be recovered (the color timeline
  * didn't line up 1:1 with `getTextContent()`'s items), defaulting to a
@@ -143,47 +130,28 @@ export function contrastingDefaultColor(
   return luminance < 0.5 ? "#ffffff" : "#000000"; // guard:allow-raw-color - contrast fallback, not a design-system token
 }
 
-function isAllFiniteNumbers(args: unknown[]): args is number[] {
-  return (
-    args.length > 0 &&
-    args.every((a) => typeof a === "number" && Number.isFinite(a))
-  );
-}
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
 /**
  * Returns the fill color set by this op, or undefined when it isn't
- * decodable. `sc`/`scn` ("set color", `OPS.setFillColor`/`setFillColorN`)
- * are the generic operators PDF uses for *any* non-Device colorspace — a
- * professionally-authored PDF (Adobe/Figma/Keynote exports commonly do
- * this) routes even plain RGB-equivalent colors (ICCBased/CalRGB/Lab) through
- * `scn` instead of `rg`, purely because a `cs` op selected that colorspace
- * earlier. When its operands are all plain numbers (no pattern name), 1/3/4
- * of them still mean exactly what `g`/`rg`/`k` mean; only a *named* Pattern
- * operand (tiling pattern, shading pattern, or `scn`'s trailing pattern
- * name) is genuinely undecodable without resolving that pattern object.
+ * decodable. pdf.js's evaluator resolves *every* non-Pattern fill-color
+ * operator in the content stream (`g`, `rg`, `k`, and `sc`/`scn` against any
+ * non-Pattern colorspace — including ICCBased/CalRGB/Lab/Separation/DeviceN,
+ * which professionally-authored PDFs commonly route through `scn`) into an
+ * already-computed `"#rrggbb"` string, rewriting the op itself to
+ * `OPS.setFillRGBColor` before it ever reaches `getOperatorList()`'s
+ * `argsArray` — the original per-component numeric operands the content
+ * stream actually contains never show up here. Only `scn` against a genuine
+ * Pattern colorspace keeps `OPS.setFillColorN`, with a pattern name (or
+ * tiling/shading descriptor) instead of a color string — genuinely
+ * undecodable without resolving that pattern object.
  */
 function fillColorFromOp(fn: number, args: unknown[]): string | undefined {
-  if (fn === OPS.setFillRGBColor) {
-    const [r, g, b] = args as number[];
-    return rgbToHex(r, g, b);
-  }
-  if (fn === OPS.setFillGray) {
-    const [gray] = args as number[];
-    return rgbToHex(gray, gray, gray);
-  }
-  if (fn === OPS.setFillCMYKColor) {
-    const [c, m, y, k] = args as number[];
-    return cmykToHex(c, m, y, k);
-  }
-  if (
-    (fn === OPS.setFillColor || fn === OPS.setFillColorN) &&
-    isAllFiniteNumbers(args)
-  ) {
-    if (args.length === 1) return rgbToHex(args[0], args[0], args[0]);
-    if (args.length === 3) return rgbToHex(args[0], args[1], args[2]);
-    if (args.length === 4) return cmykToHex(args[0], args[1], args[2], args[3]);
-  }
-  return undefined;
+  if (fn !== OPS.setFillRGBColor && fn !== OPS.setFillColorN) return undefined;
+  const [value] = args;
+  return typeof value === "string" && HEX_COLOR_PATTERN.test(value)
+    ? value.toLowerCase()
+    : undefined;
 }
 
 const TEXT_SHOWING_OPS = new Set([
@@ -615,23 +583,13 @@ export async function walkPageGraphics(
       // so the previously tracked fillColor can no longer be trusted
       // until a recognized color-setting op sets it again.
       fillColorKnown = false;
-    } else if (fn === OPS.setFillColor || fn === OPS.setFillColorN) {
-      // Numeric operands decode the same as rg/g/k (see fillColorFromOp);
-      // a Pattern operand (a name, not a number) doesn't, and must
-      // invalidate the previous color rather than silently keep it.
+    } else if (fn === OPS.setFillRGBColor || fn === OPS.setFillColorN) {
+      // A resolved hex string decodes via fillColorFromOp; a Pattern
+      // operand (a name, not a color string) doesn't, and must invalidate
+      // the previous color rather than silently keep it.
       const color = fillColorFromOp(fn, args);
-      if (color) {
-        fillColor = color;
-        fillColorKnown = true;
-      } else {
-        fillColorKnown = false;
-      }
-    } else {
-      const color = fillColorFromOp(fn, args as number[]);
-      if (color) {
-        fillColor = color;
-        fillColorKnown = true;
-      }
+      fillColor = color ?? fillColor;
+      fillColorKnown = color !== undefined;
     }
   }
   return { imageRects, backgroundColor, textColors, underlineRects };
