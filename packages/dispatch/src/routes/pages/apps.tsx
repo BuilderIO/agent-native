@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 
 import { ActionQueryError } from "../../components/action-query-error";
+import { AppList } from "../../components/app-list-row";
 import { ConnectedAppCard } from "../../components/connected-app-card";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -83,13 +84,13 @@ export default function AppsRoute() {
     cancel: t("dispatch.pages.cancel"),
     integrationSetup: t("dispatch.pages.integrationSetup"),
     installed: t("dispatch.pages.alreadyInWorkspace"),
-    remix: t("dispatch.pages.remix"),
+    remix: t("dispatch.pages.addApp", { defaultValue: "Add app" }),
     remixing: t("dispatch.pages.remixing"),
     remixSuccess: t("dispatch.pages.remixSuccess"),
     remixError: t("dispatch.pages.remixError"),
     appIdRequired: t("dispatch.pages.appIdRequired"),
     source: t("dispatch.pages.source"),
-    viewLiveApp: t("dispatch.pages.viewLiveApp"),
+    viewLiveApp: t("dispatch.pages.openApp", { defaultValue: "Open" }),
   };
 
   return (
@@ -113,11 +114,7 @@ export default function AppsRoute() {
               />
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-foreground">
-                  {workspaceLabel
-                    ? t("dispatch.pages.appsInWorkspace", {
-                        workspace: workspaceLabel,
-                      })
-                    : t("dispatch.pages.workspaceApps")}
+                  {t("dispatch.pages.yourApps", { defaultValue: "Your apps" })}
                 </h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {t("dispatch.pages.activeCount", {
@@ -140,9 +137,9 @@ export default function AppsRoute() {
               <CreateAppPopover
                 align="end"
                 trigger={
-                  <Button size="sm">
+                  <Button size="sm" variant="outline">
                     <IconPlus size={15} className="mr-1.5" />
-                    {t("dispatch.pages.createApp")}
+                    {t("dispatch.pages.addApp", { defaultValue: "Add app" })}
                   </Button>
                 }
               />
@@ -157,11 +154,11 @@ export default function AppsRoute() {
           ) : showAppSkeletons ? (
             <AppsSkeletonGrid />
           ) : activeApps.length > 0 ? (
-            <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <AppList>
               {activeApps.map((app) => (
-                <WorkspaceAppCard key={app.id} app={app} className="h-full" />
+                <WorkspaceAppCard key={app.id} app={app} />
               ))}
-            </div>
+            </AppList>
           ) : pendingApps.length > 0 ? (
             <EmptyActiveAppsState />
           ) : (
@@ -171,7 +168,7 @@ export default function AppsRoute() {
 
         {pendingApps.length > 0 ? (
           <Collapsible open={showPending} onOpenChange={setShowPending}>
-            <section className="space-y-3 border-t pt-4">
+            <section className="space-y-3 border-t pt-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <IconClockHour4
@@ -183,7 +180,7 @@ export default function AppsRoute() {
                       {t("dispatch.pages.pendingApps")}
                     </h2>
                     <p className="text-xs text-muted-foreground">
-                      {t("dispatch.pages.pendingAppsDescription", {
+                      {t("dispatch.pages.pendingCount", {
                         count: pendingApps.length,
                       })}
                     </p>
@@ -210,29 +207,25 @@ export default function AppsRoute() {
                 </CollapsibleTrigger>
               </div>
               <CollapsibleContent>
-                <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <AppList>
                   {pendingApps.map((app) => (
-                    <WorkspaceAppCard
-                      key={app.id}
-                      app={app}
-                      className="h-full"
-                    />
+                    <WorkspaceAppCard key={app.id} app={app} />
                   ))}
-                </div>
+                </AppList>
               </CollapsibleContent>
             </section>
           </Collapsible>
         ) : null}
 
         {curatedTemplatesQuery.isError ? (
-          <section className="space-y-3 border-t pt-4">
+          <section className="space-y-3 border-t pt-6">
             <ActionQueryError
               error={curatedTemplatesQuery.error}
               onRetry={() => void curatedTemplatesQuery.refetch()}
             />
           </section>
         ) : curatedTemplatesQuery.data ? (
-          <section className="space-y-3 border-t pt-4">
+          <section className="space-y-3 border-t pt-6">
             <div className="flex min-w-0 items-start gap-2">
               <IconStack2
                 size={16}
@@ -240,11 +233,10 @@ export default function AppsRoute() {
               />
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-foreground">
-                  {t("dispatch.pages.curatedTemplates")}
+                  {t("dispatch.pages.availableApps", {
+                    defaultValue: "Available apps",
+                  })}
                 </h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {t("dispatch.pages.curatedTemplatesDescription")}
-                </p>
               </div>
             </div>
             <WorkspaceTemplatesSection
@@ -261,7 +253,7 @@ export default function AppsRoute() {
         ) : null}
 
         {connectedAppsQuery.isError ? (
-          <section className="space-y-3 border-t pt-4">
+          <section className="space-y-3 border-t pt-6">
             <OtherAppsHeading count={0} />
             <ActionQueryError
               error={connectedAppsQuery.error}
@@ -272,13 +264,13 @@ export default function AppsRoute() {
           <section className="space-y-3 border-t pt-4">
             <OtherAppsHeading count={otherApps.length} />
             {connectedAppsQuery.isLoading ? (
-              <OtherAppsSkeletonGrid />
+              <OtherAppsSkeletonList />
             ) : (
-              <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <AppList>
                 {otherApps.map((app) => (
                   <ConnectedAppCard key={app.id} app={app} />
                 ))}
-              </div>
+              </AppList>
             )}
           </section>
         ) : null}
@@ -324,15 +316,11 @@ export default function AppsRoute() {
                 </CollapsibleTrigger>
               </div>
               <CollapsibleContent>
-                <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <AppList>
                   {archivedApps.map((app) => (
-                    <WorkspaceAppCard
-                      key={app.id}
-                      app={app}
-                      className="h-full"
-                    />
+                    <WorkspaceAppCard key={app.id} app={app} />
                   ))}
-                </div>
+                </AppList>
               </CollapsibleContent>
             </section>
           </Collapsible>
@@ -351,55 +339,53 @@ function OtherAppsHeading({ count }: { count: number }) {
         <h2 className="truncate text-sm font-semibold text-foreground">
           {t("dispatch.pages.otherApps")}
         </h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {t("dispatch.pages.otherAppsDescription")}
-          {count > 0
-            ? ` · ${t("dispatch.pages.availableCount", { count })}`
-            : ""}
-        </p>
+        {count > 0 ? (
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("dispatch.pages.availableCount", { count })}
+          </p>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function OtherAppsSkeletonGrid() {
+function OtherAppsSkeletonList() {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <AppList>
       {Array.from({ length: 3 }).map((_, index) => (
-        <div key={index} className="rounded-lg bg-card p-4">
-          <div className="flex items-start gap-3">
-            <Skeleton className="size-8 rounded-md" />
-            <div className="flex-1 space-y-3">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-2/3" />
-            </div>
+        <div
+          key={index}
+          className="flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0"
+        >
+          <Skeleton className="size-8 shrink-0 rounded-md" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-2/3" />
           </div>
+          <Skeleton className="h-8 w-16 shrink-0 rounded-md" />
         </div>
       ))}
-    </div>
+    </AppList>
   );
 }
 
 function AppsSkeletonGrid() {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <AppList>
       {Array.from({ length: 3 }).map((_, index) => (
-        <div key={index} className="rounded-lg bg-card p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1 space-y-3">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-24" />
-              <div className="space-y-2 pt-1">
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-2/3" />
-              </div>
-            </div>
-            <Skeleton className="h-7 w-7 rounded-md" />
+        <div
+          key={index}
+          className="flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0"
+        >
+          <Skeleton className="size-8 shrink-0 rounded-md" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-2/3" />
           </div>
+          <Skeleton className="h-8 w-24 shrink-0 rounded-md" />
         </div>
       ))}
-    </div>
+    </AppList>
   );
 }
 
@@ -419,9 +405,9 @@ function EmptyAppsState() {
       <div className="mt-4">
         <CreateAppPopover
           trigger={
-            <Button size="sm">
+            <Button size="sm" variant="outline">
               <IconPlus size={15} className="mr-1.5" />
-              {t("dispatch.pages.createApp")}
+              {t("dispatch.pages.addApp", { defaultValue: "Add app" })}
             </Button>
           }
         />

@@ -122,6 +122,11 @@ const EN_AUTH_COPY = {
   backToSignIn: "Back to sign in",
   localNotePrefix: "Your account is stored in this app's own DB",
   localNoteSuffix: ", not a third-party service.",
+  localDevButton: "Continue as local dev",
+  localDevDescription: "Only works in local development on this computer.",
+  localDevSigningIn: "Signing in locally…",
+  localDevFailed: "Local development sign-in is unavailable.",
+  localDevFullOptions: "Show full sign in options",
   runLocally: "Run Locally",
   runLocallySentence: "Run locally",
   openSource: "100% free and open source",
@@ -224,6 +229,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "返回登录",
     localNotePrefix: "你的账户存储在此应用自己的数据库中",
     localNoteSuffix: "，而不是第三方服务。",
+    localDevButton: "以本地开发身份继续",
+    localDevDescription: "仅在此计算机的本地开发环境中有效。",
+    localDevSigningIn: "正在本地登录…",
+    localDevFailed: "本地开发登录不可用。",
+    localDevFullOptions: "显示完整登录选项",
     runLocally: "本地运行",
     runLocallySentence: "本地运行",
     openSource: "100% 免费且开源",
@@ -321,6 +331,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "返回登入",
     localNotePrefix: "你的帳號儲存在此應用程式自己的資料庫中",
     localNoteSuffix: "，而不是第三方服務。",
+    localDevButton: "以本機開發身分繼續",
+    localDevDescription: "僅在這台電腦的本機開發環境中有效。",
+    localDevSigningIn: "正在本機登入…",
+    localDevFailed: "本機開發登入無法使用。",
+    localDevFullOptions: "顯示完整登入選項",
     runLocally: "在本機執行",
     runLocallySentence: "在本機執行",
     openSource: "100% 免費且開源",
@@ -421,6 +436,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Tu cuenta se almacena en la propia base de datos de esta app",
     localNoteSuffix: ", no en un servicio de terceros.",
+    localDevButton: "Continuar como desarrollador local",
+    localDevDescription: "Solo funciona en el desarrollo local de este equipo.",
+    localDevSigningIn: "Iniciando sesión localmente…",
+    localDevFailed:
+      "El inicio de sesión de desarrollo local no está disponible.",
+    localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
     runLocally: "Ejecutar localmente",
     runLocallySentence: "Ejecutar localmente",
     openSource: "100% gratis y de código abierto",
@@ -526,6 +547,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Votre compte est stocké dans la base de données propre à cette app",
     localNoteSuffix: ", pas dans un service tiers.",
+    localDevButton: "Continuer comme développeur local",
+    localDevDescription:
+      "Fonctionne uniquement en développement local sur cet ordinateur.",
+    localDevSigningIn: "Connexion locale…",
+    localDevFailed: "La connexion de développement local est indisponible.",
+    localDevFullOptions: "Afficher toutes les options de connexion",
     runLocally: "Exécuter localement",
     runLocallySentence: "Exécuter localement",
     openSource: "100 % gratuit et open source",
@@ -632,6 +659,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Dein Konto wird in der eigenen Datenbank dieser App gespeichert",
     localNoteSuffix: ", nicht bei einem Drittanbieter.",
+    localDevButton: "Als lokale Entwicklung fortfahren",
+    localDevDescription:
+      "Funktioniert nur in der lokalen Entwicklung auf diesem Computer.",
+    localDevSigningIn: "Lokale Anmeldung…",
+    localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
+    localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
     runLocally: "Lokal ausführen",
     runLocallySentence: "Lokal ausführen",
     openSource: "100 % kostenlos und Open Source",
@@ -737,6 +770,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "サインインに戻る",
     localNotePrefix: "アカウントはこのアプリ自身の DB に保存されます",
     localNoteSuffix: "。サードパーティサービスには保存されません。",
+    localDevButton: "ローカル開発として続行",
+    localDevDescription: "このコンピューターのローカル開発でのみ利用できます。",
+    localDevSigningIn: "ローカルでサインイン中…",
+    localDevFailed: "ローカル開発のサインインは利用できません。",
+    localDevFullOptions: "完全なサインイン オプションを表示",
     runLocally: "ローカルで実行",
     runLocallySentence: "ローカルで実行",
     openSource: "100% 無料でオープンソース",
@@ -842,6 +880,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "로그인으로 돌아가기",
     localNotePrefix: "계정은 이 앱의 자체 DB에 저장됩니다",
     localNoteSuffix: ", 타사 서비스가 아닙니다.",
+    localDevButton: "로컬 개발자로 계속",
+    localDevDescription: "이 컴퓨터의 로컬 개발 환경에서만 작동합니다.",
+    localDevSigningIn: "로컬로 로그인하는 중…",
+    localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
+    localDevFullOptions: "전체 로그인 옵션 보기",
     runLocally: "로컬에서 실행",
     runLocallySentence: "로컬에서 실행",
     openSource: "100% 무료 오픈 소스",
@@ -943,6 +986,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Sua conta fica armazenada no banco de dados próprio deste app",
     localNoteSuffix: ", não em um serviço de terceiros.",
+    localDevButton: "Continuar como desenvolvedor local",
+    localDevDescription:
+      "Funciona apenas no desenvolvimento local deste computador.",
+    localDevSigningIn: "Entrando localmente…",
+    localDevFailed: "O login de desenvolvimento local não está disponível.",
+    localDevFullOptions: "Mostrar todas as opções de login",
     runLocally: "Executar localmente",
     runLocallySentence: "Executar localmente",
     openSource: "100% grátis e open source",
@@ -1046,6 +1095,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "साइन इन पर वापस जाएं",
     localNotePrefix: "आपका खाता इस ऐप के अपने DB में संग्रहीत है",
     localNoteSuffix: ", किसी third-party सेवा में नहीं।",
+    localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
+    localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
+    localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
+    localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
+    localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
     runLocally: "लोकल चलाएं",
     runLocallySentence: "लोकल चलाएं",
     openSource: "100% मुफ्त और open source",
@@ -1146,6 +1200,11 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "العودة إلى تسجيل الدخول",
     localNotePrefix: "يتم تخزين حسابك في قاعدة بيانات هذا التطبيق",
     localNoteSuffix: "، وليس في خدمة خارجية.",
+    localDevButton: "المتابعة كمطور محلي",
+    localDevDescription: "يعمل فقط أثناء التطوير المحلي على هذا الكمبيوتر.",
+    localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
+    localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
+    localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
     runLocally: "تشغيل محليًا",
     runLocallySentence: "تشغيل محليًا",
     openSource: "مجاني ومفتوح المصدر 100%",
@@ -1609,6 +1668,13 @@ ${googleNoticeRunLocalPanelHtml}
   </div>`
       : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
+  const localDevHtml = `
+  <div class="local-dev-signin" id="local-dev-signin" hidden>
+    <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
+    <p class="local-dev-description" id="local-dev-description"${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</p>
+    <button type="button" class="local-dev-full-options" id="local-dev-full-options" hidden${i18nAttr("localDevFullOptions")}>${esc(t("localDevFullOptions"))}</button>
+    <p class="msg error" id="local-dev-msg" role="status" aria-live="polite"></p>
+  </div>`;
   const identitySsoMagicLinkSelector = identitySsoHtml
     ? "  .card.magic-link-complete #identity-sso-btn,\n"
     : "";
@@ -2233,6 +2299,37 @@ ${
     cursor: pointer;
   }
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
+  .local-dev-signin {
+    margin: 1.25rem 0 0.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  }
+  .btn-local-dev {
+    margin-top: 0.25rem;
+  }
+  .btn-local-dev:disabled { opacity: 0.5; cursor: wait; }
+  .local-dev-description {
+    margin: 0.5rem 0 0;
+    color: color-mix(in srgb, currentColor 50%, transparent);
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    text-align: center;
+  }
+  .local-dev-full-options {
+    display: block;
+    margin: 0.75rem auto 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: color-mix(in srgb, currentColor 62%, transparent);
+    font-size: 0.75rem;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .local-dev-full-options:hover { color: currentColor; }
+  .local-dev-full-options[hidden] { display: none; }
+  .full-auth-options[hidden] { display: none; }
   .legal-note {
     margin-top: 0.375rem;
     margin-bottom: 0.875rem;
@@ -2633,6 +2730,8 @@ ${marketingPanelHtml}
     ${i18nDataAttr("data-upgrade-copy", "upgradeCopy").trim()}
   ></p>
 ${identitySsoHtml}
+${localDevHtml}
+<div id="full-auth-options" class="full-auth-options">
 ${
   renderGoogleButton
     ? `
@@ -2712,6 +2811,7 @@ ${signupLocalModeNoteHtml}
     </p>
   </form>`
 }
+</div>
 </div>
 <p class="local-note" id="local-note">
   <span${i18nAttr("localNotePrefix")}>${esc(t("localNotePrefix"))}</span> (<strong>${getConnectionLabel()}</strong>)<span${i18nAttr("localNoteSuffix")}>${esc(t("localNoteSuffix"))}</span>
@@ -3054,6 +3154,66 @@ ${signInJourneyInlineScript()}
         return false;
       });
     }
+    function __anIsLoopbackHostname() {
+      var hostname = (window.location.hostname || '').toLowerCase();
+      return hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1' || hostname.indexOf('127.') === 0;
+    }
+    function __anShouldStartWithLocalDev() {
+      if (!__anIsLoopbackHostname()) return false;
+      var params = new URLSearchParams(window.location.search);
+      var explicitTab = params.get('tab');
+      var verifiedRedirect = typeof __anIsVerifiedRedirectSuccess === 'function' && __anIsVerifiedRedirectSuccess();
+      return explicitTab !== 'login' && explicitTab !== 'signup' && !verifiedRedirect;
+    }
+    function __anSetFullAuthOptionsVisible(visible) {
+      var options = document.getElementById('full-auth-options');
+      var toggle = document.getElementById('local-dev-full-options');
+      if (!options) return;
+      if (visible) {
+        options.removeAttribute('hidden');
+        if (toggle) toggle.setAttribute('hidden', '');
+      } else {
+        options.setAttribute('hidden', '');
+        if (toggle) toggle.removeAttribute('hidden');
+      }
+    }
+    (function __anPrepareLocalDevButton() {
+      var container = document.getElementById('local-dev-signin');
+      var button = document.getElementById('local-dev-btn');
+      var fullOptionsButton = document.getElementById('local-dev-full-options');
+      var message = document.getElementById('local-dev-msg');
+      if (!container || !button || !__anIsLoopbackHostname()) return;
+      container.hidden = false;
+      var startWithLocalDev = __anShouldStartWithLocalDev();
+      __anSetFullAuthOptionsVisible(!startWithLocalDev);
+      if (startWithLocalDev) button.focus();
+      if (fullOptionsButton) fullOptionsButton.addEventListener('click', function() {
+        __anSetFullAuthOptionsVisible(true);
+        var firstInput = document.querySelector('#full-auth-options input, #full-auth-options button, #full-auth-options a');
+        if (firstInput) firstInput.focus();
+      });
+      button.addEventListener('click', function() {
+        button.disabled = true;
+        button.textContent = __anT('localDevSigningIn');
+        fetch(__anPath('/_agent-native/auth/local-dev'), {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' },
+        }).then(function(response) {
+          if (!response.ok) throw new Error('local-dev-auth-failed');
+        }).then(function() {
+          __anRedirectToSignedInApp(__anResumeHref());
+        }).catch(function() {
+          button.disabled = false;
+          button.textContent = __anT('localDevButton');
+          __anSetFullAuthOptionsVisible(true);
+          if (message) {
+            message.textContent = __anT('localDevFailed');
+            message.classList.add('show');
+          }
+        });
+      });
+    })();
 ${identitySsoScript}
 	    (function __anRedirectIfAlreadySignedIn() {
 	      __anMaybeRedirectSignedIn();
@@ -3743,7 +3903,7 @@ ${
       }
     }
     (function initActiveTab() {
-    var initial = 'signup';
+    var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';
     try {
       var params = new URLSearchParams(location.search);
       var qp = params.get('tab');
@@ -3762,7 +3922,8 @@ ${
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
     } catch (e) {}
-    setActiveTab(initial, { persist: false });
+    if (initial === 'magicLink') showMagicLinkForm();
+    else setActiveTab(initial, { persist: false });
 	      try {
 	        if (__anIsVerifiedRedirectSuccess()) {
 	          var rememberedEmail = readRememberedPendingSignupEmail();

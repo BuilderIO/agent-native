@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   defineAgentNativeConfig,
+  mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
   resolveAgentNativeConfig,
   type AgentNativeConfigContext,
@@ -73,5 +74,41 @@ describe("agent-native app config", () => {
         onboarding: { firstRun: "show-me-the-app" },
       }),
     ).toThrow('must be "off", "connect", or "connect-and-integrations"');
+  });
+
+  it("deep merges runtime and diagnostics config from JSON and typed overrides", () => {
+    expect(
+      mergeAgentNativeConfigs(
+        {
+          runtime: {
+            auth: { enabled: true },
+            environment: { required: ["NOTION_API_KEY"] },
+          },
+          diagnostics: { failOnBuild: false },
+        },
+        {
+          runtime: {
+            database: { required: false },
+            environment: { required: ["GOOGLE_CLIENT_ID"] },
+          },
+          diagnostics: { failOnBuild: true },
+        },
+      ),
+    ).toEqual({
+      runtime: {
+        auth: { enabled: true },
+        database: { required: false },
+        environment: { required: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"] },
+      },
+      diagnostics: { failOnBuild: true },
+    });
+  });
+
+  it("validates non-secret runtime requirements", () => {
+    expect(() =>
+      normalizeAgentNativeConfig({
+        runtime: { environment: { required: ["not valid"] } },
+      }),
+    ).toThrow("must contain valid environment variable names");
   });
 });

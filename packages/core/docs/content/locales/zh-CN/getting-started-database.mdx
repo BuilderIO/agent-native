@@ -1,0 +1,162 @@
+---
+title: "在 SQL 中持久化数据"
+description: "当动作结果需要在不同对话之间保留时，将其持久化到 SQL。"
+---
+
+# 在 SQL 中持久化数据
+
+这是 Getting Started 系列的可选第四部分。在[添加页面](/docs/getting-started-pages)中，你直接从路由使用了 `analyze-text`。现在，当结果需要在不同对话之间保留时，你将添加应用专属的 SQL 数据。
+
+## 添加表 {#persist-data}
+
+Chat 已经包含 SQL 运行时、框架表，并默认使用本地 SQLite 文件。你不需要为 Chat 的内置表安装数据库、设置 `DATABASE_URL` 或添加迁移。对于新的应用专属数据表，请添加以下三个服务器文件：
+
+1. `server/plugins/db.ts` 使用增量迁移创建表。
+2. `server/db/schema.ts` 为类型化查询描述表结构。
+3. `server/db/index.ts` 创建应用的类型化数据库客户端。
+
+创建 `server/plugins/db.ts`：
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "create-text-analyses",
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        paragraph_count INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+创建 `server/db/schema.ts`：
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const textAnalyses = table("text_analyses", {
+  id: text("id").primaryKey(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
+  paragraphCount: integer("paragraph_count").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+创建 `server/db/index.ts`：
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+```
+
+重新启动 `pnpm dev` 一次以运行迁移。未来的迁移应保持增量式，并为每个迁移提供新的 `version` 和 `name`。
+
+## 添加保存和列表动作
+
+保留 `analyze-text` 为只读动作，并使用单独的动作明确执行保存。创建 `actions/save-text-analysis.ts`：
+
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string().min(1),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+    paragraphCount: z.number(),
+  }),
+  run: async (
+    { input, charCount, wordCount, sentenceCount, paragraphCount },
+    ctx,
+  ) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before saving analyses.");
+
+    const id = crypto.randomUUID();
+    await getDb().insert(schema.textAnalyses).values({
+      id,
+      input,
+      charCount,
+      wordCount,
+      sentenceCount,
+      paragraphCount,
+      ownerEmail,
+    });
+
+    return { id };
+  },
+});
+```
+
+创建 `actions/list-text-analyses.ts`：
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { desc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the signed-in user's saved text analyses, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async (_, ctx) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before listing analyses.");
+
+    return getDb()
+      .select({
+        id: schema.textAnalyses.id,
+        input: schema.textAnalyses.input,
+        charCount: schema.textAnalyses.charCount,
+        wordCount: schema.textAnalyses.wordCount,
+        sentenceCount: schema.textAnalyses.sentenceCount,
+        paragraphCount: schema.textAnalyses.paragraphCount,
+        createdAt: schema.textAnalyses.createdAt,
+      })
+      .from(schema.textAnalyses)
+      .where(eq(schema.textAnalyses.ownerEmail, ownerEmail))
+      .orderBy(desc(schema.textAnalyses.createdAt));
+  },
+});
+```
+
+这些动作使用有类型的 Drizzle 客户端进行应用读写。这里的原始 SQL 只用于增量迁移。在动作确实需要持久化领域数据之前，可以跳过本页。
+
+## 试用
+
+在聊天中请智能体完成整个流程：
+
+> Run analyze-text on "Hello world", save the result with save-text-analysis, then list my saved text analyses.
+
+保存的记录现在可供智能体以及读取 `list-text-analyses` 的任何页面使用。
+
+## 继续
+
+你现在拥有了持久化的应用数据。继续阅读[关键概念](/docs/key-concepts)，了解动作、SQL 和页面如何协同工作。

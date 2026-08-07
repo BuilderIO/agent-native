@@ -7,7 +7,7 @@ name: Audit hosted app health
 #
 # --strict also asks every app to read its own pg_stat_activity, which is how
 # the database-pressure signals from the 2026-08-06 analytics outage get
-# checked hourly without putting a single production database credential in
+# checked every 15 minutes without putting a single production database credential in
 # CI. The app already holds its own.
 #
 # Scheduled workflows only run on the default branch, so this takes effect once
@@ -15,7 +15,7 @@ name: Audit hosted app health
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -67,7 +67,7 @@ jobs:
           # which apps are failing and how, not by how much.
           SIGNATURE="$(printf '%s' "$FAILING" | tr -d '0-9' | shasum | cut -c1-12)"
           BODY="$(printf '%s\n\n```\n%s\n```\n\n%s\n\n<!-- health-signature: %s -->' \
-            "Hourly audit is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
+            "15-minute audit is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
           ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
             --search "\"$ISSUE_TITLE\" in:title" --json number,title \
             --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)

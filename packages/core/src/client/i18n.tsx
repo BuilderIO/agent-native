@@ -574,6 +574,15 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "agentPanel.cliRequiresDevModeDescription":
     "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
   "agentPanel.toggleAgent": "Toggle agent",
+  "runtimeConfig.warningTitle": "Production configuration warning",
+  "runtimeConfig.errorTitle": "Production configuration error",
+  "runtimeConfig.issue_one": "{{count}} issue",
+  "runtimeConfig.issue_other": "{{count}} issues",
+  "runtimeConfig.showDetails": "Show configuration details",
+  "runtimeConfig.hideDetails": "Hide configuration details",
+  "runtimeConfig.copyPrompt": "Copy prompt for AI",
+  "runtimeConfig.copied": "Prompt copied",
+  "runtimeConfig.copyFailed": "Copy failed",
 };
 
 function flattenMessages(

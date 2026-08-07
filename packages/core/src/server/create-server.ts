@@ -18,6 +18,10 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import {
+  getRuntimeConfigReport,
+  runtimeConfigRequirementsFromSearchParams,
+} from "../shared/runtime-config.js";
 import { getSession } from "./auth.js";
 import {
   getAllowedCorsOrigin,
@@ -193,10 +197,24 @@ export function createServer(
   if (!options.disablePing) {
     router.get(
       "/_agent-native/ping",
-      defineEventHandler(() => {
+      defineEventHandler((event) => {
         const message =
           options.pingMessage ?? process.env.PING_MESSAGE ?? "pong";
-        return { message };
+        const configuration =
+          event.url?.searchParams.get("configuration") === "1" ||
+          event.url?.searchParams.get("configuration") === "true";
+        if (!configuration) return { message };
+
+        return {
+          message,
+          configuration: getRuntimeConfigReport(
+            process.env,
+            runtimeConfigRequirementsFromSearchParams(
+              event.url?.searchParams ?? new URLSearchParams(),
+            ),
+            { phase: "runtime", appName: process.env.APP_NAME },
+          ),
+        };
       }),
     );
   }

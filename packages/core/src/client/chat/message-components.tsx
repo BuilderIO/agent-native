@@ -84,6 +84,7 @@ import {
 import {
   ToolCallFallback,
   ToolActivityPresentation,
+  ToolCallStackMotion,
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
@@ -1556,63 +1557,66 @@ export function AssistantMessage() {
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
-        <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
-          {({ part, children }) => {
-            switch (part.type) {
-              case "group-work": {
-                const showSummary = shouldShowAssistantWorkSummary({
-                  isLast,
-                  isComplete,
-                  hasCollapsibleWork,
-                  hasUnresolvedTool,
-                  chatRunning,
-                });
-                if (!showSummary) return <>{children}</>;
-                return (
-                  <WorkedForSummary
-                    durationMs={capturedDurationMs ?? persistedDurationMs}
-                    defaultOpen={hasCustomUi}
-                    autoCollapse={animateCollapse && !hasCustomUi}
-                  >
-                    {children}
-                  </WorkedForSummary>
-                );
+        <ToolCallStackMotion>
+          <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
+            {({ part, children }) => {
+              switch (part.type) {
+                case "group-work": {
+                  const showSummary = shouldShowAssistantWorkSummary({
+                    isLast,
+                    isComplete,
+                    hasCollapsibleWork,
+                    hasUnresolvedTool,
+                    chatRunning,
+                  });
+                  if (!showSummary) return <>{children}</>;
+                  return (
+                    <WorkedForSummary
+                      durationMs={capturedDurationMs ?? persistedDurationMs}
+                      defaultOpen={hasCustomUi}
+                      autoCollapse={animateCollapse && !hasCustomUi}
+                    >
+                      {children}
+                    </WorkedForSummary>
+                  );
+                }
+                case "group-ran-tools": {
+                  const toolCount = part.indices.filter(
+                    (index) => msgContent?.[index]?.type === "tool-call",
+                  ).length;
+                  return (
+                    <RanToolsSummary toolCount={toolCount}>
+                      {children}
+                    </RanToolsSummary>
+                  );
+                }
+                case "text":
+                  return <MarkdownText />;
+                case "reasoning":
+                  return <ReasoningMessagePart />;
+                case "tool-call":
+                  if (shadowedToolCallIds.has(part.toolCallId)) return null;
+                  return part.toolUI ? (
+                    <ToolActivityPresentation
+                      toolName={part.toolName}
+                      isRunning={part.status?.type === "running"}
+                      isActiveTail={part.toolCallId === activeTailToolCallId}
+                      toolCallId={part.toolCallId}
+                    >
+                      {part.toolUI}
+                    </ToolActivityPresentation>
+                  ) : (
+                    <ToolCallFallback
+                      {...part}
+                      isActiveTail={part.toolCallId === activeTailToolCallId}
+                    />
+                  );
+                default:
+                  return null;
               }
-              case "group-ran-tools": {
-                const toolCount = part.indices.filter(
-                  (index) => msgContent?.[index]?.type === "tool-call",
-                ).length;
-                return (
-                  <RanToolsSummary toolCount={toolCount}>
-                    {children}
-                  </RanToolsSummary>
-                );
-              }
-              case "text":
-                return <MarkdownText />;
-              case "reasoning":
-                return <ReasoningMessagePart />;
-              case "tool-call":
-                if (shadowedToolCallIds.has(part.toolCallId)) return null;
-                return part.toolUI ? (
-                  <ToolActivityPresentation
-                    toolName={part.toolName}
-                    isRunning={part.status?.type === "running"}
-                    isActiveTail={part.toolCallId === activeTailToolCallId}
-                  >
-                    {part.toolUI}
-                  </ToolActivityPresentation>
-                ) : (
-                  <ToolCallFallback
-                    {...part}
-                    isActiveTail={part.toolCallId === activeTailToolCallId}
-                  />
-                );
-              default:
-                return null;
-            }
-          }}
-        </MessagePrimitive.GroupedParts>
+            }}
+          </MessagePrimitive.GroupedParts>
+        </ToolCallStackMotion>
         {showInlineRunError && messageRunError && (
           <InlineRunErrorNotice
             info={messageRunError}

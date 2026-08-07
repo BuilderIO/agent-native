@@ -46,6 +46,7 @@ const guards = [
   "guard:no-silent-coercion",
   "guard:no-raw-colors",
   "guard:no-boot-data-work",
+  "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
 ] as const;
 
@@ -86,7 +87,7 @@ if (args.dryRun) {
     )}`,
   );
   for (const guard of guards) {
-    console.log(`${pnpmCommand()} run ${guard}`);
+    console.log(formatCommand(guardCommand(guard)));
   }
   process.exit(0);
 }
@@ -149,7 +150,8 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
 
 function runGuard(name: GuardName): Promise<GuardResult> {
   const startedAt = Date.now();
-  const child = spawn(pnpmCommand(), ["run", name], {
+  const [command, args] = guardCommand(name);
+  const child = spawn(command, args, {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -204,6 +206,17 @@ Options:
 Environment overrides:
   GUARD_CONCURRENCY / AGENT_NATIVE_GUARD_CONCURRENCY
 `);
+}
+
+function guardCommand(name: GuardName): [string, string[]] {
+  if (name === "guard:no-heavy-dashboard-list-reads") {
+    return ["node", ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+  }
+  return [pnpmCommand(), ["run", name]];
+}
+
+function formatCommand([command, args]: [string, string[]]): string {
+  return [command, ...args].join(" ");
 }
 
 function parseArgs(rawArgs: string[]): {

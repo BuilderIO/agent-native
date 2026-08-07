@@ -25,6 +25,7 @@ import { AppProviders } from "./app-providers.js";
 let container: HTMLDivElement;
 let root: Root;
 let originalLocation: Location;
+let originalFetch: typeof window.fetch;
 let replaceMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -32,6 +33,13 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   replaceMock = vi.fn();
+  originalFetch = window.fetch;
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: vi
+      .fn()
+      .mockRejectedValue(new Error("configuration probe unavailable")),
+  });
   originalLocation = window.location;
   Object.defineProperty(window, "location", {
     configurable: true,
@@ -52,6 +60,10 @@ afterEach(() => {
   Object.defineProperty(window, "location", {
     configurable: true,
     value: originalLocation,
+  });
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: originalFetch,
   });
   vi.clearAllMocks();
 });

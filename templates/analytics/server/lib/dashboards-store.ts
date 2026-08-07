@@ -28,7 +28,7 @@ import {
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -62,6 +62,7 @@ export interface DashboardSummaryRecord {
   id: string;
   kind: DashboardKind;
   name: string;
+  description: string | null;
   configName: string | null;
   catalogTemplateId: string | null;
   demoId: string | null;
@@ -75,6 +76,17 @@ export interface DashboardSummaryRecord {
   hiddenAt: string | null;
   hiddenBy: string | null;
 }
+
+/** Hydrated dashboard row for catalog ranking only. */
+export interface DashboardCatalogRecord {
+  id: string;
+  kind: DashboardKind;
+  title: string;
+  description: string | null;
+  config: Record<string, unknown>;
+}
+
+const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
 
 export interface DashboardRevisionRecord {
   id: string;
@@ -279,6 +291,13 @@ function rowToDashboardRevision(row: any): DashboardRevisionRecord {
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
   };
+}
+
+function configDescriptionFromValue(
+  value: Record<string, unknown>,
+): string | null {
+  const description = value["description"];
+  return typeof description === "string" ? description : null;
 }
 
 function configFromSettings(data: Record<string, unknown>): {
@@ -564,6 +583,11 @@ export async function listDashboardSummaries(
     : sql<
         string | null
       >`json_extract(${schema.dashboards.config}, '$.parentId')`;
+  const description = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'description')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.description')`;
   const configName = isPostgres()
     ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
     : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
@@ -586,6 +610,7 @@ export async function listDashboardSummaries(
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
       name: schema.dashboards.title,
+      description,
       ...(includeCatalogMetadata
         ? { configName, catalogTemplateId, demoId }
         : {}),
@@ -603,6 +628,7 @@ export async function listDashboardSummaries(
     .where(where);
   const out: DashboardSummaryRecord[] = rows.map((row: any) => ({
     ...row,
+    description: typeof row.description === "string" ? row.description : null,
     configName: typeof row.configName === "string" ? row.configName : null,
     catalogTemplateId:
       typeof row.catalogTemplateId === "string" ? row.catalogTemplateId : null,
@@ -656,6 +682,7 @@ export async function listDashboardSummaries(
         id,
         kind,
         name: title,
+        description: configDescriptionFromValue(config),
         ...catalogMetadata,
         parentId: typeof config.parentId === "string" ? config.parentId : null,
         ownerEmail: ctx.email,
@@ -672,6 +699,90 @@ export async function listDashboardSummaries(
   } catch (error) {
     if (filter?.legacyScan === "strict") throw error;
     // Legacy scan is best-effort.
+  }
+  return out;
+}
+
+/**
+ * Hydrate a bounded set of dashboard ids for catalog ranking.
+ *
+ * This is the catalog-specific path: it reads only the id, kind, title,
+ * description, and config needed for ranking, and only for explicit ids that
+ * were already shortlisted from the metadata path.
+ */
+export async function loadDashboardCatalogDashboards(
+  ctx: AccessCtx,
+  ids: readonly string[],
+  dbOverride?: any,
+): Promise<DashboardCatalogRecord[]> {
+  const db = (dbOverride ?? getDb()) as any;
+  const uniqueIds = [
+    ...new Set(ids.map((id) => id.trim()).filter(Boolean)),
+  ].slice(0, MAX_CATALOG_DASHBOARD_HYDRATION);
+  if (!uniqueIds.length) return [];
+
+  const description = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'description')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.description')`;
+  const archived = isNull(schema.dashboards.archivedAt);
+  const visible = isNull(schema.dashboards.hiddenAt);
+  const where = and(
+    accessFilter(schema.dashboards, schema.dashboardShares, {
+      userEmail: ctx.email,
+      orgId: ctx.orgId ?? undefined,
+    }),
+    inArray(schema.dashboards.id, uniqueIds),
+    archived,
+    visible,
+  );
+
+  // guard:allow-heavy-dashboard-list-read - bounded explicit ids shortlisted from metadata
+  const sqlRows = await db
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      title: schema.dashboards.title,
+      description,
+      config: schema.dashboards.config,
+    })
+    .from(schema.dashboards)
+    .where(where);
+
+  const byId = new Map<string, DashboardCatalogRecord>(
+    sqlRows.map((row: any) => {
+      const catalogRow: DashboardCatalogRecord = {
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        description:
+          typeof row.description === "string" ? row.description : null,
+        config:
+          typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+      };
+      return [row.id, catalogRow];
+    }),
+  );
+
+  const out: DashboardCatalogRecord[] = [];
+  for (const id of uniqueIds) {
+    const row = byId.get(id);
+    if (row) {
+      out.push(row);
+      continue;
+    }
+
+    const legacy = await findLegacyDashboard(id, ctx);
+    if (!legacy) continue;
+    const { title, config } = configFromSettings(legacy.data);
+    out.push({
+      id,
+      kind: legacy.kind,
+      title,
+      description: configDescriptionFromValue(config),
+      config,
+    });
   }
   return out;
 }

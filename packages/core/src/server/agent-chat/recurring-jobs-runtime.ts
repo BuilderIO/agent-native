@@ -10,11 +10,15 @@ type RecurringJobsRuntimeEnvKey =
   | "APP_URL"
   | "BETTER_AUTH_URL"
   | "DEPLOY_URL"
+  | "AWS_EXECUTION_ENV"
+  | "AWS_LAMBDA_FUNCTION_NAME"
   | "NETLIFY"
   | "NETLIFY_LOCAL"
+  | "NITRO_PRESET"
   | "NODE_ENV"
   | "SITE_ID"
   | "URL"
+  | "VERCEL"
   | "VITE_APP_URL"
   | "VITE_WORKSPACE_GATEWAY_URL"
   | "WORKSPACE_GATEWAY_URL";
@@ -58,6 +62,18 @@ export function shouldDisableRecurringJobsRuntime(
   env: RecurringJobsRuntimeEnv = process.env,
 ): boolean {
   if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
+
+  // A serverless isolate is not a durable scheduler. Keep this check separate
+  // from the platform-specific scheduler branch below so a new sweep cannot
+  // accidentally start an in-process timer before its platform trigger exists.
+  const isServerlessRuntime =
+    env.NETLIFY_LOCAL !== "true" &&
+    (isTruthyEnv(env.NETLIFY) ||
+      env.NITRO_PRESET === "netlify" ||
+      Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ||
+      env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+      isTruthyEnv(env.VERCEL));
+  if (isServerlessRuntime) return true;
 
   const isLocalRuntime =
     env.NODE_ENV === "development" ||

@@ -66,14 +66,23 @@ describe("WorkspaceTemplateCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows template context and only links to a live app when supplied", async () => {
+  it("keeps template cards concise and moves setup context into the add flow", async () => {
     await act(async () => {
       root.render(<WorkspaceTemplateCard template={template} />);
     });
 
     expect(container.textContent).toContain("Weekly report");
-    expect(container.textContent).toContain("RevOps");
-    expect(container.textContent).toContain(
+    expect(container.textContent).not.toContain("RevOps");
+    expect(container.textContent).not.toContain(
+      "Connect your CRM after installing the app.",
+    );
+
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
+    );
+    expect(trigger).not.toBeUndefined();
+    await act(async () => trigger?.click());
+    expect(document.body.textContent).toContain(
       "Connect your CRM after installing the app.",
     );
 
@@ -103,7 +112,7 @@ describe("WorkspaceTemplateCard", () => {
     });
 
     const trigger = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Create from template"),
+      (button) => button.textContent?.includes("Add app"),
     );
     expect(trigger).not.toBeUndefined();
 
@@ -166,9 +175,9 @@ describe("WorkspaceTemplateCard", () => {
     expect(container.textContent).toContain("Curated templates");
     expect(container.textContent).toContain("Installed");
     expect(container.querySelector('a[href^="https://"]')).toBeNull();
-    const remixButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Create from template"),
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
     );
-    expect(remixButton).not.toHaveProperty("disabled", true);
+    expect(addButton).not.toHaveProperty("disabled", true);
   });
 });

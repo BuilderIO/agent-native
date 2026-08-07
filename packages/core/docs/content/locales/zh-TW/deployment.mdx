@@ -392,14 +392,14 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 資料庫連線變數（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每個應用程式 `<APP_NAME>_DATABASE_URL`）位於 [Database](/docs/database#production) 中。
 
-### 正式環境中需要 {#env-required-prod}
+### 正式環境敏感設定 {#env-required-prod}
 
-這些必須在將應用程式升級到真正的產品部署之前設定。缺失值要么失敗關閉（框架拒絕啟動/拒絕處理請求），要么回退到較弱的行為並發出響亮的警告。
+這些設定涵蓋正式環境中的敏感行為。使用框架驗證的獨立應用程式需要穩定的 `BETTER_AUTH_SECRET` 和持久資料庫；未設定公開 auth URL 時，框架會根據請求、範本或託管平台內容推斷。Workspace 和 A2A 設定取決於使用的功能。缺失值會安全失敗，或在發出清楚警告後回退到較弱的行為。
 
 | 變數                                        | 描述                                                                                                                                                                                      |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                        | 32+ 字元的隨機字串。簽署工作階段 cookie，並作為 `OAUTH_STATE_SECRET` 與應用程式本機加密值的後備。它也是讀取現有共享保管庫密文的舊版候選項。正式環境中必需。                               |
-| `BETTER_AUTH_URL`                           | 此應用程式的公開放原始碼（例如 `https://mail.example.com`）。用於cookie域和 OAuth 重新導向構造。                                                                                          |
+| `BETTER_AUTH_URL`                           | 此應用程式公開來源的選用覆寫值（例如 `https://mail.example.com`）。未設定時，框架會根據請求、範本和託管平台內容推斷。                                                                                         |
 | `ANTHROPIC_API_KEY`                         | API 嵌入式正式環境代理金鑰。 **在多租戶部署中**，當使用者沒有每使用者金鑰時，框架拒絕回退到此 - 需要自帶金鑰。單租戶自託管安裝將其用作全域金鑰。                                          |
 | `OAUTH_STATE_SECRET`                        | 用於 OAuth 狀態信封（Google、Atlassian、Zoom）的專用 HMAC 金鑰。未設定時回落到 `BETTER_AUTH_SECRET`，但建議使用專用值，以便旋轉一個值不會使另一個值無效。透過`openssl rand -hex 32`生成。 |
 | `A2A_SECRET`                                | 應用程式間 A2A JSON-RPC 的共享 HMAC。未設定專用工作區金鑰時，共享保管庫使用由此值按用途衍生的金鑰，因此輪替它也會輪替保管庫金鑰。                                                         |

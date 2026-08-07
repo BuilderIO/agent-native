@@ -7,6 +7,7 @@ import {
   isSsrCacheEnabled,
   parseSsrCacheSetting,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
   ssrCacheHeadersForPolicy,
 } from "./cache-control.js";
@@ -188,6 +189,24 @@ describe("resolveSsrCacheHeaders", () => {
     expect(resolveSsrCacheHeaders(envWith("banana"))).toEqual({
       ...DEFAULT_SSR_CACHE_HEADERS,
     });
+  });
+});
+
+describe("resolveSsrCacheKeyHeaders", () => {
+  it("narrows query variation on Netlify", () => {
+    expect(resolveSsrCacheKeyHeaders({ NETLIFY: "true" })).toEqual({
+      "netlify-vary": "query=_routes|index",
+    });
+    expect(resolveSsrCacheKeyHeaders({ SITE_ID: "site-test" })).toEqual({
+      "netlify-vary": "query=_routes|index",
+    });
+  });
+
+  it("does not emit a Netlify header outside Netlify", () => {
+    expect(resolveSsrCacheKeyHeaders({})).toEqual({});
+    expect(
+      resolveSsrCacheKeyHeaders({ NETLIFY: "true", NETLIFY_LOCAL: "true" }),
+    ).toEqual({});
   });
 });
 

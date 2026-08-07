@@ -99,6 +99,10 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import {
+  getRuntimeConfigReport,
+  runtimeConfigRequirementsFromSearchParams,
+} from "../shared/runtime-config.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
@@ -1342,7 +1346,7 @@ export async function readLegacyCoreRouteInitSettings(
  * Routes:
  *   GET    /_agent-native/poll                          — polling endpoint for change detection
  *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
- *   GET    /_agent-native/ping                          — health check
+ *   GET    /_agent-native/ping                          — health check; add ?configuration=1 for redacted deploy diagnostics
  *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
@@ -1831,9 +1835,24 @@ export function createCoreRoutesPlugin(
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
-          defineEventHandler(() => ({
-            message: process.env.PING_MESSAGE ?? "pong",
-          })),
+          defineEventHandler((event) => {
+            const message = process.env.PING_MESSAGE ?? "pong";
+            const configuration =
+              event.url?.searchParams.get("configuration") === "1" ||
+              event.url?.searchParams.get("configuration") === "true";
+            if (!configuration) return { message };
+
+            return {
+              message,
+              configuration: getRuntimeConfigReport(
+                process.env,
+                runtimeConfigRequirementsFromSearchParams(
+                  event.url?.searchParams ?? new URLSearchParams(),
+                ),
+                { phase: "runtime", appName: process.env.APP_NAME },
+              ),
+            };
+          }),
         );
       }
 

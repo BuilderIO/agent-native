@@ -136,7 +136,7 @@ import {
 } from "../chat-threads/store.js";
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { isTransientDatabaseError } from "../db/client.js";
+import { isServerlessRuntime, isTransientDatabaseError } from "../db/client.js";
 import {
   verifyInternalToken,
   extractBearerToken,
@@ -5869,7 +5869,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
       const isBackgroundRuntime = isInBackgroundFunctionRuntime();
       const disableRecurringJobsRuntime =
-        isBackgroundRuntime || shouldDisableRecurringJobsRuntime();
+        isBackgroundRuntime ||
+        isServerlessRuntime() ||
+        shouldDisableRecurringJobsRuntime();
 
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
@@ -5987,7 +5989,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // A non-Netlify self-dispatch only waits for the request to leave the
       // current invocation. Keep the durable history row as a retryable queue
       // so a frozen serverless handoff is recovered on the next sweep.
-      if (!isBackgroundRuntime) {
+      if (!disableRecurringJobsRuntime) {
         (() => {
           let inFlight = false;
           const sweep = async () => {
@@ -6024,7 +6026,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // per instance; cheap (one indexed query when no active tasks are found).
       // Throttled by the same per-owner interval guard inside reconcileAgentTeamRunsForOwner.
       (() => {
-        if (isBackgroundRuntime) return;
+        if (disableRecurringJobsRuntime) return;
         // Track when this instance last ran the sweep so only one sweep fires
         // per 2-min window even if multiple timers fire in overlapping invocations.
         let lastSweep = 0;
@@ -6185,7 +6187,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
-        if (isBackgroundRuntime) return;
+        if (disableRecurringJobsRuntime) return;
         setTimeout(() => {
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
@@ -6237,7 +6239,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // still fails loud, and it survives the fast sweep having missed a row
       // entirely (e.g. a restart landed between fast-sweep ticks).
       (() => {
-        if (isBackgroundRuntime) return;
+        if (disableRecurringJobsRuntime) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 

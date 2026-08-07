@@ -237,6 +237,20 @@ export {
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
 export {
+  buildRuntimeConfigPrompt,
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+  parseRuntimeConfigReport,
+  runtimeConfigRequirementsFromSearchParams,
+  type RuntimeConfigEnvironment,
+  type RuntimeConfigIssue,
+  type RuntimeConfigIssueCode,
+  type RuntimeConfigIssueSeverity,
+  type RuntimeConfigPhase,
+  type RuntimeConfigReport,
+  type RuntimeConfigRequirements,
+} from "../shared/runtime-config.js";
+export {
   AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL,
   AGENT_NATIVE_OG_IMAGE_HEIGHT,
   AGENT_NATIVE_OG_IMAGE_NETLIFY_CACHE_CONTROL,

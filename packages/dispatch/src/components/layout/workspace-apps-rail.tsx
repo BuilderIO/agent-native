@@ -8,6 +8,7 @@ import {
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
+import { AppIcon } from "../app-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 function pathFromValue(value: string | null | undefined): string | null {
@@ -31,10 +32,6 @@ function appMatchesPath(app: WorkspaceAppSummary, pathname: string): boolean {
   return candidatePaths.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
-}
-
-function appInitial(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "A";
 }
 
 function appLabel(app: WorkspaceAppSummary): string {
@@ -90,16 +87,12 @@ export function WorkspaceAppsRail({
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         )}
       >
-        <span
-          className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold",
-            active
-              ? "bg-sidebar-primary text-sidebar-primary-foreground"
-              : "bg-sidebar-accent text-sidebar-foreground/70",
-          )}
-        >
-          {appInitial(label)}
-        </span>
+        <AppIcon
+          id={app.id}
+          name={label}
+          size="sm"
+          className={cn("size-5 rounded-md", active && "ring-1 ring-ring/30")}
+        />
         {!collapsed ? <span className="truncate">{label}</span> : null}
       </a>
     );

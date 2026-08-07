@@ -1,0 +1,162 @@
+---
+title: "SQL에 데이터 저장하기"
+description: "결과를 대화를 넘어 유지해야 할 때 액션 결과를 SQL에 저장하세요."
+---
+
+# SQL에 데이터 저장하기
+
+시작하기 시리즈의 선택 사항인 네 번째 단계입니다. [페이지 추가하기](/docs/getting-started-pages)에서는 라우트에서 `analyze-text`를 직접 사용했습니다. 여기서는 결과를 대화를 넘어 유지해야 할 때 앱 소유의 SQL 데이터를 추가합니다.
+
+## 테이블 추가하기 {#persist-data}
+
+Chat에는 SQL 런타임, 프레임워크 테이블, 로컬 SQLite 파일이 기본으로 포함되어 있습니다. 데이터베이스를 설치하거나 `DATABASE_URL`을 설정하거나 Chat의 기본 제공 테이블을 위한 마이그레이션을 추가할 필요가 없습니다. 새로운 앱 소유 테이블을 만들려면 다음 세 개의 서버 파일을 추가하세요.
+
+1. `server/plugins/db.ts`는 추가 마이그레이션으로 테이블을 만듭니다.
+2. `server/db/schema.ts`는 타입이 지정된 쿼리를 위해 테이블을 설명합니다.
+3. `server/db/index.ts`는 앱의 타입이 지정된 데이터베이스 클라이언트를 만듭니다.
+
+`server/plugins/db.ts`를 만드세요.
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "create-text-analyses",
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        paragraph_count INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+`server/db/schema.ts`를 만드세요.
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const textAnalyses = table("text_analyses", {
+  id: text("id").primaryKey(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
+  paragraphCount: integer("paragraph_count").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+`server/db/index.ts`를 만드세요.
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+```
+
+`pnpm dev`를 한 번 재시작하여 마이그레이션을 실행하세요. 이후 마이그레이션은 추가 방식으로 유지하고, 각각 새 `version`과 `name`을 지정하세요.
+
+## 저장 및 목록 액션 추가하기
+
+`analyze-text`는 읽기 전용으로 유지하고 저장은 별도의 액션으로 명시적으로 처리하세요. `actions/save-text-analysis.ts`를 만드세요.
+
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string().min(1),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+    paragraphCount: z.number(),
+  }),
+  run: async (
+    { input, charCount, wordCount, sentenceCount, paragraphCount },
+    ctx,
+  ) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before saving analyses.");
+
+    const id = crypto.randomUUID();
+    await getDb().insert(schema.textAnalyses).values({
+      id,
+      input,
+      charCount,
+      wordCount,
+      sentenceCount,
+      paragraphCount,
+      ownerEmail,
+    });
+
+    return { id };
+  },
+});
+```
+
+`actions/list-text-analyses.ts`를 만드세요.
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { desc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the signed-in user's saved text analyses, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async (_, ctx) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before listing analyses.");
+
+    return getDb()
+      .select({
+        id: schema.textAnalyses.id,
+        input: schema.textAnalyses.input,
+        charCount: schema.textAnalyses.charCount,
+        wordCount: schema.textAnalyses.wordCount,
+        sentenceCount: schema.textAnalyses.sentenceCount,
+        paragraphCount: schema.textAnalyses.paragraphCount,
+        createdAt: schema.textAnalyses.createdAt,
+      })
+      .from(schema.textAnalyses)
+      .where(eq(schema.textAnalyses.ownerEmail, ownerEmail))
+      .orderBy(desc(schema.textAnalyses.createdAt));
+  },
+});
+```
+
+이 액션들은 앱에서 읽고 쓸 때 타입이 지정된 Drizzle 클라이언트를 사용합니다. 여기서 원시 SQL이 필요한 부분은 추가 마이그레이션뿐입니다. 액션에 영속적인 도메인 데이터가 필요해질 때까지 이 페이지는 건너뛰어도 됩니다.
+
+## 사용해 보기
+
+채팅에서 에이전트에게 전체 흐름을 수행하도록 요청하세요:
+
+> Run analyze-text on "Hello world", save the result with save-text-analysis, then list my saved text analyses.
+
+이제 저장된 행은 에이전트와 `list-text-analyses`를 읽는 모든 페이지에서 사용할 수 있습니다.
+
+## 다음 단계
+
+이제 영속적인 앱 데이터를 사용할 수 있습니다. [핵심 개념](/docs/key-concepts)으로 계속 진행하여 액션, SQL, 페이지가 어떻게 연결되는지 살펴보세요.
