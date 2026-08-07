@@ -136,11 +136,11 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
   ]}
 />
 
-就是这样。用户现在在每个页面上都有一个可切换代理 - 具有聊天历史记录、代理资源选项卡、CLI 终端、语音输入和全屏模式。通过 `localStorage` 重新加载，状态仍然存在。
+就是这样。用户现在在每个页面上都有一个可切换代理 - 具有聊天历史记录、代理资源选项卡、CLI 终端、语音输入和更宽的抽屉。通过 `localStorage` 重新加载，状态仍然存在。
 
 ### 道具
 
-- **`children`** — 您的应用程序的正常布局和路线。在主区域渲染；代理面板在桌面上安装在其旁边，在移动/全屏上安装在其上方。
+- **`children`** — 您的应用程序的正常布局和路线。在主区域渲染；代理面板在桌面上安装在其旁边，在移动设备上安装在其上方。
 - **`emptyStateText`** — 聊天没有消息时显示的问候语。默认值：`"How can I help you?"`。
 - **`suggestions`** — 启动提示在空时呈现为可点击的筹码。
 - **`dynamicSuggestions`** — 上下文感知提示芯片与 `suggestions` 合并。默认启用；传递 `false` 仅显示静态建议，或传递 `{ max, includeStatic, getSuggestions }` 进行自定义。
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` 或 `"cli"`。默认值：`"chat"`。
 - **`className`** — 外部容器的 CSS 类。
 - **`onCollapse`** — 如果提供，标题中会出现折叠按钮。
-- **`isFullscreen`** / **`onToggleFullscreen`** — 如果您想要 Claude 样式的居中列，请连接外部全屏状态。
+- **`isFullscreen`** — 如果您想在页面级或自定义面板中使用 Claude 样式的居中列，请设置此项。侧边栏改用更宽的抽屉。
 - **`storageKey`** — `localStorage` 密钥的命名空间。当您在同一页面中渲染多个面板（不同的应用程序实例或工作区）时很有用。
 
 完整道具：`@agent-native/core/client` 中的 `AgentPanelProps`。
