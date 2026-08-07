@@ -113,9 +113,7 @@ function appendDevLog(
   logs.push(chunk);
   if (
     chunk.includes("reloading the page") ||
-    chunk.includes("optimized dependencies changed") ||
-    chunk.includes("new dependencies optimized") ||
-    chunk.includes("bundling dependencies")
+    chunk.includes("optimized dependencies changed")
   ) {
     viteReload.lastReloadAt = Date.now();
   }
@@ -909,47 +907,6 @@ async function gotoAndWaitForChatPage(
   );
 }
 
-/**
- * Best-effort pre-load of a route so Vite's first-time discovery of that
- * route's lazy chunks (and the full-page reload it triggers) happens before
- * the strict, tightly-timed assertion pass below — not during it. Errors
- * here are swallowed; the caller's strict pass retries with fresh state.
- */
-async function warmupRoute(
-  page: Page,
-  running: RunningDev,
-  path: string,
-  isReady: () => Promise<boolean>,
-): Promise<void> {
-  const deadline = Date.now() + (isCi ? 120_000 : 60_000);
-  let lastError: unknown;
-
-  while (Date.now() < deadline) {
-    try {
-      await gotoCommitted(
-        page,
-        `${running.baseUrl}${path}`,
-        "domcontentloaded",
-      );
-      await waitForViteDepsQuiet(running.viteReload, running.logs, {
-        timeoutMs: 60_000,
-      });
-      if (await isReady()) return;
-      lastError = new Error(`${path} warmup readiness check failed`);
-    } catch (err) {
-      lastError = err;
-    }
-    if (Date.now() >= deadline) break;
-    await sleep(2_000);
-  }
-
-  log(
-    `warmup ${path} did not settle cleanly, continuing to strict pass: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
-  );
-}
-
 async function waitForAuthenticatedShell(
   page: Page,
   baseUrl: string,
@@ -1008,17 +965,6 @@ async function runBrowserSmoke(
   // Warmup covers `/` + auto-login + Vite quiet + authenticated session.
   log("warmup: auto-login, Vite dep quiet, authenticated /");
   await waitForAuthenticatedShell(page, baseUrl, running);
-
-  log(
-    "warmup: pre-load /agent so first-time chunk discovery reloads settle before the strict pass",
-  );
-  await warmupRoute(page, running, "/agent", () =>
-    page
-      .getByRole("tablist", { name: /(?:Agent|Settings) sections/ })
-      .waitFor({ state: "visible", timeout: 10_000 })
-      .then(() => true)
-      .catch(() => false),
-  );
 
   browserErrors.length = 0;
   httpErrors.length = 0;
