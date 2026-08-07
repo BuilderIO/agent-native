@@ -404,56 +404,62 @@ async function importPdfPagesWithFidelity(args: {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
 
+  // Bounded the same way as the PPTX upload path below — an unbounded
+  // `Promise.all` here would fire one image-upload batch per page at once,
+  // and a large deck can be dozens of pages.
+  const uploadLimit = pLimit(4);
   const slides = await Promise.all(
-    pages.map(async (page, index) => {
-      const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
+    pages.map((page, index) =>
+      uploadLimit(async () => {
+        const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
 
-      if (!fidelity || fidelity.elements.length === 0) {
-        // Fidelity parsing failed or found nothing placeable on this page
-        // (e.g. a fully blank page) — fall back to plain extracted text
-        // instead of producing a silently blank slide.
-        const firstLine = page.text.split(/\r?\n/)[0]?.trim();
-        const [content] = convertSectionsToSlides([
-          { heading: firstLine || `Page ${page.num}`, content: page.text },
-        ]);
-        return {
-          id: newSlideId(),
-          content: content ?? '<div class="fmd-slide"></div>',
-          layout: "content",
-          notes: page.text,
-        };
-      }
+        if (!fidelity || fidelity.elements.length === 0) {
+          // Fidelity parsing failed or found nothing placeable on this page
+          // (e.g. a fully blank page) — fall back to plain extracted text
+          // instead of producing a silently blank slide.
+          const firstLine = page.text.split(/\r?\n/)[0]?.trim();
+          const [content] = convertSectionsToSlides([
+            { heading: firstLine || `Page ${page.num}`, content: page.text },
+          ]);
+          return {
+            id: newSlideId(),
+            content: content ?? '<div class="fmd-slide"></div>',
+            layout: "content",
+            notes: page.text,
+          };
+        }
 
-      const slideForUpload = {
-        texts: [],
-        images: [],
-        elements: fidelity.elements,
-      };
-      const uploaded = await uploadPptxSlideImages({
-        slide: slideForUpload,
-        slideIndex: index,
-        ownerEmail,
-      });
-      const content = convertToSlideHtml(
-        {
+        const slideForUpload = {
           texts: [],
           images: [],
           elements: fidelity.elements,
-          widthEmu: fidelity.widthEmu,
-          heightEmu: fidelity.heightEmu,
-          // A page with no detected full-page fill is plain paper.
-          backgroundColor: fidelity.backgroundColor ?? "#ffffff", // guard:allow-raw-color - fallback plain-paper background, not a design-system token
-        },
-        uploaded.urls,
-      );
+        };
+        const uploaded = await uploadPptxSlideImages({
+          slide: slideForUpload,
+          slideIndex: index,
+          ownerEmail,
+        });
+        const content = convertToSlideHtml(
+          {
+            texts: [],
+            images: [],
+            elements: fidelity.elements,
+            widthEmu: fidelity.widthEmu,
+            heightEmu: fidelity.heightEmu,
+            // A page with no detected full-page fill is plain paper.
+            backgroundColor: fidelity.backgroundColor ?? "#ffffff", // guard:allow-raw-color - fallback plain-paper background, not a design-system token
+          },
+          uploaded.urls,
+        );
 
-      return {
-        id: newSlideId(),
-        content,
-        layout: "content",
-        notes: page.text,
-      };
-    }),
+        return {
+          id: newSlideId(),
+          content,
+          layout: "content",
+          notes: page.text,
+        };
+      }),
+    ),
   );
 
   await appendDeckSlides(deckId, title, slides, "import-file:pdf", aspectRatio);

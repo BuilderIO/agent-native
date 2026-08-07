@@ -173,14 +173,23 @@ export async function parsePptxPresentation(
         target: slideMasterRelationship.target,
         parseXml,
       })
-    : { clrMap: {}, titleFill: null, bodyFill: null };
+    : { clrMap: {}, titleFillByLevel: {}, bodyFillByLevel: {} };
   const colorContext: ColorContext = {
     themeColorsByName: theme.colorsByName,
     clrMap: masterColorInfo.clrMap,
   };
+  const resolveFillsByLevel = (
+    fillsByLevel: Record<number, Record<string, unknown> | null>,
+  ): Record<number, string | undefined> =>
+    Object.fromEntries(
+      Object.entries(fillsByLevel).map(([level, fill]) => [
+        Number(level),
+        parseColor(fill, colorContext),
+      ]),
+    );
   const placeholderDefaults: PlaceholderDefaultColors = {
-    title: parseColor(masterColorInfo.titleFill, colorContext),
-    body: parseColor(masterColorInfo.bodyFill, colorContext),
+    title: resolveFillsByLevel(masterColorInfo.titleFillByLevel),
+    body: resolveFillsByLevel(masterColorInfo.bodyFillByLevel),
   };
   const slides: ParsedPptxSlide[] = [];
   for (const slidePath of slidePaths) {
@@ -355,10 +364,10 @@ async function parseMasterColorInfo(args: {
   parseXml: (xml: string) => unknown;
 }): Promise<{
   clrMap: Record<string, string>;
-  titleFill: Record<string, unknown> | null;
-  bodyFill: Record<string, unknown> | null;
+  titleFillByLevel: Record<number, Record<string, unknown> | null>;
+  bodyFillByLevel: Record<number, Record<string, unknown> | null>;
 }> {
-  const empty = { clrMap: {}, titleFill: null, bodyFill: null };
+  const empty = { clrMap: {}, titleFillByLevel: {}, bodyFillByLevel: {} };
   const path = args.target.startsWith("/")
     ? args.target.slice(1)
     : "ppt/" + args.target.replace(/^\.\.\//, "");
@@ -368,17 +377,27 @@ async function parseMasterColorInfo(args: {
   if (!root) return empty;
   const clrMap = parseClrMapNode(record(root["p:clrMap"]));
   const txStyles = record(root["p:txStyles"]);
-  const titleDefRPr = record(
-    record(record(txStyles?.["p:titleStyle"])?.["a:lvl1pPr"])?.["a:defRPr"],
-  );
-  const bodyDefRPr = record(
-    record(record(txStyles?.["p:bodyStyle"])?.["a:lvl1pPr"])?.["a:defRPr"],
-  );
   return {
     clrMap,
-    titleFill: record(titleDefRPr?.["a:solidFill"]),
-    bodyFill: record(bodyDefRPr?.["a:solidFill"]),
+    titleFillByLevel: levelFillsFromTextStyle(
+      record(txStyles?.["p:titleStyle"]),
+    ),
+    bodyFillByLevel: levelFillsFromTextStyle(record(txStyles?.["p:bodyStyle"])),
   };
+}
+
+/** Reads a `<p:titleStyle>`/`<p:bodyStyle>` node's per-level (`a:lvl1pPr`..`a:lvl9pPr`) default run fill, keyed 0-indexed to match `ParsedPptxParagraph.level` (`a:lvl1pPr` is level 0, `a:lvl2pPr` is level 1, etc.) — using only the first level's default for every nested bullet level silently drops the distinct colors PowerPoint themes commonly assign to deeper levels. */
+function levelFillsFromTextStyle(
+  style: Record<string, unknown> | null,
+): Record<number, Record<string, unknown> | null> {
+  const fills: Record<number, Record<string, unknown> | null> = {};
+  for (let level = 0; level < 9; level++) {
+    const defRPr = record(
+      record(style?.[`a:lvl${level + 1}pPr`])?.["a:defRPr"],
+    );
+    fills[level] = record(defRPr?.["a:solidFill"]);
+  }
+  return fills;
 }
 
 interface ParsedShapeTransform {
@@ -849,20 +868,25 @@ interface ColorContext {
 }
 
 interface PlaceholderDefaultColors {
-  title?: string;
-  body?: string;
+  title?: Record<number, string | undefined>;
+  body?: Record<number, string | undefined>;
 }
 
-/** Placeholder text has no explicit color of its own when the author relied on the slide master's default run properties — apply that inherited color to any run that didn't resolve one. */
+/** Placeholder text has no explicit color of its own when the author relied on the slide master's default run properties — apply that inherited color to any run that didn't resolve one, using each paragraph's own nested-bullet level (falling back to level 0's color when a deeper level has no default of its own). */
 function applyPlaceholderDefaultColor(
   paragraphs: ParsedPptxParagraph[],
-  color: string | undefined,
+  colorsByLevel: Record<number, string | undefined> | undefined,
 ): ParsedPptxParagraph[] {
-  if (!color) return paragraphs;
-  return paragraphs.map((paragraph) => ({
-    ...paragraph,
-    runs: paragraph.runs.map((run) => (run.color ? run : { ...run, color })),
-  }));
+  if (!colorsByLevel) return paragraphs;
+  return paragraphs.map((paragraph) => {
+    const level = paragraph.level ?? 0;
+    const color = colorsByLevel[level] ?? colorsByLevel[0];
+    if (!color) return paragraph;
+    return {
+      ...paragraph,
+      runs: paragraph.runs.map((run) => (run.color ? run : { ...run, color })),
+    };
+  });
 }
 
 /** PowerPoint's default `bg1`/`tx1`-style alias mapping, used whenever a master doesn't declare its own `<p:clrMap>`. */
@@ -905,17 +929,125 @@ function resolveSchemeColorName(
   return context.themeColorsByName[slot];
 }
 
+function hexToHsl(hex: string): [number, number, number] {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  switch (max) {
+    case r:
+      h = (g - b) / d + (g < b ? 6 : 0);
+      break;
+    case g:
+      h = (b - r) / d + 2;
+      break;
+    default:
+      h = (r - g) / d + 4;
+  }
+  return [h * 60, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const toByte = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v * 255)))
+      .toString(16)
+      .padStart(2, "0");
+  if (s === 0) {
+    const gray = toByte(l);
+    return `#${gray}${gray}${gray}`;
+  }
+  const hue2rgb = (p: number, q: number, t: number) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hNorm = h / 360;
+  const r = hue2rgb(p, q, hNorm + 1 / 3);
+  const g = hue2rgb(p, q, hNorm);
+  const b = hue2rgb(p, q, hNorm - 1 / 3);
+  return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
+}
+
+/**
+ * DrawingML's `lumMod`/`lumOff`/`tint`/`shade` are the standard way authors
+ * derive palette variants ("Accent 1, Lighter 40%", etc.) from a base
+ * `srgbClr`/`schemeClr` — resolving the base color alone and ignoring these
+ * child transforms silently reverts every such variant back to the
+ * unmodified base color.
+ */
+interface ColorTransforms {
+  lumMod?: number;
+  lumOff?: number;
+  tint?: number;
+  shade?: number;
+}
+
+function readColorTransforms(
+  node: Record<string, unknown> | null,
+): ColorTransforms {
+  if (!node) return {};
+  const percent = (key: string): number | undefined => {
+    const raw = stringValue(record(node[key])?.["@_val"]);
+    return raw !== undefined ? Number(raw) / 100000 : undefined;
+  };
+  return {
+    lumMod: percent("a:lumMod"),
+    lumOff: percent("a:lumOff"),
+    tint: percent("a:tint"),
+    shade: percent("a:shade"),
+  };
+}
+
+function applyColorTransforms(
+  hex: string,
+  transforms: ColorTransforms,
+): string {
+  const { lumMod, lumOff, tint, shade } = transforms;
+  if (
+    lumMod === undefined &&
+    lumOff === undefined &&
+    tint === undefined &&
+    shade === undefined
+  ) {
+    return hex;
+  }
+  const [h, s, initialL] = hexToHsl(hex);
+  let l = initialL;
+  if (lumMod !== undefined) l *= lumMod;
+  if (lumOff !== undefined) l += lumOff;
+  if (tint !== undefined) l = l * tint + (1 - tint);
+  if (shade !== undefined) l *= shade;
+  return hslToHex(h, s, Math.min(1, Math.max(0, l)));
+}
+
 function parseColor(
   value: Record<string, unknown> | null,
   context?: ColorContext,
 ): string | undefined {
   if (!value) return undefined;
-  const rgb = stringValue(record(value["a:srgbClr"])?.["@_val"]);
-  if (rgb) return `#${rgb}`;
-  const scheme = stringValue(record(value["a:schemeClr"])?.["@_val"]);
+  const srgbNode = record(value["a:srgbClr"]);
+  const rgb = stringValue(srgbNode?.["@_val"]);
+  if (rgb) {
+    return applyColorTransforms(`#${rgb}`, readColorTransforms(srgbNode));
+  }
+  const schemeNode = record(value["a:schemeClr"]);
+  const scheme = stringValue(schemeNode?.["@_val"]);
   if (!scheme) return undefined;
+  const transforms = readColorTransforms(schemeNode);
   const resolved = resolveSchemeColorName(scheme, context);
-  if (resolved) return resolved;
+  if (resolved) return applyColorTransforms(resolved, transforms);
   // No theme/clrMap available for this slot (or the theme didn't define
   // it) — fall back to a coarse dark/light guess along the standard
   // identity mapping, so tx1/dk1/bg1/lt1 text stays visible rather than
@@ -932,7 +1064,10 @@ function parseColor(
     bg1: pptxLightColor,
     bg2: pptxLightColor,
   };
-  return fallback[scheme];
+  const fallbackColor = fallback[scheme];
+  return fallbackColor
+    ? applyColorTransforms(fallbackColor, transforms)
+    : undefined;
 }
 
 function parseParagraphSpacing(value: unknown): number | undefined {
