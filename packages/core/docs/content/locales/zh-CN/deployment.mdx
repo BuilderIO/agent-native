@@ -480,11 +480,11 @@ export default createCoreRoutesPlugin({
 与该选项无关，框架工具默认不再加载进第一次模型请求。它们仍留在可搜索的注册表中，
 通过 `tool-search` 加载；若应用在 `initialToolNames` 中指定，则会立即加载。
 
-<Callout type="warning">
+<Callout tone="warning">
   顶层的 `databaseTools` 与 `extensionTools` 选项已废弃，请改用
   `frameworkTools.database` 和 `frameworkTools.extensions`。它们仍会被识别，但当
-  顶层标志与 `frameworkTools` 中的对应值冲突时，plugin 会在启动时抛出错误，而不是
-  以无人选择的工具表面启动。
+  顶层标志与 `frameworkTools` 中的对应值冲突时，plugin
+  会在启动时抛出错误，而不是 以无人选择的工具表面启动。
 </Callout>
 
 ## 生产代码执行 {#production-code-execution}
