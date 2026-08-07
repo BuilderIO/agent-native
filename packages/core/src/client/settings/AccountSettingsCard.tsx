@@ -6,6 +6,7 @@ import {
 import { IconCamera, IconCheck, IconLock } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
+import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 import type { UserProfile } from "../../user-profile/shared.js";
 import {
   Popover,
@@ -82,7 +83,7 @@ function PasswordSettings() {
   const submit = () => {
     setSaved(false);
     setValidationError(null);
-    if (newPassword.length < 8) {
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
       setValidationError("length");
       return;
     }

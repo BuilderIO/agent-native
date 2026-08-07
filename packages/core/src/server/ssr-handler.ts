@@ -50,6 +50,7 @@ export {
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 

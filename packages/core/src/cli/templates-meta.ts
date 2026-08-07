@@ -105,7 +105,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "analytics",
     label: "Analytics",
-    hint: "Agent-native Amplitude/Mixpanel — connect data sources, prompt for charts",
+    hint: "Agent-native provider analytics - connect data sources, prompt for charts and deep dives",
     icon: "BarChart2",
     color: "#F59E0B",
     colorRgb: "245 158 11",
