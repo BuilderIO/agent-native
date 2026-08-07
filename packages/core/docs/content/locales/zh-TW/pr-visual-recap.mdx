@@ -156,6 +156,8 @@ npx @agent-native/recap-cli@latest recap doctor
 
 如果變數未設定，則操作使用 `claude`。
 
+`claude` 後端可使用其中任一憑證進行驗證：`ANTHROPIC_API_KEY` 會將權杖用量計入你的 Anthropic API 帳戶，而透過 `claude setup-token` 在 Claude 訂閱上於本機產生的 `CLAUDE_CODE_OAUTH_TOKEN` 則會將這次執行計入該訂閱。請只設定其中一個；若兩者都設定，計費方式取決於 Claude Code CLI 的選擇。
+
 ## 模型和推理
 
 除了後端之外，兩個儲存庫變數還可以調整代理的執行方式：
@@ -190,10 +192,11 @@ npx @agent-native/recap-cli@latest recap doctor
 
 ### 秘密（只需兩個）
 
-| 秘密                | 目的                                                                                      |
-| ------------------- | ----------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | 由 `npx @agent-native/core@latest connect` 鑄造的可撤銷代幣。授權發布回顧計畫和截圖上傳。 |
-| `ANTHROPIC_API_KEY` | 預設 Claude 程式碼後端的 LLM 金鑰。                                                       |
+| 秘密                      | 目的                                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`        | 由 `npx @agent-native/core@latest connect` 鑄造的可撤銷代幣。授權發布回顧計畫和截圖上傳。                |
+| `ANTHROPIC_API_KEY`       | 預設 Claude 程式碼後端的 LLM 金鑰。                                                                      |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY` 的替代方案：以 `claude setup-token` 產生的 Claude 訂閱權杖。兩者擇一，不要同時設定。 |
 
 **團隊：使用組織服務權杖。**個人權杖與人員綁定
 誰鑄造了它 - 如果他們離開組織或撤銷他們的代幣，每個儲存庫都會使用
@@ -492,6 +495,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:

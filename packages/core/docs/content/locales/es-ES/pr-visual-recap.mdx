@@ -156,6 +156,8 @@ Elija qué agente de codificación ejecuta la habilidad con la variable de repos
 
 Si la variable no está configurada, la acción utiliza `claude`.
 
+El backend `claude` se autentica con cualquiera de las dos credenciales: `ANTHROPIC_API_KEY` factura los tokens a su cuenta de la API de Anthropic, mientras que `CLAUDE_CODE_OAUTH_TOKEN` —generado localmente con `claude setup-token` en una suscripción de Claude— factura la ejecución a esa suscripción. Configure exactamente una; si ambas están configuradas, la vía de facturación será la que prefiera la CLI de Claude Code.
+
 ## Modelo y razonamiento
 
 Más allá del backend, dos variables del repositorio ajustan _cómo_ se ejecuta el agente:
@@ -190,10 +192,11 @@ Configúrelos en **Configuración → Secretos y variables → Actions** de su r
 
 ### Secretos (solo se requieren dos)
 
-| Secreto             | Propósito                                                                                                                                              |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `PLAN_RECAP_TOKEN`  | Token revocable acuñado por `npx @agent-native/core@latest connect`. Autoriza la publicación del plan de resumen y la carga de la captura de pantalla. |
-| `ANTHROPIC_API_KEY` | La clave LLM para el backend predeterminado del código Claude.                                                                                         |
+| Secreto                   | Propósito                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PLAN_RECAP_TOKEN`        | Token revocable acuñado por `npx @agent-native/core@latest connect`. Autoriza la publicación del plan de resumen y la carga de la captura de pantalla. |
+| `ANTHROPIC_API_KEY`       | La clave LLM para el backend predeterminado del código Claude.                                                                                         |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Alternativa a `ANTHROPIC_API_KEY`: un token de suscripción de Claude generado con `claude setup-token`. Configure una u otra, no ambas.                |
 
 **Equipos: utilice un token de servicio de la organización.** Un token personal está vinculado a la persona
 quién lo acuñó: si abandonan la organización o revocan sus tokens, cada repositorio lo usará
@@ -494,6 +497,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:

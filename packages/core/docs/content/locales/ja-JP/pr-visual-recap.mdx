@@ -156,6 +156,8 @@ npx @agent-native/recap-cli@latest recap doctor
 
 変数が設定されていない場合、アクションは `claude` を使用します。
 
+`claude` バックエンドはどちらの資格情報でも認証できます。`ANTHROPIC_API_KEY` は Anthropic API アカウントにトークン料金が課金され、Claude サブスクリプションで `claude setup-token` を実行してローカルに発行した `CLAUDE_CODE_OAUTH_TOKEN` は実行分をそのサブスクリプションに課金します。どちらか一方だけを設定してください。両方を設定した場合、どちらで課金されるかは Claude Code CLI の選択次第になります。
+
 ## モデルと推論
 
 バックエンドを超えて、2 つのリポジトリ変数がエージェントの実行方法を調整します。
@@ -190,10 +192,11 @@ npx @agent-native/recap-cli@latest recap doctor
 
 ### シークレット (必須は 2 つだけ)
 
-| 秘密                | 目的                                                                                                                                               |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | `npx @agent-native/core@latest connect` によって作成された取り消し可能なトークン。まとめ計画の公開とスクリーンショットのアップロードを承認します。 |
-| `ANTHROPIC_API_KEY` | デフォルトの Claude コード バックエンドの LLM キー。                                                                                               |
+| 秘密                      | 目的                                                                                                                                               |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`        | `npx @agent-native/core@latest connect` によって作成された取り消し可能なトークン。まとめ計画の公開とスクリーンショットのアップロードを承認します。 |
+| `ANTHROPIC_API_KEY`       | デフォルトの Claude コード バックエンドの LLM キー。                                                                                               |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY` の代替。`claude setup-token` で発行する Claude サブスクリプションのトークン。どちらか一方のみを設定します。                    |
 
 **Teams: 組織サービス トークンを使用します。** 個人トークンは個人にバインドされます
 誰が作成したか — 彼らが組織を離れるかトークンを取り消した場合、すべてのリポジトリは
@@ -492,6 +495,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:

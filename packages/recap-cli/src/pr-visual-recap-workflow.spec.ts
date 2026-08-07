@@ -31,6 +31,22 @@ describe("the recap installer workflow", () => {
     );
   });
 
+  // A caller that passes a secret the reusable contract does not declare fails
+  // the whole run at startup, so the template and the contract move together.
+  it("lets reusable callers pass a Claude subscription token", () => {
+    const reusable = readFileSync(
+      path.join(repoRoot, ".github/workflows/pr-visual-recap-reusable.yml"),
+      "utf8",
+    );
+
+    expect(reusable).toContain(
+      "      CLAUDE_CODE_OAUTH_TOKEN:\n        required: false",
+    );
+    expect(buildReusableCallerWorkflow()).toContain(
+      "CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}",
+    );
+  });
+
   it("wakes labeled events when reusable callers configure labels directly", () => {
     const workflow = buildReusableCallerWorkflow({
       requiredLabels: "visual recap",
