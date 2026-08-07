@@ -10,6 +10,7 @@
     "test": "vitest --run --config vitest.config.ts",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "action": "agent-native action",
     "demo:seed": "agent-native action seed-demo-data",
     "demo:eval": "agent-native action run-demo-eval",

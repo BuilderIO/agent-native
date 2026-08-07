@@ -8,7 +8,7 @@ import * as schema from "../db/schema.js";
 
 // Keep historical entries unnamed for legacy-ledger compatibility; every new
 // migration must add a stable, unique `name` slug.
-const runTasksMigrations = runMigrations(
+export const runTasksMigrations = runMigrations(
   [
     {
       version: 1,

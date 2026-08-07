@@ -616,7 +616,7 @@ const nativeAttributeTypeBackfill = [
   `UPDATE crm_field_policies SET attribute_type = 'text' WHERE field_name IN ('name', 'industry', 'ownerName', 'firstName', 'lastName', 'title') AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
 ].join(";\n");
 
-const runCrmMigrations = runMigrations(
+export const runCrmMigrations = runMigrations(
   [
     { version: 1, name: "crm-initial-thin-mirror-schema", sql: initialSchema },
     { version: 2, name: "crm-signals-engine-schema", sql: signalsSchema },
