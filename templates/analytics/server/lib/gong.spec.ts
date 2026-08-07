@@ -1,5 +1,48 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const executeProviderApiRequest = vi.hoisted(() =>
+  vi.fn(
+    async (args: {
+      method: string;
+      path: string;
+      query?: Record<string, string>;
+      body?: unknown;
+      signal?: AbortSignal;
+    }) => {
+      const url = new URL(`https://api.gong.io/v2${args.path}`);
+      for (const [key, value] of Object.entries(args.query ?? {})) {
+        url.searchParams.set(key, value);
+      }
+      const response = await fetch(url.toString(), {
+        method: args.method,
+        ...(args.body === undefined ? {} : { body: JSON.stringify(args.body) }),
+        ...(args.signal ? { signal: args.signal } : {}),
+      });
+      const text = await response.text();
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = undefined;
+      }
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      return {
+        response: {
+          ok: response.ok,
+          status: response.status,
+          headers,
+          ...(json === undefined ? { text } : { json }),
+        },
+      };
+    },
+  ),
+);
+
+vi.mock("./provider-api", () => ({ executeProviderApiRequest }));
+
 vi.mock("./credentials", () => ({
   resolveCredential: vi.fn(async () => null),
 }));
@@ -22,6 +65,8 @@ vi.mock("./provider-credentials", () => ({
 import {
   buildGongSearchResult,
   getAllCalls,
+  getCallDetails,
+  getCalls,
   gongSearchVariants,
   matchesGongCallQuery,
   searchCallsForQueries,
@@ -41,6 +86,7 @@ function call(id: string, started: string): GongCallLike {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  executeProviderApiRequest.mockClear();
 });
 
 describe("Gong call limits", () => {
@@ -195,6 +241,58 @@ describe("Gong call search matching", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("batches detailed call reads into one extensive request", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({
+            calls: [
+              {
+                metaData: {
+                  id: "c1",
+                  title: "Discovery",
+                  url: "https://gong.example/c1",
+                  started: "2026-05-03T10:00:00Z",
+                  duration: 1800,
+                },
+                parties: [{ name: "Buyer", affiliation: "External" }],
+                content: {
+                  brief: "A useful brief.",
+                  keyPoints: [{ text: "A key point." }],
+                  outline: [{ section: "Next steps" }],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(getCallDetails(["c1", "c2"])).resolves.toEqual([
+      expect.objectContaining({
+        id: "c1",
+        brief: "A useful brief.",
+        keyPoints: ["A key point."],
+        outline: ["Next steps"],
+      }),
+    ]);
+    expect(requests).toEqual([
+      {
+        filter: { callIds: ["c1", "c2"] },
+        contentSelector: {
+          exposedFields: {
+            parties: true,
+            content: { brief: true, keyPoints: true, outline: true },
+          },
+        },
+      },
+    ]);
+  });
+
   it("stops before fetching when an exhaustive deadline has already expired", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -232,6 +330,25 @@ describe("Gong call search matching", () => {
 
     await expect(pending).rejects.toThrow("request aborted");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves Gong request ids and retry hints on provider errors", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ message: "quota exceeded" }), {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "3600",
+            "x-request-id": "gong-request-123",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getCalls()).rejects.toThrow(
+      "Gong API error 429 (requestId gong-request-123, retry-after 3600)",
+    );
   });
 
   it("generates Fusion-style account variants from deal names and domains", () => {

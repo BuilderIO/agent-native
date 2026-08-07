@@ -16,8 +16,12 @@ the agent can use.
   callbacks, public SEO/OG endpoints, or binary/static asset serving. If you
   are about to create a file under `server/routes/api/`, or middleware to guard
   one, stop and write a `defineAction` instead.
-- All AI work goes through the agent chat. Do not call LLMs directly from UI
-  components.
+- All user-facing AI work goes through the agent chat. Do not call model
+  providers or inline LLM APIs from UI or server code, and do not hide
+  AI-shaped multi-step work in one action.
+  Keep actions deterministic and focused; use the AgentSidebar for research,
+  analysis, generation, recommendation, synthesis, and follow-ups in the same
+  thread.
 - Keep domain workflows on named routes and preserve the scaffold's full-page
   chat route. Use the right AgentSidebar for contextual AI and open it when a
   domain button hands work to the agent. Keep the first viewport sparse with

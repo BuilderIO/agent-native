@@ -11,6 +11,13 @@ import {
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@agent-native/toolkit/ui/pagination";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -43,6 +50,7 @@ import {
 } from "@tabler/icons-react";
 import {
   forwardRef,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -84,6 +92,7 @@ import {
   useJoinByDomain,
   useAppRoles,
   useSetAppMemberRole,
+  ORG_MEMBER_PAGE_SIZE,
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
@@ -451,15 +460,47 @@ interface PendingInviteListItem {
 function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
   const { data: org } = useOrg();
-  const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
+  const [memberOffset, setMemberOffset] = useState(0);
+  const {
+    data: membersData,
+    isLoading: isLoadingMembers,
+    isFetching: isFetchingMembers,
+    isPlaceholderData: isPlaceholderMembers,
+  } = useOrgMembers(memberOffset);
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
+
+  useEffect(() => {
+    setMemberOffset(0);
+  }, [org?.orgId]);
+
+  useEffect(() => {
+    if (
+      memberOffset > 0 &&
+      membersData &&
+      !isLoadingMembers &&
+      !isFetchingMembers &&
+      !isPlaceholderMembers &&
+      membersData.members.length === 0
+    ) {
+      setMemberOffset((currentOffset) =>
+        Math.max(0, currentOffset - ORG_MEMBER_PAGE_SIZE),
+      );
+    }
+  }, [
+    isFetchingMembers,
+    isLoadingMembers,
+    isPlaceholderMembers,
+    memberOffset,
+    membersData,
+  ]);
 
   if (!org?.orgId) return null;
 
   const isOwner = org.role === "owner";
   const isOwnerOrAdmin = isOwner || org.role === "admin";
   const members = membersData?.members ?? [];
+  const totalMembers = membersData?.totalCount ?? 0;
   const pendingInvites = invitationsData?.invitations ?? [];
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
 
@@ -477,7 +518,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               />
             </span>
           }
-          description={`${t("org.memberCount", { count: members.length })} · ${t("org.youAreRole", { role: org.role })}`}
+          description={`${t("org.memberCount", { count: totalMembers })} · ${t("org.youAreRole", { role: org.role })}`}
           control={
             hasMultipleOrgs ? (
               <Select
@@ -523,11 +564,17 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
       <MembersTableCard
         members={members}
+        totalMembers={totalMembers}
         pendingInvites={pendingInvites}
         isLoadingMembers={isLoadingMembers}
+        isFetchingMembers={isFetchingMembers}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
         appRoles={appRoles}
+        memberOffset={memberOffset}
+        hasNextPage={membersData?.hasMore === true}
+        nextMemberOffset={membersData?.nextOffset ?? null}
+        onMemberPageChange={setMemberOffset}
       />
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
@@ -537,18 +584,30 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
 function MembersTableCard({
   members,
+  totalMembers,
   pendingInvites,
   isLoadingMembers,
+  isFetchingMembers,
   currentUserEmail,
   currentUserRole,
   appRoles,
+  memberOffset,
+  hasNextPage,
+  nextMemberOffset,
+  onMemberPageChange,
 }: {
   members: MemberListItem[];
+  totalMembers: number;
   pendingInvites: PendingInviteListItem[];
   isLoadingMembers: boolean;
+  isFetchingMembers: boolean;
   currentUserEmail: string;
   currentUserRole: string | null;
   appRoles?: AppRolesDescriptor;
+  memberOffset: number;
+  hasNextPage: boolean;
+  nextMemberOffset: number | null;
+  onMemberPageChange: (offset: number) => void;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -567,7 +626,7 @@ function MembersTableCard({
         <div>
           <h3 className="text-sm font-medium">{t("org.members")}</h3>
           <p className="text-xs text-muted-foreground">
-            {t("org.memberCount", { count: members.length })}
+            {t("org.memberCount", { count: totalMembers })}
           </p>
         </div>
         {canInvite && !showInviteForm && (
@@ -629,7 +688,99 @@ function MembersTableCard({
           </>
         )}
       </div>
+      {(memberOffset > 0 || hasNextPage) && (
+        <MemberPagination
+          memberOffset={memberOffset}
+          totalMembers={totalMembers}
+          hasNextPage={hasNextPage}
+          nextMemberOffset={nextMemberOffset}
+          isFetchingMembers={isFetchingMembers}
+          onMemberPageChange={onMemberPageChange}
+        />
+      )}
     </section>
+  );
+}
+
+function MemberPagination({
+  memberOffset,
+  totalMembers,
+  hasNextPage,
+  nextMemberOffset,
+  isFetchingMembers,
+  onMemberPageChange,
+}: {
+  memberOffset: number;
+  totalMembers: number;
+  hasNextPage: boolean;
+  nextMemberOffset: number | null;
+  isFetchingMembers: boolean;
+  onMemberPageChange: (offset: number) => void;
+}) {
+  const t = useT();
+  const currentPage = Math.floor(memberOffset / ORG_MEMBER_PAGE_SIZE) + 1;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalMembers / ORG_MEMBER_PAGE_SIZE),
+  );
+  const canGoPrevious = memberOffset > 0 && !isFetchingMembers;
+  const canGoNext =
+    hasNextPage && nextMemberOffset !== null && !isFetchingMembers;
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {t("org.memberPageStatus", {
+          page: currentPage,
+          totalPages,
+        })}
+      </p>
+      <Pagination
+        aria-label={t("org.memberPagination")}
+        className="mx-0 w-auto justify-start sm:justify-end"
+      >
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              href="#"
+              aria-label={t("org.previousMemberPage")}
+              aria-disabled={!canGoPrevious}
+              tabIndex={canGoPrevious ? undefined : -1}
+              className={cn(
+                "text-xs",
+                !canGoPrevious && "pointer-events-none opacity-50",
+              )}
+              onClick={(event) => {
+                event.preventDefault();
+                if (canGoPrevious) {
+                  onMemberPageChange(
+                    Math.max(0, memberOffset - ORG_MEMBER_PAGE_SIZE),
+                  );
+                }
+              }}
+            />
+          </PaginationItem>
+          <PaginationItem>
+            <PaginationNext
+              href="#"
+              aria-label={t("org.nextMemberPage")}
+              aria-disabled={!canGoNext}
+              tabIndex={canGoNext ? undefined : -1}
+              className={cn(
+                "text-xs",
+                !canGoNext && "pointer-events-none opacity-50",
+              )}
+              onClick={(event) => {
+                event.preventDefault();
+                if (canGoNext && nextMemberOffset !== null) {
+                  onMemberPageChange(nextMemberOffset);
+                }
+              }}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    </div>
   );
 }
 

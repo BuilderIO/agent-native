@@ -2,10 +2,7 @@ import { isPostgres } from "@agent-native/core/db";
 import { sql } from "@agent-native/core/db/schema";
 
 import { getDb, schema } from "../db/index.js";
-import {
-  FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY,
-  FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL,
-} from "./analytics-rollup-lock.js";
+import { FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY } from "./analytics-rollup-lock.js";
 
 /**
  * The normalized subset emitted by first-party analytics ingest. Keeping this
@@ -151,10 +148,9 @@ export async function upsertFirstPartyAnalyticsRollups(
       // snapshot. Holding it through ingest's rollup increment prevents the
       // backfill's monotonic upsert from losing a concurrently committed
       // event.
-      await tx.execute({
-        sql: FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL,
-        args: [FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY],
-      });
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY}, 0::bigint))`,
+      );
     }
     const dailyRows = [...dailyRollups.values()];
     await tx

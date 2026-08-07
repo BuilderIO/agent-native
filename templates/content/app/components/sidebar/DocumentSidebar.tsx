@@ -2275,6 +2275,7 @@ export function DocumentSidebar({
           feedback={feedbackButton}
           search={searchButton}
           collapse={collapseButton}
+          className="mt-auto"
         />
       </div>
     );

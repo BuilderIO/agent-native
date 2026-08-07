@@ -1,5 +1,7 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { dashboardCacheScope } from "@/lib/prefetch-keys";
 
 export interface DashboardView {
   id: string;
@@ -20,7 +22,12 @@ async function loadViews(dashboardId: string): Promise<DashboardView[]> {
 
 export function useDashboardViews(dashboardId: string | undefined) {
   const queryClient = useQueryClient();
-  const queryKey = ["dashboard-views", dashboardId];
+  const { session } = useSession();
+  const queryKey = [
+    "dashboard-views",
+    dashboardId,
+    dashboardCacheScope(session),
+  ];
 
   const viewsQuery = useQuery({
     queryKey,
@@ -110,8 +117,13 @@ export function useDeleteDashboardView() {
  * Returns a map of dashboardId -> DashboardView[].
  */
 export function useAllDashboardViews(dashboardIds: string[]) {
+  const { session } = useSession();
   return useQuery({
-    queryKey: ["all-dashboard-views", dashboardIds.join(",")],
+    queryKey: [
+      "all-dashboard-views",
+      dashboardIds.join(","),
+      dashboardCacheScope(session),
+    ],
     queryFn: async (): Promise<Record<string, DashboardView[]>> => {
       const results: Record<string, DashboardView[]> = {};
       await Promise.all(

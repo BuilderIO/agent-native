@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
+const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../db/index.js", async () => {
   const actual =
     await vi.importActual<typeof import("../db/index.js")>("../db/index.js");
   return { ...actual, getDb: getDbMock };
+});
+
+vi.mock("@agent-native/core/db", async () => {
+  const actual = await vi.importActual<typeof import("@agent-native/core/db")>(
+    "@agent-native/core/db",
+  );
+  return { ...actual, isPostgres: isPostgresMock };
 });
 
 import { schema } from "../db/index.js";
@@ -21,6 +29,7 @@ interface Write {
 function mockDb() {
   const writes: Write[] = [];
   const tx = {
+    execute: vi.fn(async (_query: unknown) => ({ rows: [] })),
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((rows: unknown) => ({
         onConflictDoUpdate: vi.fn(async (config: unknown) => {
@@ -42,6 +51,7 @@ function mockDb() {
 
 beforeEach(() => {
   getDbMock.mockReset();
+  isPostgresMock.mockReset().mockReturnValue(false);
 });
 
 describe("upsertFirstPartyAnalyticsRollups", () => {
@@ -208,6 +218,28 @@ describe("upsertFirstPartyAnalyticsRollups", () => {
 
     expect(writes).toHaveLength(2);
     expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("uses a Drizzle SQL fragment for the Postgres rollup lock", async () => {
+    const { tx, db } = mockDb();
+    getDbMock.mockReturnValue(db);
+    isPostgresMock.mockReturnValue(true);
+
+    await upsertFirstPartyAnalyticsRollups(
+      [
+        {
+          eventName: "pageview",
+          eventDate: "2026-08-05",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      tx,
+    );
+
+    expect(tx.execute).toHaveBeenCalledOnce();
+    expect(tx.execute.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ getSQL: expect.any(Function) }),
+    );
   });
 
   it("fails before opening a transaction for malformed normalized rows", async () => {

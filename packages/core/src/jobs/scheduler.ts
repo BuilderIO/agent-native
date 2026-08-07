@@ -150,6 +150,13 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
 
   // Skip if we recently confirmed there are no job resources to run.
   const nowMs = Date.now();
+  // Write a global heartbeat before the resource scan. A slow or failed scan
+  // must not make a healthy worker look idle until the finally block runs.
+  await recordSchedulerHealthForScopes({
+    appId: deps.appId,
+    orgIds: [],
+    checkedAt: nowMs,
+  });
   if (
     _hasJobsCache === false &&
     nowMs - _lastJobsCheck < JOBS_CHECK_INTERVAL_MS

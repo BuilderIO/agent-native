@@ -1,18 +1,20 @@
 ---
 title: "Persist Data in SQL"
-description: "Save action results to a SQL database so the agent can reference them across conversations."
+description: "Persist action results in SQL when they need to survive conversations."
 ---
 
 # Persist Data in SQL
 
-This is part three of the Getting Started series. In [Add an Action](/docs/getting-started-actions)
-you defined `analyze-text`. Here you'll add a table and two actions so the
-results persist.
+This is the optional fourth part of the Getting Started series. In [Add a Page](/docs/getting-started-pages)
+you used `analyze-text` directly from a route. Here you'll add app-owned SQL
+data when results need to survive conversations.
 
 ## Add a table {#persist-data}
 
-The Chat template uses a local SQLite file by default, so no database server is
-needed for this tutorial. Add these three server files:
+Chat already includes the SQL runtime, framework tables, and a local SQLite file
+by default. You do not need to install a database, set `DATABASE_URL`, or add a
+migration for Chat's built-in tables. For a new app-owned table, add these three
+server files:
 
 1. `server/plugins/db.ts` creates the table with an additive migration.
 2. `server/db/schema.ts` describes the table for typed queries.
@@ -153,7 +155,8 @@ export default defineAction({
 ```
 
 The actions use the typed Drizzle client for app reads and writes. Raw SQL is
-only needed here for the additive migration.
+only needed here for the additive migration. Skip this page until your action
+needs durable domain data.
 
 ## Try it
 
@@ -161,9 +164,10 @@ In chat, ask the agent to do the whole flow:
 
 > Run analyze-text on "Hello world", save the result with save-text-analysis, then list my saved text analyses.
 
-The saved row is now available to the agent and to the page you'll build next.
+The saved row is now available to the agent and to any page that reads
+`list-text-analyses`.
 
 ## Continue
 
-Continue with [Add a Page](/docs/getting-started-pages) to display the saved
-rows in a route.
+You now have durable app data. Continue with [Key Concepts](/docs/key-concepts)
+to learn how actions, SQL, and pages fit together.

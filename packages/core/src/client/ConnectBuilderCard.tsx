@@ -64,19 +64,14 @@ export function ConnectBuilderCard({
     popupUrl: initialConnectUrl,
     trackingSource: "connect_builder_card",
   });
-  // Only use the server-rendered props until the hook's first status
-  // fetch returns. After that, the hook is authoritative — including for
-  // the disconnect case (where `flow.configured` flips back to `false`
-  // even though `initialConfigured` was `true` at render time).
-  const configured = flow.hasFetchedStatus
-    ? flow.configured
-    : initialConfigured;
-  const builderEnabled = flow.hasFetchedStatus
+  // Keep the server-rendered handoff state until a successful status response
+  // arrives. A transient status failure must not replace a valid Send CTA with
+  // the hook's initial disconnected defaults.
+  const configured = flow.statusResolved ? flow.configured : initialConfigured;
+  const builderEnabled = flow.statusResolved
     ? flow.builderEnabled
     : initialBuilderEnabled;
-  const orgName = flow.hasFetchedStatus
-    ? flow.orgName
-    : (initialOrgName ?? null);
+  const orgName = flow.statusResolved ? flow.orgName : (initialOrgName ?? null);
   const connecting = flow.connecting;
 
   const [waitlistJoined, setWaitlistJoined] = useState(false);

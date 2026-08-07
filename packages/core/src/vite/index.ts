@@ -11,8 +11,13 @@ export {
   type AgentNativeConfigContext,
   type AgentNativeConfigFactory,
   type AgentNativeConfigInput,
+  type AgentNativeDiagnosticsConfig,
   type AgentNativeFirstRunOnboardingMode,
   type AgentNativeFirstRunOnboardingSetting,
+  type AgentNativeRuntimeAuthConfig,
+  type AgentNativeRuntimeConfig,
+  type AgentNativeRuntimeDatabaseConfig,
+  type AgentNativeRuntimeEnvironmentConfig,
 } from "../config.js";
 export type {
   AgentNativeRouteWarmupConfigInput,
