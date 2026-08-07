@@ -18,7 +18,7 @@ An app now declares that it owns migrations at release time by setting
 alongside its `migrate:production` build step; every other app keeps its
 existing behavior until it has one.
 
-Note that the Netlify *build* environment also sets `NETLIFY=true`, so the
+Note that the Netlify _build_ environment also sets `NETLIFY=true`, so the
 release step itself looks like a serverless request to this guard — it works
 only because the entrypoint claims duty through `withMigrationRuntime()`. A
 migration entrypoint that forgets that wrapper silently no-ops at build time.
