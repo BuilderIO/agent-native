@@ -378,7 +378,20 @@ async function reachSignIn(
   let lastUrl = "";
   for (let attempt = 0; attempt < 4; attempt++) {
     markViteBrowserActivity(viteReload);
-    await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
+    try {
+      await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        !/net::ERR_ABORTED|navigation.*(?:abort|interrupt)|(?:abort|interrupt).*navigation/i.test(
+          message,
+        )
+      ) {
+        throw error;
+      }
+      lastUrl = page.url();
+      continue;
+    }
     try {
       await page.waitForURL(
         /(?:^|\/)sign-in(?:[?#/]|$)|\/_agent-native\/sign-in(?:[?#/]|$)/,
