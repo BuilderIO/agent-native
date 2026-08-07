@@ -606,7 +606,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* Popover menu rendered below a device row. */
-.media-device-row {
+.media-device-picker {
   position: relative;
 }
 
@@ -665,19 +665,14 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 4px;
 }
 
-.row-menu-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 4px;
-  padding: 10px 10px 8px 34px;
-  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+.system-audio-option {
+  margin-top: 8px;
 }
 
-.row-menu-toggle-label {
-  font-size: 13px;
+.system-audio-option-label {
   color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .row-menu-check {
