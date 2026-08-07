@@ -29,7 +29,7 @@ import nodePath from "node:path";
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
-import type { FrameworkToolGroup } from "../framework-tools.js";
+import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -581,78 +581,10 @@ export async function autoDiscoverActions(
   return registry;
 }
 
-/**
- * Which `frameworkTools` switch owns each framework action kit.
- *
- * The group is stamped onto the entry as `frameworkGroup`, which is what lets
- * one filter subtract a whole kit from every agent tool surface at once — the
- * plugin spreads these registries at thirteen composition sites, and a
- * per-site condition would be the same omission waiting to happen thirteen
- * times. The tag also keeps these ~45 schemas out of the DEFAULT first-request
- * tool list; they stay reachable through `tool-search`.
- *
- * Anything absent from this map is always-on and must be listed in
- * `ALWAYS_ON_CORE_ACTIONS` instead. `action-discovery.spec.ts` fails when a new
- * core action appears in neither, so "always-on" stays a decision someone made
- * rather than the default that happens when a map goes un-updated.
- */
-export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
-  "share-resource": "sharing",
-  "unshare-resource": "sharing",
-  "list-resource-shares": "sharing",
-  "set-resource-visibility": "sharing",
-  "create-agent-resource-link": "sharing",
-
-  "get-feature-flags": "featureFlags",
-  "list-feature-flags": "featureFlags",
-  "set-feature-flag": "featureFlags",
-
-  "list-recurring-jobs": "automation",
-  "manage-recurring-job": "automation",
-  "run-automation-now": "automation",
-  "list-automation-runs": "automation",
-  "list-automations": "automation",
-  "manage-automation": "automation",
-
-  "context-manifest-get": "contextXray",
-  "context-preview-get": "contextXray",
-  "context-pin": "contextXray",
-  "context-evict": "contextXray",
-  "context-restore": "contextXray",
-  "context-report": "contextXray",
-
-  "get-localization-preference": "localization",
-  "set-localization-preference": "localization",
-
-  // Profile, credentials, and appearance share one switch: an app that hides
-  // its profile surface from the agent hides password management with it.
-  "get-user-profile": "userProfile",
-  "update-user-profile": "userProfile",
-  "get-auth-methods": "userProfile",
-  "set-password": "userProfile",
-  "change-password": "userProfile",
-  "change-appearance": "userProfile",
-
-  "list-audit-events": "audit",
-  "get-audit-event": "audit",
-  "export-audit-events": "audit",
-
-  "create-resource-version": "history",
-  "list-resource-versions": "history",
-  "get-resource-version": "history",
-  "restore-resource-version": "history",
-  "list-resource-history": "history",
-
-  "list-review-comments": "review",
-  "create-review-comment": "review",
-  "reply-review-comment": "review",
-  "resolve-review-thread": "review",
-  "delete-review-comment": "review",
-  "consume-review-feedback": "review",
-  "get-review-feedback": "review",
-  "set-review-status": "review",
-  "send-review-thread-to-agent": "review",
-};
+// `CORE_ACTION_GROUPS` lives in `framework-tools.ts` so the group filter can
+// resolve a kit by name without importing this module. Re-exported here
+// because this is where callers have always found it.
+export { CORE_ACTION_GROUPS };
 
 /**
  * Core actions with no `frameworkTools` switch, and why:
@@ -661,7 +593,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
  * - The email catalog is mounted everywhere on purpose so Dispatch can ask any
  *   app what it sends without that app opting in (see its comment below). It is
  *   a read surface, not the `email` group's send capability.
- * - MCP tools and org service tokens are already governed by `disableMcp`.
+ * - MCP tools and org service tokens are already governed by `mcp.enabled`.
  */
 export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
@@ -914,6 +846,9 @@ export async function mergeCoreSharingActions(
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),
+          // Pre-resolved copy of what `resolveFrameworkGroup` would compute
+          // from the name anyway. Kept so an entry read in isolation still
+          // reports its kit; the filters no longer depend on it.
           ...(CORE_ACTION_GROUPS[name]
             ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
             : {}),

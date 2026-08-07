@@ -210,10 +210,105 @@ export function resolveFrameworkTools(
   };
 }
 
+/**
+ * Which `frameworkTools` switch owns each framework action kit.
+ *
+ * This map is the authority. `ActionEntry.frameworkGroup` is an optional
+ * pre-resolved copy of the same answer, not a requirement: it is stamped only
+ * by `mergeCoreSharingActions`, which runs against the ungated `httpActions`
+ * registry, so for a year every app loading core kits through
+ * `loadActionsFromStaticRegistry` or its own actions directory carried
+ * untagged entries and silently ignored eight of the `frameworkTools`
+ * switches. Resolve by name and the switch works no matter how the action was
+ * registered.
+ *
+ * Membership does two jobs: one filter subtracts a whole kit from every agent
+ * tool surface at once (the plugin spreads these registries at thirteen
+ * composition sites), and it keeps these ~45 schemas out of the DEFAULT
+ * first-request tool list. They stay reachable through `tool-search`.
+ *
+ * Anything absent from this map is always-on and must be listed in
+ * `ALWAYS_ON_CORE_ACTIONS` instead. `action-discovery.spec.ts` fails when a new
+ * core action appears in neither, so "always-on" stays a decision someone made
+ * rather than the default that happens when a map goes un-updated.
+ */
+export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
+  "share-resource": "sharing",
+  "unshare-resource": "sharing",
+  "list-resource-shares": "sharing",
+  "set-resource-visibility": "sharing",
+  "create-agent-resource-link": "sharing",
+
+  "get-feature-flags": "featureFlags",
+  "list-feature-flags": "featureFlags",
+  "set-feature-flag": "featureFlags",
+
+  "list-recurring-jobs": "automation",
+  "manage-recurring-job": "automation",
+  "run-automation-now": "automation",
+  "list-automation-runs": "automation",
+  "list-automations": "automation",
+  "manage-automation": "automation",
+
+  "context-manifest-get": "contextXray",
+  "context-preview-get": "contextXray",
+  "context-pin": "contextXray",
+  "context-evict": "contextXray",
+  "context-restore": "contextXray",
+  "context-report": "contextXray",
+
+  "get-localization-preference": "localization",
+  "set-localization-preference": "localization",
+
+  // Profile, credentials, and appearance share one switch: an app that hides
+  // its profile surface from the agent hides password management with it.
+  "get-user-profile": "userProfile",
+  "update-user-profile": "userProfile",
+  "get-auth-methods": "userProfile",
+  "set-password": "userProfile",
+  "change-password": "userProfile",
+  "change-appearance": "userProfile",
+
+  "list-audit-events": "audit",
+  "get-audit-event": "audit",
+  "export-audit-events": "audit",
+
+  "create-resource-version": "history",
+  "list-resource-versions": "history",
+  "get-resource-version": "history",
+  "restore-resource-version": "history",
+  "list-resource-history": "history",
+
+  "list-review-comments": "review",
+  "create-review-comment": "review",
+  "reply-review-comment": "review",
+  "resolve-review-thread": "review",
+  "delete-review-comment": "review",
+  "consume-review-feedback": "review",
+  "get-review-feedback": "review",
+  "set-review-status": "review",
+  "send-review-thread-to-agent": "review",
+};
+
 /** Structural view of the one field these helpers read, so tagging utilities
  *  stay free of an import cycle with `ActionEntry`. */
 interface FrameworkGrouped {
   frameworkGroup?: FrameworkToolGroup;
+}
+
+/**
+ * Which group owns an action, by name first and tag second.
+ *
+ * Name first because the name is present on every registration path, while the
+ * tag is stamped on exactly one — an app is not less entitled to its
+ * `frameworkTools` switches because it loaded core kits from a generated
+ * registry instead of `autoDiscoverActions`.
+ */
+export function resolveFrameworkGroup(
+  name: string,
+  entry: FrameworkGrouped | undefined,
+): FrameworkToolGroup | undefined {
+  return entry?.frameworkGroup ?? CORE_ACTION_GROUPS[name];
 }
 
 /**
@@ -226,17 +321,19 @@ export function filterFrameworkToolGroups<T extends FrameworkGrouped>(
 ): Record<string, T> {
   if (disabledGroups.size === 0) return actions;
   return Object.fromEntries(
-    Object.entries(actions).filter(
-      ([, entry]) =>
-        entry.frameworkGroup === undefined ||
-        !disabledGroups.has(entry.frameworkGroup),
-    ),
+    Object.entries(actions).filter(([name, entry]) => {
+      const group = resolveFrameworkGroup(name, entry);
+      return group === undefined || !disabledGroups.has(group);
+    }),
   );
 }
 
 /** True for actions the framework contributes rather than the app's own. */
-export function isFrameworkGroupedAction(entry: FrameworkGrouped): boolean {
-  return entry.frameworkGroup !== undefined;
+export function isFrameworkGroupedAction(
+  name: string,
+  entry: FrameworkGrouped | undefined,
+): boolean {
+  return resolveFrameworkGroup(name, entry) !== undefined;
 }
 
 /**
