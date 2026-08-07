@@ -415,12 +415,37 @@ async function ensureDefaultTriageConfig(
   const db = getDb();
   const existing = (
     await db
-      .select({ id: triageConfig.id })
+      .select({
+        id: triageConfig.id,
+        githubPollingEnabled: triageConfig.githubPollingEnabled,
+        repository: triageConfig.repository,
+      })
       .from(triageConfig)
       .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
       .limit(1)
   )[0];
-  if (existing) return;
+  const repository = defaultRepository();
+  if (existing) {
+    // A prior bootstrap could create the row before deployment defaults were
+    // present. Repair only that unconfigured shape; an existing repository
+    // remains an explicit operator choice, including an intentional disable.
+    if (
+      repository &&
+      defaultGithubPollingEnabled() === 1 &&
+      !existing.repository &&
+      existing.githubPollingEnabled !== 1
+    ) {
+      await db
+        .update(triageConfig)
+        .set({
+          repository,
+          githubPollingEnabled: 1,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)));
+    }
+    return;
+  }
   const now = new Date().toISOString();
   await db.insert(triageConfig).values({
     id: orgId,
@@ -432,7 +457,7 @@ async function ensureDefaultTriageConfig(
     sentryPollingEnabled: 0,
     lastSlackTs: null,
     slackHistoryCursor: null,
-    repository: defaultRepository(),
+    repository,
     sentryOrgSlug: null,
     sentryProjectSlug: null,
     sentryEnvironment: null,

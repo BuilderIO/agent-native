@@ -9,6 +9,10 @@ publish = "templates/analytics/dist"
 functions = "templates/analytics/.netlify/functions-internal"
 
 [build.environment]
+# Analytics owns its schema at release time (`migrate:production` above), so
+# request functions skip migrations. Only set this in an app that actually has
+# that release step — without it, "skip on the request path" means "never".
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
