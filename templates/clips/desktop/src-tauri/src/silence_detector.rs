@@ -392,7 +392,6 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
             let mut ever_seen_front = false;
             let mut last_front_at: Option<Instant> = None;
             let mut fired = false;
-            let mut last_front_was_generic_browser = false;
             let mut call_app_used_microphone = false;
             let mut microphone_released_at: Option<Instant> = None;
             let mut generation: Option<u64> = None;
@@ -408,7 +407,6 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     ever_seen_front = false;
                     last_front_at = None;
                     fired = false;
-                    last_front_was_generic_browser = false;
                     call_app_used_microphone = false;
                     microphone_released_at = None;
                     continue;
@@ -417,7 +415,6 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     ever_seen_front = false;
                     last_front_at = None;
                     fired = false;
-                    last_front_was_generic_browser = false;
                     call_app_used_microphone = false;
                     microphone_released_at = None;
                     generation = Some(active_generation);
@@ -450,7 +447,6 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                 if is_strong_vc || is_generic_browser {
                     ever_seen_front = true;
                     last_front_at = Some(Instant::now());
-                    last_front_was_generic_browser = is_generic_browser;
                 }
                 if fired {
                     continue;
@@ -485,12 +481,11 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                             Instant::now().duration_since(t).as_millis() as u64 >= threshold_ms
                         })
                         .unwrap_or(false)
-                    // Require audio corroboration for browser-hosted calls:
-                    // backgrounding Chrome/Arc alone does not prove that the
-                    // Meet tab ended. Use the last known conference app, not
-                    // the unrelated app now in front.
-                    && (!last_front_was_generic_browser
-                        || audio_recently_silent(&state, threshold_ms));
+                    // Require audio corroboration: backgrounding the call app
+                    // (native or browser-hosted) to type notes in another app
+                    // does not prove the call ended — only quiet mic+system
+                    // audio alongside the background transition does.
+                    && audio_recently_silent(&state, threshold_ms);
 
                 if microphone_released || frontmost_call_ended {
                     let _ = app.emit("meetings:call-ended", ());
