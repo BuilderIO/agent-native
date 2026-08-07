@@ -58,9 +58,14 @@ code/config fix and ship that follow-up until production is live.
 5. **Push**: push the current branch. If the branch has no upstream, set it with
    `git push -u origin <branch>`.
 
-6. **Open or update a ready PR**: use the current branch. PRs are ready for
-   review by default, not drafts. Do not put `codex`, `[codex]`, or similar
-   agent labels in the title/body.
+   The first successful push is the review handoff point: open or update the
+   ready PR immediately, before waiting on `pnpm prep`, a stability window, or
+   additional concurrent work. Later commits update that same PR and let CI
+   and review run in parallel with the rest of the ship workflow.
+
+6. **Open or update a ready PR immediately after the first push**: use the
+   current branch. PRs are ready for review by default, not drafts. Do not put
+   `codex`, `[codex]`, or similar agent labels in the title/body.
 
 7. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
