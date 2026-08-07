@@ -1,5 +1,5 @@
 [build]
-command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
 
 # Keep legacy template links at the CDN edge instead of running the SSR
@@ -71,6 +71,11 @@ GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
+
+[context.production.environment]
+# The docs app owns the framework schema at release time, so production
+# request functions do not spend their cold-start budget on migration probes.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
 # Cache headers intentionally live in @agent-native/core instead of this
 # Netlify config. The framework emits SSR HTML/.data SWR headers from the

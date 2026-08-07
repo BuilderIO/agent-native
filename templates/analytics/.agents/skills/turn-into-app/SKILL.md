@@ -27,6 +27,10 @@ The build location depends on the host. Treat this as a hard routing rule:
   `resourceIds` when available. This is the Builder handoff.
 - Do not substitute the generic `create_workspace_app` MCP tool in an online
   host. That tool is a local workspace scaffolder, not the Builder handoff.
+- Connect the Agent-Native Dispatch MCP connector only. Dispatch uses the
+  authenticated Builder Projects API to reuse or provision the workspace
+  project before starting the Builder Cloud Agent; a separate Builder CMS MCP
+  connection is not required for this workflow.
 - If `start-workspace-app-creation` is not available or Dispatch is not
   authenticated, stop with the connector setup needed. Do not fall back to a
   local build or claim that the app exists.

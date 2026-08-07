@@ -136,11 +136,11 @@ les enfants restent dans la zone principale de l'application. Le chat de l'agent
   ]}
 />
 
-C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet ressources de l'agent, terminal CLI, saisie vocale et mode plein écran. L'état persiste lors des rechargements via `localStorage`.
+C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet ressources de l'agent, terminal CLI, saisie vocale et un panneau élargi. L'état persiste lors des rechargements via `localStorage`.
 
 ### Accessoires
 
-- **`children`** : présentation et itinéraires normaux de votre application. Rendu dans la zone principale ; le panneau d'agent se monte à côté sur le bureau et par-dessus sur mobile/plein écran.
+- **`children`** : présentation et itinéraires normaux de votre application. Rendu dans la zone principale ; le panneau d'agent se monte à côté sur le bureau et par-dessus sur mobile.
 - **`emptyStateText`** — message d'accueil affiché lorsque le chat n'a aucun message. Par défaut : `"How can I help you?"`.
 - **`suggestions`** — invites de démarrage affichées sous forme de puces cliquables lorsqu'elles sont vides.
 - **`dynamicSuggestions`** — puces d'invite contextuelles fusionnées avec `suggestions`. Activé par défaut ; transmettez `false` pour afficher uniquement les suggestions statiques, ou `{ max, includeStatic, getSuggestions }` pour personnaliser.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` ou `"cli"`. Par défaut : `"chat"`.
 - **`className`** — Classe CSS pour le conteneur externe.
 - **`onCollapse`** — s'il est fourni, un bouton de réduction apparaît dans l'en-tête.
-- **`isFullscreen`** / **`onToggleFullscreen`** – connectez l'état plein écran externe si vous souhaitez une colonne centrée de style Claude.
+- **`isFullscreen`** – activez cette option pour une colonne centrée de style Claude sur une surface de page ou un panneau personnalisé. La barre latérale utilise plutôt le panneau élargi.
 - **`storageKey`** — espace de noms pour les clés `localStorage`. Utile lorsque vous affichez plusieurs panneaux (différentes instances d'application ou espaces de travail) sur la même page.
 
 Accessoires complets : `AgentPanelProps` dans `@agent-native/core/client`.

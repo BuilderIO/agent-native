@@ -570,12 +570,16 @@ export {
   type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
+  createBuilderProject,
+  ensureBuilderProject,
+  findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,
+  type BuilderProjectResult,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
 export {

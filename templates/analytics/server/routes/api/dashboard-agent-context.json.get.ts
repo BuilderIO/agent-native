@@ -93,13 +93,11 @@ export default defineEventHandler(async (event) => {
       setResponseStatus(event, 403);
       return { error: "Invalid or expired agent access token" };
     }
-    return buildDashboardSeedAgentContext(
-      id,
+    const config =
       id === FIRST_PARTY_DASHBOARD_ID
         ? repairCanonicalFirstPartyDashboardQueries(seed).config
-        : seed,
-      { includeConfig: true },
-    );
+        : seed;
+    return buildDashboardSeedAgentContext(id, config, { includeConfig: true });
   }
 
   if (!row) {
@@ -114,15 +112,13 @@ export default defineEventHandler(async (event) => {
 
   const dashboard = rowToDashboard(row);
   return buildDashboardAgentContext(
-    id === FIRST_PARTY_DASHBOARD_ID
+    dashboard.id === FIRST_PARTY_DASHBOARD_ID
       ? {
           ...dashboard,
           config: repairCanonicalFirstPartyDashboardQueries(dashboard.config)
             .config,
         }
       : dashboard,
-    {
-      includeConfig: true,
-    },
+    { includeConfig: true },
   );
 });

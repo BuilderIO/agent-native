@@ -9,6 +9,11 @@ import {
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
 import {
+  DEFAULT_SSR_CACHE_HEADERS,
+  DISABLED_SSR_CACHE_HEADERS,
+  ssrCacheHeadersForPolicy,
+} from "../shared/cache-control.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
@@ -52,6 +57,7 @@ import {
   nitroNoExternalsForPreset,
   patchCloudflareModuleNitroEntry,
   resolveNitroBundledYjsEntry,
+  resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
@@ -59,11 +65,6 @@ import {
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
-const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
-const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
@@ -78,6 +79,18 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("resolveNitroBuildReplacements", () => {
+  it("embeds release migration ownership into the Nitro server bundle", () => {
+    const replacements = resolveNitroBuildReplacements({
+      AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
+    });
+
+    expect(replacements["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"]).toBe(
+      JSON.stringify("1"),
+    );
   });
 });
 
@@ -226,13 +239,9 @@ describe("resolveNitroBundledYjsEntry", () => {
 });
 
 function expectDefaultWorkerSsrCacheHeaders(response: Response) {
-  expect(response.headers.get("cache-control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
-  expect(response.headers.get("cdn-cache-control")).toBe(
-    DEFAULT_SSR_CDN_CACHE_CONTROL,
-  );
-  expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-    DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
-  );
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    expect(response.headers.get(name)).toBe(value);
+  }
 }
 
 function makeTempDir(): string {
@@ -639,26 +648,36 @@ export default (event) =>
     const source = generateWorkerEntry([], []);
 
     expect(source).toContain(
-      `const SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};`,
+      `const SSR_CACHE_HEADERS = ${JSON.stringify(DEFAULT_SSR_CACHE_HEADERS)};`,
     );
+  });
+
+  it("inlines the Netlify SSR cache-key policy in generated workers", async () => {
+    vi.stubEnv("NETLIFY", "true");
+
+    const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      `const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};`,
+      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
     );
-    expect(source).toContain(
-      `const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};`,
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox?utm_source=campaign"),
+      { APP_BASE_PATH: "/docs" },
+      {},
     );
+
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
 
     const source = generateWorkerEntry([], []);
-    expect(source).toContain('const SSR_CACHE_CONTROL = "no-store";');
-    expect(source).toContain('const SSR_CDN_CACHE_CONTROL = "no-store";');
     expect(source).toContain(
-      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "no-store";',
+      `const SSR_CACHE_HEADERS = ${JSON.stringify(DISABLED_SSR_CACHE_HEADERS)};`,
     );
-    expect(source).not.toContain(DEFAULT_SSR_CACHE_CONTROL);
+    expect(source).not.toContain(DEFAULT_SSR_CACHE_HEADERS["cache-control"]);
 
     const worker = await importGeneratedWorker(source);
     const response = await worker.fetch(
@@ -667,23 +686,34 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
-    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
-  it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", () => {
+  it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", async () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "30s");
 
     const source = generateWorkerEntry([], []);
+    const expectedHeaders = ssrCacheHeadersForPolicy({
+      kind: "maxAge",
+      seconds: 30,
+    });
 
     expect(source).toContain(
-      'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+      `const SSR_CACHE_HEADERS = ${JSON.stringify(expectedHeaders)};`,
     );
-    expect(source).toContain(
-      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox"),
+      {},
+      {},
     );
+    for (const [name, value] of Object.entries(expectedHeaders)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
   });
 
   it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {

@@ -59,6 +59,7 @@ export default function DeckCard({
   const [contextOpen, setContextOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
+  const pendingDeleteRef = useRef(false);
   const pendingWorkspaceDefaultRef = useRef(false);
 
   useEffect(() => {
@@ -227,6 +228,11 @@ export default function DeckCard({
                 pendingWorkspaceDefaultRef.current = false;
                 onSetWorkspaceDefault?.(deck.id, !isWorkspaceDefault);
               }
+              if (pendingDeleteRef.current) {
+                e.preventDefault();
+                pendingDeleteRef.current = false;
+                setTimeout(() => onDelete(deck.id), 0);
+              }
             }}
           >
             <DropdownMenuItem
@@ -268,8 +274,10 @@ export default function DeckCard({
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onSelect={() => {
-                onDelete(deck.id);
+              onSelect={(event) => {
+                event.preventDefault();
+                pendingDeleteRef.current = true;
+                setMenuOpen(false);
               }}
               className="text-red-400 focus:text-red-400"
             >

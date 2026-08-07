@@ -734,6 +734,25 @@ describe("route warmup config", () => {
     }
   });
 
+  it("embeds release migration ownership into the server bundle", () => {
+    const previous = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = " 1 ";
+
+    try {
+      const config = defineConfig();
+
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"],
+      ).toBe(JSON.stringify("1"));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+      } else {
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = previous;
+      }
+    }
+  });
+
   it("exposes the build-time GTM container id for SSR bundles", () => {
     const previous = process.env.GTM_CONTAINER_ID;
     process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";

@@ -184,6 +184,7 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
   scope: FirstPartyAnalyticsScope,
   table: string,
   requestedBatchSize?: number,
+  initialCursor?: string | null,
 ): Promise<BigQueryBackfillJob> {
   const now = new Date().toISOString();
   const id = jobId(scope.orgId ?? "");
@@ -191,10 +192,10 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
     throw new Error("BigQuery backfill requires an organization");
   await executor().execute({
     sql: `INSERT INTO ${JOB_TABLE} (
-              id, org_id, owner_email, table_ref, batch_size, backfill_cursor,
+            id, org_id, owner_email, table_ref, batch_size, backfill_cursor,
               status, copied_count, lease_token, lease_expires_at, next_run_at,
               last_error, completed_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, NULL, 'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
             ON CONFLICT (id) DO NOTHING`,
     args: [
       id,
@@ -202,6 +203,7 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
       scope.userEmail,
       table,
       boundedBatchSize(requestedBatchSize),
+      initialCursor ?? null,
       now,
       now,
     ],

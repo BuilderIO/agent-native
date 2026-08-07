@@ -166,6 +166,7 @@ const ERROR_FAILURE_REASONS = new Set([
   "builder-error",
   "builder-not-connected",
   "credential-store-unavailable",
+  "settings-management-required",
 ]);
 
 function isErrorFailureReason(reason: string | null): boolean {

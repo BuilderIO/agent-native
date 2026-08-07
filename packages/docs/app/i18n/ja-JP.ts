@@ -1488,7 +1488,6 @@ const jaJP = {
     templatesSection: "アプリ",
     gettingStarted: "はじめに",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native とは？",
     agentSurfaces: "Agent サーフェス",

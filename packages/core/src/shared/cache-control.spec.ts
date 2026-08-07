@@ -143,7 +143,7 @@ describe("ssrCacheHeadersForPolicy", () => {
       "cdn-cache-control":
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
       "netlify-cdn-cache-control":
-        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
     });
   });
 });

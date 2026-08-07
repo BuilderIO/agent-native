@@ -1481,7 +1481,6 @@ const enUS = {
     templatesSection: "Apps",
     gettingStarted: "Getting Started",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "What Is Agent-Native?",
     agentSurfaces: "Agent Surfaces",

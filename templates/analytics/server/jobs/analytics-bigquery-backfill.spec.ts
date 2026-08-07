@@ -191,6 +191,36 @@ describe("durable BigQuery backfill worker", () => {
     );
   });
 
+  it("seeds a recovered job with the legacy cursor", async () => {
+    const legacyCursor = JSON.stringify({
+      receivedAt: "2026-08-07T00:00:00.000Z",
+      id: "evt_last",
+    });
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [{ ...job, backfill_cursor: legacyCursor }],
+        }),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    await expect(
+      queueFirstPartyAnalyticsBigQueryBackfill(
+        scope,
+        job.table_ref,
+        250,
+        legacyCursor,
+      ),
+    ).resolves.toMatchObject({ cursor: legacyCursor, status: "pending" });
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining([legacyCursor]),
+      }),
+    );
+  });
+
   it("does not reset a pending job when prepare is repeated", async () => {
     const db = {
       execute: vi.fn().mockResolvedValue({ rows: [job] }),
