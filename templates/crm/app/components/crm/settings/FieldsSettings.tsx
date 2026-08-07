@@ -312,9 +312,10 @@ export function FieldsSettings() {
               </TableBody>
             </Table>
           </div>
-        ) : connectionsQuery.isLoading ||
-          listsQuery.isLoading ||
-          attributesQuery.isLoading ? (
+        ) : activeTarget &&
+          (connectionsQuery.isLoading ||
+            listsQuery.isLoading ||
+            attributesQuery.isLoading) ? (
           <div
             className="mt-4 space-y-2"
             role="status"

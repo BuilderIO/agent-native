@@ -155,7 +155,7 @@ async function startApp(basePath: string): Promise<RunningApp> {
   const appUrl = `${origin}${basePath}`;
   const dbPath = path.join(tmpRoot, `chat${basePath.replace(/\//g, "-")}.db`);
   const logs: string[] = [];
-  const viteReload: ViteReloadTracker = { lastReloadAt: Date.now() };
+  const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   cleanGeneratedFiles();
   // Vite directly, not `pnpm dev`: `agent-native dev` is a passthrough to this
   // same binary, the template's `dev` script adds `--open` (which would launch
@@ -220,6 +220,10 @@ async function waitForViteDepsQuiet(
     `Vite dep optimization did not settle within ${timeoutMs}ms ` +
       `(lastReloadAt=${viteReload.lastReloadAt}).\n${logs.slice(-120).join("")}`,
   );
+}
+
+function markViteBrowserActivity(viteReload: ViteReloadTracker): void {
+  viteReload.lastReloadAt = Date.now();
 }
 
 async function portIsFree(): Promise<boolean> {
@@ -373,17 +377,19 @@ async function reachSignIn(
 ): Promise<URL> {
   let lastUrl = "";
   for (let attempt = 0; attempt < 4; attempt++) {
+    markViteBrowserActivity(viteReload);
     await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
     try {
       await page.waitForURL(
         /(?:^|\/)sign-in(?:[?#/]|$)|\/_agent-native\/sign-in(?:[?#/]|$)/,
         { timeout: 30_000 },
       );
-      await waitForViteDepsQuiet(viteReload, logs);
-      return new URL(page.url());
     } catch {
       lastUrl = page.url();
+      continue;
     }
+    await waitForViteDepsQuiet(viteReload, logs);
+    return new URL(page.url());
   }
   throw new Error(
     `anonymous visitor never reached sign-in from ${url} (stuck at ${lastUrl})`,
@@ -395,6 +401,7 @@ async function signInThroughTheRealForm(
   viteReload: ViteReloadTracker,
   logs: string[],
 ): Promise<void> {
+  markViteBrowserActivity(viteReload);
   await waitForViteDepsQuiet(viteReload, logs);
   const fullOptionsToggle = page.locator("#local-dev-full-options");
   if (await fullOptionsToggle.isVisible()) await fullOptionsToggle.click();
