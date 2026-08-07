@@ -41,6 +41,76 @@ describe("splitMarkdownHeadingSections", () => {
     expect(sections[1].body).toBe("Body.");
   });
 
+  it("does not close a 4-backtick fence on a 3-backtick line inside it", () => {
+    const sections = splitMarkdownHeadingSections(
+      [
+        "### Writing headings",
+        "",
+        "````md",
+        "```md",
+        "### Not a real section",
+        "```",
+        "````",
+        "",
+        "### Next item",
+        "",
+        "Body.",
+      ].join("\n"),
+    );
+
+    expect(sections).toHaveLength(2);
+    expect(sections[0].title).toBe("Writing headings");
+    expect(sections[0].body).toContain("### Not a real section");
+    expect(sections[1].title).toBe("Next item");
+    expect(sections[1].body).toBe("Body.");
+  });
+
+  it("does not close a backtick fence on a tilde line inside it", () => {
+    const sections = splitMarkdownHeadingSections(
+      [
+        "### Writing headings",
+        "",
+        "```md",
+        "~~~",
+        "### Not a real section",
+        "~~~",
+        "```",
+        "",
+        "### Next item",
+        "",
+        "Body.",
+      ].join("\n"),
+    );
+
+    expect(sections).toHaveLength(2);
+    expect(sections[0].title).toBe("Writing headings");
+    expect(sections[0].body).toContain("### Not a real section");
+    expect(sections[1].title).toBe("Next item");
+    expect(sections[1].body).toBe("Body.");
+  });
+
+  it("does not close a fence on a shorter run of the same character", () => {
+    const sections = splitMarkdownHeadingSections(
+      [
+        "### Writing headings",
+        "",
+        "````md",
+        "some code",
+        "```",
+        "### Not a real section",
+        "````",
+        "",
+        "### Next item",
+        "",
+        "Body.",
+      ].join("\n"),
+    );
+
+    expect(sections).toHaveLength(2);
+    expect(sections[0].body).toContain("### Not a real section");
+    expect(sections[1].title).toBe("Next item");
+  });
+
   it("parses an item with a genuinely empty body", () => {
     const sections = splitMarkdownHeadingSections(
       ["### First", "", "Body.", "", "### Last"].join("\n"),

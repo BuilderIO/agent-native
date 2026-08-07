@@ -12,17 +12,48 @@
  *     serialized and reformatted — a regex that requires a literal `\n`
  *     after the heading drops the item when there's nothing after it.
  */
+interface FenceMarker {
+  char: "`" | "~";
+  length: number;
+}
+
+function matchFenceOpen(line: string): FenceMarker | null {
+  const match = /^\s*(`{3,}|~{3,})/.exec(line);
+  if (!match) return null;
+  return { char: match[1][0] as "`" | "~", length: match[1].length };
+}
+
+/**
+ * Per CommonMark, a fence only closes on a line that is (once trimmed)
+ * nothing but the SAME fence character, repeated AT LEAST as many times as
+ * the opener. A 4-backtick fence can safely contain a 3-backtick example; a
+ * backtick fence can contain a literal `~~~` line. Checking only "does this
+ * line look like some fence" (any char, any length >= 3) closes early on
+ * either case and starts parsing the remaining example body as real
+ * sections.
+ */
+function isFenceClose(line: string, opener: FenceMarker): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length < opener.length) return false;
+  for (const ch of trimmed) {
+    if (ch !== opener.char) return false;
+  }
+  return true;
+}
+
 export function splitMarkdownHeadingSections(
   children: string,
 ): Array<{ title: string; body: string }> {
   const lines = children.split("\n");
   const sections: Array<{ title: string; body: string[] }> = [];
-  let fence: string | null = null;
+  let fence: FenceMarker | null = null;
 
   for (const line of lines) {
-    const fenceMarker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fenceMarker) {
-      fence = fence === null ? fenceMarker : null;
+    if (fence) {
+      if (isFenceClose(line, fence)) fence = null;
+    } else {
+      const opened = matchFenceOpen(line);
+      if (opened) fence = opened;
     }
 
     const headingMatch = !fence ? /^###\s+(.+)$/.exec(line) : null;

@@ -78,7 +78,7 @@ function formatCards(data: Record<string, unknown>): string {
   return asArray(data.cards)
     .map((card) => {
       const row = asRecord(card);
-      const title = asString(row.title) ?? "Untitled";
+      const title = protectInlineJsx(asString(row.title) ?? "Untitled");
       const href = asString(row.href);
       const heading = href ? `#### [${title}](${href})` : `#### ${title}`;
       return [heading, asString(row.body)].filter(Boolean).join("\n\n");
@@ -90,7 +90,9 @@ function formatSteps(data: Record<string, unknown>): string {
   return asArray(data.steps)
     .map((step, index) => {
       const row = asRecord(step);
-      const title = asString(row.title) ?? `Step ${index + 1}`;
+      const title = protectInlineJsx(
+        asString(row.title) ?? `Step ${index + 1}`,
+      );
       return [`#### ${index + 1}. ${title}`, asString(row.body)]
         .filter(Boolean)
         .join("\n\n");
@@ -102,7 +104,7 @@ function formatComparison(data: Record<string, unknown>): string {
   return asArray(data.sides)
     .map((side) => {
       const row = asRecord(side);
-      const label = asString(row.label) ?? "Option";
+      const label = protectInlineJsx(asString(row.label) ?? "Option");
       return [`#### ${label}`, asString(row.body)].filter(Boolean).join("\n\n");
     })
     .join("\n\n");
@@ -112,7 +114,7 @@ function formatAccordion(data: Record<string, unknown>): string {
   return asArray(data.items)
     .map((item) => {
       const row = asRecord(item);
-      const title = asString(row.title) ?? "Untitled";
+      const title = protectInlineJsx(asString(row.title) ?? "Untitled");
       return [`#### ${title}`, asString(row.body)].filter(Boolean).join("\n\n");
     })
     .join("\n\n");

@@ -47,7 +47,7 @@ describe("docsBodyToMarkdownMirror", () => {
     const mirror = docsBodyToMarkdownMirror(markdown);
 
     expect(mirror).toContain("### Wrapping `<AgentSidebar>`");
-    expect(mirror).not.toContain("### Wrapping <AgentSidebar>");
+    expect(mirror).not.toContain("### Wrapping <AgentSidebar>\n");
   });
 
   it("preserves filename-labeled fences as-is (G3 filename attribute)", () => {
@@ -152,6 +152,56 @@ describe("docsBodyToMarkdownMirror", () => {
     expect(mirror).not.toContain("<Cards");
     expect(mirror).not.toContain("<Steps");
     expect(mirror).not.toContain("<Comparison");
+  });
+
+  it("protects JSX-looking titles in Cards/Steps/Comparison/Accordion headings", () => {
+    const markdown = [
+      "<Cards>",
+      "",
+      "### Wrapping <AgentSidebar />",
+      "",
+      "Body.",
+      "",
+      "</Cards>",
+      "",
+      "<Steps>",
+      "",
+      "### Wrapping <AgentSidebar />",
+      "",
+      "Body.",
+      "",
+      "</Steps>",
+      "",
+      "<Comparison>",
+      "",
+      "### Wrapping <AgentSidebar />",
+      "",
+      "Old way.",
+      "",
+      "### After",
+      "",
+      "New way.",
+      "",
+      "</Comparison>",
+      "",
+      "<Accordion>",
+      "",
+      "### Wrapping <AgentSidebar />",
+      "",
+      "Body.",
+      "",
+      "</Accordion>",
+    ].join("\n");
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    // Every occurrence must be backtick-wrapped so a Markdown renderer shows
+    // it as text and an MDX consumer never treats it as a real component.
+    // A negative lookbehind for the opening backtick catches any occurrence
+    // that slipped through unescaped.
+    const unescaped = mirror.match(/(?<!`)<AgentSidebar \/>/g) ?? [];
+    expect(unescaped).toEqual([]);
+    expect(mirror.match(/Wrapping `<AgentSidebar \/>`/g)?.length).toBe(4);
   });
 
   it("lowers Diagram MDX child fences to crawlable markdown", () => {
