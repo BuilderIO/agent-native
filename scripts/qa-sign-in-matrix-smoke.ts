@@ -409,18 +409,35 @@ async function reachSignIn(page: Page, url: string): Promise<URL> {
  * hit an already-warm dependency cache.
  */
 async function warmupViteDeps(page: Page, app: RunningApp): Promise<void> {
-  try {
-    await page.goto(`${app.origin}${app.basePath}/`, {
-      waitUntil: "domcontentloaded",
-      timeout: 60_000,
-    });
-  } catch {
-    // ignored — best effort
+  // `waitForViteDepsQuiet` treats "no reload observed yet" as already quiet,
+  // which is correct once the app has been touched but wrong here: the very
+  // first goto below is what triggers dependency discovery, and it hasn't
+  // happened yet the first time this loop checks. The self-correction comes
+  // from retrying the whole cycle — once a reload does land, the next
+  // iteration's quiet-check sees a real, recent timestamp and actually waits.
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    try {
+      await page.goto(`${app.origin}${app.basePath}/`, {
+        waitUntil: "domcontentloaded",
+        timeout: 60_000,
+      });
+      await waitForViteDepsQuiet(app.viteReload, app.logs, {
+        quietMs: 8_000,
+        timeoutMs: 30_000,
+      });
+      await page
+        .locator('.tab[data-tab="signup"], #auth-tabs')
+        .first()
+        .waitFor({ state: "visible", timeout: 15_000 });
+      return;
+    } catch {
+      // best effort — retry the full cycle so a reload observed mid-attempt
+      // gets a real quiet-wait on the next pass.
+    }
   }
-  await waitForViteDepsQuiet(app.viteReload, app.logs, {
-    quietMs: 10_000,
-    timeoutMs: 90_000,
-  }).catch(() => {});
+  // Swallow a persistent failure here too: the real navigations below still
+  // retry from scratch and will surface any genuine failure themselves.
 }
 
 async function signInThroughTheRealForm(
