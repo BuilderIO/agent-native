@@ -135,6 +135,75 @@ describe("createH3SSRHandler", () => {
     }
   });
 
+  it("keeps the dev 500 body printable when the error names a Vite virtual module", async () => {
+    // Vite ids virtual modules with a leading NUL, and module-resolution errors
+    // carry that id verbatim. A raw NUL in the body makes curl (and some proxies)
+    // treat the only useful line as binary — but the NUL is part of the real id,
+    // so it has to survive as a visible escape rather than be dropped.
+    const error = new Error(
+      "Failed to load url /app/routes/chat.$threadId.tsx in \0virtual:react-router/server-build. Does the file exist?",
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      throw error;
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    try {
+      const response = await handler(createEvent("/chat/abc"));
+      const body = await response.text();
+
+      expect(response.status).toBe(500);
+      expect(body).not.toContain("\0");
+      expect(body).toContain("in \\0virtual:react-router/server-build");
+      expect(body).toContain("/app/routes/chat.$threadId.tsx");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("escapes other C0 control bytes but keeps real whitespace intact", async () => {
+    const error = new Error("broke\ton\nline\r\n\u001b[31mred\u001b[0m\u0007");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      throw error;
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    try {
+      const body = await (await handler(createEvent("/"))).text();
+
+      expect(body).toBe(
+        "Internal Server Error: broke\ton\nline\r\n\\x1b[31mred\\x1b[0m\\x07",
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("keeps the dev 500 path safe when an error message is not a string", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      throw { message: 500 };
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    try {
+      const response = await handler(createEvent("/chat/abc"));
+
+      expect(response.status).toBe(500);
+      await expect(response.text()).resolves.toBe("Internal Server Error: 500");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("strips APP_BASE_PATH from React Router lazy route manifest paths", async () => {
     process.env.APP_BASE_PATH = "/dispatch";
     const handler = createH3SSRHandler(() => ({})) as any;
@@ -794,10 +863,16 @@ describe("createH3SSRHandler", () => {
       );
     }
 
-    function expectCacheHeaders(response: Response, expected: string) {
-      for (const name of Object.keys(DEFAULT_SSR_CACHE_HEADERS)) {
-        expect(response.headers.get(name)).toBe(expected);
-      }
+    function expectCacheHeaders(
+      response: Response,
+      expected: string,
+      netlifyExpected = expected,
+    ) {
+      expect(response.headers.get("cache-control")).toBe(expected);
+      expect(response.headers.get("cdn-cache-control")).toBe(expected);
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        netlifyExpected,
+      );
     }
 
     it("disables SSR caching on HTML when set to off", async () => {
@@ -869,6 +944,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 
@@ -882,6 +958,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 
@@ -896,6 +973,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+        DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
       );
     });
 

@@ -34,7 +34,10 @@ export function AgentComposerFrame({
       data-agent-composer-variant={layoutVariant}
       data-agent-composer-slot="area"
       className={cn(
-        "agent-composer-area shrink-0 px-3 py-2",
+        "agent-composer-area shrink-0 py-2",
+        // Compact composers are nested in padded popovers; the default sidebar
+        // frame is the only layout that needs its own horizontal inset.
+        layoutVariant === "compact" ? "px-0" : "px-3",
         layoutVariant !== "default" && `agent-composer-area--${layoutVariant}`,
         className,
       )}

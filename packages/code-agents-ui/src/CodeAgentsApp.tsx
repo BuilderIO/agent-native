@@ -17,6 +17,8 @@ import {
   type SlashCommand,
   type TiptapComposerHandle,
 } from "@agent-native/core/client/composer";
+import { usePollLoop } from "@agent-native/core/client/hooks";
+import { createPollEngine } from "@agent-native/core/shared";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,
@@ -123,54 +125,54 @@ import {
 } from "./ui/select.js";
 
 export interface CodeAgentsHost {
-  listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
-  listModels?(): Promise<CodeAgentModelListResult>;
-  getHostMetadata?(): Promise<CodeAgentHostMetadata>;
-  runComputerSetupAction?(
+  listRuns: (goalId?: string) => Promise<CodeAgentRunListResult>;
+  listModels?: () => Promise<CodeAgentModelListResult>;
+  getHostMetadata?: () => Promise<CodeAgentHostMetadata>;
+  runComputerSetupAction?: (
     action: CodeAgentComputerSetupAction,
-  ): Promise<CodeAgentComputerSetupResult>;
-  listCodePacks?(cwd?: string): Promise<CodeAgentCodePackResult>;
-  listProjects?(): Promise<CodeAgentProjectListResult>;
-  selectProject?(cwd: string): Promise<CodeAgentProjectSelectResult>;
-  chooseProject?(): Promise<CodeAgentProjectSelectResult>;
-  createRun(
+  ) => Promise<CodeAgentComputerSetupResult>;
+  listCodePacks?: (cwd?: string) => Promise<CodeAgentCodePackResult>;
+  listProjects?: () => Promise<CodeAgentProjectListResult>;
+  selectProject?: (cwd: string) => Promise<CodeAgentProjectSelectResult>;
+  chooseProject?: () => Promise<CodeAgentProjectSelectResult>;
+  createRun: (
     request: CodeAgentCreateRunRequest,
-  ): Promise<CodeAgentCreateRunResult>;
-  readTranscript(
+  ) => Promise<CodeAgentCreateRunResult>;
+  readTranscript: (
     request: CodeAgentTranscriptRequest,
-  ): Promise<CodeAgentTranscriptResult>;
-  subscribeTranscript?(
+  ) => Promise<CodeAgentTranscriptResult>;
+  subscribeTranscript?: (
     request: CodeAgentTranscriptRequest,
     callback: (batch: CodeAgentTranscriptSubscriptionBatch) => void,
-  ): () => void;
-  appendFollowUp(
+  ) => () => void;
+  appendFollowUp: (
     request: CodeAgentFollowUpRequest,
-  ): Promise<CodeAgentFollowUpResult>;
-  updateRun(
+  ) => Promise<CodeAgentFollowUpResult>;
+  updateRun: (
     request: CodeAgentUpdateRunRequest,
-  ): Promise<CodeAgentUpdateRunResult>;
-  retryRun?(
+  ) => Promise<CodeAgentUpdateRunResult>;
+  retryRun?: (
     request: CodeAgentRetryRunRequest,
-  ): Promise<CodeAgentRetryRunResult>;
-  rerunRun?(request: CodeAgentRerunRequest): Promise<CodeAgentRerunResult>;
-  controlRun(
+  ) => Promise<CodeAgentRetryRunResult>;
+  rerunRun?: (request: CodeAgentRerunRequest) => Promise<CodeAgentRerunResult>;
+  controlRun: (
     goalId: string,
     runId: string,
     command: CodeAgentControlCommand,
     permissionMode?: CodeAgentPermissionMode,
-  ): Promise<CodeAgentControlResult>;
-  openTerminal?(
+  ) => Promise<CodeAgentControlResult>;
+  openTerminal?: (
     request?: CodeAgentTerminalRequest,
-  ): Promise<CodeAgentTerminalResult>;
-  openCodexLogin?(): Promise<CodeAgentTerminalResult>;
-  getRemoteConnectorStatus?(): Promise<CodeAgentRemoteConnectorStatus>;
-  setRemoteConnectorEnabled?(
+  ) => Promise<CodeAgentTerminalResult>;
+  openCodexLogin?: () => Promise<CodeAgentTerminalResult>;
+  getRemoteConnectorStatus?: () => Promise<CodeAgentRemoteConnectorStatus>;
+  setRemoteConnectorEnabled?: (
     enabled: boolean,
-  ): Promise<CodeAgentRemoteConnectorControlResult>;
-  pairRemoteConnector?(
+  ) => Promise<CodeAgentRemoteConnectorControlResult>;
+  pairRemoteConnector?: (
     request?: CodeAgentRemoteConnectorPairRequest,
-  ): Promise<CodeAgentRemoteConnectorPairResult>;
-  connectBuilderProvider?(): Promise<CodeAgentProviderConnectResult>;
+  ) => Promise<CodeAgentRemoteConnectorPairResult>;
+  connectBuilderProvider?: () => Promise<CodeAgentProviderConnectResult>;
 }
 
 export type CodeAgentsRenderAppSurface = (input: {
@@ -337,6 +339,31 @@ const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
 const CODE_AGENT_VIEWED_RUN_IDS_KEY = "agent-native-code:viewed-run-ids";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
+const HOST_CALL_TIMEOUT_MIN_MS = 10_000;
+
+function getHostCallTimeoutMs(pollIntervalMs: number): number {
+  return Math.max(HOST_CALL_TIMEOUT_MIN_MS, pollIntervalMs * 4);
+}
+
+/**
+ * Bounds a host RPC call so a hung host process can't pin a poll's in-flight
+ * guard forever. The host call itself keeps running in the background if it
+ * loses the race, but nothing is listening to it anymore, so a late
+ * resolution cannot clobber state set by a newer poll cycle.
+ */
+function withHostCallTimeout<T>(
+  call: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Host call timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
+}
 
 function appUrlForRemotePairing(app: AppConfig): string {
   if ((app.mode ?? "prod") === "dev") {
@@ -550,7 +577,10 @@ export default function CodeAgentsApp({
   const loadRuns = useCallback(
     async (_busy = false) => {
       try {
-        const result = await host.listRuns(selectedGoal.id);
+        const result = await withHostCallTimeout(
+          host.listRuns(selectedGoal.id),
+          getHostCallTimeoutMs(2_000),
+        );
         setStatus(result.status);
         setError(result.error ?? null);
         setRuns(result.runs);
@@ -613,10 +643,13 @@ export default function CodeAgentsApp({
       }
       if (busy) setTranscriptLoading(true);
       try {
-        const result = await host.readTranscript({
-          goalId: selectedGoal.id,
-          runId,
-        });
+        const result = await withHostCallTimeout(
+          host.readTranscript({
+            goalId: selectedGoal.id,
+            runId,
+          }),
+          getHostCallTimeoutMs(1_000),
+        );
         setTranscriptEvents(result.events);
         setTranscriptError(result.error ?? null);
       } catch (err) {
@@ -651,7 +684,10 @@ export default function CodeAgentsApp({
   const loadRemoteConnectorStatus = useCallback(async () => {
     if (!host.getRemoteConnectorStatus) return;
     try {
-      const result = await host.getRemoteConnectorStatus();
+      const result = await withHostCallTimeout(
+        host.getRemoteConnectorStatus(),
+        getHostCallTimeoutMs(5_000),
+      );
       setRemoteConnectorStatus(result);
       setRemoteConnectorError(null);
     } catch (err) {
@@ -706,30 +742,18 @@ export default function CodeAgentsApp({
     [host, loadHostMetadata],
   );
 
+  const { pollNow: pollHostMetadataNow } = usePollLoop(loadHostMetadata, {
+    intervalMs: 5000,
+    enabled: isActive && !!host.getHostMetadata,
+  });
+  // Refresh outside the regular cadence when something else in this app
+  // bumps refreshKey (e.g. after a setup action completes) — the leading
+  // poll from usePollLoop above already covers the isActive-becomes-true
+  // case, so pollNow() here is a no-op on mount (an attempt is already
+  // in flight) and only does real work on a later refreshKey change.
   useEffect(() => {
-    if (!isActive || !host.getHostMetadata) return;
-    let cancelled = false;
-    const refresh = () => {
-      void host.getHostMetadata!()
-        .then((result) => {
-          if (!cancelled) setHostMetadata(result);
-        })
-        .catch((err) => {
-          if (!cancelled) {
-            setHostMetadata({
-              status: "unavailable",
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        });
-    };
-    refresh();
-    const interval = window.setInterval(refresh, 5_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [host, isActive, refreshKey]);
+    if (isActive) pollHostMetadataNow();
+  }, [isActive, pollHostMetadataNow, refreshKey]);
 
   const connectBuilderProvider = useCallback(async () => {
     setBuilderConnectMessage(null);
@@ -875,15 +899,10 @@ export default function CodeAgentsApp({
     [host, onOpenSettings],
   );
 
-  useEffect(() => {
-    if (!isActive || !host.getRemoteConnectorStatus) return;
-    void loadRemoteConnectorStatus();
-    const timer = window.setInterval(
-      () => void loadRemoteConnectorStatus(),
-      5000,
-    );
-    return () => window.clearInterval(timer);
-  }, [host.getRemoteConnectorStatus, isActive, loadRemoteConnectorStatus]);
+  usePollLoop(loadRemoteConnectorStatus, {
+    intervalMs: 5000,
+    enabled: isActive && !!host.getRemoteConnectorStatus,
+  });
 
   useEffect(() => {
     if (!isActive || refreshKey <= 0) return;
@@ -1046,15 +1065,10 @@ export default function CodeAgentsApp({
     writeStoredModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
 
-  useEffect(() => {
-    if (!isActive) return;
-    void loadRuns();
-    const interval = window.setInterval(
-      () => void loadRuns(),
-      hasActiveRuns ? 2_000 : 10_000,
-    );
-    return () => window.clearInterval(interval);
-  }, [hasActiveRuns, isActive, loadRuns]);
+  usePollLoop(() => loadRuns(), {
+    intervalMs: hasActiveRuns ? 2_000 : 10_000,
+    enabled: isActive,
+  });
 
   useEffect(() => {
     if (!isActive) return;
@@ -1083,13 +1097,14 @@ export default function CodeAgentsApp({
       : selectedRunIsActive
         ? 1_000
         : 5_000;
-    const interval = window.setInterval(
-      () => void loadTranscript(selectedRunId),
-      pollMs,
-    );
+    const engine = createPollEngine(() => loadTranscript(selectedRunId), {
+      intervalMs: pollMs,
+      leading: false,
+    });
+    engine.start();
     return () => {
       unsubscribe?.();
-      window.clearInterval(interval);
+      engine.stop();
     };
   }, [
     host,
@@ -2612,7 +2627,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Builder.io, sign in with your ChatGPT subscription, or add an API key.",
+        "Connect Builder.io (free tier available), sign in with your ChatGPT subscription, or add an API key.",
     };
   }
   return {
@@ -3651,7 +3666,7 @@ function RunDetailCard({
           title="Provider needed"
           description={
             builderConnectMessage ??
-            "Connect Builder.io, run codex login for Codex CLI, or add your own API key."
+            "Connect Builder.io (free tier available), run codex login for Codex CLI, or add your own API key."
           }
           primaryActionLabel={
             builderConnecting ? "Waiting..." : "Connect Builder.io"

@@ -677,10 +677,9 @@ switch (command) {
     // continuation only runs on success.
     (async () => {
       // Doctor pre-step: scans app source for the security-critical guard
-      // invariants (see `agent-native doctor --help`). Warn-only by
-      // default — prints findings to stderr and always continues. Only
-      // fails the build when `agent-native build --strict` was passed or
-      // `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+      // invariants (see `agent-native doctor --help`). Findings fail by
+      // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
+      // a build moving, while `agent-native build --strict` always fails.
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
         const hook = await runDoctorBuildHook({
@@ -694,9 +693,10 @@ switch (command) {
           process.exit(1);
         }
       } catch (err) {
-        console.warn(
-          `[doctor] pre-build scan failed to run (continuing): ${err instanceof Error ? err.message : String(err)}`,
+        console.error(
+          `[doctor] pre-build scan failed, so the build is blocked: ${err instanceof Error ? err.message : String(err)}`,
         );
+        process.exit(1);
       }
 
       if (isReactRouterFramework()) {
@@ -926,6 +926,21 @@ switch (command) {
     break;
   }
 
+  case "clean": {
+    // Reclaim disk by deleting regenerable build caches. Dry-run unless
+    // --apply, like `package add` and `eject`.
+    import("./clean.js")
+      .then(async (m) => {
+        const code = await m.runClean(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "code": {
     import("./code.js")
       .then((m) => m.runCode(args))
@@ -979,6 +994,18 @@ switch (command) {
     // Package or install an agent-native app as a skill-backed MCP/app bundle.
     import("./app-skill.js")
       .then((m) => m.runAppSkill(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "plugin": {
+    // Import a standard Agent Plugin's Skills and remote MCP entries into the
+    // current Agent-Native workspace.
+    import("./agent-plugin.js")
+      .then((m) => m.runAgentPlugin(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -1223,6 +1250,7 @@ Usage:
                                 Call another agent-native app over A2A
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
+  agent-native doctor           Scan app/workspace source for guard violations
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold, or choose Community
@@ -1244,6 +1272,8 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
+  agent-native plugin import <path> [--into <workspace>] [--yes] [--force]
+                                Import standard Agent Plugin Skills and remote MCP servers.
   agent-native skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.
@@ -1301,6 +1331,10 @@ Usage:
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in
                                 changelog/; 'release' rolls them into CHANGELOG.md.
+  agent-native clean            Reclaim disk by deleting regenerable build
+                                caches (node_modules/.vite, .nitro). Dry-run
+                                unless --apply; --builds also selects build/,
+                                dist/, .output/ and .netlify bundles.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its
@@ -1322,6 +1356,8 @@ Options:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
+  --prewarm                     With workspace dev, warm non-default apps in the background
+  --no-prewarm                  With workspace dev, keep non-default apps lazy
   --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}

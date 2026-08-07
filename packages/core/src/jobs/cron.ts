@@ -17,7 +17,11 @@ function normalize(cronExpr: string): string {
 export function serverTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[jobs] Could not detect the server timezone; using UTC",
+      error,
+    );
     return "UTC";
   }
 }
@@ -28,6 +32,7 @@ export function isValidTimezone(timezone: string): boolean {
     new Intl.DateTimeFormat("en-US", { timeZone: timezone });
     return true;
   } catch {
+    // coercion-ok: invalid IANA timezone is an explicit false validation result
     return false;
   }
 }

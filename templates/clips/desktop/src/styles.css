@@ -156,6 +156,7 @@ body[data-clips-route="recording-pill"] #root {
    content exceeds the restored popover height. Only the content region may
    scroll; the window shell and bottom destinations stay put. */
 .app-recorder {
+  position: relative;
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -605,6 +606,10 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* Popover menu rendered below a device row. */
+.media-device-row {
+  position: relative;
+}
+
 .row-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -645,7 +650,21 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-hover);
 }
 
-/* System-audio toggle sits below the device list, separated by a divider. */
+.row-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.row-menu-trigger:focus-visible {
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  border-radius: 4px;
+}
+
 .row-menu-toggle {
   display: flex;
   align-items: center;
@@ -837,7 +856,6 @@ body[data-clips-route="recording-pill"] #root {
   width: 3px;
   border-radius: 999px;
   background: rgba(132, 204, 22, 0.98);
-  box-shadow: 0 0 5px rgba(132, 204, 22, 0.35);
   transition: height 90ms ease-out;
 }
 
@@ -2594,6 +2612,134 @@ body[data-clips-route="recording-pill"] #root {
   }
 }
 
+/* ------------------------------------------------------------------------- */
+/* Alert dialog                                                              */
+/* ------------------------------------------------------------------------- */
+
+/* `position: absolute`, not `fixed` — see AlertDialog.tsx: this must stay
+   inside `.app-recorder`'s clipped, rounded bounds rather than the raw
+   (square-cornered) Tauri window. */
+.alert-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  /* guard:allow-raw-color — modal scrim is theme-invariant black, same as shadcn's own bg-black/80 overlay */
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.alert-dialog-overlay[data-state="open"] {
+  animation: alert-dialog-overlay-in 120ms ease-out;
+}
+
+.alert-dialog-overlay[data-state="closed"] {
+  animation: alert-dialog-overlay-out 100ms ease-in;
+}
+
+.alert-dialog-content {
+  position: absolute;
+  z-index: 71;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% - 32px);
+  max-width: 320px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.alert-dialog-content[data-state="open"] {
+  animation: alert-dialog-content-in 120ms ease-out;
+}
+
+.alert-dialog-content[data-state="closed"] {
+  animation: alert-dialog-content-out 100ms ease-in;
+}
+
+.alert-dialog-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.alert-dialog-description {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.alert-dialog-footer {
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 8px;
+}
+
+.alert-dialog-footer .primary,
+.alert-dialog-footer .secondary {
+  width: auto;
+  flex: 1;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@keyframes alert-dialog-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes alert-dialog-overlay-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes alert-dialog-content-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes alert-dialog-content-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+}
+
 .setup-toggle-row {
   display: flex;
   align-items: center;
@@ -3327,7 +3473,6 @@ body[data-clips-route="recording-pill"] #root {
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 50%;
   background: rgba(10, 12, 16, 0.42);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
   color: #ffffff;
   cursor: pointer;
   pointer-events: auto;
@@ -3383,21 +3528,6 @@ body[data-clips-route="recording-pill"] #root {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #ffffff;
-  /*
-   * Do NOT use -webkit-text-stroke here: it joins with a hard miter and no way
-   * to set stroke-linejoin, so at this size/weight the sharp concave corner of
-   * the "2" (where the curved top meets the flat bottom bar) sprouts star-shaped
-   * miter spikes. We fake a soft dark edge with a 4-direction 1px shadow halo
-   * instead, which has no join geometry and cannot spike.
-   */
-  text-shadow:
-    1px 0 1px rgba(17, 24, 39, 0.22),
-    -1px 0 1px rgba(17, 24, 39, 0.22),
-    0 1px 1px rgba(17, 24, 39, 0.22),
-    0 -1px 1px rgba(17, 24, 39, 0.22),
-    0 2px 4px rgba(0, 0, 0, 0.48),
-    0 12px 34px rgba(0, 0, 0, 0.36),
-    0 0 2px rgba(0, 0, 0, 0.72);
   animation: cd-pop 1s ease-out forwards;
   line-height: 1;
 }
@@ -3413,7 +3543,6 @@ body[data-clips-route="recording-pill"] #root {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-pill);
   background: rgba(10, 12, 16, 0.28);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
   color: rgba(255, 255, 255, 0.58);
   font-size: 11px;
   font-weight: 500;
@@ -3487,9 +3616,6 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.45),
-    0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   font-size: 13px;
   font-weight: 600;
@@ -3532,9 +3658,6 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.45),
-    0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
 }
 
@@ -4260,9 +4383,7 @@ body[data-clips-route="recording-pill"] #root {
   justify-content: center;
   flex-shrink: 0;
   border-radius: 50%;
-  transition:
-    background 120ms,
-    box-shadow 120ms;
+  transition: background 120ms;
 }
 
 .bubble-control-button {
@@ -4294,7 +4415,6 @@ body[data-clips-route="recording-pill"] #root {
 
 .bubble-dot.is-active {
   background: white;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
 }
 
 .bubble-dot-small {
@@ -4688,8 +4808,7 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  /* Extra horizontal room so the card's drop shadow isn't clipped by the
-     transparent window edges (shadow blur is ~30px). */
+  /* Keep the card and its edge controls inside the transparent window. */
   padding: 12px 32px;
   background: transparent;
   pointer-events: none;
@@ -4706,9 +4825,6 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.35),
-    0 2px 6px rgba(0, 0, 0, 0.3);
   color: white;
   pointer-events: auto;
   min-width: 320px;
@@ -4864,7 +4980,6 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 10px;
   background: rgba(24, 26, 32, 0.98);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -4917,7 +5032,6 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   justify-content: center;
   padding: 0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
   z-index: 6;
 }
 
@@ -4953,7 +5067,6 @@ body[data-clips-route="recording-pill"] #root {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   color: white;
 }
@@ -5177,10 +5290,6 @@ body[data-clips-route="recording-pill"] #root {
   border: 1.5px solid rgba(255, 255, 255, 0.62);
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.018);
-  box-shadow:
-    0 0 120px 42px rgba(0, 0, 0, 0.075),
-    inset 0 0 34px rgba(0, 0, 0, 0.06),
-    0 0 0 1px rgba(0, 0, 0, 0.12);
 }
 
 .region-guide-rect-editable {
@@ -5192,19 +5301,11 @@ body[data-clips-route="recording-pill"] #root {
 .region-guide-rect-editable:hover,
 .region-guide-rect-editable.selected {
   border-color: rgba(255, 255, 255, 0.92);
-  box-shadow:
-    0 0 150px 50px rgba(0, 0, 0, 0.105),
-    inset 0 0 36px rgba(0, 0, 0, 0.08),
-    0 0 0 1px rgba(0, 0, 0, 0.2);
 }
 
 .region-guide-rect-editable:focus-visible {
   outline: none;
   border-color: rgba(255, 255, 255, 0.98);
-  box-shadow:
-    0 0 0 2px rgba(23, 23, 23, 0.5),
-    0 0 150px 50px rgba(0, 0, 0, 0.12),
-    inset 0 0 36px rgba(0, 0, 0, 0.08);
 }
 
 .region-guide-rect-draft {
@@ -5221,9 +5322,6 @@ body[data-clips-route="recording-pill"] #root {
   border: 1px solid rgba(23, 23, 23, 0.38);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.96);
-  box-shadow:
-    0 3px 12px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 .region-guide-handle-nw {
@@ -5268,7 +5366,6 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 12px;
   background: rgba(15, 17, 21, 0.74);
   color: #f8fafc;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
   transform: translateX(-50%);
   backdrop-filter: blur(18px);
 }
@@ -5472,7 +5569,6 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 16px;
   background: rgba(26, 26, 26, 0.95);
   color: white;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
   cursor: grab;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -5507,9 +5603,7 @@ body[data-clips-route="recording-pill"] #root {
      rectangle. */
   border-radius: 999px;
   cursor: pointer;
-  transition:
-    background 120ms ease,
-    box-shadow 120ms ease;
+  transition: background 120ms ease;
 }
 
 /* CSS :hover covers the focused case; .pill-hovered is the Rust-polled
@@ -5517,7 +5611,6 @@ body[data-clips-route="recording-pill"] #root {
 .pill-inner-compact:hover,
 .pill-inner-compact.pill-hovered {
   background: rgba(42, 42, 42, 0.97);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
 .pill-controls {

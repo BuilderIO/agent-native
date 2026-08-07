@@ -420,7 +420,7 @@ function BatteriesIncludedCloud({
             {t("home.batteries.body")}
           </p>
           <Link
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             to={localizedPath("/docs/agent-native-toolkit")}
             className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
             onClick={() =>
@@ -474,7 +474,7 @@ function ActionSurfaceSection({
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <Link
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs/getting-started")}
               className="inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
               onClick={() =>
@@ -557,7 +557,7 @@ function AppsSection({
 
       <div className="mt-10 text-center">
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={localizedPath("/apps")}
           className="primary-button"
           onClick={() =>
@@ -636,7 +636,7 @@ export default defineAction({
 
               <div className="flex flex-wrap items-center justify-center gap-4">
                 <Link
-                  data-an-prefetch="render"
+                  data-an-prefetch="viewport"
                   to={localizedPath("/apps")}
                   className="primary-button"
                   onClick={() =>
@@ -662,7 +662,7 @@ export default defineAction({
                   </svg>
                 </Link>
                 <Link
-                  data-an-prefetch="render"
+                  data-an-prefetch="viewport"
                   to={localizedPath("/docs")}
                   className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                   onClick={() =>
@@ -703,7 +703,7 @@ export default defineAction({
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
-                data-an-prefetch="render"
+                data-an-prefetch="viewport"
                 to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
@@ -729,7 +729,7 @@ export default defineAction({
                 </svg>
               </Link>
               <Link
-                data-an-prefetch="render"
+                data-an-prefetch="viewport"
                 to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>

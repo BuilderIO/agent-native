@@ -205,10 +205,10 @@ describe("workspace dev startup", () => {
     const fake = fakeSpawn();
     handle = await runWorkspaceDev({
       root: tmpDir,
+      args: ["--prewarm"],
       env: {
         ...testEnv(),
-        // Opt in to prewarm for this test (testEnv disables it by default).
-        WORKSPACE_NO_PREWARM: "",
+        WORKSPACE_PREWARM: "1",
         WORKSPACE_PREWARM_DELAY_MS: "0",
       },
       spawnProcess: fake.spawnProcess,
@@ -238,7 +238,6 @@ describe("workspace dev startup", () => {
       args: ["--no-prewarm"],
       env: {
         ...testEnv(),
-        WORKSPACE_NO_PREWARM: "",
         WORKSPACE_PREWARM_DELAY_MS: "0",
       },
       spawnProcess: fake.spawnProcess,
@@ -712,13 +711,17 @@ describe("workspace dev helpers", () => {
     expect(shouldEagerStartWorkspaceApps([], {})).toBe(false);
   });
 
-  it("defaults prewarm on in lazy mode and respects opt-outs", () => {
-    expect(shouldPrewarmWorkspaceApps([], {})).toBe(true);
+  it("defaults prewarm off in lazy mode and supports explicit opt-in", () => {
+    expect(shouldPrewarmWorkspaceApps([], {})).toBe(false);
+    expect(shouldPrewarmWorkspaceApps(["--prewarm"], {})).toBe(true);
+    expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_PREWARM: "1" })).toBe(
+      true,
+    );
     expect(shouldPrewarmWorkspaceApps(["--no-prewarm"], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_NO_PREWARM: "1" })).toBe(
       false,
     );
-    // Eager mode already starts every app — prewarm has nothing to do.
+    // Eager mode already starts every app, so prewarm has nothing to do.
     expect(shouldPrewarmWorkspaceApps(["--eager"], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
       false,
@@ -792,11 +795,7 @@ function testEnv(): NodeJS.ProcessEnv {
     WORKSPACE_APP_PORT_START: "19100",
     WORKSPACE_NO_OPEN: "1",
     WORKSPACE_PROXY_READY_TIMEOUT_MS: "50",
-    // Existing assertions count "exec vite" spawns and expect just the
-    // default-app entry; the background prewarm queue would race those
-    // counters. Tests that exercise prewarm opt in explicitly by clearing
-    // this in their own env override.
-    WORKSPACE_NO_PREWARM: "1",
+    WORKSPACE_PREWARM: "0",
   };
 }
 

@@ -1,0 +1,104 @@
+/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
+
+@source "./**/*.{ts,tsx}";
+
+:root {
+  /* Visual direction: pine/teal, calm automation control room. */
+  --background: 164 24% 97%;
+  --foreground: 168 24% 15%;
+  --card: 160 32% 99%;
+  --card-foreground: 168 24% 15%;
+  --popover: 160 32% 99%;
+  --popover-foreground: 168 24% 15%;
+  --primary: 161 62% 34%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 162 22% 93%;
+  --secondary-foreground: 168 22% 18%;
+  --muted: 162 21% 94%;
+  --muted-foreground: 165 11% 45%;
+  --accent: 160 27% 92%;
+  --accent-foreground: 168 22% 18%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 160 16% 85%;
+  --input: 160 16% 82%;
+  --ring: 161 62% 34%;
+  --radius: 0.5rem;
+  --sidebar-background: 162 22% 94%;
+  --sidebar-foreground: 165 11% 45%;
+  --sidebar-primary: 161 62% 34%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 160 27% 89%;
+  --sidebar-accent-foreground: 168 22% 18%;
+  --sidebar-border: 160 16% 85%;
+  --sidebar-ring: 161 62% 34%;
+}
+
+.dark {
+  --background: 168 18% 11%;
+  --foreground: 160 22% 92%;
+  --card: 168 17% 15%;
+  --card-foreground: 160 22% 92%;
+  --popover: 168 17% 15%;
+  --popover-foreground: 160 22% 92%;
+  --primary: 160 58% 65%;
+  --primary-foreground: 168 24% 12%;
+  --secondary: 168 17% 18%;
+  --secondary-foreground: 160 22% 92%;
+  --muted: 168 16% 17%;
+  --muted-foreground: 165 11% 63%;
+  --accent: 168 17% 20%;
+  --accent-foreground: 160 22% 92%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 168 15% 25%;
+  --input: 168 15% 29%;
+  --ring: 160 58% 65%;
+  --radius: 0.5rem;
+  --sidebar-background: 168 18% 9%;
+  --sidebar-foreground: 165 11% 63%;
+  --sidebar-primary: 160 58% 65%;
+  --sidebar-primary-foreground: 168 24% 12%;
+  --sidebar-accent: 168 17% 16%;
+  --sidebar-accent-foreground: 160 22% 92%;
+  --sidebar-border: 168 15% 25%;
+  --sidebar-ring: 160 58% 65%;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter Variable", "Inter", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-layout="desktop"],
+.agent-sidebar-panel[data-agent-sidebar-layout="mobile"] {
+  border-inline-start: 1px solid hsl(var(--sidebar-border));
+  background: hsl(var(--sidebar-background));
+}
+
+.agent-sidebar-panel > .agent-sidebar-panel-inner {
+  background: hsl(var(--sidebar-background));
+}

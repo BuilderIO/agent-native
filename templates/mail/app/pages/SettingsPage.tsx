@@ -906,7 +906,7 @@ function AutomationsSection() {
           { method: "GET" },
         );
       } catch {
-        return { engine: "anthropic", model: defaultModel };
+        return { model: defaultModel };
       }
     },
     staleTime: 30_000,
@@ -1476,7 +1476,7 @@ export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navState = useNavigationState();
   const agentSettingsTabs = useAgentSettingsTabs();
-  const [activeSection, setActiveSection] = useState<string>("general");
+  const [activeSection, setActiveSection] = useState<string>("integrations");
 
   const mailTabs = useMemo<SettingsTabItem[]>(
     () => [

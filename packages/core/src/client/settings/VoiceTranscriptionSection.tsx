@@ -10,7 +10,7 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import { Switch } from "@agent-native/toolkit/design-system";
+import { Picker, Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
@@ -22,7 +22,9 @@ import {
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import { agentNativePath } from "../api-path.js";
+import { SettingsRow } from "./SettingsRow.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -118,7 +120,9 @@ function batchProvider(provider: Provider | null): Provider {
   return provider;
 }
 
-export function VoiceTranscriptionSection() {
+export function VoiceTranscriptionSection({
+  compact = false,
+}: { compact?: boolean } = {}) {
   const [transcriptionMode, setTranscriptionMode] =
     useState<TranscriptionMode | null>(null);
   const [provider, setProvider] = useState<Provider>(DEFAULT_BATCH_PROVIDER);
@@ -315,7 +319,12 @@ export function VoiceTranscriptionSection() {
 
   const focusKey = (key: string) => {
     if (typeof window === "undefined") return;
-    window.location.hash = `#secrets:${key}`;
+    window.history.pushState(
+      null,
+      "",
+      buildSettingsRoute(`integrations:secrets:${key}`),
+    );
+    window.dispatchEvent(new Event("popstate"));
   };
 
   const chooseSource = (next: TranscriptionMode) => {
@@ -362,11 +371,51 @@ export function VoiceTranscriptionSection() {
   };
 
   if (transcriptionMode === null) {
+    if (compact) {
+      return (
+        <SettingsRow
+          label="Voice transcription"
+          description="Choose how voice input is transcribed."
+          control={
+            <div
+              className="h-9 w-44 animate-pulse rounded-md border border-border bg-muted-foreground/10"
+              aria-label="Loading voice transcription"
+            />
+          }
+        />
+      );
+    }
     return (
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <IconLoader2 size={10} className="animate-spin" />
         Loading…
       </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <SettingsRow
+        label="Voice transcription"
+        description="Choose how voice input is transcribed."
+        control={
+          <Picker
+            mode="select"
+            options={[
+              { value: "mac-native", label: "Mac Native" },
+              { value: "google-realtime", label: "Google Realtime" },
+              { value: "batch", label: "Batch" },
+            ]}
+            value={transcriptionMode}
+            onChange={(next) => {
+              const value = String(next ?? "");
+              if (isTranscriptionMode(value)) chooseSource(value);
+            }}
+            aria-label="Voice transcription"
+            className="w-44 text-start"
+          />
+        }
+      />
     );
   }
 
@@ -407,7 +456,7 @@ export function VoiceTranscriptionSection() {
               googleRealtimeReady
                 ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
                 : googleRealtimeConfigured
-                  ? "Google credentials are set. Connect Builder completely to mint the managed realtime session."
+                  ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session."
                   : "BYOK only for v1. Configure Google service account before selecting this source."
             }
             rightSlot={
@@ -426,7 +475,6 @@ export function VoiceTranscriptionSection() {
                   className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
                 >
                   Connect Builder.io
-                  <IconExternalLink size={10} />
                 </button>
               ) : (
                 <button
@@ -514,7 +562,7 @@ export function VoiceTranscriptionSection() {
               title="Google Speech-to-Text service account"
               subtitle={
                 googleRealtimeConfigured
-                  ? "Service-account JSON is set. Connect Builder to mint the managed realtime WebSocket session."
+                  ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session."
                   : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize."
               }
               rightSlot={
@@ -534,7 +582,6 @@ export function VoiceTranscriptionSection() {
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 ) : (
                   <button
@@ -570,8 +617,8 @@ export function VoiceTranscriptionSection() {
               title="Builder.io Connect"
               subtitle={
                 builderStatus?.configured
-                  ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and cleanup."
-                  : "One-click connect for Gemini Flash-Lite cleanup and batch transcription. No Google key needed."
+                  ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and Luna for text cleanup."
+                  : "One-click connect for Gemini Flash-Lite transcription and Luna text cleanup. No Google key needed."
               }
               rightSlot={
                 builderStatus?.configured ? (
@@ -589,7 +636,6 @@ export function VoiceTranscriptionSection() {
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 )
               }

@@ -433,7 +433,8 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     yield {
       type: "stop",
       reason: "error",
-      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      error:
+        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
       errorCode: "builder_auth_error",
     };
     return;
@@ -443,7 +444,8 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     yield {
       type: "stop",
       reason: "error",
-      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      error:
+        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
       errorCode: "builder_auth_error",
     };
     return;

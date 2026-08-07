@@ -111,6 +111,13 @@ When the user asks for a dashboard:
 6. Persist with `update-dashboard`, not raw SQL or settings writes.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
+An explicit dashboard request authorizes the complete non-destructive build in
+the same turn. After querying or scaffolding, continue through extension-data
+seeding/refresh, dashboard save/embed, and navigation; do not ask whether to
+proceed or leave an empty Custom Block shell. Ask only when metric scope/grain
+is materially ambiguous, the change is destructive, or it has an external side
+effect such as sending email or outreach.
+
 Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
 
 ```bash
@@ -708,15 +715,9 @@ state or tracker context, but docs traffic is not app usage and should not appea
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
 
-## Template Catalog And Demo Dashboards
+## Demo Dashboards
 
-`list-dashboard-templates` / `install-dashboard-template` install shipped
-dashboard templates (Node Exporter, the canonical Agent Native observability
-dashboard, etc.), and `ensure-demo-dashboards` auto-installs a per-user demo
-on first app open. See
-`references/template-catalog-and-demo.md` for the canonical-dashboard panel
-rule, Node Exporter template specifics, and the full demo-dashboard lifecycle
-(source routing, env var overrides, tombstoning, reset).
+`ensure-demo-dashboards` auto-installs a per-user demo on first app open.
 
 ## Building Large First-Party Dashboards (compose-dashboard)
 
@@ -751,21 +752,16 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
   - To make nested config edits, use
     `setConfigPath("yAxis.format", "percent")` instead of resending/clobbering
     the whole nested object.
-- **To add a shipped template's panels, prefer `install-dashboard-template` with `mergePanels: true`** and the existing `dashboardId`. It appends only the template panels whose id is not already present (preserving existing panels and order) in one atomic save — you don't author each panel yourself.
 - **Always verify the returned proof-of-done and report it.**
   `mutate-dashboard` returns `panelCount`, `appliedOps`, `panelOrder`,
   `firstPanelIds`, `changedPanelIds`, `commandLog`, and a `summary` string.
-  `install-dashboard-template --mergePanels` returns `addedPanelIds`,
-  `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel
-  count instead of assuming success.
+  Tell the user the resulting panel count instead of assuming success.
 
 ```bash
 # Add or edit several panels in ONE atomic call (never one call per panel)
 pnpm action mutate-dashboard --dashboardId weekly-metrics \
   --code 'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);'
 
-# Append a template's panels to an existing dashboard in one call
-pnpm action install-dashboard-template --templateId skills-cli-funnel --dashboardId weekly-metrics --mergePanels true
 ```
 
 ## Archiving vs deleting

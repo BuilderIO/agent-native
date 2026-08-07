@@ -324,7 +324,7 @@ const messages = {
     codeChangeBadge: "कोड परिवर्तन",
     connectBuilderTitle: "Builder.io कनेक्ट करें",
     connectBuilderDescription:
-      "इस ऐप से क्लाउड-आधारित कोड परिवर्तन सक्षम करने के लिए बिल्डर से कनेक्ट करें।",
+      "इस ऐप से क्लाउड-आधारित कोड परिवर्तन सक्षम करने के लिए बिल्डर से कनेक्ट करें (free tier उपलब्ध)।",
     setupRequired: "सेटअप आवश्यक है",
     branchCreated: "शाखा बनाई गई",
     close: "बंद करें",
@@ -487,7 +487,7 @@ const messages = {
     back: "वापस",
     agentEngineRequired: "एजेंट इंजन की आवश्यकता है",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier उपलब्ध) or an LLM key before {{platform}} can answer.",
     openLlm: "LLM खोलें",
     setup: "Setup",
     shareDocumentsWith: "दस्तावेज़ साझा करें",

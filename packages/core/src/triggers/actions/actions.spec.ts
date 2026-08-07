@@ -29,6 +29,7 @@ vi.mock("../dispatcher.js", async (importOriginal) => ({
   refreshEventSubscriptions: refreshEventSubscriptionsMock,
 }));
 
+import { serverTimezone } from "../../jobs/cron.js";
 import listAutomations from "./list-automations.js";
 import manageAutomation from "./manage-automation.js";
 
@@ -98,7 +99,7 @@ describe("automation actions", () => {
       id: "automation-1",
       name: "digest",
       triggerType: "schedule",
-      scheduleDescription: "Every day at 9 AM (UTC)",
+      scheduleDescription: `Every day at 9 AM (${serverTimezone()})`,
       scope: "personal",
     });
   });

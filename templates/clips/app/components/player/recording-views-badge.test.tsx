@@ -126,6 +126,39 @@ describe("RecordingViewsBadge", () => {
     expect(queryMocks.calls).toEqual(["list-viewers"]);
   });
 
+  it("shows the agent count beside the human count without opening the popover", () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        viewCount={4}
+        agentViewCount={2}
+        canViewDetails
+      />,
+    );
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toContain("recordingInsights.viewsCount");
+    expect(button?.textContent).toContain("2");
+    expect(
+      button?.querySelector('[aria-label*="agentViewsCount"]'),
+    ).not.toBeNull();
+  });
+
+  it("shows the agent count to a visitor with no human views", () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        viewCount={0}
+        agentViewCount={3}
+        canViewDetails={false}
+      />,
+    );
+
+    expect(container.textContent).toContain("recordingInsights.viewsCount");
+    expect(container.textContent).toContain("3");
+    expect(queryMocks.calls).toEqual([]);
+  });
+
   it("resolves the stored profile image for an identified viewer", () => {
     queryMocks.avatarUrl = "data:image/jpeg;base64,avatar";
 

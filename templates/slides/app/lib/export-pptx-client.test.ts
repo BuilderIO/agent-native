@@ -141,6 +141,21 @@ describe("exportDeckAsPptx", () => {
     expect(image?.style.height).toBe("80px");
   });
 
+  it("keeps imported slide objects editable during export", async () => {
+    setRenderedSlide(
+      '<div class="fmd-imported-pptx" data-imported-pptx="true"><div data-pptx-element-kind="text">Editable imported title</div></div>',
+    );
+
+    await exportDeckAsPptx("Imported Deck", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    expect(
+      target.querySelector('[data-pptx-element-kind="text"]'),
+    ).not.toBeNull();
+    expect(target.textContent).toContain("Editable imported title");
+  });
+
   it("passes custom aspect-ratio dimensions to the native exporter", async () => {
     await exportDeckAsPptx("Square Deck", [{ id: "slide-1" }], "1:1");
 

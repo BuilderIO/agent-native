@@ -26,7 +26,7 @@ import {
 const MAX_BYTES = 5 * 1024 * 1024;
 
 const STORAGE_SETUP_REQUIRED_REASON =
-  "File storage is not connected yet. Connect Builder.io or configure S3-compatible storage in Settings → File uploads, then retry.";
+  "File storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage in Settings → File uploads, then retry.";
 
 function randId(): string {
   const chars =

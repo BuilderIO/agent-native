@@ -33,6 +33,12 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   appId: "mail",
+  // A delegated (A2A) turn served from the foreground gets the 40s
+  // serverless wall, and "I ran out of time before finishing this step"
+  // was 39% of this fleet's failed inbound A2A tasks — clustered at
+  // 35-46s, the wall to the second. Opting in routes the task to the
+  // background worker, as content, slides and analytics already do.
+  durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   connectorCatalog: [...MAIL_CONNECTOR_CATALOG],
   resolveOrgId: async (event) => {
@@ -150,7 +156,7 @@ Examples:
 - User says "archive marketing emails" \u2192 create rule with condition "marketing or promotional email" and action archive
 - User says "star emails from alice@example.com" \u2192 create rule with condition "from alice@example.com" and action star
 
-Rules are evaluated by a fast AI model (Haiku) and run every minute + when the user opens the app.
+Rules are evaluated by a low-cost text model, preferring GPT-5.6 Luna when a Luna-capable provider is available, and run every minute + when the user opens the app.
 Use trigger-automations to force immediate processing.
 
 Available action types: label (with labelName), archive, mark_read, star, trash.

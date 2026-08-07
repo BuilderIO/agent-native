@@ -43,6 +43,8 @@ read the relevant skill before changing that area.
   meaning changes. If translations cannot be updated in the same change, call
   out the specific locales that need follow-up; reviewers should flag docs
   changes that only update one language.
+- Docs-only commits start with `docs: ` in the present tense, e.g.
+  `docs: fix broken link in provider API guide`, not `docs: fixed broken link`.
 
 ## Final Status Block
 

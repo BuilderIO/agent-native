@@ -1,3 +1,4 @@
+import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -40,6 +41,8 @@ export function track(
     return Promise.resolve();
   }
 
+  const browserSessionId = getOrCreateAnalyticsSessionId();
+
   return fetch(agentNativePath("/_agent-native/track"), {
     method: "POST",
     headers: {
@@ -48,6 +51,11 @@ export function track(
       // middleware trusts it as a first-party marker. Matches the convention
       // used by other client writes (application-state, guided-questions).
       "X-Agent-Native-CSRF": "1",
+      // Same session the action client and agent chat send, so a client event
+      // and the server events from the same visit share one session.
+      ...(browserSessionId
+        ? { "X-Agent-Native-Session-Id": browserSessionId }
+        : {}),
     },
     body,
     keepalive: true,

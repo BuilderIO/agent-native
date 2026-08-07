@@ -54,14 +54,18 @@ async function fetchWithTimeout(
     });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new Error(
+      const timeoutError = new Error(
         `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
       );
+      timeoutError.name = "TimeoutError";
+      throw timeoutError;
     }
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(
+      const abortError = new Error(
         `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
       );
+      abortError.name = "AbortError";
+      throw abortError;
     }
     throw err;
   }
@@ -199,6 +203,7 @@ async function signedS3Request(
     query?: Record<string, string>;
     body?: Uint8Array;
     contentType?: string;
+    range?: string;
     timeoutMs: number;
   },
 ): Promise<Response> {
@@ -264,6 +269,9 @@ async function signedS3Request(
         Authorization: authorization,
         ...(options.body
           ? { "Content-Length": String(options.body.byteLength) }
+          : {}),
+        ...(options.range?.startsWith("bytes=")
+          ? { Range: options.range }
           : {}),
       },
       ...(options.body
@@ -348,6 +356,35 @@ function objectKeyFromUrl(cfg: S3Config, rawUrl: string): string | null {
   const encodedKey = url.pathname.slice(bucketPath.length);
   if (!encodedKey) return null;
   return decodeUrlPathSegment(encodedKey);
+}
+
+function isCompletedClipObjectKey(key: string): boolean {
+  if (!key.startsWith("clips/") || key.length > 1024) return false;
+  if (key.includes("\\") || key.includes("\0")) return false;
+  const segments = key.split("/");
+  if (
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return false;
+  }
+  return !key.startsWith("clips/.multipart/") && !key.endsWith(".pending");
+}
+
+function safeClipFilename(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
+function isRecordingObjectKey(key: string, recordingId: string): boolean {
+  const safeRecordingId = safeClipFilename(recordingId);
+  if (key.startsWith(`clips/${safeRecordingId}/`)) return true;
+  const directObjectPrefix = `clips/${safeRecordingId}.`;
+  if (!key.startsWith(directObjectPrefix)) return false;
+  const extension = key.slice(directObjectPrefix.length);
+  return /^[a-zA-Z0-9_-]+$/.test(extension);
+}
+
+function isLegacyUnscopedObjectKey(key: string): boolean {
+  return /^clips\/\d{13}-[a-z0-9]{8}\.[a-zA-Z0-9_-]+$/.test(key);
 }
 
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
@@ -561,6 +598,47 @@ export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
   return true;
 }
 
+export async function isS3ObjectUrlBoundToRecording(
+  url: string,
+  recordingId: string,
+): Promise<boolean | null> {
+  const cfg = await readS3Config();
+  if (!cfg) return null;
+  const key = objectKeyFromUrl(cfg, url);
+  if (!key) return null;
+  return (
+    isCompletedClipObjectKey(key) && isRecordingObjectKey(key, recordingId)
+  );
+}
+
+export async function fetchS3ObjectByUrl(
+  url: string,
+  options: {
+    range?: string;
+    timeoutMs?: number;
+    recordingId: string;
+    allowLegacyObjectKey?: boolean;
+  },
+): Promise<Response | null> {
+  const cfg = await readS3Config();
+  if (!cfg) return null;
+  const key = objectKeyFromUrl(cfg, url);
+  if (
+    !key ||
+    !isCompletedClipObjectKey(key) ||
+    !options.recordingId ||
+    (!isRecordingObjectKey(key, options.recordingId) &&
+      !(options.allowLegacyObjectKey && isLegacyUnscopedObjectKey(key)))
+  ) {
+    return null;
+  }
+  return signedS3Request(cfg, key, {
+    method: "GET",
+    range: options.range,
+    timeoutMs: options.timeoutMs ?? S3_PUT_TIMEOUT_MS,
+  });
+}
+
 // ── Provider ──────────────────────────────────────────────────────────
 
 export const s3FileUploadProvider: FileUploadProvider = {
@@ -573,9 +651,11 @@ export const s3FileUploadProvider: FileUploadProvider = {
     if (!cfg) throw new Error("S3 credentials are not configured");
 
     const ext = filename?.split(".").pop() ?? "bin";
+    const basename = filename?.slice(0, -(ext.length + 1)) || "file";
+    const safeBasename = safeClipFilename(basename);
     const stamp = Date.now();
     const rand = Math.random().toString(36).slice(2, 10);
-    const objectKey = `clips/${stamp}-${rand}.${ext}`;
+    const objectKey = `clips/${safeBasename}/${stamp}-${rand}.${ext}`;
     const contentType = mimeType || "application/octet-stream";
 
     const bytes =
@@ -591,7 +671,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
       const cfg = await readS3Config();
       if (!cfg) throw new Error("S3 credentials are not configured");
 
-      const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
+      const safeFilename = safeClipFilename(filename);
       if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
         throw new Error("S3 resumable upload requires a positive byte limit");
       }

@@ -99,6 +99,18 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
 );
 
+/** Pending human-in-the-loop gate still waiting for Approve/Deny. */
+export function toolCallHasPendingApproval(part: {
+  approval?: { approvalKey?: string; dismissed?: boolean } | null;
+}): boolean {
+  const approval = part.approval;
+  return (
+    typeof approval?.approvalKey === "string" &&
+    approval.approvalKey.length > 0 &&
+    approval.dismissed !== true
+  );
+}
+
 export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
 
 export function ToolActivityPresentation({
@@ -1209,8 +1221,11 @@ export function ToolCallFallback({
 
 export function ReconnectStreamMessage({
   content,
+  allowActivitySpinner = true,
 }: {
   content: ContentPart[];
+  /** Activity-only cards are live during reconnect, but static once frozen. */
+  allowActivitySpinner?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const toolSummary = getReconnectToolSummaryInfo(content);
@@ -1227,7 +1242,7 @@ export function ReconnectStreamMessage({
     (latestIndex, part, index) =>
       part.type === "tool-call" &&
       !isCallAgentToolCallShadowed(content, index) &&
-      (chatRunning || part.activity === true)
+      (chatRunning || (allowActivitySpinner && part.activity === true))
         ? index
         : latestIndex,
     -1,
@@ -1271,7 +1286,8 @@ export function ReconnectStreamMessage({
         structuredMeta={part.structuredMeta}
         outcome={part.outcome}
         isRunning={
-          part.result === undefined && (chatRunning || part.activity === true)
+          part.result === undefined &&
+          (chatRunning || (allowActivitySpinner && part.activity === true))
         }
         isActiveTail={i === latestActiveToolIndex}
         approval={part.approval}
@@ -1353,7 +1369,8 @@ function isReconnectSummarizablePart(part: ContentPart): boolean {
     (part.type === "tool-call" &&
       part.toolName !== "connect-builder" &&
       part.chatUI === undefined &&
-      part.mcpApp === undefined)
+      part.mcpApp === undefined &&
+      !toolCallHasPendingApproval(part))
   );
 }
 

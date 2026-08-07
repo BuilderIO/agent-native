@@ -331,7 +331,7 @@ const messages = {
     codeChangeBadge: "コード変更",
     connectBuilderTitle: "Builder.io に接続",
     connectBuilderDescription:
-      "Builder に接続すると、このアプリからクラウドベースのコード変更が可能になります。",
+      "Builder（無料プランあり）に接続すると、このアプリからクラウドベースのコード変更が可能になります。",
     setupRequired: "セットアップが必要です",
     branchCreated: "ブランチが作成されました",
     close: "閉じる",
@@ -494,7 +494,7 @@ const messages = {
     back: "戻る",
     agentEngineRequired: "エージェント エンジンが必要です",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io（無料プランあり）or an LLM key before {{platform}} can answer.",
     openLlm: "LLM を開く",
     setup: "Setup",
     shareDocumentsWith: "ドキュメントを共有する",

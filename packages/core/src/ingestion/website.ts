@@ -18,6 +18,55 @@ export interface WebsiteDesignTokens {
   spacing: string[];
   radii: string[];
   cssVariables: Record<string, string>;
+  /**
+   * Semantic roles are inferred from visible rendered elements, not from
+   * variable names. They are optional so static HTML callers can keep their
+   * smaller result without inventing values that were never observed.
+   */
+  semanticColors?: Partial<
+    Record<
+      | "primary"
+      | "secondary"
+      | "accent"
+      | "background"
+      | "surface"
+      | "text"
+      | "textMuted",
+      string
+    >
+  >;
+  shadows?: string[];
+  backgrounds?: string[];
+  components?: Array<{
+    role:
+      | "heading"
+      | "body"
+      | "button"
+      | "link"
+      | "card"
+      | "input"
+      | "nav"
+      | "hero";
+    fontFamily?: string;
+    fontSize?: string;
+    fontWeight?: string;
+    lineHeight?: string;
+    letterSpacing?: string;
+    color?: string;
+    backgroundColor?: string;
+    backgroundImage?: string;
+    border?: string;
+    borderRadius?: string;
+    boxShadow?: string;
+    padding?: string;
+    gap?: string;
+    textTransform?: string;
+  }>;
+  layout?: {
+    contentWidth?: string;
+    pagePadding?: string;
+    sectionGap?: string;
+  };
 }
 
 export interface WebsiteExtraction {

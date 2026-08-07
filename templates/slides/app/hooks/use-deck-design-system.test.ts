@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_DESIGN_SYSTEM,
+  getDesignSystemImageStyleReferenceUrls,
   mergeDesignSystemData,
 } from "./use-deck-design-system";
 
@@ -36,5 +37,24 @@ describe("mergeDesignSystemData", () => {
     expect(merged.colors).toEqual(DEFAULT_DESIGN_SYSTEM.colors);
     expect(merged.borders).toEqual(DEFAULT_DESIGN_SYSTEM.borders);
     expect(merged.logos).toEqual([]);
+  });
+
+  it("normalizes design-system image style reference urls", () => {
+    expect(
+      getDesignSystemImageStyleReferenceUrls({
+        imageStyle: {
+          referenceUrls: [
+            " https://cdn.example.com/style-1.png ",
+            "",
+            "https://cdn.example.com/style-1.png",
+            "https://cdn.example.com/style-2.png",
+          ],
+          styleDescription: "Primary deck imagery",
+        },
+      }),
+    ).toEqual([
+      "https://cdn.example.com/style-1.png",
+      "https://cdn.example.com/style-2.png",
+    ]);
   });
 });

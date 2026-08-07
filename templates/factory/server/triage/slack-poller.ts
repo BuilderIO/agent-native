@@ -60,7 +60,7 @@ function toEnvelope(
 
   return {
     source: "slack",
-    externalId: `${channelId}:${message.ts}`,
+    externalId: `${channelId}:${threadTs}`,
     receivedAt: new Date().toISOString(),
     ...(sourceUrl ? { sourceUrl } : {}),
     title: messageLabel(message),
@@ -133,6 +133,13 @@ export async function pollSlackChannel({
     .map((message) => ({ message, ts: numericTs(message.ts) }))
     .filter(({ ts }) => ts > priorTs)
     .sort((a, b) => a.ts - b.ts);
+  const seenThreads = new Set<string>();
+  const uniqueNewMessages = newMessages.filter(({ message }) => {
+    const threadTs = message.thread_ts ?? message.ts;
+    if (seenThreads.has(threadTs)) return false;
+    seenThreads.add(threadTs);
+    return true;
+  });
   const maxSeen = messages.reduce(
     (max, message) => {
       const ts = numericTs(message.ts);
@@ -142,7 +149,7 @@ export async function pollSlackChannel({
   );
 
   return {
-    envelopes: newMessages.map(({ message }) =>
+    envelopes: uniqueNewMessages.map(({ message }) =>
       toEnvelope(channelId, message, teamDomain),
     ),
     nextLastSlackTs: maxSeen.raw,

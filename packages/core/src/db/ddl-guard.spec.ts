@@ -40,6 +40,194 @@ describe("ddl-guard", () => {
     return { client, calls };
   }
 
+  /** A client that answers the two batched introspection queries realistically. */
+  function introspectingClient(schema: {
+    tables?: Record<string, string[]>;
+    indexes?: string[];
+  }) {
+    const calls: string[] = [];
+    const client = {
+      execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+        const text = typeof sql === "string" ? sql : sql.sql;
+        calls.push(text);
+        if (/FROM information_schema\.columns/.test(text)) {
+          const rows: unknown[] = [];
+          for (const [table, columns] of Object.entries(schema.tables ?? {})) {
+            for (const column of columns) {
+              rows.push({ table_name: table, column_name: column });
+            }
+          }
+          return { rows, rowsAffected: 0 };
+        }
+        if (/FROM pg_indexes/.test(text)) {
+          return {
+            rows: (schema.indexes ?? []).map((indexname) => ({ indexname })),
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+      transaction: async (fn: (tx: any) => Promise<unknown>) => {
+        calls.push("BEGIN");
+        const result = await fn(client);
+        calls.push("COMMIT");
+        return result;
+      },
+    } as any;
+    return { client, calls };
+  }
+
+  describe("batched schema introspection", () => {
+    it("answers many probes from ONE introspection pass, not one query each", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { pgTableExists, pgColumnExists, pgIndexExists } =
+        await import("./ddl-guard.js");
+      const { client, calls } = introspectingClient({
+        tables: { settings: ["key", "value"], resources: ["id", "path"] },
+        indexes: ["settings_updated_at_idx"],
+      });
+
+      expect(await pgTableExists("settings", client)).toBe(true);
+      expect(await pgTableExists("resources", client)).toBe(true);
+      expect(await pgColumnExists("settings", "value", client)).toBe(true);
+      expect(await pgIndexExists("settings_updated_at_idx", client)).toBe(true);
+
+      // A snapshot MISS is authoritative — absent, not "unknown".
+      expect(await pgTableExists("not_a_table", client)).toBe(false);
+      expect(await pgColumnExists("settings", "nope", client)).toBe(false);
+      expect(await pgIndexExists("nope_idx", client)).toBe(false);
+
+      // Two queries total, no matter how many probes ran.
+      expect(calls).toHaveLength(2);
+      expect(calls.filter((c) => /information_schema/.test(c))).toHaveLength(1);
+      expect(calls.filter((c) => /pg_indexes/.test(c))).toHaveLength(1);
+    });
+
+    it("matches identifiers case-insensitively", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { pgTableExists, pgColumnExists } = await import("./ddl-guard.js");
+      const { client } = introspectingClient({
+        tables: { settings: ["updated_at"] },
+      });
+      expect(await pgTableExists("SETTINGS", client)).toBe(true);
+      expect(await pgColumnExists("Settings", "Updated_At", client)).toBe(true);
+    });
+
+    it("does NOT share one client's schema with another client", async () => {
+      // The hosted gateway probes a different app's database from the same
+      // process. A shared Set would answer one app with another app's schema.
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { pgTableExists } = await import("./ddl-guard.js");
+      const appA = introspectingClient({ tables: { only_in_a: ["id"] } });
+      const appB = introspectingClient({ tables: { only_in_b: ["id"] } });
+
+      expect(await pgTableExists("only_in_a", appA.client)).toBe(true);
+      expect(await pgTableExists("only_in_a", appB.client)).toBe(false);
+      expect(await pgTableExists("only_in_b", appB.client)).toBe(true);
+      expect(await pgTableExists("only_in_b", appA.client)).toBe(false);
+    });
+
+    it("falls back to per-object probes when introspection is unreadable", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { pgTableExists } = await import("./ddl-guard.js");
+      const calls: string[] = [];
+      const client = {
+        execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+          const text = typeof sql === "string" ? sql : sql.sql;
+          calls.push(text);
+          if (/information_schema\.columns|pg_indexes/.test(text)) {
+            if (!/table_name = /.test(text)) {
+              throw new Error("permission denied for information_schema");
+            }
+          }
+          return { rows: [{ ok: 1 }], rowsAffected: 0 };
+        },
+      } as any;
+
+      // Unreadable introspection must NOT be read as "the schema is empty" —
+      // that would send every store down the DDL path it does not need.
+      expect(await pgTableExists("settings", client)).toBe(true);
+      expect(calls.some((c) => /table_name = /.test(c))).toBe(true);
+    });
+
+    it("re-reads the snapshot after DDL creates an object", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { ensureTableExists, pgTableExists } =
+        await import("./ddl-guard.js");
+      let created = false;
+      const calls: string[] = [];
+      const client = {
+        execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+          const text = typeof sql === "string" ? sql : sql.sql;
+          calls.push(text);
+          if (/FROM information_schema\.columns/.test(text)) {
+            return {
+              rows: created ? [{ table_name: "late", column_name: "id" }] : [],
+              rowsAffected: 0,
+            };
+          }
+          if (/FROM pg_indexes/.test(text))
+            return { rows: [], rowsAffected: 0 };
+          if (/CREATE TABLE/.test(text)) created = true;
+          return { rows: [], rowsAffected: 0 };
+        },
+        transaction: async (fn: (tx: any) => Promise<unknown>) => fn(client),
+      } as any;
+
+      expect(
+        await ensureTableExists("late", `CREATE TABLE late (id TEXT)`, {
+          injectedClient: client,
+          dialectIsPostgres: true,
+        }),
+      ).toBe(true);
+      // A sibling probe in the same boot must see it, not the pre-DDL snapshot.
+      expect(await pgTableExists("late", client)).toBe(true);
+    });
+  });
+
+  describe("AGENT_NATIVE_SKIP_ENSURE_TABLES", () => {
+    it("reports every object present and issues NO query at all", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("AGENT_NATIVE_SKIP_ENSURE_TABLES", "1");
+      const { pgTableExists, pgColumnExists, pgIndexExists } =
+        await import("./ddl-guard.js");
+      const { client, calls } = introspectingClient({});
+
+      expect(await pgTableExists("anything", client)).toBe(true);
+      expect(await pgColumnExists("anything", "at_all", client)).toBe(true);
+      expect(await pgIndexExists("any_idx", client)).toBe(true);
+      expect(calls).toEqual([]);
+    });
+
+    it("makes ensureTableExists skip its DDL", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("AGENT_NATIVE_SKIP_ENSURE_TABLES", "1");
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const { client, calls } = introspectingClient({});
+
+      // `false` = "already present, no DDL issued".
+      expect(
+        await ensureTableExists("settings", `CREATE TABLE settings (k TEXT)`, {
+          injectedClient: client,
+          dialectIsPostgres: true,
+        }),
+      ).toBe(false);
+      expect(calls).toEqual([]);
+    });
+
+    it("is OFF unless explicitly enabled", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      for (const value of ["", "0", "false", "off"]) {
+        vi.stubEnv("AGENT_NATIVE_SKIP_ENSURE_TABLES", value);
+        vi.resetModules();
+        const { pgTableExists } = await import("./ddl-guard.js");
+        const { client, calls } = introspectingClient({});
+        expect(await pgTableExists("nope", client)).toBe(false);
+        expect(calls.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
   describe("pgTableExists / pgColumnExists / pgIndexExists", () => {
     it("are no-ops on SQLite (never query)", async () => {
       vi.stubEnv("DATABASE_URL", "file:./data/app.db");
@@ -85,7 +273,7 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    it("treat an unreadable information_schema as 'unknown' (false)", async () => {
+    it("keeps an unreadable information_schema distinct from an absent object", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists } = await import("./ddl-guard.js");
       const throwing = {
@@ -93,7 +281,7 @@ describe("ddl-guard", () => {
           throw new Error("permission denied for relation");
         },
       } as any;
-      expect(await pgTableExists("app_secrets", throwing)).toBe(false);
+      expect(await pgTableExists("app_secrets", throwing)).toBeUndefined();
     });
   });
 
@@ -121,6 +309,13 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([
         "BEGIN",
         "SET LOCAL lock_timeout = '3s'",
+        // A worker killed mid-transaction never reaches COMMIT or ROLLBACK,
+        // and the pooled connection returns to the pool still holding this
+        // transaction's locks. Production had 11 of these stuck up to 283s,
+        // each one last executing the SET LOCAL above, with ordinary queries
+        // on that database degrading from ~1.5s to 5-7s. This is the only
+        // part of the guard that still applies once the process is gone.
+        "SET LOCAL idle_in_transaction_session_timeout = '30s'",
         "CREATE TABLE foo (id TEXT)",
         "COMMIT",
       ]);
@@ -203,6 +398,21 @@ describe("ddl-guard", () => {
   });
 
   describe("ensureSchemaObject (probe → guarded DDL → re-probe)", () => {
+    it("does not issue DDL when the existence probe is unavailable", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const { client, calls } = recordingClient();
+      await expect(
+        ensureSchemaObject({
+          probe: async () => undefined,
+          ddl: "ALTER TABLE resources ADD COLUMN thread_id TEXT",
+          label: "column resources.thread_id",
+          injectedClient: client,
+        }),
+      ).rejects.toThrow(/refusing to issue DDL/);
+      expect(calls).toEqual([]);
+    });
+
     it("skips DDL entirely when the object already exists (returns false)", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { ensureSchemaObject } = await import("./ddl-guard.js");

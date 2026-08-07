@@ -37,6 +37,7 @@ const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { getDbExec, isPostgres } from "../db/client.js";
+import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
@@ -44,10 +45,12 @@ import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { setActiveOrgId } from "./active-org.js";
+import { setRequiredAuthProvider } from "./auth-policy.js";
+import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
-import { invalidateRequestMemberOrgIds } from "./request-org-cache.js";
-import type { OrgRole } from "./types.js";
+import { invalidateMemberOrgCaches } from "./request-org-cache.js";
+import type { OrgRole, RequiredAuthProvider } from "./types.js";
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
 function getInviteAppUrl(event: H3Event): string {
@@ -111,24 +114,28 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
 
   let allowedDomain: string | null = null;
   let workspaceUrl: string | null = null;
+  let requiredAuthProvider: RequiredAuthProvider = null;
   let a2aSecretSet = false;
   if (ctx.orgId) {
-    try {
-      const adRes = await e.execute({
-        sql: `SELECT allowed_domain, a2a_secret, workspace_url FROM organizations WHERE id = ? LIMIT 1`,
-        args: [ctx.orgId],
-      });
-      if (adRes.rows[0]) {
-        allowedDomain =
-          String((adRes.rows[0] as any).allowed_domain ?? "") || null;
-        workspaceUrl =
-          String((adRes.rows[0] as any).workspace_url ?? "") || null;
-        a2aSecretSet = Boolean(
-          String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
-        );
+    const adRes = await e.execute({
+      sql: `SELECT allowed_domain, a2a_secret, workspace_url, required_auth_provider
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+    if (adRes.rows[0]) {
+      allowedDomain =
+        String((adRes.rows[0] as any).allowed_domain ?? "") || null;
+      workspaceUrl = String((adRes.rows[0] as any).workspace_url ?? "") || null;
+      const provider = String(
+        (adRes.rows[0] as any).required_auth_provider ?? "",
+      );
+      if (provider && provider !== "google") {
+        throw new Error(`Unsupported organization auth provider: ${provider}`);
       }
-    } catch {
-      // Column may not exist yet
+      requiredAuthProvider = provider === "google" ? "google" : null;
+      a2aSecretSet = Boolean(
+        String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
+      );
     }
   }
 
@@ -162,6 +169,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     domainMatches,
     allowedDomain,
     workspaceUrl,
+    requiredAuthProvider,
     // Never serialize the A2A secret here. This route runs on every page load,
     // so the value would sit in JSON any script on the page can read, and it
     // signs the JWTs peers accept as first-party callers. Reveal is an explicit
@@ -332,7 +340,14 @@ async function inviteOne(
         acceptUrl: getInviteAppUrl(event),
         inviter: ctx.email,
       });
-      await sendEmail({ to: email, subject, html, text });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        templateId: CORE_INVITE_EMAIL_ID,
+        orgId: ctx.orgId,
+      });
       emailSent = true;
     } catch (err) {
       emailError = err instanceof Error ? err.message : String(err);
@@ -506,7 +521,7 @@ export const acceptInvitationHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -576,7 +591,7 @@ export const removeMemberHandler = defineEventHandler(
       sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -656,6 +671,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
       args: [role, ctx.orgId, memberEmailLower],
     });
+    invalidateMemberOrgCaches();
 
     return { email: memberEmailLower, role };
   },
@@ -688,6 +704,9 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET name = ? WHERE id = ?`,
     args: [name, ctx.orgId],
   });
+  // `orgName` is joined into the cached membership rows, so a rename that skips
+  // this leaves every member's org context showing the old name for the TTL.
+  invalidateMemberOrgCaches();
 
   return { orgId: ctx.orgId, name };
 });
@@ -775,7 +794,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  invalidateRequestMemberOrgIds();
+  invalidateMemberOrgCaches();
 
   const nextRes = await e.execute({
     sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
@@ -880,7 +899,7 @@ export const joinByDomainHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
       args: [nanoid(), orgId, email, Date.now()],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
@@ -961,6 +980,13 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
     args: [raw, ctx.orgId],
   });
+  // A domain that previously matched nothing now matches this org. Without this
+  // the negative cache keeps every account at that domain out of it for the
+  // rest of the TTL, right after an owner deliberately turned domain-join on.
+  invalidateDomainMatchCache();
+  // `allowedDomain` is joined into the cached membership rows too, and existing
+  // members read it to decide whether a domain auto-join is still needed.
+  invalidateMemberOrgCaches();
 
   return { domain: raw };
 });
@@ -1008,6 +1034,34 @@ export const setWorkspaceUrlHandler = defineEventHandler(
     });
 
     return { url: workspaceUrl };
+  },
+);
+
+/** PUT /_agent-native/org/auth-provider — require Google sign-in (owner/admin only) */
+export const setRequiredAuthProviderHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can require Google sign-in",
+      });
+    }
+
+    const body = await readBody(event);
+    const provider = body?.provider;
+    if (provider !== "google" && provider !== null) {
+      throw createError({
+        statusCode: 400,
+        message: 'Provider must be "google" or null',
+      });
+    }
+
+    const result = await setRequiredAuthProvider(ctx.orgId, provider);
+    return { provider, ...result };
   },
 );
 

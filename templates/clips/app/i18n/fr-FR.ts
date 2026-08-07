@@ -466,6 +466,9 @@ const messages = {
     agentLinkUnavailable: "Impossible de créer le lien pour agents.",
     retryAgentLink: "Réessayer",
     gifPreview: "aperçu de GIF",
+    copyEmailPreview: "Copier l’aperçu de l’e-mail",
+    emailPreviewCopied: "Aperçu de l’e-mail copié",
+    emailPreviewCopyFailed: "Impossible de copier l’aperçu de l’e-mail",
     openPlayer: "Joueur ouvert",
     chooseFile: "Choisir un fichier",
     remove: "Retirer",
@@ -843,6 +846,9 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     viewsCount_one: "{{count}} vue",
     viewsCount_many: "{{count}} vues",
     viewsCount_other: "{{count}} vues",
+    agentViewsCount_one: "{{count}} vue d’agent IA",
+    agentViewsCount_many: "{{count}} vues d’agents IA",
+    agentViewsCount_other: "{{count}} vues d’agents IA",
     totalViewsSummary:
       "{{total}} vues au total, {{unique}} spectateurs uniques",
     viewsTab: "Vues",
@@ -850,6 +856,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     humanViews: "Vues humaines",
     agentViews: "Vues d’agents IA",
     noAgentViewsYet: "Aucune vue d’agent IA pour le moment.",
+    unknownAgent: "Agent inconnu",
     totalVideoViews: "Vues totales de la vidéo",
     averageCompletionRate: "Taux d’achèvement moyen",
     moreInsights: "Plus d’insights",
@@ -1127,6 +1134,19 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     spaceCreated: "Espace créé",
     createFailed: "Impossible de créer l’espace",
   },
+  spaceDialog: {
+    deleteSpace: "Supprimer l’espace",
+    renameSpace: "Renommer l’espace",
+    deleteTitle: "Supprimer « {{name}} » ?",
+    deleteDescription:
+      "Cette action supprimera l’espace et le retirera de tous les enregistrements. Elle est irréversible.",
+    renamed: "Espace renommé",
+    deleted: "« {{name}} » supprimé",
+    renameFailed: "Échec du renommage de l’espace",
+    deleteFailed: "Échec de la suppression de l’espace",
+    renaming: "Renommage...",
+    deleting: "Suppression...",
+  },
   signInPrompt: {
     title: "Connectez-vous pour {{intent}}",
     description:
@@ -1289,6 +1309,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     cameraOff: "Camera off (Localisé)",
     includeCameraAria: "Include camera in this recording (Localisé)",
     startRecording: "Start recording (Localisé)",
+    micOffConfirmTitle: "Record without a microphone? (Localisé)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Localisé)",
+    startWithoutMic: "Start anyway (Localisé)",
     uploadVideo: "Upload video (Localisé)",
     importLoom: "Import Loom (Localisé)",
     importing: "Importing... (Localisé)",

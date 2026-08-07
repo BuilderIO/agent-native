@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jobMocks = vi.hoisted(() => ({
   manageRecurringJob: vi.fn(),
+  useRunAutomationNow: vi.fn(),
   useAutomations: vi.fn(),
   useAutomationRuns: vi.fn(),
   useManageAutomation: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock("./use-jobs.js", () => ({
   useManageAutomation: jobMocks.useManageAutomation,
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
+  useRunAutomationNow: jobMocks.useRunAutomationNow,
 }));
 
 vi.mock("../AgentAskPopover.js", () => ({
@@ -96,6 +98,11 @@ describe("AgentJobsTab blocked automation", () => {
       mutate: jobMocks.manageRecurringJob,
     });
     jobMocks.useManageAutomation.mockReturnValue({
+      error: null,
+      isPending: false,
+      mutate: vi.fn(),
+    });
+    jobMocks.useRunAutomationNow.mockReturnValue({
       error: null,
       isPending: false,
       mutate: vi.fn(),

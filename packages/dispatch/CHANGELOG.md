@@ -1,5 +1,71 @@
 # @agent-native/dispatch
 
+## 0.19.0
+
+### Minor Changes
+
+- 8f10ada: Move Dispatch management and operator tools into a dedicated Admin control plane.
+
+## 0.18.0
+
+### Minor Changes
+
+- d3f8794: Add a compact workspace app rail to Dispatch navigation for ready workspace apps.
+
+### Patch Changes
+
+- d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
+- Updated dependencies [d3f8794]
+  - @agent-native/toolkit@0.13.3
+
+## 0.17.6
+
+### Patch Changes
+
+- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
+
+## 0.17.5
+
+### Patch Changes
+
+- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
+
+## 0.17.4
+
+### Patch Changes
+
+- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
+
+## 0.17.3
+
+### Patch Changes
+
+- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+  - @agent-native/toolkit@0.13.2
+
+## 0.17.2
+
+### Patch Changes
+
+- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
+- Updated dependencies [c71d383]
+  - @agent-native/toolkit@0.13.1
+
+## 0.17.1
+
+### Patch Changes
+
+- Updated dependencies [106af0e]
+  - @agent-native/toolkit@0.13.0
+
+## 0.17.0
+
+### Minor Changes
+
+- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
+
 ## 0.16.7
 
 ### Patch Changes

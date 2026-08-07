@@ -121,4 +121,100 @@ describe("parseSlideHtml", () => {
       ),
     ).toThrowError(/Slide 4 contains freeform positioned objects/);
   });
+
+  it("preserves imported scene geometry, rich text runs, and placed images", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="position:relative;background:#000000;">
+        <div class="fmd-pptx-text" data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;">
+          <p style="line-height:1.5;"><span style="font-size:48px;font-family:'Poppins',sans-serif;color:#ffffff;font-weight:700;">Title</span></p>
+          <p style="line-height:1.5;"><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#d9d9d9;">Body </span><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#28e2fa;">accent</span></p>
+        </div>
+        <div class="fmd-pptx-image" data-pptx-element-kind="image" style="position:absolute;left:100px;top:300px;width:200px;height:100px;"><img src="/api/import-assets/token" alt="" /></div>
+      </div>`,
+      "16:9",
+      2,
+    );
+
+    expect(result.bgColor).toBe("000000");
+    expect(result.texts).toHaveLength(1);
+    expect(result.texts[0].x).toBeCloseTo(1, 3);
+    expect(result.texts[0].y).toBeCloseTo((68 / 540) * 7.5, 4);
+    expect(result.texts[0].fontSize).toBe(36);
+    expect(result.texts[0].runs?.map((run) => run.text).join("")).toContain(
+      "Body accent",
+    );
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "/api/import-assets/token",
+        x: expect.closeTo((100 / 960) * 13.33, 4),
+        y: expect.closeTo((300 / 540) * 7.5, 4),
+      }),
+    ]);
+  });
+
+  it("keeps a source-faithful PDF page as a full-slide image", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" style="background: #101820;"><img src="https://files.example/page.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.texts).toHaveLength(0);
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/page.png",
+        x: 0,
+        y: 0,
+        w: expect.closeTo(13.33, 2),
+        h: expect.closeTo(7.5, 2),
+      }),
+    ]);
+  });
+
+  it("letterboxes portrait PDF pages during export", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" data-source-width="900" data-source-height="1600"><img src="https://files.example/portrait.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/portrait.png",
+        x: expect.closeTo((13.33 - 7.5 * (900 / 1600)) / 2, 4),
+        y: 0,
+        w: expect.closeTo(7.5 * (900 / 1600), 4),
+        h: expect.closeTo(7.5, 4),
+      }),
+    ]);
+  });
+
+  it("decodes escaped query parameters in imported PDF image URLs", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true"><img src="https://files.example/page.png?token=abc&amp;signature=def" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images[0]?.src).toBe(
+      "https://files.example/page.png?token=abc&signature=def",
+    );
+  });
+
+  it("ignores imported grids with non-positive spacing", () => {
+    for (const backgroundSize of [
+      "0px 24px",
+      "-1px 24px",
+      "24px 0px",
+      "24px -1px",
+    ]) {
+      const result = parseSlideHtml(
+        `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background-image:linear-gradient(#ffffff 0 1px, transparent 1px);background-size:${backgroundSize};background-position:0px 0px;"><div data-pptx-element-kind="text" style="left:0px;top:0px;width:100px;height:40px;">Title</div></div>`,
+        "16:9",
+        1,
+      );
+
+      expect(result.grid).toBeUndefined();
+    }
+  });
 });

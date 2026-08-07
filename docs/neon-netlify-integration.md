@@ -1,26 +1,32 @@
-# Neon preview branches — per-PR database isolation
+# Neon preview branches - disabled
 
 Preview deploys share the prod `DATABASE_URL` by default, so any server
-cold-start that touches the database writes to prod. To isolate preview
-deploys, we use Neon's copy-on-write branching via GitHub Actions.
+Preview deploys use the shared Netlify database configuration. The workflow
+below only cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
-1. **PR opened/updated** — `.github/workflows/neon-preview-branches.yml`
-   creates a Neon branch (`preview/pr-<number>`) for each hosted template's
-   Neon project, then sets `DATABASE_URL` on the corresponding
-   Netlify site's deploy-preview context.
+1. **PR opened/updated** - no Neon branch or Netlify database override is
+   created. Netlify's normal deploy-preview flow runs unchanged.
 
-2. **Netlify auto-deploys** — the preview branch override is written directly
-   to `DATABASE_URL`, so the build and runtime use the branch DB without a
-   Netlify-managed database variable.
+2. **Netlify auto-deploys** - the normal deploy-preview configuration is used.
 
-3. **PR closed** — the workflow deletes the Neon branches and removes the
-   branch-scoped `DATABASE_URL` env overrides.
+3. **PR closed** - the workflow deletes any matching
+   `preview-schema-only/pr-*` or legacy `preview/pr-*` Neon branches and
+   removes old branch-scoped `DATABASE_URL` env overrides.
 
 `@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
 The Neon/Netlify specifics live in the workflow and each template's
-`netlify.toml`.
+`netlify.toml`. Factory is intentionally excluded from this workflow because
+its production Netlify site is manually deployed and is not Git-connected,
+so it does not support branch deploy previews.
+
+## Preview access requirements
+
+Because previews use the shared database, they must not be treated as isolated
+or safe-to-write environments. Keep public preview access gated with Netlify
+team login, SSO, or an equivalent visitor gate, and do not use previews for
+workflows that can create real external side effects.
 
 ## Required GitHub secrets
 
@@ -63,7 +69,6 @@ Defined in the workflow's matrix. Update it when adding a new hosted template.
 | mail      | patient-cake-44789837   | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
 | plan      | late-pine-39936033      | 9d0d7a73-385d-4da1-ba10-1581ffc4d413 |
 | slides    | hidden-thunder-16834477 | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
-| factory   | flat-mountain-45852069  | 6bffaa23-ad14-480c-8954-99f53ecabf05 |
 | videos    | soft-pine-75308618      | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
 
 ## Schema changes

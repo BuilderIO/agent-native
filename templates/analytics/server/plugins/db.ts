@@ -3,12 +3,13 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 
 // Side-effect import: ensures registerShareableResource runs on server
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -1307,6 +1308,137 @@ const runAnalyticsMigrations = runMigrations(
       name: "first-party-analytics-cache-expires-idx",
       sql: `CREATE INDEX IF NOT EXISTS first_party_analytics_cache_expires_at_idx ON first_party_analytics_cache (expires_at)`,
     },
+    {
+      version: 126,
+      name: "analytics-event-daily-rollups-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_event_daily_rollups (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      template TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 0
+    )`,
+    },
+    {
+      version: 127,
+      name: "analytics-event-daily-rollups-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_daily_rollups_key_idx ON analytics_event_daily_rollups (tenant_key, event_date, event_name, app, template)`,
+    },
+    {
+      version: 128,
+      name: "analytics-user-days-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_user_days (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      user_key TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 129,
+      name: "analytics-user-days-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_user_days_key_idx ON analytics_user_days (tenant_key, event_date, user_key)`,
+    },
+    {
+      version: 130,
+      name: "analytics-query-pressure-daily-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_query_pressure_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      query_class TEXT NOT NULL,
+      slow_query_count INTEGER NOT NULL DEFAULT 0,
+      timeout_count INTEGER NOT NULL DEFAULT 0,
+      error_count INTEGER NOT NULL DEFAULT 0,
+      total_duration_ms INTEGER NOT NULL DEFAULT 0,
+      max_duration_ms INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 131,
+      name: "analytics-query-pressure-daily-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_query_pressure_daily_key_idx ON analytics_query_pressure_daily (tenant_key, event_date, query_class)`,
+    },
+    // Keep this historical migration name reserved, but record it without a
+    // boot-time run. Scanning analytics_events here makes every concurrent
+    // serverless migration runner hold a database connection for the full
+    // history; v126-v131 continue to maintain the compact tables incrementally.
+    // Any future one-shot backfill must use a new migration identity or an
+    // explicit out-of-band job because this marker is permanently applied.
+    {
+      version: 132,
+      name: "analytics-rollups-historical-backfill",
+      sql: {},
+    },
+    {
+      version: 133,
+      name: "analytics-rollups-historical-backfill-state",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      completed_at TEXT,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      completed_at TEXT,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+      },
+    },
+    {
+      version: 134,
+      name: "analytics-rollups-historical-backfill-repair",
+      sql: {},
+      // The historical rebuild is an out-of-band job. Do not defer this
+      // marker until it completes: a pending named migration is retried by
+      // every cold start and turns a recoverable backfill into a boot blocker.
+    },
+    {
+      version: 135,
+      name: "analytics-rollups-historical-backfill-lease",
+      sql: `
+        ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_token TEXT;
+        ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_expires_at TEXT;
+      `,
+    },
+    {
+      version: 136,
+      name: "analytics-events-backfill-cursor-indexes",
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 137,
+      name: "dashboard-name-locks",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1322,18 +1454,50 @@ const runAnalyticsMigrations = runMigrations(
  * swallowed so it can never fail boot.
  */
 export default async (nitroApp: any): Promise<void> => {
-  await runAnalyticsMigrations(nitroApp);
-  try {
-    if (await repairPersistedFirstPartyDashboardQueries()) {
-      console.info(
-        "[db] Repaired bounded recurring-user queries on the canonical first-party dashboard.",
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
-      err instanceof Error ? err.message : err,
+  const isScheduledRollupRuntime =
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true;
+  if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {
+    // Most durable workers execute signed internal routes against a schema
+    // owned by the regular server. A second migration runner only adds a Neon
+    // pool probe to every worker cold start. The scheduled rollup worker is
+    // the exception because it can be the first post-deploy invocation.
+    console.info(
+      "[db] Skipping Analytics migrations in durable background runtime",
     );
+    return;
+  }
+  const isNetlifyServerlessRuntime =
+    isProductionServerlessRuntime() ||
+    process.env.NETLIFY === "true" ||
+    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT);
+  if (
+    isNetlifyServerlessRuntime &&
+    process.env.ANALYTICS_SKIP_BOOT_MIGRATIONS === "1"
+  ) {
+    console.info(
+      "[db] Skipping Analytics migrations in production serverless runtime by explicit incident flag",
+    );
+    return;
+  }
+  // The schema must exist before the first query. Measured cost on this
+  // database (180 tables): ~5.5s for the version check alone, which is why the
+  // serverless runtime skips this entirely via ANALYTICS_SKIP_BOOT_MIGRATIONS
+  // above rather than paying it on every cold start.
+  // guard:allow-boot-data-work — schema must exist before the first query
+  await runAnalyticsMigrations(nitroApp);
+  if (isNetlifyServerlessRuntime) {
+    // The migration list is authoritative; repeating repair and schema
+    // introspection on every function cold start only adds pool pressure.
+    console.info(
+      "[db] Skipping post-migration schema convergence in production serverless runtime",
+    );
+    return;
   }
   try {
     const summary = await ensureAdditiveColumns({

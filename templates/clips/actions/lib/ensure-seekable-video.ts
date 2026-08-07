@@ -252,9 +252,7 @@ export async function ensureRecordingSeekable(params: {
   const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm";
   const upload = await uploadFile({
     data: seekable.bytes,
-    filename: normalizeTimeline
-      ? `${recordingId}-timeline-normalized-${Date.now()}.mp4`
-      : `${recordingId}.${outputFormat}`,
+    filename: `${recordingId}.${outputFormat}`,
     mimeType,
     ownerEmail,
     stableUrl: true,

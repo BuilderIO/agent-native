@@ -4,10 +4,16 @@ export {
   type EnvKeyConfig,
 } from "./create-server.js";
 export {
+  startIntervalJob,
+  type IntervalJobOptions,
+  type IntervalJobHandle,
+} from "./interval-job.js";
+export {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   dispatchPathTargetsNetlifyBackgroundFunction,
+  isInBackgroundFunctionRuntime,
   resolveDurableBackgroundDispatchPath,
 } from "../agent/durable-background.js";
 
@@ -542,11 +548,21 @@ export {
 export {
   sendEmail,
   isEmailConfigured,
+  getEmailReadiness,
   getEmailProvider,
   type EmailAttachment,
+  type EmailReadiness,
   type EmailProvider,
   type SendEmailArgs,
 } from "./email.js";
+export {
+  defineTransactionalEmail,
+  listTransactionalEmails,
+  getTransactionalEmail,
+  renderTransactionalEmailPreview,
+  type TransactionalEmailDefinition,
+  type RegisteredTransactionalEmail,
+} from "../email-catalog/registry.js";
 export {
   notifyActivity,
   runActivityNotification,

@@ -5,8 +5,10 @@ description: Sicherheits- und Migrationsprüfungen.
 
 # Doctor
 
-Generierte Apps enthalten Quellcode, der im Entwicklungsworkflow des Repositorys geändert werden kann, auch durch einen Agenten-Frame, dem bewusst Workspace- und Schreibwerkzeuge gewährt wurden. `agent-native doctor` prüft den Quellcode auf sicherheitskritische Code-Invarianten. Doctor arbeitet nur lesend: Es ändert den Code nie, sondern meldet lediglich Ergebnisse.
+Generierte Apps und Workspaces enthalten Quellcode, der im Entwicklungsworkflow des Repositorys geändert werden kann, auch durch einen Agenten-Frame, dem bewusst Workspace- und Schreibwerkzeuge gewährt wurden. `agent-native doctor` prüft den Quellcode auf sicherheitskritische Code-Invarianten. Doctor arbeitet nur lesend: Es ändert den Code nie, sondern meldet lediglich Ergebnisse.
 
-`agent-native doctor` führt acht Guards aus: sieben Sicherheits-Guards und `migration-manifest`. Dieser findet Imports aus installiertem `migration-manifest.json` und hat kein Opt-out. Nutzen Sie `agent-native doctor --only migration-manifest`, prüfen Sie mit `npx @agent-native/core@latest upgrade --codemods` vor und wenden Sie mit `--yes` an. JSON listet alle acht Namen in `guardsRun`.
+`agent-native doctor` führt neun Guards aus: acht Sicherheits-Guards und `migration-manifest`. Dieser findet Imports aus installiertem `migration-manifest.json` und hat kein Opt-out. Nutzen Sie `agent-native doctor --only migration-manifest`, prüfen Sie mit `npx @agent-native/core@latest upgrade --codemods` vor und wenden Sie mit `--yes` an. JSON listet alle neun Namen in `guardsRun`.
+
+Der CLI-Scaffold gibt jeder neuen App und jedem Workspace die Befehle `pnpm doctor` und `pnpm agent-native:doctor`. Vom Workspace-Root aus werden alle Apps unter `apps/<name>` geprüft. Builds schlagen bei Findings standardmäßig fehl; `failOnBuild: false` ist nur als geprüfte Ausnahme gedacht.
 
 Einträge mit `planned` werden nur als Warnungen gemeldet und nicht umgeschrieben. Aktive Einträge sind Findings; der Codemod schreibt sie nur um, wenn der Ziel-Export installiert ist.

@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import {
   createH3SSRHandler,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "@agent-native/core/server/ssr-handler";
 import {
   createError,
@@ -15,6 +16,7 @@ import {
 } from "h3";
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
+import { wrapDocumentResponse } from "../../lib/analytics";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +50,9 @@ export default async function docsPageHandler(event: H3Event) {
     // These page URLs can return either HTML or markdown based on Accept.
     // Keep the variants isolated in browser/CDN caches.
     setHeader(event, "vary", "Accept");
+    for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+      setHeader(event, k, v);
+    }
     return markdown.content;
   }
 
@@ -56,7 +61,7 @@ export default async function docsPageHandler(event: H3Event) {
   }
 
   const response = await ssrHandler(event);
-  return responseWithVaryAccept(response);
+  return responseWithVaryAccept(wrapDocumentResponse(response));
 }
 
 function setSsrCacheHeaders(event: H3Event) {
@@ -66,6 +71,9 @@ function setSsrCacheHeaders(event: H3Event) {
   // provider and template gets the same long-fresh/long-SWR edge behavior.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
+  }
+  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+    setHeader(event, k, v);
   }
 }
 
@@ -83,15 +91,17 @@ function appendVary(headers: Headers, value: string) {
   const existing = headers.get("vary");
   if (!existing) {
     headers.set("vary", value);
-    return;
+  } else {
+    const lowerValue = value.toLowerCase();
+    const alreadyPresent = existing
+      .split(",")
+      .some((part) => part.trim().toLowerCase() === lowerValue);
+    if (!alreadyPresent) {
+      headers.set("vary", `${existing}, ${value}`);
+    }
   }
-
-  const lowerValue = value.toLowerCase();
-  const alreadyPresent = existing
-    .split(",")
-    .some((part) => part.trim().toLowerCase() === lowerValue);
-  if (!alreadyPresent) {
-    headers.set("vary", `${existing}, ${value}`);
+  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+    headers.set(k, v);
   }
 }
 

@@ -114,6 +114,18 @@ export const triageConfig = table("factory_config", {
   lastSlackTs: text("last_slack_ts"),
   slackHistoryCursor: text("slack_history_cursor"),
   repository: text("repository"),
+  githubPollingEnabled: integer("github_polling_enabled").notNull().default(0),
+  sentryPollingEnabled: integer("sentry_polling_enabled").notNull().default(0),
+  sentryOrgSlug: text("sentry_org_slug"),
+  sentryProjectSlug: text("sentry_project_slug"),
+  sentryEnvironment: text("sentry_environment"),
+  lastSentrySeenAt: text("last_sentry_seen_at"),
+  automationFailureAlertsEnabled: integer("automation_failure_alerts_enabled")
+    .notNull()
+    .default(1),
+  automationFailureAlertEmail: text("automation_failure_alert_email"),
+  lastAutomationFailureAlertKey: text("last_automation_failure_alert_key"),
+  lastAutomationFailureAlertAt: text("last_automation_failure_alert_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),

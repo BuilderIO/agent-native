@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isInsidePortaledLayer } from "./PromptDialog";
+const ensureEmbedAuthFetchInterceptor = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/client/host", () => ({
+  ensureEmbedAuthFetchInterceptor,
+}));
+
+import { isInsidePortaledLayer, uploadPromptFiles } from "./PromptDialog";
 
 describe("isInsidePortaledLayer", () => {
   it("matches nodes inside a Radix popper layer", () => {
@@ -23,5 +29,32 @@ describe("isInsidePortaledLayer", () => {
     expect(isInsidePortaledLayer(document.createTextNode("x"))).toBe(false);
     expect(isInsidePortaledLayer(null)).toBe(false);
     button.remove();
+  });
+});
+
+describe("uploadPromptFiles", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    ensureEmbedAuthFetchInterceptor.mockClear();
+  });
+
+  it("uses the authenticated fetch boundary for reference uploads", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadPromptFiles([
+      new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+    ]);
+
+    expect(ensureEmbedAuthFetchInterceptor).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads"),
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+      }),
+    );
   });
 });

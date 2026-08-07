@@ -339,7 +339,7 @@ const messages = {
     codeChangeBadge: "Codeänderung",
     connectBuilderTitle: "Builder.io verbinden",
     connectBuilderDescription:
-      "Connect Builder, um cloudbasierte Codeänderungen über diese App zu ermöglichen.",
+      "Connect Builder (kostenloser Tarif verfügbar), um cloudbasierte Codeänderungen über diese App zu ermöglichen.",
     setupRequired: "Einrichtung erforderlich",
     branchCreated: "Zweig erstellt",
     close: "Schließen",
@@ -504,7 +504,7 @@ const messages = {
     back: "Zurück",
     agentEngineRequired: "Agent-Engine erforderlich",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (kostenloser Tarif verfügbar) or an LLM key before {{platform}} can answer.",
     openLlm: "Öffnen Sie LLM",
     setup: "Setup",
     shareDocumentsWith: "Teilen Sie Dokumente mit",

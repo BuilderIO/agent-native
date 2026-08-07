@@ -48,7 +48,7 @@ A design is backed by a real React/TS codebase.
 
 - **`localhost`** — the bridge talks to a dev server on the user's machine
   (`designLocalhostConnections`, `connect-localhost.ts`).
-- **`fusion`** _(the new hosted tier)_ — connect Builder.io and run the app as a
+- **`fusion`** _(the new hosted tier)_ — connect Builder.io (free tier available) and run the app as a
   Builder-hosted branch (today) or, later, our own durable container. Same
   capabilities as localhost but hosted, collaborative, and deployable.
 
@@ -102,7 +102,7 @@ Advanced panels are never dead ends; they are CTAs. On an inline design, the
 gated controls render an inline upgrade card (progressive disclosure — only when
 the user reaches for a real-app feature):
 
-> **Make this a real app** — connect Builder.io to unlock components, props, data
+> **Make this a real app** — connect Builder.io (free tier available) to unlock components, props, data
 > states, branches, and deploys.
 
 ### 3.1 What already exists vs. what's new

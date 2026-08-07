@@ -22,6 +22,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const analyticsRollupsTsSource = readFileSync(
+  new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -65,6 +69,17 @@ describe("analytics db migrations cover every schema.ts column", () => {
       expect(missing).toEqual([]);
     });
   }
+});
+
+describe("analytics backfill has scoped cursor indexes", () => {
+  it("indexes both organization and personal received_at cursors", () => {
+    expect(dbTsSource).toContain(
+      "analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id)",
+    );
+    expect(dbTsSource).toContain(
+      "analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id)",
+    );
+  });
 });
 
 /**
@@ -178,9 +193,123 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("records the historical rollup migration without scanning history at boot", () => {
+    expect(dbTsSource).toMatch(/name: "analytics-rollups-historical-backfill"/);
+    expect(dbTsSource).toMatch(
+      /version: 132,[\s\S]*?name: "analytics-rollups-historical-backfill",[\s\S]*?sql: \{\},[\s\S]*?\n\s*\},/,
+    );
+    expect(dbTsSource).not.toMatch(
+      /run:\s*runHistoricalAnalyticsRollupBackfill/,
+    );
+    expect(dbTsSource).not.toContain("FROM analytics_events");
+    expect(dbTsSource).not.toContain(
+      "LOCK TABLE analytics_event_daily_rollups",
+    );
+    expect(dbTsSource).not.toContain("LOCK TABLE analytics_events");
+    expect(dbTsSource).toContain("new migration identity");
+    expect(dbTsSource).toContain("out-of-band job");
+  });
+
+  it("records the repair marker without making the backfill a boot dependency", () => {
+    const repairStart = dbTsSource.indexOf("version: 134,");
+    const repairEnd = dbTsSource.indexOf("version: 135,", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-rollups-historical-backfill-repair"',
+    );
+    expect(repairEntry).toContain("sql: {},");
+    expect(repairEntry).not.toContain("run:");
+    expect(dbTsSource).not.toContain("deferMigration");
+    expect(dbTsSource).not.toContain(
+      "isHistoricalAnalyticsRollupBackfillComplete",
+    );
+  });
+
+  it("keeps the incremental rollup lock inside the rollup write transaction", () => {
+    const writeIdx = analyticsRollupsTsSource.indexOf(
+      "const writeRollups = async (tx: any) => {",
+    );
+    const lockIdx = analyticsRollupsTsSource.lastIndexOf(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
+    );
+    expect(writeIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(writeIdx);
+    expect(analyticsRollupsTsSource).toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+    );
+  });
+
   it("does not scan every dashboard during serverless startup", () => {
     expect(dbTsSource).not.toContain(
       "repairUnboundedFirstPartyPanelsAcrossDashboards",
+    );
+  });
+
+  it("does not run dashboard repair during database startup", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).not.toContain(
+      "repairPersistedFirstPartyDashboardQueries",
+    );
+  });
+
+  it("skips Analytics migrations in non-rollup durable background functions", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    const backgroundGuardIdx = pluginSource.indexOf(
+      "if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {",
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    expect(backgroundGuardIdx).toBeGreaterThan(-1);
+    expect(migrationsCallIdx).toBeGreaterThan(backgroundGuardIdx);
+    expect(pluginSource.slice(backgroundGuardIdx, migrationsCallIdx)).toMatch(
+      /return;/,
+    );
+    expect(pluginSource).toContain(
+      "__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__",
+    );
+  });
+
+  it("skips non-authoritative schema convergence in production serverless functions", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    const runtimeGuardIdx = pluginSource.indexOf(
+      "if (isNetlifyServerlessRuntime) {",
+      migrationsCallIdx,
+    );
+    const ensureCallIdx = pluginSource.indexOf("ensureAdditiveColumns({");
+    expect(migrationsCallIdx).toBeGreaterThan(-1);
+    expect(runtimeGuardIdx).toBeGreaterThan(migrationsCallIdx);
+    expect(ensureCallIdx).toBeGreaterThan(runtimeGuardIdx);
+    expect(pluginSource).toContain("const isNetlifyServerlessRuntime =");
+    expect(pluginSource).toMatch(
+      /if \(isNetlifyServerlessRuntime\) \{[\s\S]*?return;/,
+    );
+    expect(pluginSource).toContain(
+      "Skipping post-migration schema convergence in production serverless runtime",
+    );
+  });
+
+  it("supports an explicit incident flag to skip the already-applied migration runner", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).toMatch(
+      /isNetlifyServerlessRuntime[\s\S]*?ANALYTICS_SKIP_BOOT_MIGRATIONS === "1"[\s\S]*?return;[\s\S]*?await runAnalyticsMigrations\(/,
+    );
+    expect(pluginSource).toContain(
+      "Skipping Analytics migrations in production serverless runtime by explicit incident flag",
     );
   });
 });

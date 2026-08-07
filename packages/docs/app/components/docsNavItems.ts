@@ -9,6 +9,7 @@ export type NavItem = {
   id: string;
   label: string;
   to?: string;
+  draft?: boolean;
   children?: NavItem[];
 };
 export type NavSection = { id: string; title: string; items: NavItem[] };
@@ -19,6 +20,7 @@ type NavItemConfig = {
   id: string;
   labelKey: keyof typeof enUS.nav;
   slug?: string;
+  draft?: boolean;
   children?: NavItemConfig[];
 };
 
@@ -60,12 +62,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "whatIsAgentNative",
         slug: "what-is-agent-native",
       },
+      { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "agent-surfaces",
         labelKey: "agentSurfaces",
         slug: "agent-surfaces",
       },
-      { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "cloneable-saas",
         labelKey: "templatesOverview",
@@ -83,7 +85,37 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     id: "core-architecture",
     titleKey: "coreArchitecture",
     items: [
-      { id: "server", labelKey: "server", slug: "server" },
+      {
+        id: "server-section",
+        labelKey: "server",
+        children: [
+          {
+            id: "server-overview",
+            labelKey: "serverOverview",
+            slug: "server-overview",
+          },
+          {
+            id: "server-database",
+            labelKey: "database",
+            slug: "server-database",
+          },
+          {
+            id: "server-middleware",
+            labelKey: "serverMiddleware",
+            slug: "server-middleware",
+          },
+          {
+            id: "server-plugins",
+            labelKey: "serverPlugins",
+            slug: "server-plugins",
+          },
+          {
+            id: "server-routes",
+            labelKey: "serverRoutes",
+            slug: "server-routes",
+          },
+        ],
+      },
       { id: "client", labelKey: "client", slug: "client" },
       { id: "routing", labelKey: "routing", slug: "routing" },
       { id: "actions", labelKey: "actions", slug: "actions" },
@@ -110,7 +142,25 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
       { id: "deployment", labelKey: "deployment", slug: "deployment" },
+      {
+        id: "environment-variables",
+        labelKey: "environmentVariables",
+        slug: "environment-variables",
+      },
       { id: "progress", labelKey: "progress", slug: "progress" },
+      {
+        id: "agents-group",
+        labelKey: "agents",
+        draft: true,
+        children: [
+          {
+            id: "agents-overview",
+            labelKey: "agentsOverview",
+            slug: "agents",
+            draft: true,
+          },
+        ],
+      },
     ],
   },
   {
@@ -892,17 +942,24 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
   return t(`nav.${key}`) || enMessage(`nav.${key}`);
 }
 
+const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
+
 function toNavItem(
   config: NavItemConfig,
   locale: DocsLocale,
   t: Translate,
-): NavItem {
+): NavItem | null {
+  if (config.draft && !SHOW_DRAFTS) return null;
   const slug = config.slug;
+  const children = config.children
+    ?.map((child) => toNavItem(child, locale, t))
+    .filter((item): item is NavItem => item !== null);
   return {
     id: config.id,
     label: navLabel(t, config.labelKey),
     to: slug ? docsPathForSlug(slug, locale) : undefined,
-    children: config.children?.map((child) => toNavItem(child, locale, t)),
+    draft: config.draft || undefined,
+    children,
   };
 }
 
@@ -913,8 +970,10 @@ export function getDocsNavSections(
   return NAV_SECTION_CONFIG.map((section) => ({
     id: section.id,
     title: navLabel(t, section.titleKey),
-    items: section.items.map((item) => toNavItem(item, locale, t)),
-  }));
+    items: section.items
+      .map((item) => toNavItem(item, locale, t))
+      .filter((item): item is NavItem => item !== null),
+  })).filter((section) => section.items.length > 0);
 }
 
 // Flat list for prev/next navigation and current-item lookups. Nested

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
   buildLeanRunPolicyPrompt,
@@ -163,6 +164,71 @@ describe("interactive agent run options — wiring guards", () => {
   });
 });
 
+describe("background automation action surface — wiring guards", () => {
+  it("uses one shared background action builder with unattended email tools", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "backgroundCoreEmailTools = createCoreEmailActionEntries({",
+    );
+    expect(source).toContain("...backgroundCoreEmailTools,");
+    expect(
+      source.match(/getActions: getBackgroundActionEntries/g),
+    ).toHaveLength(2);
+  });
+});
+
+// `frameworkTools` gating happens inside `createAgentChatPlugin`'s multi-
+// thousand-line closure, which has no cheap unit seam (same rationale as the
+// run-options guards above). `framework-tools.spec.ts` proves the filter and
+// resolver in isolation; these source guards prove they are actually wired at
+// the two points that matter, and that the UI's routes stay out of it.
+describe("framework tool gating — wiring guards", () => {
+  const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    encoding: "utf-8",
+  });
+
+  it("resolves the framework tool surface once and gates both agent registries", () => {
+    expect(source).toContain(
+      "const frameworkTools = resolveFrameworkTools(options);",
+    );
+
+    // Both agent-facing registries must be filtered. Missing either one leaves
+    // a disabled kit reachable from that surface.
+    for (const set of ["templateScriptsAll", "discoveredActionsAll"]) {
+      expect(source, set).toMatch(
+        new RegExp(
+          `filterFrameworkToolGroups\\(\\s*filterAgentTools\\(${set}\\),\\s*disabledFrameworkGroups,\\s*\\)`,
+        ),
+      );
+    }
+  });
+
+  it("leaves httpActions ungated so the UI keeps its routes", () => {
+    // Disabling `sharing` must not 404 a share dialog that is still on screen:
+    // the UI reaches these through client hooks, not the agent tool surface.
+    const start = source.indexOf(
+      "const httpActions: Record<string, ActionEntry> = {",
+    );
+    expect(start).toBeGreaterThan(-1);
+    const block = source.slice(start, start + 1200);
+
+    expect(block).toContain("...templateScriptsAll,");
+    expect(block).toContain("...discoveredActionsAll,");
+    expect(block).not.toContain("filterFrameworkToolGroups");
+    expect(block).toContain("await mergeCoreSharingActions(httpActions);");
+  });
+
+  it("reads the deprecated flags only through the resolver", () => {
+    // A second read of `options.databaseTools` / `options.extensionTools` would
+    // bypass the conflict check and split the app's tool surface in two.
+    expect(source).not.toContain("options?.databaseTools");
+    expect(source).not.toContain("options?.extensionTools");
+  });
+});
+
 describe("delegated agent run policy — wiring guards", () => {
   it("forwards non-default delegated budgets to MCP ask_app", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {
@@ -287,6 +353,52 @@ describe("prompt content invariants", () => {
     }
   });
 
+  it("stops naming a group's tools once that group is switched off", () => {
+    // The invariant this whole gate exists for: prompt text and tool schemas
+    // must agree. A prompt that names an absent tool makes the model call it,
+    // fail, and often tell the user the capability does not exist.
+    const cases: Array<[FrameworkToolGroup, string[]]> = [
+      ["resources", ["`resources`", "agent_scratch"]],
+      ["chat", ["`chat-history`"]],
+      ["automation", ["`manage-jobs`", "`manage-progress`"]],
+      // Bold in the full prompt, backticked in the compact one — match both.
+      ["workspaceApps", ["call-agent"]],
+    ];
+
+    for (const [group, phrases] of cases) {
+      const gatedFull = buildFrameworkCore(undefined, {
+        disabledFrameworkGroups: new Set([group]),
+      });
+      const gatedCompact = buildFrameworkCoreCompact(undefined, {
+        disabledFrameworkGroups: new Set([group]),
+      });
+
+      for (const phrase of phrases) {
+        expect(full, `${group} baseline (full)`).toContain(phrase);
+        expect(gatedFull, `${group} gated (full)`).not.toContain(phrase);
+        expect(gatedCompact, `${group} gated (compact)`).not.toContain(phrase);
+      }
+    }
+  });
+
+  it("keeps the surrounding prose intact when a group is dropped", () => {
+    // Dropping a clause must not leave a dangling list or an empty heading.
+    const gated = buildFrameworkCore(undefined, {
+      disabledFrameworkGroups: new Set<FrameworkToolGroup>([
+        "chat",
+        "automation",
+      ]),
+    });
+
+    expect(gated).toContain("### Extended Capabilities");
+    expect(gated).toContain("You also have tools for inline embeds");
+    expect(gated).not.toMatch(/,\s*,/);
+    expect(gated).not.toMatch(/for\s*,/);
+    expect(gated).not.toMatch(/,\s*and\s*\./);
+    // The planning rule survives without its tool reference.
+    expect(gated).toContain("**Plan and track multi-step work**");
+  });
+
   it("keeps extension tool guidance out of assembled prompts by default", () => {
     const defaultPrompts =
       _agentChatPromptSectionsForTests.buildFrameworkPrompts();
@@ -372,8 +484,11 @@ describe("prompt content invariants", () => {
       encoding: "utf-8",
     });
 
+    // The default-false decision now lives in `resolveFrameworkTools`, which
+    // folds the deprecated `extensionTools` flag into `frameworkTools`.
+    // `framework-tools.spec.ts` asserts that default behaviorally.
     expect(source).toContain(
-      "const extensionToolsEnabled = options?.extensionTools === true;",
+      "const extensionToolsEnabled = frameworkTools.extensions;",
     );
     expect(source).toContain("if (extensionToolsEnabled) {");
   });
@@ -459,6 +574,32 @@ describe("available action prompt rendering", () => {
         "common",
       ]),
     ).toEqual(["common"]);
+  });
+
+  it("keeps framework kits out of the default first-request tool set", () => {
+    // The kits reach this same registry through autoDiscoverActions, so the
+    // plain "all template actions" default used to promote ~45 framework
+    // schemas into every app's first request. They stay in availableTools and
+    // remain reachable through tool-search.
+    const withFrameworkKits = {
+      ...(actions as Record<string, unknown>),
+      "share-resource": { frameworkGroup: "sharing" },
+      "list-review-comments": { frameworkGroup: "review" },
+    } as never;
+
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(
+        withFrameworkKits,
+      ),
+    ).toEqual(["common", "rare"]);
+
+    // An app that genuinely wants one on turn one still names it explicitly.
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(
+        withFrameworkKits,
+        ["common", "share-resource"],
+      ),
+    ).toEqual(["common", "share-resource"]);
   });
 
   it("points to tool-search for actions omitted from the initial tool set, without re-listing loaded actions (already covered by native tool schemas)", () => {

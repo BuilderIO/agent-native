@@ -151,9 +151,9 @@ rg -n "<component or symbol>" node_modules/@agent-native/core/corpus
 
 - Toolkit publishes readable TypeScript under
   `node_modules/@agent-native/toolkit/src/` for selective UI adoption.
-- Core and first-party template source lives under
-  `node_modules/@agent-native/core/corpus/core/` and
-  `node_modules/@agent-native/core/corpus/templates/`.
+- First-party template source lives under
+  `node_modules/@agent-native/core/corpus/templates/`; Core's own implementation
+  lives under `node_modules/@agent-native/core/dist/`.
 - Treat those trees as read-only references. Prefer `agent-native eject` so the
   package manifest selects the complete source closure and rewrites imports.
   Manual inspection is still useful for deciding whether to configure,

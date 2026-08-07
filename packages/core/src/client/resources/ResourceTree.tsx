@@ -122,6 +122,9 @@ export interface ResourceTreeProps {
   sectionAction?: React.ReactNode;
   /** Scope-specific action shown beneath an empty collection message. */
   emptyStateAction?: React.ReactNode;
+  /** Optional copy for collection empty states. */
+  emptyStateTitle?: string;
+  emptyStateDescription?: string;
 }
 
 interface CreatingState {
@@ -274,8 +277,8 @@ function getCollectionDescriptor(node: LeafResourceNode): string {
       "Scheduled job"
     );
   }
-  if (node.kind === "mcp-server") return "MCP server";
-  if (node.kind === "mcp-builtin") return "Built-in MCP";
+  if (node.kind === "mcp-server") return "Agent integration";
+  if (node.kind === "mcp-builtin") return "Built-in agent tool";
   return formatResourceSize(node.resource.size);
 }
 
@@ -641,6 +644,8 @@ export function ResourceTree({
   headingHint,
   sectionAction,
   emptyStateAction,
+  emptyStateTitle,
+  emptyStateDescription,
 }: ResourceTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [creating, setCreating] = useState<CreatingState | null>(null);
@@ -719,7 +724,9 @@ export function ResourceTree({
   return (
     <div
       className={cn(
-        "p-1",
+        variant === "collection"
+          ? "overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground"
+          : "p-1",
         dragOver && !readOnly && "ring-1 ring-inset ring-accent",
       )}
       onDragOver={readOnly ? undefined : handleDragOver}
@@ -727,9 +734,21 @@ export function ResourceTree({
       onDrop={readOnly ? undefined : handleDrop}
     >
       {/* Section heading */}
-      <div className="group/root flex items-center justify-between px-1.5 py-1">
+      <div
+        className={cn(
+          "group/root flex items-center justify-between",
+          variant === "collection" ? "px-4 py-3" : "px-1.5 py-1",
+        )}
+      >
         <TooltipProvider delayDuration={200}>
-          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+          <span
+            className={cn(
+              "flex items-center gap-1.5 font-medium text-muted-foreground",
+              variant === "collection"
+                ? "text-sm"
+                : "text-[11px] uppercase tracking-wide text-muted-foreground/60",
+            )}
+          >
             {title}
             {headingHint && (
               <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground/50">
@@ -771,7 +790,7 @@ export function ResourceTree({
 
       {variant === "collection"
         ? leafResources.length > 0 && (
-            <div className="space-y-1">
+            <div className="divide-y divide-border/60 px-4">
               {leafResources.map((node) => (
                 <CollectionResourceRow
                   key={node.resource.id}
@@ -849,12 +868,28 @@ export function ResourceTree({
       )}
 
       {isEmpty && !creating && !isLoading && (
-        <div className="flex flex-col items-start px-2 py-5">
-          <p className="text-xs text-muted-foreground">
+        <div
+          className={cn(
+            "flex flex-col px-4 py-8",
+            variant === "collection" && "items-center px-5 py-10 text-center",
+          )}
+        >
+          {variant === "collection" && (
+            <span className="mb-3 flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <IconFolder className="size-5" />
+            </span>
+          )}
+          <p className="text-sm font-medium text-foreground">
             {variant === "collection"
-              ? "No resources in this collection yet"
+              ? (emptyStateTitle ?? "No resources in this collection yet")
               : "No files yet"}
           </p>
+          {variant === "collection" && (
+            <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+              {emptyStateDescription ??
+                "Add a resource to give your agent more context."}
+            </p>
+          )}
           {emptyStateAction && <div className="mt-4">{emptyStateAction}</div>}
         </div>
       )}

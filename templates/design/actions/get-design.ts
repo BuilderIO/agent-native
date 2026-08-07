@@ -20,7 +20,11 @@ export default defineAction({
   run: async ({ id }) => {
     const access = await resolveAccess("design", id);
     if (!access) {
-      throw new Error("Design not found");
+      const error = new Error("Design not found") as Error & {
+        statusCode: number;
+      };
+      error.statusCode = 404;
+      throw error;
     }
 
     const row = access.resource;

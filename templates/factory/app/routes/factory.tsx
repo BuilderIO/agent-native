@@ -1,3 +1,4 @@
+import { useChatModels } from "@agent-native/core/client/agent-chat";
 import {
   useActionMutation,
   useActionQuery,
@@ -26,6 +27,7 @@ import {
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -94,11 +96,57 @@ type TriageConfig = {
   slackChannelId?: string | null;
   slackChannelName?: string | null;
   pollingEnabled?: boolean;
+  githubPollingEnabled?: boolean;
+  sentryPollingEnabled?: boolean;
+  sentryOrgSlug?: string | null;
+  sentryProjectSlug?: string | null;
+  sentryEnvironment?: string | null;
   repository?: string | null;
+  automationFailureAlertsEnabled?: boolean;
+  automationFailureAlertEmail?: string | null;
+  emailReadiness?: {
+    status: "ready" | "not-configured" | "misconfigured" | "unavailable";
+    provider: string;
+  };
 };
 
 type Verdict = "correct" | "incorrect" | "uncertain";
-type WorkspaceTab = "map" | "inbox" | "rules" | "settings";
+type WorkspaceTab = "map" | "inbox" | "rules" | "automations" | "settings";
+
+type FactoryAutomationRun = {
+  id?: string;
+  status?: string | null;
+  startedAt?: string | number | null;
+  finishedAt?: string | number | null;
+  error?: string | null;
+  runId?: string | null;
+  threadId?: string | null;
+};
+
+type FactoryAutomationHealth = {
+  status: "healthy" | "stale" | "error" | "no-data";
+  lastCheckedAt?: number | null;
+  lastDispatchedAt?: number | null;
+  lastError?: string | null;
+  runtime?: string | null;
+};
+
+type FactoryAutomation = {
+  id: string;
+  name: string;
+  prompt?: string | null;
+  body?: string | null;
+  model?: string | null;
+  schedule?: string | null;
+  enabled: boolean;
+  triggerType?: string | null;
+  event?: string | null;
+  timezone?: string | null;
+  condition?: string | null;
+  canUpdate?: boolean;
+  runs?: FactoryAutomationRun[] | null;
+  pastRuns?: FactoryAutomationRun[] | null;
+};
 
 const DEFAULT_FACTORY_ID = "product-feedback";
 
@@ -387,7 +435,13 @@ export default function FactoryRoute() {
             active={activeTab === "rules"}
             onClick={() => setActiveTab("rules")}
           >
-            Rules
+            {t("factoryRoute.rulesTab")}
+          </TabButton>
+          <TabButton
+            active={activeTab === "automations"}
+            onClick={() => setActiveTab("automations")}
+          >
+            {t("factoryRoute.automationsTab")}
           </TabButton>
           <TabButton
             active={activeTab === "settings"}
@@ -467,6 +521,8 @@ export default function FactoryRoute() {
           <InboxView t={t} />
         ) : activeTab === "rules" ? (
           <RulesView t={t} />
+        ) : activeTab === "automations" ? (
+          <AutomationsView factoryId={factoryId} t={t} />
         ) : (
           <SettingsView t={t} />
         )}
@@ -497,7 +553,10 @@ function TabButton({
 }
 
 function parseWorkspaceTab(value: string | null): WorkspaceTab {
-  return value === "inbox" || value === "rules" || value === "settings"
+  return value === "inbox" ||
+    value === "rules" ||
+    value === "automations" ||
+    value === "settings"
     ? value
     : "map";
 }
@@ -511,6 +570,444 @@ function Metric({ label, value }: { label: string; value: number }) {
       {label}
     </span>
   );
+}
+
+function AutomationsView({
+  factoryId,
+  t,
+}: {
+  factoryId: string;
+  t: ReturnType<typeof useT>;
+}) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [draft, setDraft] = useState<FactoryAutomation | null>(null);
+  const selectedId = searchParams.get("automationId");
+  const automationsQuery = useActionQuery<FactoryAutomation[]>(
+    "list-factory-automations",
+    { factoryId },
+  );
+  const healthQuery = useActionQuery<FactoryAutomationHealth>(
+    "get-factory-automation-health",
+    {},
+    { refetchInterval: 60_000 },
+  );
+  const saveMutation = useActionMutation("save-factory-automation");
+  const runMutation = useActionMutation("run-factory-automation");
+  const {
+    availableModels,
+    defaultModel,
+    isLoading: modelsLoading,
+  } = useChatModels({ storageKey: null });
+  const response = automationsQuery.data;
+  const automations = response ?? [];
+  const selected =
+    automations.find((automation) => automation.id === selectedId) ??
+    automations[0] ??
+    null;
+  const modelOptions = useMemo(() => {
+    const configuredGroups = availableModels.filter(
+      (group) => group.configured,
+    );
+    const groups =
+      configuredGroups.length > 0 ? configuredGroups : availableModels;
+    const seen = new Set<string>();
+    return groups.flatMap((group) =>
+      group.models.flatMap((model) => {
+        if (model === "auto" || seen.has(model)) return [];
+        seen.add(model);
+        return [
+          { value: model, label: `${group.label} / ${formatModelName(model)}` },
+        ];
+      }),
+    );
+  }, [availableModels]);
+  const autoModelLabel = `Auto (currently ${formatModelName(defaultModel)})`;
+  const activeAutomationId = selected?.id ?? null;
+
+  function draftForAutomation(automation: FactoryAutomation) {
+    return { ...automation, model: automation.model?.trim() || "auto" };
+  }
+
+  function selectAutomation(id: string) {
+    const nextAutomation = automations.find(
+      (automation) => automation.id === id,
+    );
+    if (nextAutomation) setDraft(draftForAutomation(nextAutomation));
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("automationId", id);
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  useEffect(() => {
+    if (!selected) {
+      setDraft(null);
+      return;
+    }
+    if (selected.id !== selectedId) {
+      selectAutomation(selected.id);
+      return;
+    }
+    setDraft(draftForAutomation(selected));
+  }, [selected, selectedId]);
+
+  async function saveAutomation() {
+    if (!draft) return;
+    await saveMutation.mutateAsync({
+      factoryId,
+      automationId: draft.id,
+      name: draft.name,
+      prompt: draft.prompt ?? draft.body ?? "",
+      model: draft.model ?? "",
+      schedule: draft.schedule ?? "",
+      enabled: draft.enabled,
+    });
+    await Promise.all([automationsQuery.refetch(), healthQuery.refetch()]);
+  }
+
+  async function runAutomation() {
+    if (!draft) return;
+    await runMutation.mutateAsync({ factoryId, automationId: draft.id });
+    await Promise.all([automationsQuery.refetch(), healthQuery.refetch()]);
+  }
+
+  const health = healthQuery.data;
+  const healthLabel = health
+    ? {
+        healthy: t("factoryRoute.automationHealthHealthy"),
+        stale: t("factoryRoute.automationHealthStale"),
+        error: t("factoryRoute.automationHealthError"),
+        "no-data": t("factoryRoute.automationHealthNoData"),
+      }[health.status]
+    : t("factoryRoute.automationHealthNoData");
+
+  return (
+    <div className="space-y-4 p-4 lg:p-6">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">
+            {t("factoryRoute.automationHealthTitle")}
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            {t("factoryRoute.automationHealthDescription")}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2 pt-0 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border px-2 py-1 font-medium">
+              {healthLabel}
+            </span>
+            {health?.lastCheckedAt && (
+              <span className="text-muted-foreground">
+                {t("factoryRoute.automationLastCheck")}:{" "}
+                {formatAutomationDate(health.lastCheckedAt)}
+              </span>
+            )}
+            {health?.lastDispatchedAt && (
+              <span className="text-muted-foreground">
+                {t("factoryRoute.automationLastDispatch")}:{" "}
+                {formatAutomationDate(health.lastDispatchedAt)}
+              </span>
+            )}
+            {health?.runtime && (
+              <span className="text-muted-foreground">
+                {t("factoryRoute.automationRuntime")}: {health.runtime}
+              </span>
+            )}
+          </div>
+          {!health?.lastCheckedAt && (
+            <p className="text-muted-foreground">
+              {t("factoryRoute.automationHealthNoDataHint")}
+            </p>
+          )}
+          {health?.status === "stale" && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationHealthStaleHint")}
+            </p>
+          )}
+          {health?.lastError && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationHealthErrorDetail")}:{" "}
+              {health.lastError}
+            </p>
+          )}
+          {healthQuery.isError && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
+              {healthQuery.error instanceof Error
+                ? healthQuery.error.message
+                : String(healthQuery.error)}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+      <div className="grid gap-4 lg:grid-cols-[minmax(220px,.35fr)_minmax(0,1fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {t("factoryRoute.automationsTitle")}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {t("factoryRoute.automationsDescription")}
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {automationsQuery.isLoading ? (
+              <p className="p-4 text-sm text-muted-foreground">
+                {t("factoryRoute.automationsLoading")}
+              </p>
+            ) : automations.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">
+                {t("factoryRoute.automationsEmpty")}
+              </p>
+            ) : (
+              <div
+                className="divide-y"
+                role="tablist"
+                aria-label={t("factoryRoute.automationsTitle")}
+              >
+                {automations.map((automation) => (
+                  <button
+                    key={automation.id}
+                    type="button"
+                    id={`factory-automation-tab-${automation.id}`}
+                    role="tab"
+                    aria-selected={activeAutomationId === automation.id}
+                    aria-controls="factory-automation-panel"
+                    className={`w-full cursor-pointer p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
+                    onClick={() => selectAutomation(automation.id)}
+                  >
+                    <span className="block truncate text-sm font-medium">
+                      {automation.name}
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {automation.enabled
+                        ? t("factoryRoute.automationEnabled")
+                        : t("factoryRoute.automationDisabled")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card
+          id="factory-automation-panel"
+          role="tabpanel"
+          aria-labelledby={
+            activeAutomationId
+              ? `factory-automation-tab-${activeAutomationId}`
+              : undefined
+          }
+        >
+          <CardHeader className="border-b sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">
+                {t("factoryRoute.automationEditorTitle")}
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("factoryRoute.automationEditorDescription")}
+              </p>
+            </div>
+            {draft && (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runAutomation()}
+                  disabled={runMutation.isPending || draft.canUpdate === false}
+                >
+                  {runMutation.isPending && (
+                    <IconLoader2 className="animate-spin" />
+                  )}
+                  <IconPlayerPlay className="size-4" />
+                  {t("factoryRoute.runNow")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void saveAutomation()}
+                  disabled={saveMutation.isPending || draft.canUpdate === false}
+                >
+                  {saveMutation.isPending && (
+                    <IconLoader2 className="animate-spin" />
+                  )}
+                  {t("factoryRoute.saveAutomation")}
+                </Button>
+              </div>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-5 pt-5">
+            {!draft ? (
+              <p className="text-sm text-muted-foreground">
+                {t("factoryRoute.selectAutomation")}
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="factory-automation-model">
+                      {t("factoryRoute.automationModel")}
+                    </Label>
+                    <select
+                      id="factory-automation-model"
+                      value={draft.model ?? ""}
+                      onChange={(event) =>
+                        setDraft({ ...draft, model: event.target.value })
+                      }
+                      disabled={modelsLoading && modelOptions.length === 0}
+                      className="h-9 rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="auto">{autoModelLabel}</option>
+                      {draft.model &&
+                        draft.model !== "auto" &&
+                        !modelOptions.some(
+                          (option) => option.value === draft.model,
+                        ) && (
+                          <option value={draft.model}>
+                            Configured / {formatModelName(draft.model)}
+                          </option>
+                        )}
+                      {modelOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="factory-automation-schedule">
+                      {t("factoryRoute.automationSchedule")}
+                    </Label>
+                    <Input
+                      id="factory-automation-schedule"
+                      value={draft.schedule ?? ""}
+                      onChange={(event) =>
+                        setDraft({ ...draft, schedule: event.target.value })
+                      }
+                      placeholder={t(
+                        "factoryRoute.automationSchedulePlaceholder",
+                      )}
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={draft.enabled}
+                    onCheckedChange={(checked) =>
+                      setDraft({ ...draft, enabled: checked === true })
+                    }
+                    disabled={draft.canUpdate === false}
+                  />
+                  {t("factoryRoute.automationEnabledLabel")}
+                </label>
+                <div className="grid gap-2 rounded-md bg-muted/60 p-3 text-sm md:grid-cols-3">
+                  <div>
+                    <span className="block text-xs text-muted-foreground">
+                      {t("factoryRoute.automationTrigger")}
+                    </span>
+                    <span>{draft.triggerType ?? "-"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-muted-foreground">
+                      {t("factoryRoute.automationEvent")}
+                    </span>
+                    <span>{draft.event ?? "-"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-muted-foreground">
+                      {t("factoryRoute.automationTimezone")}
+                    </span>
+                    <span>{draft.timezone ?? "-"}</span>
+                  </div>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>{t("factoryRoute.automationPrompt")}</Label>
+                  <Textarea
+                    value={draft.prompt ?? draft.body ?? ""}
+                    onChange={(event) =>
+                      setDraft({ ...draft, prompt: event.target.value })
+                    }
+                    placeholder={t("factoryRoute.automationPromptPlaceholder")}
+                    rows={12}
+                  />
+                  <p className="text-right text-xs text-muted-foreground">
+                    {t("factoryRoute.promptEditorHint")}
+                  </p>
+                </div>
+                <div className="border-t pt-5">
+                  <h3 className="text-sm font-medium">
+                    {t("factoryRoute.pastRuns")}
+                  </h3>
+                  {(draft.runs ?? draft.pastRuns ?? []).length === 0 ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {t("factoryRoute.pastRunsEmpty")}
+                    </p>
+                  ) : (
+                    <div className="mt-3 divide-y rounded-md border">
+                      {(draft.runs ?? draft.pastRuns ?? []).map(
+                        (run, index) => (
+                          <div
+                            key={run.id ?? `${draft.id}-run-${index}`}
+                            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                          >
+                            <span className="font-medium">
+                              {run.status ?? "-"}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatAutomationDate(run.startedAt)}
+                            </span>
+                            {run.threadId && (
+                              <a
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                                href={`/chat/${encodeURIComponent(run.threadId)}`}
+                              >
+                                {t("factoryRoute.automationOpenThread")}
+                                <IconExternalLink className="size-3" />
+                              </a>
+                            )}
+                            {run.error && (
+                              <span className="basis-full text-xs text-destructive">
+                                {run.error}
+                              </span>
+                            )}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function formatAutomationDate(value: string | number | null | undefined) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function formatModelName(model: string | null | undefined) {
+  const value = model?.trim();
+  if (!value) return "the app default";
+  const match = value.match(/^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i);
+  if (match) return `GPT-5.6 ${match[1][0].toUpperCase()}${match[1].slice(1)}`;
+  return value
+    .split(/[./_-]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function InboxView({ t }: { t: ReturnType<typeof useT> }) {
@@ -882,6 +1379,15 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   const [channelName, setChannelName] = useState("");
   const [repository, setRepository] = useState("");
   const [polling, setPolling] = useState(false);
+  const [githubPolling, setGithubPolling] = useState(false);
+  const [sentryPolling, setSentryPolling] = useState(false);
+  const [sentryOrgSlug, setSentryOrgSlug] = useState("");
+  const [sentryProjectSlug, setSentryProjectSlug] = useState("");
+  const [sentryEnvironment, setSentryEnvironment] = useState("");
+  const [automationFailureAlertsEnabled, setAutomationFailureAlertsEnabled] =
+    useState(true);
+  const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
+    useState("");
   const query = useActionQuery("get-triage-config", {});
   const mutation = useActionMutation("save-triage-config");
   useEffect(() => {
@@ -892,6 +1398,15 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
     setChannelName(data.slackChannelName ?? "");
     setRepository(data.repository ?? "");
     setPolling(data.pollingEnabled ?? false);
+    setGithubPolling(data.githubPollingEnabled ?? false);
+    setSentryPolling(data.sentryPollingEnabled ?? false);
+    setSentryOrgSlug(data.sentryOrgSlug ?? "");
+    setSentryProjectSlug(data.sentryProjectSlug ?? "");
+    setSentryEnvironment(data.sentryEnvironment ?? "");
+    setAutomationFailureAlertsEnabled(
+      data.automationFailureAlertsEnabled ?? true,
+    );
+    setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
   }, [query.data]);
   return (
     <div className="max-w-4xl p-4 lg:p-6">
@@ -944,7 +1459,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="factory-repository">Repository</Label>
+            <Label htmlFor="factory-repository">{t("triage.repository")}</Label>
             <Input
               id="factory-repository"
               value={repository}
@@ -953,14 +1468,110 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
             />
           </div>
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={polling}
-              onChange={(event) => setPolling(event.target.checked)}
-              className="size-4 rounded border"
+              onCheckedChange={(checked) => setPolling(checked === true)}
             />
             {t("triage.enablePolling")}
           </label>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <Checkbox
+              checked={githubPolling}
+              onCheckedChange={(checked) => setGithubPolling(checked === true)}
+            />
+            {t("triage.enableGithubPolling")}
+          </label>
+          <div className="grid gap-1.5">
+            <Label htmlFor="factory-sentry-org">
+              {t("triage.sentryOrgSlug")}
+            </Label>
+            <Input
+              id="factory-sentry-org"
+              value={sentryOrgSlug}
+              onChange={(event) => setSentryOrgSlug(event.target.value)}
+              placeholder={t("triage.sentryOrgPlaceholder")}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="factory-sentry-project">
+              {t("triage.sentryProjectSlug")}
+            </Label>
+            <Input
+              id="factory-sentry-project"
+              value={sentryProjectSlug}
+              onChange={(event) => setSentryProjectSlug(event.target.value)}
+              placeholder={t("triage.sentryProjectPlaceholder")}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="factory-sentry-environment">
+              {t("triage.sentryEnvironment")}
+            </Label>
+            <Input
+              id="factory-sentry-environment"
+              value={sentryEnvironment}
+              onChange={(event) => setSentryEnvironment(event.target.value)}
+              placeholder={t("triage.sentryEnvironmentPlaceholder")}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <Checkbox
+              checked={sentryPolling}
+              onCheckedChange={(checked) => setSentryPolling(checked === true)}
+            />
+            {t("triage.enableSentryPolling")}
+          </label>
+          <div className="space-y-3 border-t pt-4 sm:col-span-2">
+            <div>
+              <h3 className="text-sm font-medium">
+                {t("factoryRoute.automationFailureAlertsTitle")}
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("factoryRoute.automationFailureAlertsDescription")}
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={automationFailureAlertsEnabled}
+                onCheckedChange={(checked) =>
+                  setAutomationFailureAlertsEnabled(checked === true)
+                }
+              />
+              {t("factoryRoute.automationFailureAlertsEnabled")}
+            </label>
+            <div className="grid gap-1.5 sm:max-w-md">
+              <Label htmlFor="factory-automation-failure-email">
+                {t("factoryRoute.automationFailureAlertEmail")}
+              </Label>
+              <Input
+                id="factory-automation-failure-email"
+                type="email"
+                value={automationFailureAlertEmail}
+                onChange={(event) =>
+                  setAutomationFailureAlertEmail(event.target.value)
+                }
+                placeholder={t(
+                  "factoryRoute.automationFailureAlertEmailPlaceholder",
+                )}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("factoryRoute.automationFailureEmailReadiness")}:{" "}
+              {(query.data as TriageConfig | undefined)?.emailReadiness
+                ?.status ?? "unknown"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("factoryRoute.automationEmailReadinessHint")}
+            </p>
+            {query.isError && (
+              <p className="text-xs text-destructive">
+                {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
+                {query.error instanceof Error
+                  ? query.error.message
+                  : String(query.error)}
+              </p>
+            )}
+          </div>
           <div className="sm:col-span-2">
             <Button
               onClick={() =>
@@ -970,12 +1581,24 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
                   slackChannelName: channelName,
                   repository,
                   pollingEnabled: polling,
+                  githubPollingEnabled: githubPolling,
+                  sentryPollingEnabled: sentryPolling,
+                  sentryOrgSlug,
+                  sentryProjectSlug,
+                  sentryEnvironment,
+                  automationFailureAlertsEnabled,
+                  ...(automationFailureAlertEmail.trim()
+                    ? {
+                        automationFailureAlertEmail:
+                          automationFailureAlertEmail.trim(),
+                      }
+                    : {}),
                 })
               }
               disabled={mutation.isPending}
             >
               {mutation.isPending && <IconLoader2 className="animate-spin" />}
-              Save settings
+              {t("triage.saveSettings")}
             </Button>
           </div>
         </CardContent>

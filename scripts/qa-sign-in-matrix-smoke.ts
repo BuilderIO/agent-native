@@ -40,6 +40,8 @@ import path from "node:path";
 
 import type { Browser, BrowserContext, Frame, Page } from "playwright";
 
+import { MISSING_BROWSER_HINT } from "./playwright-browser-hint";
+
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const requireFromCore = createRequire(
   path.join(repoRoot, "packages/core/package.json"),
@@ -54,9 +56,11 @@ const appPort = Number(process.env.SIGN_IN_MATRIX_SMOKE_PORT || 9351);
 const embedPort = Number(process.env.SIGN_IN_MATRIX_EMBED_PORT || 9353);
 const qaEmail = "qa-sign-in-matrix@example.test";
 const qaPassword = "local-dev-account";
+const SIGN_IN_ENTRY_PATH = "/sign-in";
+const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
 
 /** The protected route the anonymous visitor asks for, query and hash included. */
-const PROTECTED_ROUTE = "/settings?tab=general#profile";
+const PROTECTED_ROUTE = "/settings/general";
 
 interface RunningApp {
   origin: string;
@@ -101,6 +105,7 @@ function appEnv(appUrl: string, basePath: string, dbPath: string) {
     // silently tests nothing.
     AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT: "1",
     AUTH_SKIP_EMAIL_VERIFICATION: "1",
+    AUTH_MAGIC_LINK: "0",
     BETTER_AUTH_SECRET: "sign-in-matrix-smoke-secret",
     DATABASE_URL: databaseUrl,
     DATABASE_AUTH_TOKEN: "",
@@ -171,7 +176,7 @@ async function startApp(basePath: string): Promise<RunningApp> {
   // Prove the server answering is THIS deploy. A leftover process from the
   // previous base path answers `ping` perfectly well, and every assertion
   // below would then re-test the surface that already passed.
-  const doc = await (await fetch(`${appUrl}/_agent-native/sign-in`)).text();
+  const doc = await (await fetch(`${appUrl}${SIGN_IN_ENTRY_PATH}`)).text();
   assert.ok(
     doc.includes(`var configured = ${JSON.stringify(basePath)};`),
     `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
@@ -251,7 +256,7 @@ async function launchBrowser(): Promise<Browser> {
           "Could not launch Playwright Chromium.",
           `Chrome channel error: ${first}`,
           `Bundled Chromium error: ${second}`,
-          "Install a browser with `pnpm exec playwright install chromium`.",
+          MISSING_BROWSER_HINT,
         ].join("\n"),
       );
     }
@@ -270,7 +275,12 @@ function encodeToken(path: string): string {
 }
 
 function isAuthEntryPath(pathname: string, basePath: string): boolean {
-  if (pathname.endsWith("/_agent-native/sign-in")) return true;
+  if (
+    pathname.endsWith(SIGN_IN_ENTRY_PATH) ||
+    pathname.endsWith(SIGN_IN_LEGACY_ENTRY_PATH)
+  ) {
+    return true;
+  }
   const rest =
     basePath && pathname.startsWith(basePath)
       ? pathname.slice(basePath.length) || "/"
@@ -322,7 +332,10 @@ async function reachSignIn(page: Page, url: string): Promise<URL> {
   for (let attempt = 0; attempt < 4; attempt++) {
     await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
     try {
-      await page.waitForURL(/_agent-native\/sign-in/, { timeout: 30_000 });
+      await page.waitForURL(
+        /(?:^|\/)sign-in(?:[?#/]|$)|\/_agent-native\/sign-in(?:[?#/]|$)/,
+        { timeout: 30_000 },
+      );
       return new URL(page.url());
     } catch {
       lastUrl = page.url();
@@ -355,7 +368,7 @@ async function runDeploySuite(
   const gateUrl = await reachSignIn(page, `${app.origin}${protectedPath}`);
   assert.equal(
     gateUrl.pathname,
-    `${app.basePath}/_agent-native/sign-in`,
+    `${app.basePath}${SIGN_IN_ENTRY_PATH}`,
     `[${label}] the gate must send the visitor to this app's sign-in entry, under its own base path`,
   );
   const token = gateUrl.searchParams.get("c");
@@ -379,10 +392,9 @@ async function runDeploySuite(
 
   // 2. Signing in through the real login document lands back on that route.
   await signInThroughTheRealForm(page);
-  await page.waitForURL(
-    (url) => pathnameOf(url.toString()) === `${app.basePath}/settings`,
-    { timeout: 60_000 },
-  );
+  await page.waitForURL((url) => pathnameOf(url.toString()) === protectedPath, {
+    timeout: 60_000,
+  });
   assert.equal(
     fullPathOf(page.url()),
     protectedPath,
@@ -390,7 +402,12 @@ async function runDeploySuite(
   );
 
   // 3. A signed-in visitor at an auth entry path does not loop.
-  for (const entry of ["/login", "/signup", "/_agent-native/sign-in"]) {
+  for (const entry of [
+    "/login",
+    "/signup",
+    SIGN_IN_ENTRY_PATH,
+    SIGN_IN_LEGACY_ENTRY_PATH,
+  ]) {
     const entryPath = `${app.basePath}${entry}`;
     const visited = await navigateAndSettle(page, `${app.origin}${entryPath}`);
     const landed = pathnameOf(page.url());
@@ -411,7 +428,11 @@ async function runDeploySuite(
   // 4. A forged continuation cannot nest, leave the origin, or escape the base
   //    path into a sibling app on the same host.
   const forged: Array<[string, string]> = [
-    ["nested sign-in", encodeToken(`${app.basePath}/_agent-native/sign-in`)],
+    ["nested sign-in", encodeToken(`${app.basePath}${SIGN_IN_ENTRY_PATH}`)],
+    [
+      "nested legacy sign-in",
+      encodeToken(`${app.basePath}${SIGN_IN_LEGACY_ENTRY_PATH}`),
+    ],
     ["nested login", encodeToken(`${app.basePath}/login`)],
     ["absolute url", encodeToken("https://evil.example/pwned")],
     ["protocol relative", encodeToken("//evil.example/pwned")],
@@ -423,7 +444,7 @@ async function runDeploySuite(
     // A root deploy has no base path, so "sibling app" is a legitimate
     // in-app route there and is only an escape under a base path.
     if (name === "sibling app" && !app.basePath) continue;
-    const target = `${app.origin}${app.basePath}/_agent-native/sign-in?c=${encodeURIComponent(badToken)}`;
+    const target = `${app.origin}${app.basePath}${SIGN_IN_ENTRY_PATH}?c=${encodeURIComponent(badToken)}`;
     await navigateAndSettle(page, target);
     const landed = pathnameOf(page.url());
     assert.equal(
@@ -480,11 +501,11 @@ async function runIframeSuite(
     while (Date.now() < deadline) {
       const frame = page.frames().find((f) => f !== page.mainFrame());
       frameUrl = frame?.url() ?? "";
-      if (frameUrl.includes("/_agent-native/sign-in")) break;
+      if (frameUrl.includes(SIGN_IN_ENTRY_PATH)) break;
       await page.waitForTimeout(500);
     }
     assert.ok(
-      frameUrl.includes("/_agent-native/sign-in"),
+      frameUrl.includes(SIGN_IN_ENTRY_PATH),
       `framed anonymous visitor never reached sign-in (frame at ${frameUrl || "<none>"})`,
     );
     const token = new URL(frameUrl).searchParams.get("c");

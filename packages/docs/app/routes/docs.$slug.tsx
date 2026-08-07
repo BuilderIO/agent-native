@@ -1,7 +1,11 @@
 import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
 import DocContent from "../components/DocContent";
-import { loadDoc, type DocEntry } from "../components/docs-content";
+import DocDraftBanner from "../components/DocDraftBanner";
+import {
+  loadDocRespectingDraftVisibility,
+  type DocEntry,
+} from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -27,6 +31,9 @@ const SLUG_REDIRECTS: Record<string, string> = {
   "toolkit-sharing-ui": "toolkit-sharing",
   // Migration workbench folded into the code-agents-ui /migrate section.
   "migration-workbench": "code-agents-ui",
+  // server.mdx split into the Server section (server-overview, -database,
+  // -middleware, -plugins, -routes).
+  server: "server-overview",
 };
 
 export async function loader({ params }: LoaderFunctionArgs) {
@@ -39,7 +46,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (target) {
     throw redirect(docsPathForSlug(target, DEFAULT_DOCS_LOCALE), 301);
   }
-  const doc = await loadDoc(slug);
+  const doc = await loadDocRespectingDraftVisibility(slug);
   if (!doc) {
     throw new Response("Not Found", { status: 404 });
   }
@@ -84,6 +91,7 @@ export default function DocPage() {
         docsMarkdownPathForDoc(doc.slug, DEFAULT_DOCS_LOCALE) ?? undefined
       }
     >
+      {doc.draft && <DocDraftBanner />}
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

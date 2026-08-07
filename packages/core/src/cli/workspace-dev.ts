@@ -128,9 +128,11 @@ export function shouldEagerStartWorkspaceApps(
  * into is already warm instead of paying the Vite + esbuild prebundle cost
  * on demand.
  *
- * Defaults to ON in lazy mode. Off when the user passed --no-prewarm /
- * WORKSPACE_NO_PREWARM=1, or when eager mode is already starting every app
- * up front (in which case prewarm would be redundant).
+ * Defaults to OFF in lazy mode because each Vite app creates its own
+ * dependency-optimization cache and prewarming every app can exhaust a small
+ * workspace volume before the user opens those apps. Opt in with --prewarm /
+ * WORKSPACE_PREWARM=1. WORKSPACE_NO_PREWARM remains an explicit opt-out, and
+ * eager mode already starts every app up front.
  */
 export function shouldPrewarmWorkspaceApps(
   args: string[] = [],
@@ -142,7 +144,11 @@ export function shouldPrewarmWorkspaceApps(
   }
   // Eager mode starts every app immediately; prewarm has nothing to do.
   if (shouldEagerStartWorkspaceApps(args, env)) return false;
-  return true;
+  return (
+    args.includes("--prewarm") ||
+    env.WORKSPACE_PREWARM === "1" ||
+    env.WORKSPACE_PREWARM === "true"
+  );
 }
 
 /**

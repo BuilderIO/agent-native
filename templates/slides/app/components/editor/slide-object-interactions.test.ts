@@ -426,6 +426,40 @@ describe("slide object interactions", () => {
     expect(parent.children).toHaveLength(0);
   });
 
+  it.each([
+    ["image", "img"],
+    ["container", "div"],
+  ] as const)(
+    "freezes an in-flow %s as a movable object",
+    (_label, tagName) => {
+      const parent = document.createElement("div");
+      const element = document.createElement(tagName);
+      if (tagName === "div") element.textContent = "Wrapper content";
+      parent.append(element);
+
+      const spacer = freezeSlideElementForFreeform(
+        element,
+        { x: 120, y: 80, width: 420, height: 64 },
+        {
+          display: "block",
+          flexGrow: "0",
+          flexShrink: "1",
+          flexBasis: "auto",
+          alignSelf: "auto",
+        },
+      );
+
+      expect(element.style.position).toBe("absolute");
+      expect(element.dataset.slideObjectId).toBeTruthy();
+      expect(spacer.dataset.slideLayoutSpacerFor).toBe(
+        element.dataset.slideObjectId,
+      );
+
+      removeSlideObjectAndLayoutSpacer(element);
+      expect(parent.children).toHaveLength(0);
+    },
+  );
+
   it("sends an object in front of every peer", () => {
     const container = document.createElement("div");
     const element = createFreeformObject("front-me", { zIndex: 0 });

@@ -2,13 +2,10 @@ import { createProviderApiRequestAction } from "@agent-native/core/provider-api/
 import { z } from "zod";
 
 import { requireRequestCredentialContext } from "../server/lib/credentials-context";
-import {
-  ANALYTICS_PROVIDER_API_IDS,
-  getAnalyticsProviderApiRuntime,
-} from "../server/lib/provider-api";
+import { getAnalyticsProviderApiRuntime } from "../server/lib/provider-api";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
-const ProviderSchema = z.enum(ANALYTICS_PROVIDER_API_IDS);
+const ProviderSchema = z.string().min(1);
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
 const PaginationSchema = z
@@ -83,7 +80,7 @@ export default createProviderApiRequestAction(
       "For APIs that page through POST bodies, pass cursorBodyPath instead of cursorParam.",
     schema: z.object({
       provider: ProviderSchema.describe(
-        "Configured provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, gcloud, grafana, sentry.",
+        "Configured built-in or custom provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, fullstory, or a provider registered for this organization.",
       ),
       method: MethodSchema.default("GET").describe("HTTP method to use."),
       path: z

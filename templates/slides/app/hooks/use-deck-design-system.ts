@@ -1,6 +1,9 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 
-import type { DesignSystemData } from "../../shared/api";
+import {
+  normalizeReferenceUrls,
+  type DesignSystemData,
+} from "../../shared/api";
 
 const DEFAULT_DESIGN_SYSTEM: DesignSystemData = {
   colors: {
@@ -54,8 +57,21 @@ function mergeWithDefaults<T>(defaults: T, value: unknown): T {
   return (value === undefined || value === null ? defaults : value) as T;
 }
 
+export function getDesignSystemImageStyleReferenceUrls(
+  designSystem?: Pick<DesignSystemData, "imageStyle"> | null,
+): string[] {
+  return normalizeReferenceUrls(designSystem?.imageStyle?.referenceUrls);
+}
+
 export function mergeDesignSystemData(value: unknown): DesignSystemData {
   return mergeWithDefaults(DEFAULT_DESIGN_SYSTEM, value);
+}
+
+export interface DeckDesignSystemResult {
+  designSystem: DesignSystemData;
+  designSystemTitle: string | null;
+  imageStyleReferenceUrls: string[];
+  isLoading: boolean;
 }
 
 export function useDeckDesignSystem(designSystemId?: string | null) {
@@ -71,6 +87,7 @@ export function useDeckDesignSystem(designSystemId?: string | null) {
     return {
       designSystem: DEFAULT_DESIGN_SYSTEM,
       designSystemTitle: null,
+      imageStyleReferenceUrls: [],
       isLoading: false,
     };
   }
@@ -80,12 +97,14 @@ export function useDeckDesignSystem(designSystemId?: string | null) {
     return {
       designSystem: parsed,
       designSystemTitle: data.title ?? null,
+      imageStyleReferenceUrls: getDesignSystemImageStyleReferenceUrls(parsed),
       isLoading,
     };
   } catch {
     return {
       designSystem: DEFAULT_DESIGN_SYSTEM,
       designSystemTitle: data.title ?? null,
+      imageStyleReferenceUrls: [],
       isLoading,
     };
   }

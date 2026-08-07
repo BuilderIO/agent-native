@@ -3,7 +3,7 @@ import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import {
   renderDesignSystemThemeCss,
@@ -22,6 +22,14 @@ import {
   parsePendingEntry,
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import {
+  mergeAgentNativeConfigs,
+  normalizeAgentNativeConfig,
+  resolveAgentNativeConfig,
+  type AgentNativeConfig,
+  type AgentNativeConfigContext,
+  type AgentNativeConfigInput,
+} from "../config.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
@@ -358,6 +366,138 @@ function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
   return { ...plugin, hotUpdate: wrappedHotUpdate } as Plugin;
 }
 
+/** Prefix Vite gives React Router's virtual modules. */
+const REACT_ROUTER_VIRTUAL_ID_PREFIX = "\0virtual:react-router/";
+
+/**
+ * Debounce window for coalescing mirrored route-table reloads.
+ *
+ * A coding agent that rewrites a route tree emits one watcher event per file,
+ * and React Router re-resolves its config for each one. Keep this independent
+ * of `NITRO_FULL_RELOAD_DEBOUNCE_MS`: that one throttles Nitro's own reload
+ * broadcasts, this one throttles ours, and tuning either must not silently
+ * retune the other.
+ */
+const REACT_ROUTER_INVALIDATION_MIRROR_DEBOUNCE_MS = 300;
+
+/**
+ * Invalidate every React Router virtual module in every Vite environment, and
+ * tell each affected server environment's runner to re-import.
+ *
+ * Returns the environment names that had something to invalidate.
+ */
+function mirrorReactRouterVirtualInvalidation(
+  server: any,
+  now: () => number = Date.now,
+): string[] {
+  const timestamp = now();
+  const touched: string[] = [];
+  for (const [name, environment] of Object.entries<any>(
+    server?.environments ?? {},
+  )) {
+    const moduleGraph = environment?.moduleGraph;
+    if (!moduleGraph?.idToModuleMap) continue;
+
+    const seen = new Set<unknown>();
+    let invalidated = 0;
+    for (const id of [...moduleGraph.idToModuleMap.keys()] as string[]) {
+      if (!id.startsWith(REACT_ROUTER_VIRTUAL_ID_PREFIX)) continue;
+      const mod = moduleGraph.getModuleById(id);
+      if (!mod) continue;
+      moduleGraph.invalidateModule(mod, seen, timestamp, true);
+      invalidated += 1;
+    }
+    if (invalidated === 0) continue;
+
+    touched.push(name);
+    // Server environments evaluate the build inside a runner that keeps its own
+    // module cache; graph invalidation alone never reaches it. Client
+    // environments get their update through React Router's own HMR handling.
+    if (environment?.config?.consumer !== "client") {
+      environment?.hot?.send?.({ type: "full-reload" });
+    }
+  }
+  return touched;
+}
+
+/**
+ * Mirror React Router's dev-time virtual-module invalidation into the
+ * environment that actually serves requests.
+ *
+ * `@react-router/dev`'s framework-mode plugin invalidates its virtual modules
+ * through `server.moduleGraph` — Vite's deprecated back-compat graph, which
+ * proxies only the `client` and `ssr` environments. Agent Native serves SSR
+ * from Nitro's `nitro` environment, so that invalidation never reaches the
+ * `virtual:react-router/server-build` the request path evaluates, and the route
+ * table stays frozen at whatever it was when the dev server booted. A new route
+ * file then 404s forever, and a deleted one makes the stale manifest import a
+ * file that no longer exists — which fails the whole build, so EVERY page 500s
+ * with "Failed to load url … Does the file exist?" until the process restarts.
+ * Editing a route's contents hides all of this, because that path goes through
+ * Vite's normal HMR pipeline, which is environment-aware.
+ *
+ * Hooking React Router's call rather than the file watcher is what makes this
+ * ordering-safe: it awaits `updatePluginContext()` before invalidating, so by
+ * the time we mirror, the freshly resolved routes are already in place.
+ *
+ * React Router's RSC plugin already iterates `environments`; only the classic
+ * plugin still uses the back-compat graph (still true in 8.3.0). Delete this
+ * once upstream's classic path is environment-aware.
+ */
+function installReactRouterVirtualInvalidationMirror(
+  server: any,
+  {
+    debounceMs = REACT_ROUTER_INVALIDATION_MIRROR_DEBOUNCE_MS,
+    now = Date.now,
+    warn = console.warn,
+  }: {
+    debounceMs?: number;
+    now?: () => number;
+    warn?: (message: string) => void;
+  } = {},
+): boolean {
+  const backCompatGraph = server?.moduleGraph;
+  const original = backCompatGraph?.invalidateModule;
+  if (typeof original !== "function") {
+    warn(
+      "[agent-native] Vite's server.moduleGraph.invalidateModule is unavailable, " +
+        "so React Router route additions and deletions cannot be mirrored into " +
+        "the Nitro dev environment. Adding or deleting a route file will need a " +
+        "dev server restart to take effect.",
+    );
+    return false;
+  }
+
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  backCompatGraph.invalidateModule = function patchedInvalidateModule(
+    this: unknown,
+    mod: { id?: string | null } | undefined,
+    ...rest: unknown[]
+  ) {
+    const result = original.call(this, mod, ...rest);
+    if (!mod?.id?.startsWith(REACT_ROUTER_VIRTUAL_ID_PREFIX)) return result;
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(() => {
+      pending = undefined;
+      mirrorReactRouterVirtualInvalidation(server, now);
+    }, debounceMs);
+    // Never hold the process open just for a pending reload.
+    pending.unref?.();
+    return result;
+  };
+  return true;
+}
+
+function reactRouterVirtualInvalidationMirrorPlugin(): Plugin {
+  return {
+    name: "agent-native-react-router-invalidation-mirror",
+    apply: "serve",
+    configureServer(server) {
+      installReactRouterVirtualInvalidationMirror(server);
+    },
+  };
+}
+
 /**
  * Sync discovery for the workspace-core in an enterprise monorepo.
  *
@@ -483,6 +623,7 @@ function findLocalWorkspacePackageDeps(
 
     return packages;
   } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -651,6 +792,13 @@ function getClientDedupe(cwd: string): string[] {
     "react",
     "react-dom",
     "react-dom/client",
+    // AgentSidebar and the shared composers exchange context through these
+    // packages. Keep the source graph and published toolkit graph on one
+    // assistant-ui store when core is linked into a consumer app.
+    "@assistant-ui/react",
+    "@assistant-ui/core",
+    "@assistant-ui/store",
+    "@assistant-ui/tap",
     // Framework routers must share one react-router instance so
     // FrameworkContext (Meta/Links/Scripts) matches ServerRouter/HydratedRouter.
     ...(hasDep("react-router", cwd)
@@ -824,6 +972,55 @@ function getReactRouterAliases(
 }
 
 /**
+ * Core's source graph can resolve assistant-stream from the framework
+ * checkout while the consuming app's assistant-ui package resolves a newer
+ * copy. Pin both public entry points to the consumer's installed peer graph.
+ */
+function getAssistantUiAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const assistantUiEntry = appRequire.resolve("@assistant-ui/react");
+    const assistantUiRequire = createRequire(assistantUiEntry);
+    return [
+      // A linked framework checkout can otherwise resolve the assistant-ui
+      // imports in core's source graph from the checkout's React 19.2.7 peer
+      // tree while Vite prebundles the app's React 19.2.8 tree. Dedupe does
+      // not rewrite those /@fs source imports, so pin the singleton packages
+      // to the consuming app's installed peer graph explicitly.
+      {
+        find: /^@assistant-ui\/react$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/react"),
+      },
+      {
+        find: /^@assistant-ui\/core$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/core"),
+      },
+      {
+        find: /^@assistant-ui\/store$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/store"),
+      },
+      {
+        find: /^@assistant-ui\/tap$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/tap"),
+      },
+      {
+        find: /^assistant-stream$/,
+        replacement: assistantUiRequire.resolve("assistant-stream"),
+      },
+      {
+        find: /^assistant-stream\/utils$/,
+        replacement: assistantUiRequire.resolve("assistant-stream/utils"),
+      },
+    ];
+  } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
+    return [];
+  }
+}
+
+/**
  * Every `@agent-native/core` subpath that gets a source alias. Must stay in
  * sync with `getCoreSourceAliases`. Used by `getDefaultOptimizeDeps` to skip
  * prebundling in monorepo mode, and by the consumer config to add them to
@@ -890,6 +1087,27 @@ const CORE_CLIENT_SUBPATHS = [
 ];
 
 const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
+
+/**
+ * Dep-prebundle sourcemaps are roughly two thirds of `node_modules/.vite/deps`
+ * (65 MB of maps against 37 MB of code in a typical app), and Vite writes the
+ * whole replacement bundle to a sibling `deps_temp_*` before swapping, so a
+ * re-optimize needs twice that free. Whole workspaces have hit ENOSPC while
+ * Vite was writing a `.js.map`.
+ *
+ * Vite 8's optimizer hardcodes `sourcemap: "hidden"` in its `bundle.write()`
+ * call, after spreading `optimizeDeps.rolldownOptions.output` — so the option
+ * cannot be set through config, and `optimizeDeps.esbuildOptions` no longer
+ * feeds the bundler at all. A rolldown `outputOptions` hook is the one seam
+ * that runs late enough to win. Losing these maps only costs stepping into
+ * third-party code in the debugger; app sourcemaps are untouched, and Vite
+ * already treats a missing dep map as a normal state (`vite:optimized-deps`
+ * loads the module with a null map).
+ */
+const disableDepSourcemapsPlugin: Plugin = {
+  name: "agent-native:no-dep-prebundle-sourcemaps",
+  outputOptions: (options) => ({ ...options, sourcemap: false }),
+};
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
   const inMonorepo = findCoreSrcDir(cwd) !== null;
@@ -1424,13 +1642,19 @@ export interface ClientConfigOptions {
   /** Additional Vite define constants. */
   define?: UserConfig["define"];
   /**
+   * Public app behavior from `agent-native.json` or an optional typed
+   * `agent-native.config.ts` file. Explicit Vite options win over the JSON
+   * file, while the file remains the default project-level source of truth.
+   */
+  agentNativeConfig?: AgentNativeConfigInput;
+  /**
    * Browser/server compatibility epoch for app changes that cannot safely run
    * across a cached client and a newer action backend. Bump only for an
    * incompatible protocol or data-model transition, not for every deploy.
    */
   clientCompatibilityVersion?: string;
   /**
-   * Framework route warmup behavior mounted by AgentSidebar.
+   * Framework route warmup behavior mounted by AppProviders.
    *
    * React Router's native prefetch warms both `.data` and JS, but its `.data`
    * request uses browser link prefetch. Chrome sends `Sec-Purpose: prefetch`
@@ -3018,6 +3242,7 @@ function createAgentNativePlugins(
     baseRedirectGuard(),
     portExposer(),
     nitroStartupGate(),
+    reactRouterVirtualInvalidationMirrorPlugin(),
     silenceConnectionResets(),
     rolldownInputFix(),
     // Nitro Vite plugin for dev-mode API route serving and HMR.
@@ -3057,12 +3282,80 @@ function resolveAgentNativeTemplate(cwd: string): string {
   );
 }
 
+function createAgentNativeConfigContext(
+  command: AgentNativeViteCommand | undefined,
+  mode: string,
+): AgentNativeConfigContext {
+  const resolvedCommand = command === "build" ? "build" : "serve";
+  return {
+    command: resolvedCommand,
+    mode,
+    isDev: resolvedCommand === "serve",
+    isBuild: resolvedCommand === "build",
+  };
+}
+
+function readAgentNativeJsonConfig(cwd: string): AgentNativeConfig {
+  const configPath = path.join(cwd, "agent-native.json");
+  if (!fs.existsSync(configPath)) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Could not read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  return normalizeAgentNativeConfig(parsed, configPath);
+}
+
+async function loadAgentNativeConfigFile(
+  cwd: string,
+): Promise<AgentNativeConfigInput | undefined> {
+  const candidates = ["agent-native.config.ts", "agent-native.config.mts"];
+  const configPath = candidates
+    .map((filename) => path.join(cwd, filename))
+    .find((candidate) => fs.existsSync(candidate));
+  if (!configPath) return undefined;
+
+  try {
+    const module = (await import(pathToFileURL(configPath).href)) as {
+      default?: unknown;
+      agentNativeConfig?: unknown;
+    };
+    const config = module.default ?? module.agentNativeConfig;
+    if (typeof config !== "object" && typeof config !== "function") {
+      throw new Error("the default export must be an object or function");
+    }
+    return config as AgentNativeConfigInput;
+  } catch (error) {
+    throw new Error(
+      `Could not load ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 function createAgentNativeConfig(
   options: ClientConfigOptions | AgentNativeVitePluginOptions = {},
   command?: AgentNativeViteCommand,
   userConfig: UserConfig = {},
+  mode = process.env.NODE_ENV === "production" ? "production" : "development",
+  projectConfig?: AgentNativeConfigInput,
 ): UserConfig {
   const cwd = process.cwd();
+  const configContext = createAgentNativeConfigContext(command, mode);
+  const projectConfigInput = projectConfig ?? options.agentNativeConfig;
+  const appConfig = resolveAgentNativeConfig(
+    mergeAgentNativeConfigs(
+      readAgentNativeJsonConfig(cwd),
+      projectConfigInput
+        ? resolveAgentNativeConfig(projectConfigInput, configContext)
+        : {},
+    ),
+    configContext,
+  );
   const buildId =
     process.env.DEPLOY_ID?.trim() ||
     process.env.COMMIT_REF?.trim() ||
@@ -3158,6 +3451,7 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
+      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
@@ -3340,6 +3634,17 @@ function createAgentNativeConfig(
         ...(userConfig.optimizeDeps?.exclude ?? []),
         ...(options.optimizeDeps?.exclude ?? []),
       ],
+      ...(process.env.AGENT_NATIVE_DEP_SOURCEMAPS === "1"
+        ? {}
+        : {
+            rolldownOptions: {
+              ...(userConfig.optimizeDeps?.rolldownOptions ?? {}),
+              plugins: [
+                ...arrayFrom(userConfig.optimizeDeps?.rolldownOptions?.plugins),
+                disableDepSourcemapsPlugin,
+              ],
+            },
+          }),
     },
     resolve: {
       ...(userConfig.resolve ?? {}),
@@ -3355,6 +3660,7 @@ function createAgentNativeConfig(
       alias: [
         // Published npm installs: one react-router instance for app + core.
         ...getReactRouterAliases(cwd),
+        ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
@@ -3369,6 +3675,28 @@ function createAgentNativeConfig(
         })),
         ...aliasArrayFrom((userConfig.resolve as { alias?: unknown })?.alias),
       ],
+    },
+  };
+}
+
+function createAgentNativeConfigPlugin(
+  options: ClientConfigOptions | AgentNativeVitePluginOptions,
+): Plugin {
+  return {
+    name: "agent-native-config",
+    enforce: "pre",
+    async config(config: UserConfig, env: ConfigEnv) {
+      const projectConfig =
+        options.agentNativeConfig === undefined
+          ? await loadAgentNativeConfigFile(process.cwd())
+          : undefined;
+      return createAgentNativeConfig(
+        options,
+        env.command,
+        config,
+        env.mode,
+        projectConfig,
+      );
     },
   };
 }
@@ -3393,13 +3721,7 @@ export function agentNative(
   options: AgentNativeVitePluginOptions = {},
 ): Plugin[] {
   return [
-    {
-      name: "agent-native-config",
-      enforce: "pre",
-      config(config: UserConfig, env: ConfigEnv) {
-        return createAgentNativeConfig(options, env.command, config);
-      },
-    },
+    createAgentNativeConfigPlugin(options),
     ...createAgentNativePlugins(options, {
       includeReactTransform: options.legacySpa === true,
       useServeOnlyNitroPlugin: true,
@@ -3418,10 +3740,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     !hasReactRouterPlugin(options.plugins) && !options.reactRouter;
   return {
     ...createAgentNativeConfig(options),
-    plugins: createAgentNativePlugins(options, {
-      includeReactTransform,
-      userPlugins: options.plugins,
-    }),
+    plugins: [
+      createAgentNativeConfigPlugin(options),
+      ...createAgentNativePlugins(options, {
+        includeReactTransform,
+        userPlugins: options.plugins,
+      }),
+    ],
   };
 }
 
@@ -3434,4 +3759,6 @@ export {
   nitroStartupRecovery as _nitroStartupRecovery,
   nitroModuleGraphSignature as _nitroModuleGraphSignature,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
+  installReactRouterVirtualInvalidationMirror as _installReactRouterVirtualInvalidationMirror,
+  mirrorReactRouterVirtualInvalidation as _mirrorReactRouterVirtualInvalidation,
 };

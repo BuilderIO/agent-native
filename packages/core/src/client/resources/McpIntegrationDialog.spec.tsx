@@ -51,7 +51,7 @@ describe("McpIntegrationDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses the selected personal scope and shows one OAuth connect action", () => {
+  it("keeps unsupported OAuth integrations personal without a scope prompt", () => {
     const linear = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "linear",
     )!;
@@ -73,11 +73,7 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    const personal = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Personal",
-    );
-    expect(personal).toBeTruthy();
-    act(() => personal?.click());
+    expect(document.body.textContent).not.toContain("Shared with workspace");
 
     const connectButtons = [...document.body.querySelectorAll("button")].filter(
       (button) => button.textContent === "Connect",
@@ -91,6 +87,56 @@ describe("McpIntegrationDialog", () => {
     expect(
       new URL(url, "https://analytics.example.com").searchParams.get("scope"),
     ).toBe("user");
+  });
+
+  it("offers a shared scope for an integration that supports it", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "Who should be able to use this connection?",
+    );
+    expect(document.body.textContent).toContain(
+      "Only you can use this connection.",
+    );
+
+    const shared = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Shared with workspace",
+    );
+    expect(shared).toBeTruthy();
+    act(() => shared?.click());
+    expect(document.body.textContent).toContain(
+      "Permitted workspace members can use this connection. Provider permissions still apply.",
+    );
+
+    const connectButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    expect(connectButton).toBeTruthy();
+    act(() => connectButton?.click());
+
+    expect(onCreateMcpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "org" }),
+    );
   });
 
   it("does not show organization scope to a member", () => {
@@ -146,6 +192,89 @@ describe("McpIntegrationDialog", () => {
         (button) => button.textContent === "Test",
       ),
     ).toBeUndefined();
+    expect(document.body.textContent).toContain("Set up Slack");
+    expect(document.body.textContent).toContain("Provider setup required");
     expect(document.body.textContent).toContain("View setup");
+    expect(
+      [...document.body.querySelectorAll("a")]
+        .find((link) => link.textContent?.includes("View setup"))
+        ?.getAttribute("href"),
+    ).toBe(slack.docsUrl);
+
+    const continueButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "I've completed setup",
+    );
+    expect(continueButton).toBeTruthy();
+
+    act(() => continueButton?.click());
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+  });
+
+  it("opens provider setup guidance from the catalog", () => {
+    const slack = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "slack",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[slack]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const viewSetupButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "View setup",
+    );
+    expect(viewSetupButton).toBeTruthy();
+
+    act(() => viewSetupButton?.click());
+    expect(document.body.textContent).toContain("Provider setup required");
+  });
+
+  it("offers personal OAuth for a managed setup-gated integration", () => {
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="hubspot"
+            defaultScope="org"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[hubspot]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).not.toContain("Shared with workspace");
+
+    const connectButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    expect(connectButton).toBeTruthy();
+
+    act(() => connectButton?.click());
+
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+    const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(url, "https://analytics.example.com").searchParams.get("scope"),
+    ).toBe("user");
   });
 });

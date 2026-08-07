@@ -966,13 +966,37 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 4 : 20,
+    max: serverless ? serverlessPoolMax() : 20,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
+    ...(serverless
+      ? {
+          connection: {
+            idle_in_transaction_session_timeout: 30_000,
+          },
+        }
+      : {}),
     // Supabase's connection pooler (Transaction mode) requires prepare:false.
     // Only disable for Supabase URLs to avoid degrading other deployments.
     ...(url.includes("supabase") ? { prepare: false } : {}),
+  };
+}
+
+/**
+ * Shared options for every Neon serverless pool. The startup parameter is
+ * applied by Postgres before the first transaction, so a killed function
+ * cannot return a connection that remains idle in transaction indefinitely.
+ */
+export function neonPoolOptions(): {
+  max: number;
+  idle_in_transaction_session_timeout?: number;
+} {
+  return {
+    max: neonPoolMax(),
+    ...(isServerlessRuntime()
+      ? { idle_in_transaction_session_timeout: 30_000 }
+      : {}),
   };
 }
 
@@ -992,19 +1016,29 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
  */
 export function neonPoolMax(): number {
   if (!isServerlessRuntime()) return 20;
-  // The durable background-function worker is a SINGLE process per run (unlike
-  // the many warm request-instances the foreground serverless has), so it can
-  // safely hold a larger pool without risking Neon's connection cap. The agent's
-  // pre-send setup fires ~6 concurrent DB reads in parallel; with only 2
-  // connections that burst exhausts the pool and a single stalled connection
-  // freezes the worker before it can claim — observed on analytics' heavier
-  // action surface, where the worker froze right after `model_done` and never
-  // recorded `env_config`/`presend`, while the foreground (10-connection pool)
-  // ran the identical code in ~2s. Give the bg worker enough connections for the
-  // burst; keep the foreground serverless pool tiny to avoid "Max client
-  // connections reached" across many warm instances.
-  if (isBackgroundFunctionPoolContext()) return 8;
-  return 4;
+  return serverlessPoolMax();
+}
+
+function serverlessPoolMax(): number {
+  // Scheduled Analytics workers run independently and may overlap across
+  // invocations. They process work sequentially, so one connection prevents
+  // a slow sweep from multiplying Neon connections while foreground requests
+  // retain two slots for their concurrent reads.
+  if (isLowConnectionBackgroundRuntime()) return 1;
+  // Netlify can run several background workers concurrently. Keep their four
+  // slots: the agent pre-send setup fires ~6 concurrent DB reads, and two
+  // connections previously froze the worker before it could claim. Foreground
+  // requests use two slots instead, leaving more headroom across warm
+  // instances where the user-facing routes are the pressure source.
+  if (isBackgroundFunctionPoolContext()) return 4;
+  return 2;
+}
+
+function isLowConnectionBackgroundRuntime(): boolean {
+  return (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ === true
+  );
 }
 
 /**
@@ -1345,7 +1379,7 @@ async function createDbExecInternal(
       // The foreground and transaction surface keep the WebSocket pool.
       const bgHttp = isBackgroundFunctionPoolContext();
       const makePool = () =>
-        new Pool({ connectionString: url, max: neonPoolMax() });
+        new Pool({ connectionString: url, ...neonPoolOptions() });
       // The singleton exec shares the process pool; `createDbExec()` callers own
       // a `close()` and so must not be handed it.
       const pool = trackSingletonResources
@@ -1572,8 +1606,17 @@ async function createDbExecInternal(
               releaseClient();
               return result;
             } catch (err) {
-              await queryNeonClient(client, "ROLLBACK").catch(() => {});
-              releaseClient(isConnectionError(err) ? true : undefined);
+              let rollbackFailed = false;
+              try {
+                await queryNeonClient(client, "ROLLBACK");
+              } catch {
+                rollbackFailed = true;
+              }
+              // A failed rollback can leave the backend inside the transaction.
+              // Do not return that client to PgBouncer as if it were clean.
+              releaseClient(
+                isConnectionError(err) || rollbackFailed ? true : undefined,
+              );
               throw err;
             }
           }, 1);

@@ -4,6 +4,10 @@ import {
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
+import {
+  findWorkspaceDispatchAgent,
+  getBuiltinAgents,
+} from "@agent-native/core/server/agent-discovery";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   listWorkspaceConnectionProviderCatalogForApp,
@@ -30,13 +34,30 @@ const SUPPORTED_SOURCE_PROVIDERS = new Set([
   "github",
 ]);
 
-function dispatchIntegrationsHref(providerId: string) {
+function dispatchBaseHref(): string | undefined {
+  const workspaceDispatch = findWorkspaceDispatchAgent();
+  if (workspaceDispatch?.url) return workspaceDispatch.url;
+
+  return getBuiltinAgents(APP_ID).find((agent) => agent.id === "dispatch")?.url;
+}
+
+function dispatchIntegrationsHref(providerId: string): string | undefined {
   const params = new URLSearchParams({
     provider: providerId,
     appId: APP_ID,
     returnTo: "ask",
   });
-  return `/dispatch/integrations?${params.toString()}`;
+  const dispatchHref = dispatchBaseHref();
+  if (!dispatchHref) return undefined;
+  const base = dispatchHref
+    .replace(/\/(?:overview|apps)\/?$/, "")
+    .replace(/\/$/, "");
+  const path = `integrations?${params.toString()}`;
+  try {
+    return new URL(path, `${base}/`).toString();
+  } catch {
+    return `${base}/${path}`;
+  }
 }
 
 function providerApiConfigured({
@@ -262,7 +283,7 @@ async function listWorkspaceConnectionsForCatalog(): Promise<{
 
 export default defineAction({
   description:
-    "Check reusable Brain source and provider API readiness before using a provider. Each provider reports whether authenticated access is configured and includes a focused setupLink. When a requested provider is unavailable, explain the missing connection and return its setupLink instead of attempting provider-api-request.",
+    "Check reusable Brain source and provider API readiness before using a provider. Each provider reports whether authenticated access is configured and includes an absolute Dispatch setupLink when shared setup is needed. When a requested provider is unavailable, explain the missing connection and return its setupLink instead of attempting provider-api-request; if the user is not a workspace admin, mention that a personal MCP connection may be available in chat.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,

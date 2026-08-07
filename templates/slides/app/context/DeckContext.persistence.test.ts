@@ -1,6 +1,7 @@
+import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/use-db-sync";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -75,6 +76,7 @@ function wrapper({ children }: { children: ReactNode }) {
 function setupFetch(options?: {
   hangPut?: boolean;
   failDeckList?: boolean;
+  deleteDeckNotFound?: boolean;
   patchFailures?: { deckId: string; count: number };
 }) {
   let resolveCreate: (response: Response) => void = () => {};
@@ -116,6 +118,19 @@ function setupFetch(options?: {
       return new Promise<Response>((resolve) => {
         resolveCreate = resolve;
       });
+    }
+
+    if (href.includes("/_agent-native/actions/delete-deck")) {
+      if (options?.deleteDeckNotFound) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "Deck not found" }), {
+            status: 404,
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ success: true }), { status: 200 }),
+      );
     }
 
     if (href.includes("/_agent-native/actions/list-decks")) {
@@ -200,13 +215,17 @@ function deletedDeck(
 
 describe("DeckContext deck creation persistence", () => {
   beforeEach(() => {
+    _resetSyncTransportRegistryForTests();
     orgQueryState.data = undefined;
     orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal("BroadcastChannel", undefined);
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
+    cleanup();
+    _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -284,7 +303,7 @@ describe("DeckContext deck creation persistence", () => {
 
     resolveCreate(new Response("", { status: 200 }));
 
-    await expect(persisted).resolves.toBe(true);
+    await expect(persisted).resolves.toEqual({ persisted: true });
     expect(deckFetchCalls(fetchMock)).toEqual([]);
   });
 
@@ -308,7 +327,10 @@ describe("DeckContext deck creation persistence", () => {
       }),
     );
 
-    await expect(persisted).resolves.toBe(false);
+    await expect(persisted).resolves.toMatchObject({
+      persisted: false,
+      reason: "request-failed",
+    });
     expect(deckFetchCalls(fetchMock)).toEqual([]);
   });
 
@@ -640,6 +662,31 @@ describe("DeckContext deck creation persistence", () => {
     resolveCreate(new Response("", { status: 200 }));
 
     await waitFor(() => expect(deletedDeck(fetchMock, deckId)).toBe(true));
+  });
+
+  it("cleans up after a failed optimistic create without restoring the deck", async () => {
+    const { fetchMock, resolveCreate } = setupFetch({
+      deleteDeckNotFound: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Failed draft", {
+        noDefaultSlides: true,
+      }).id;
+      result.current.deleteDeck(deckId);
+    });
+
+    resolveCreate(
+      new Response(JSON.stringify({ error: "Sign in to create a deck" }), {
+        status: 403,
+      }),
+    );
+
+    await waitFor(() => expect(deletedDeck(fetchMock, deckId)).toBe(true));
+    expect(result.current.getDeck(deckId)).toBeUndefined();
   });
 
   it("records delete deck on the undo stack", async () => {
@@ -1082,6 +1129,64 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
       "<h1>Before</h1>",
+    );
+  });
+
+  it("reconciles remote slide content when the timestamp and slide count are unchanged", async () => {
+    window.history.pushState({}, "", "/deck/same-timestamp-deck");
+    const initial: Deck = {
+      id: "same-timestamp-deck",
+      title: "Same Timestamp Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(
+        result.current.getDeck("same-timestamp-deck")?.slides[0]?.content,
+      ).toBe("<h1>Before</h1>"),
+    );
+
+    setAccessibleDeck({
+      ...initial,
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: "<h1>After agent edit</h1>",
+        },
+      ],
+    });
+    const source = MockEventSource.lastInstance!;
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "deck-changed",
+            deckId: "same-timestamp-deck",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(
+        result.current.getDeck("same-timestamp-deck")?.slides[0]?.content,
+      ).toBe("<h1>After agent edit</h1>"),
     );
   });
 

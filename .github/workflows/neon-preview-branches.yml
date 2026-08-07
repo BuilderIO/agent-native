@@ -1,4 +1,4 @@
-name: Neon Preview Branches
+name: Neon Preview Branch Cleanup
 
 on:
   pull_request:
@@ -8,24 +8,22 @@ on:
 permissions:
   contents: read
 
-# Map each Netlify site to its Neon project. When a PR opens, we create a Neon
-# branch per project and set the site's DATABASE_URL(_UNPOOLED) as a
-# BRANCH-scoped value for the PR's head branch (context: branch). Netlify uses a
-# branch-specific value for that branch's deploy previews and it takes
-# precedence over the shared deploy-preview context value, so concurrent PRs on
-# different branches never clobber each other. The framework reads
-# DATABASE_URL directly; the branch value is available to the function at
-# runtime.
-#
-# On PR close we delete only this branch's value (not the whole variable, which
-# other branches and production still use) and this PR's Neon branch.
+concurrency:
+  group: neon-preview-branches-pr-${{ github.event.pull_request.number || github.event.number }}
+  cancel-in-progress: true
+
+# Preview database isolation is intentionally disabled. Preview deploys use the
+# shared Netlify database configuration; this workflow only cleans up branch
+# resources left by the former isolation flow when a PR closes.
 
 env:
   NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
 
 jobs:
   create-branches:
-    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    # Keep the old job definition available for cleanup history, but never
+    # create new Neon branches or Netlify database overrides.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,16 +56,16 @@ jobs:
           - template: slides
             neon_project: hidden-thunder-16834477
             netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
-          - template: factory
-            neon_project: flat-mountain-45852069
-            netlify_site: 6bffaa23-ad14-480c-8954-99f53ecabf05
     steps:
       - name: Create Neon branch
         uses: neondatabase/create-branch-action@fb620d43d4c565abaf088b848a4e28e5c4ea4d9c # v6
         id: neon
         with:
           project_id: ${{ matrix.neon_project }}
-          branch_name: preview/pr-${{ github.event.number }}
+          # Never copy the default branch's rows into a public preview. Neon
+          # creates the branch from the parent schema without its data.
+          branch_name: preview-schema-only/pr-${{ github.event.number }}
+          branch_type: schema-only
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Set preview DB URLs on Netlify site
@@ -115,6 +113,51 @@ jobs:
           set_netlify_branch_env "DATABASE_URL" "$NEON_DB_URL_POOLED"
           set_netlify_branch_env "DATABASE_URL_UNPOOLED" "$NEON_DB_URL_UNPOOLED"
 
+      - name: Cancel in-flight Netlify deploys for this branch
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          SITE="${{ matrix.netlify_site }}"
+          API="https://api.netlify.com/api/v1"
+          AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
+          deploys=$(curl -fsS -G -H "$AUTH" \
+            --data-urlencode "branch=$HEAD_BRANCH" \
+            --data-urlencode "per_page=100" \
+            "$API/sites/$SITE/deploys")
+
+          # The Git provider can start Netlify's automatic deploy before the
+          # branch-scoped database values are written. Cancel only deploys
+          # that have not become ready, then trigger one fresh build below.
+          while IFS= read -r deploy_id; do
+            [[ -z "$deploy_id" ]] && continue
+            http=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              -H "$AUTH" "$API/deploys/$deploy_id/cancel")
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to cancel Netlify deploy $deploy_id for site $SITE (HTTP $http)"
+              exit 1
+            fi
+          done < <(jq -r '.[] | select(.state == "new" or .state == "pending_review" or .state == "enqueued" or .state == "building" or .state == "uploading" or .state == "preparing" or .state == "processing" or .state == "retrying") | .id' <<< "$deploys")
+
+      - name: Trigger Netlify deploy with preview DB values
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          SITE="${{ matrix.netlify_site }}"
+          API="https://api.netlify.com/api/v1"
+          AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
+          body=$(jq -n --arg branch "$HEAD_BRANCH" '{branch: $branch}')
+          http=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+            -H "$AUTH" -H "Content-Type: application/json" \
+            "$API/sites/$SITE/builds" -d "$body")
+          if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error::Failed to trigger Netlify deploy for branch $HEAD_BRANCH on site $SITE (HTTP $http)"
+            exit 1
+          fi
+
   delete-branches:
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -149,16 +192,46 @@ jobs:
           - template: slides
             neon_project: hidden-thunder-16834477
             netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
-          - template: factory
-            neon_project: flat-mountain-45852069
-            netlify_site: 6bffaa23-ad14-480c-8954-99f53ecabf05
     steps:
-      - name: Delete Neon branch
-        uses: neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776 # v3
-        with:
-          project_id: ${{ matrix.neon_project }}
-          branch: preview/pr-${{ github.event.number }}
-          api_key: ${{ secrets.NEON_API_KEY }}
+      - name: Delete Neon branches if present
+        env:
+          NEON_PROJECT_ID: ${{ matrix.neon_project }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          API="https://console.neon.tech/api/v2"
+
+          delete_branch_if_present() {
+            local branch_name="$1"
+            local response http body branch_id
+            response=$(curl -sS -w $'\n%{http_code}' -G \
+              -H "Authorization: Bearer $NEON_API_KEY" \
+              --data-urlencode "search=$branch_name" \
+              --data-urlencode "limit=100" \
+              "$API/projects/$NEON_PROJECT_ID/branches")
+            http=$(printf '%s' "$response" | tail -n1)
+            body=$(printf '%s' "$response" | sed '$d')
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to look up Neon branch $branch_name (HTTP $http)"
+              exit 1
+            fi
+            branch_id=$(jq -r --arg name "$branch_name" \
+              'first(.branches[]? | select(.name == $name) | .id) // empty' <<< "$body")
+            if [[ -z "$branch_id" ]]; then
+              echo "Neon branch $branch_name is already absent"
+              return 0
+            fi
+            http=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE \
+              -H "Authorization: Bearer $NEON_API_KEY" \
+              "$API/projects/$NEON_PROJECT_ID/branches/$branch_id")
+            if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
+              echo "::error::Failed to delete Neon branch $branch_name (HTTP $http)"
+              exit 1
+            fi
+          }
+
+          delete_branch_if_present "preview-schema-only/pr-$PR_NUMBER"
+          delete_branch_if_present "preview/pr-$PR_NUMBER"
 
       - name: Remove preview DB URL branch overrides
         env:

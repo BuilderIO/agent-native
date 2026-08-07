@@ -227,7 +227,7 @@ const databaseMessages = {
   collapseAllGroups: "Collapse all groups",
   color: "Color",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Connect your Builder account to browse its spaces and models.",
+    "Connect your Builder account (free tier available) to browse its spaces and models.",
   connectedSources: "Connected sources",
   couldntSyncRetry: "Couldn’t sync · Retry",
   databasePagePreview: "Database page preview",

@@ -795,20 +795,19 @@ async function handleSend(
   if (!asyncMode) idempotencyKey = undefined;
 
   if (asyncMode) {
-    // Refuse async mode entirely when no auth is configured in production.
-    // The async dispatch path self-fires the `_process-task` route, which
-    // accepts unsigned dispatches when A2A_SECRET is unset — that combined
-    // with the lack of caller identity here would let any unauthenticated
-    // attacker queue and trigger handler runs. In production, require some
-    // form of auth so the verifiedEmail is bound to the task.
-    const hasA2ASecret = hasConfiguredA2ASecret();
-    const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
-    if (isA2AProductionRuntime() && !hasA2ASecret && !hasApiKey) {
+    // Refuse async mode entirely without the shared secret in production.
+    // The async dispatch path self-fires the `_process-task` route, which is
+    // authenticated with an internal HMAC signed by A2A_SECRET. A legacy
+    // apiKeyEnv can authenticate the JSON-RPC request, but it cannot
+    // authenticate that internal handoff. Accepting it here would create a
+    // working task that can never start and leaves the caller polling until
+    // its timeout.
+    if (isA2AProductionRuntime() && !hasConfiguredA2ASecret()) {
       return {
         ...jsonRpcError(
           0,
           -32001,
-          "A2A async mode is not available — A2A_SECRET or apiKeyEnv must be configured.",
+          "A2A async mode requires A2A_SECRET for internal processor dispatch; apiKeyEnv only supports synchronous A2A.",
         ),
         _id: 0,
       };

@@ -302,6 +302,37 @@ npx @agent-native/core@latest deploy --preset netlify
 
 ワークスペース ビルドは、`dist/_workspace_static/` の下に静的アセットを書き込み、アセットを強制的にリダイレクトせずに各アプリを独自の Netlify 関数にルーティングします。そのため、サーバー関数がアプリのルートを処理する前に、`/mail/assets/...` のようなファイルが静的に提供されます。
 
+### Keep-warm とゼロスケール データベース {#netlify-keep-warm}
+
+Netlify のビルドは、**毎分** `/_agent-native/health` をリクエストするスケジュール関数を出力します。これによりサーバー関数とそのデータベースがウォームに保たれ、アイドル期間後の次の訪問者がコールドスタート（Neon では 1〜5 秒）を負担しなくなります。プロビジョニング済みのコンピュートではこれが正しいデフォルトです。
+
+**従量課金のゼロスケール データベースでは、これは誤ったデフォルトです。** 毎分の起動は自動サスペンドが一度も発動しないことを意味し、誰もアプリを使っていなくても常時稼働しているかのように課金・クォータ制限されます。Neon の無料プランではコンピュート クォータを使い切り、その後データベースはセッション中の**すべての**読み取りを拒否します。症状は「遅いアプリ」ではなく「死んだアプリ」です。
+
+| 変数                                        | 効果                                                                                                                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | スケジュール関数を完全にスキップします。データベースは自動サスペンドでき、アイドル期間後の次の訪問者がそのコールドスタートを負担します。                                                                                 |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5 フィールドの cron 式（例: `*/5 * * * *`）でケイデンスを上書きします。解析できない値は、毎分へ黙って戻す代わりに**ビルドを失敗させます**。                                                                              |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | バックグラウンド関数のウォームアップのみを無効化し、サーバーはウォームに保ちます。`server` のウォームアップはリクエスト 1 回ですが、`-background` のウォームアップは新しいコンテナを起動してスキーマを再プローブします。 |
+
+無料プランやクォータ制限のあるデータベース プランを使っている場合は、`AGENT_NATIVE_DISABLE_KEEP_WARM=1` を設定するか、より遅いケイデンスを選んでください。
+
+### オンデマンド スキーマ DDL {#skip-ensure-tables}
+
+各ストアは最初のデータベース接触時に `ensureTable()` を呼び出し、`information_schema` / `pg_indexes` をプローブして、本当に欠けているものだけに `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX` を発行します。長時間稼働する Node サーバーではこのコストは起動ごとに一度だけで、目に見えません。サーバーレスでは「最初の接触」が **すべてのコールドスタート** で発生し、約 57 のストアにまたがります。つまりコールドなリクエストは、実際の処理を始める前に数百回の直列ラウンドトリップを支払うことがあります。
+
+これを減らす方法は 2 つあります。
+
+- プローブは、テーブル・カラム・インデックスごとに 1 クエリではなく、**データベースごとに 1 回のバッチ化されたイントロスペクション**（2 クエリ）から回答されます。これは自動で、設定は不要です。
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` はプローブと DDL の仕組みを完全にスキップします。利用できるコールドスタート遅延の改善として最大のものです。
+
+データベース スキーマがすでにマイグレーション済みで、アプリケーションの起動時にテーブルを作成・変更したくない場合は `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` を設定してください。実際のマイグレーション手順を持つ本番デプロイでは通常のケースです。
+
+<Callout tone="risk">
+
+**このフラグはフェイルクローズしません。また、できません。** スキーマが実際に欠けている場合、最初の実クエリはその場で修復されるのではなく、大きな音を立てて失敗します。それが狙いですが、マイグレーションの責任はあなたが負うことを意味します。テーブルの用意をアプリケーション起動に依存しているデプロイでは設定しないでください。
+
+</Callout>
+
 ## Cloudflare ページ {#cloudflare-pages}
 
 ```ts
@@ -387,6 +418,11 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `APP_BASE_PATH`                             | プレフィックス (例: `/mail`) の下でアプリをマウントします。 `npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにしておきます。                                                                                                                                                                                                                           |
 | `AGENT_PROD_CODE_EXECUTION`                 | オプションの実稼働コード実行モード: `off` (デフォルト)、`sandboxed`、または `trusted`。 [Production Code Execution](#production-code-execution) を参照してください。                                                                                                                                                                                                                                          |
 | `AGENT_NATIVE_SSR_CACHE`                    | デプロイメント全体の SSR シェル キャッシュ ポリシー: 未設定/`on` はデフォルトのハードキャッシュを維持し、`off` は `no-store` を送信し、`30s` / `5m` のような期間を指定すると鮮度期間を短縮します。 [SSR Caching](#ssr-caching) を参照してください。                                                                                                                                                           |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | ゼロスケール データベースが自動サスペンドできるように、Netlify の keep-warm スケジュール関数をスキップします。 [Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                           |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | keep-warm のケイデンスを 5 フィールドの cron 式で上書きします（デフォルト `* * * * *`）。解析できない値はビルドを失敗させます。 [Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | バックグラウンド関数のウォームアップのみを無効化し、サーバーはウォームに保ちます。 [Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | プロセス内のバックストップ スイープ タイマー（オートメーションの再ディスパッチ、agent-teams の整合、サンドボックス実行の復旧）を停止します。サーバーレスではウォーム コンテナごとに実行されるため、クエリ レートはインスタンス数に比例します。同じ復旧を担う永続スケジューラーがすでにある場合に**のみ**設定してください。そうでないとキュー内の作業が再試行されません。                                      |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | オンデマンドのスキーマ DDL を完全にスキップします。すべてのコールドスタートが処理前に支払うスキーマ プローブのラウンドトリップを取り除きます。スキーマがマイグレーション済みであることが前提です — [オンデマンド スキーマ DDL](#skip-ensure-tables) を参照してください。                                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | プレビューに安全な Builder 認証リレー専用の、32 文字以上の共有 HMAC シークレット。認証を分離されたプレビュー データベースに保存する必要がある場合に限り、承認済みの企業コールバック デプロイメントとプレビュー デプロイメントの両方に同じ値を設定します。                                                                                                                                                     |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 企業コールバック専用の、完全一致する信頼済みプレビューオリジンをカンマ区切りで指定する許可リスト（例: `https://0123456789abcdef01234567--content.netlify.app`）。企業コールバックのデプロイメントにのみ設定します。Netlify オリジンには 24 桁の 16 進 ID を含む、不変かつデプロイ固有のパーマリンクが必要です。変更可能な `deploy-preview-*` エイリアス、ワイルドカード、ドメインサフィックスは拒否されます。 |
 
@@ -442,9 +478,10 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,17 +492,44 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — デフォルト。`db-schema` と `db-query` のみを登録します。
+- `database: "read"` — デフォルト。`db-schema` と `db-query` のみを登録します。
   エージェントは SQL でデータを検査しますが、書き込みには型付きアプリ actions を使用します。
-- `databaseTools: "write"` または `true` — 意図的な raw SQL メンテナンス用に
+- `database: "write"` または `true` — 意図的な raw SQL メンテナンス用に
   `db-exec` と `db-patch` も登録します。書き込みは現在のユーザー/組織に
   スコープされ、スキーマ変更はブロックされます。
-- `databaseTools: "off"` または `false` — 生のデータベース ツールを
+- `database: "off"` または `false` — 生のデータベース ツールを
   エージェント サーフェスのため、アプリの actions が唯一のデータ アクセス パスになります。
-- `extensionTools: true` — フレームワークの拡張管理 actions と
+- `extensions: true` — フレームワークの拡張管理 actions と
   ガイダンス（`create-extension`、`update-extension` など）をアプリで
   有効にします。認証済み REST 作成も許可するには、両方の plugins に
   設定します。拡張機能は既定で無効です。
+
+残りのグループは真偽値で、すべて既定で有効です: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`。
+音声中心のアプリや単一目的のアプリでは `frameworkTools: "minimal"` を使って
+すべてを一度に無効化できます。1 つだけ残したい場合は
+`frameworkTools: { preset: "minimal", resources: true }` のように書きます。
+明示的なグループキーは常にプリセットより優先されます。
+
+グループを無効にすると、対話チャット・MCP・A2A・バックグラウンド実行という
+**エージェント**側のサーフェスからのみ削除されます。対応する HTTP action
+ルートはマウントされたままです。UI はクライアント hooks 経由でそれらを呼ぶため、
+`sharing` を無効にしても画面に出ている共有ダイアログが 404 になってはいけません。
+このパリティの代償を検討してください。UI にできることはエージェントにもできる、
+というのがフレームワークの契約です。共有ボタンが見えている状態での
+`sharing: false` は意図的な逸脱であり、そのサーフェス自体をアプリが持たない
+場合にのみ妥当です。
+
+このオプションとは独立に、フレームワークツールは既定で最初のモデルリクエストへ
+読み込まれなくなりました。検索可能なレジストリには残り、`tool-search` 経由で
+読み込まれます。アプリが `initialToolNames` に明記した場合は即時に読み込まれます。
+
+<Callout tone="warning">
+  トップレベルの `databaseTools` と `extensionTools` は非推奨で、
+  `frameworkTools.database` と `frameworkTools.extensions` に置き換わりました。
+  引き続き解釈されますが、トップレベルのフラグと `frameworkTools` 側の同等の
+  設定が矛盾する値の場合、誰も選んでいないツールサーフェスで起動するのではなく
+  plugin の起動時にエラーになります。
+</Callout>
 
 ## 本番コードの実行 {#production-code-execution}
 
@@ -498,11 +562,11 @@ export default createAgentChatPlugin({
 
 ### Builder.io: 本番環境でのビジュアル編集 {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) は独立したマネージドなコード対応ワークフローで、エージェントが本番環境のアプリ UI を変更できます。リポジトリを接続して UI の変更を直接依頼でき、再デプロイは不要です。
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) は独立したマネージドなコード対応ワークフローで、エージェントが本番環境のアプリ UI を変更できます。リポジトリを Builder.io（無料プランあり）に接続して UI の変更を直接依頼でき、再デプロイは不要です。
 
 **仕組み:**
 
-1. エージェントネイティブ リポジトリを Builder.io に接続します
+1. エージェントネイティブ リポジトリを Builder.io（無料プランあり）に接続します
 2. Builder.io は、エージェント、ビジュアル編集、リアルタイム コラボレーションを備えたクラウド フレームを提供します
 3. エージェントに UI 変更を行うよう促します。コンポーネント、ルート、スタイルはライブで編集されます
 4. 変更はリポジトリにコミットされます

@@ -98,6 +98,8 @@ const workspaceSkillIncludes = [
   "sharing",
   "storing-data",
   "tracking",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
   "visual-answer",
   "voice-transcription",
@@ -133,6 +135,8 @@ const templateSharedSkillIncludes = [
   "secrets",
   "storing-data",
   "sharing",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 
@@ -148,6 +152,8 @@ const requiredAllTemplateSharedSkills = [
   "feature-flags",
   "sharing",
   "storing-data",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 
@@ -159,6 +165,8 @@ const requiredDefaultTemplateSharedSkills = [
   "internationalization",
   "onboarding",
   "secrets",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 
@@ -170,6 +178,8 @@ const requiredHeadlessTemplateSharedSkills = [
   "feature-flags",
   "integration-webhooks",
   "secrets",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 

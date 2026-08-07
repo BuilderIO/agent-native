@@ -8,6 +8,8 @@ vi.mock("@agent-native/core/server", () => ({
 
 import {
   deleteS3ObjectByUrl,
+  fetchS3ObjectByUrl,
+  isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
 } from "./s3-upload-provider.js";
 
@@ -112,6 +114,198 @@ describe("s3FileUploadProvider", () => {
     ).resolves.toBe(false);
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads configured public URLs with scoped credentials and forwards byte ranges", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("media", {
+          status: 206,
+          headers: { "content-range": "bytes 0-31/100" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/recording.webm",
+        { range: "bytes=0-31", recordingId: "recording" },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ status: 206 }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://s3.example.com/clips-bucket/clips/recording.webm",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: expect.stringContaining("AWS4-HMAC-SHA256"),
+          Range: "bytes=0-31",
+        }),
+      }),
+    );
+  });
+
+  it("does not expose multipart staging objects through signed reads", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/.multipart/recording.webm.pending",
+        { recordingId: "recording" },
+      ),
+    ).resolves.toBeNull();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("only signs media keys bound to the requested recording", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn(async () => new Response("media"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/other-recording/video.webm",
+        { recordingId: "rec_1" },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/rec.1.webm",
+        { recordingId: "rec" },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/rec_1/video.webm",
+        { recordingId: "rec_1" },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ status: 200 }));
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/rec.1.webm",
+        { recordingId: "rec.1" },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ status: 200 }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows only explicitly authorized legacy unscoped recording keys", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn(async () => new Response("legacy media"));
+    vi.stubGlobal("fetch", fetchMock);
+    const legacyUrl =
+      "https://clips.example.com/api/storage/clips/1722720000000-abc123xy.webm";
+
+    await expect(
+      fetchS3ObjectByUrl(legacyUrl, { recordingId: "rec_1" }),
+    ).resolves.toBeNull();
+    await expect(
+      fetchS3ObjectByUrl(legacyUrl, {
+        recordingId: "rec_1",
+        allowLegacyObjectKey: true,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ status: 200 }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates recording-bound S3 URLs without reading the object", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+
+    await expect(
+      isS3ObjectUrlBoundToRecording(
+        "https://clips.example.com/api/storage/clips/rec_1/video.mp4",
+        "rec_1",
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      isS3ObjectUrlBoundToRecording(
+        "https://clips.example.com/api/storage/clips/other/video.mp4",
+        "rec_1",
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      isS3ObjectUrlBoundToRecording(
+        "https://builder.io/uploads/video.mp4",
+        "rec_1",
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("preserves timeout classification for signed reads", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const timeoutError = new Error("timed out");
+    timeoutError.name = "TimeoutError";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError));
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://s3.example.com/clips-bucket/clips/recording.webm",
+        { timeoutMs: 25, recordingId: "recording" },
+      ),
+    ).rejects.toMatchObject({
+      name: "TimeoutError",
+      message: expect.stringContaining("S3 request timed out after 25ms"),
+    });
   });
 
   it("coalesces Netlify-safe chunks into valid S3 multipart parts", async () => {

@@ -155,6 +155,7 @@ const messages = {
       artboardCanvas: "Plan आर्टबोर्ड कैनवास",
       zoomIn: "ज़ूम इन",
       zoomOut: "ज़ूम आउट",
+      zoomHint: "ज़ूम करने के लिए ⌘/Ctrl दबाकर स्क्रॉल करें",
       markupSaveFailed: "मार्कअप सहेजा नहीं जा सका। फिर कोशिश करें।",
     },
     document: {

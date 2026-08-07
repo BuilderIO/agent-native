@@ -78,6 +78,8 @@ export interface SSEEvent {
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
    *  paused `needsApproval` tool call. Present on `approval_required` events. */
   approvalKey?: string;
+  /** Model-side tool-call id for `approval_required` (mirrors AgentChatEvent). */
+  toolCallId?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -414,6 +416,47 @@ function findPendingToolCallIndexById(
     }
   }
   return -1;
+}
+
+/**
+ * Locate the tool call an `approval_required` event refers to.
+ *
+ * Stricter than `findPendingToolCallIndex`: when the server supplies a call id
+ * we never fall back to "newest pending call with this name". A paused
+ * `tool_done` resolves the call right after the gate fires, so a replayed or
+ * reordered approval would otherwise miss on id and silently attach this call's
+ * approvalKey to a *different* in-flight call of the same action — putting the
+ * wrong key behind a visible Approve button.
+ *
+ * The only tolerated fallback mirrors `findPendingActivityToolCallIndex`: a
+ * single unambiguous reader-local (`tc_N`) placeholder, which is how a call
+ * looks when an older server omitted the id on `tool_start`.
+ */
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (!toolCallId) {
+    return findPendingToolCallIndex(content, toolName);
+  }
+
+  const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+  if (exactIndex >= 0) return exactIndex;
+
+  const readerLocalCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined &&
+      /^tc_\d+$/.test(part.toolCallId)
+    ) {
+      readerLocalCandidates.push(i);
+    }
+  }
+  return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
 }
 
 function findOldestPendingActivityToolCallIndex(
@@ -958,6 +1001,7 @@ function coalesceJournalRecoveredTool(
       }
       if (current.mcpApp) prior.mcpApp = current.mcpApp;
       if (current.chatUI) prior.chatUI = current.chatUI;
+      if (current.approval) prior.approval = { ...current.approval };
     }
     content.splice(completedIndex, 1);
     return true;
@@ -1304,6 +1348,68 @@ export function processEvent(
     };
   }
 
+  if (ev.type === "tool_input_start" || ev.type === "tool_input_delta") {
+    const tool = ev.tool?.trim() || "unknown";
+    const pendingToolCallIndex = findPendingActivityToolCallIndex(
+      content,
+      tool,
+      ev.id,
+    );
+    let toolCallIndex = pendingToolCallIndex;
+
+    if (toolCallIndex < 0) {
+      const hasCompletedSameTool = content.some(
+        (part) =>
+          part.type === "tool-call" &&
+          part.toolName === tool &&
+          part.result !== undefined &&
+          (!ev.id || part.toolCallId === ev.id),
+      );
+      if (!hasCompletedSameTool) {
+        content.push({
+          type: "tool-call",
+          toolCallId: ev.id ?? `tc_${++toolCallCounter.value}`,
+          toolName: tool,
+          argsText: "",
+          args: {},
+          activity: true,
+        });
+        toolCallIndex = content.length - 1;
+      }
+    }
+
+    const pending = toolCallIndex >= 0 ? content[toolCallIndex] : undefined;
+    if (pending?.type === "tool-call") {
+      if (ev.id && pending.toolCallId !== ev.id) {
+        pending.toolCallId = ev.id;
+      }
+      if (ev.type === "tool_input_delta" && ev.text) {
+        pending.argsText += ev.text;
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-input", {
+          detail: {
+            phase: ev.type === "tool_input_start" ? "start" : "delta",
+            tool,
+            ...(ev.id ? { id: ev.id } : {}),
+            argsText:
+              pending?.type === "tool-call" ? pending.argsText : undefined,
+            ...(ev.type === "tool_input_delta" ? { text: ev.text ?? "" } : {}),
+            tabId,
+          },
+        }),
+      );
+    }
+
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
@@ -1336,8 +1442,7 @@ export function processEvent(
     const pendingIsActivityPlaceholder =
       pendingToolCall?.type === "tool-call" &&
       pendingToolCall.activity === true &&
-      pendingToolCall.argsText === "" &&
-      Object.keys(pendingToolCall.args).length === 0;
+      pendingToolCall.result === undefined;
     // A re-emitted start for the SAME id — a retry/auto-continue clear that
     // keeps the in-flight card mounted, or a reconnect replay — must update the
     // existing card in place instead of pushing a duplicate. Matching on id
@@ -1385,7 +1490,14 @@ export function processEvent(
     const approvalTool = ev.tool ?? "unknown";
     const approvalKey = ev.approvalKey;
     if (approvalKey) {
-      const idx = findPendingToolCallIndex(content, approvalTool, ev.id);
+      // `toolCallId` is the model-side id in the `approval_required` contract;
+      // `id` is only carried by older frames. Same precedence as the runtime
+      // path so both processors resolve an event to the same call.
+      const idx = findApprovalToolCallIndex(
+        content,
+        approvalTool,
+        ev.toolCallId ?? ev.id,
+      );
       if (idx >= 0) {
         const part = content[idx];
         if (part.type === "tool-call") {

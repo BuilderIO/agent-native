@@ -62,7 +62,7 @@ export default function SettingsRoute() {
               </CardHeader>
               <CardContent>
                 <Button variant="outline" asChild>
-                  <Link to="/workspace">
+                  <Link to="/admin/workspace">
                     {t("settings.openResourceSettings")}
                   </Link>
                 </Button>
@@ -80,7 +80,9 @@ export default function SettingsRoute() {
               </CardHeader>
               <CardContent>
                 <Button variant="outline" asChild>
-                  <Link to="/automations">{t("settings.openAutomations")}</Link>
+                  <Link to="/admin/automations">
+                    {t("settings.openAutomations")}
+                  </Link>
                 </Button>
               </CardContent>
             </Card>
@@ -96,7 +98,9 @@ export default function SettingsRoute() {
               </CardHeader>
               <CardContent>
                 <Button variant="outline" asChild>
-                  <Link to="/destinations">{t("settings.openDelivery")}</Link>
+                  <Link to="/admin/destinations">
+                    {t("settings.openDelivery")}
+                  </Link>
                 </Button>
               </CardContent>
             </Card>
