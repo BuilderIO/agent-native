@@ -7,6 +7,10 @@
  */
 
 import {
+  frameworkGroupEnabled,
+  type FrameworkToolGroup,
+} from "../../framework-tools.js";
+import {
   hasDatabaseReadTools,
   hasDatabaseWriteTools,
   type DatabaseToolsOption,
@@ -14,7 +18,7 @@ import {
 import {
   sharedRule8,
   SHARED_RULE_9,
-  SHARED_RULE_14,
+  sharedRule14,
   SHARED_RULE_15,
   SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
@@ -23,6 +27,10 @@ import {
 export interface FrameworkCorePromptOptions {
   databaseTools?: DatabaseToolsOption;
   extensionTools?: boolean;
+  /** Framework tool groups this app switched off. Every block below that names
+   *  a group's tool by name is gated on this — a prompt naming an absent tool
+   *  makes the model call it, fail, and often report the capability as missing. */
+  disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
 }
 
 /**
@@ -62,6 +70,34 @@ export function buildFrameworkCore(
     options?.extensionTools === true
       ? "this app's registered actions, extensions, and connected MCP tools"
       : "this app's registered actions and connected MCP tools";
+  const groupOn = (group: FrameworkToolGroup) =>
+    frameworkGroupEnabled(options?.disabledFrameworkGroups, group);
+  const resourcesSection = groupOn("resources")
+    ? `### Resources
+
+You have access to a Resources system for persistent notes and context files.
+Use the \`resources\` tool to manage resources: \`action: "list"\`, \`"read"\`, \`"effective"\`, \`"write"\`, \`"promote"\`, or \`"delete"\`.
+Resources can be workspace defaults inherited from Dispatch, shared organization/app overrides, or personal overrides. By default, resources are personal. Workspace-scope resources are read-only from app agents; create shared or personal resources to override or narrow them.
+
+When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
+
+Workspace resources are user-facing by default. If you need temporary working files, use the \`resources\` tool with \`visibility: "agent_scratch"\`; scratch resources are hidden from the Workspace view by default and expire automatically. Use \`visibility: "workspace"\` only when the user explicitly asked to save/create/manage that file, or for durable control files such as \`AGENTS.md\`, \`LEARNINGS.md\`, \`memory/\`, \`skills/\`, \`jobs/\`, or \`agents/\`. If a scratch result becomes useful to the user, call \`resources\` with \`action: "promote"\` or rewrite it with \`visibility: "workspace"\`.
+`
+    : "";
+  const extendedCapabilityClauses = [
+    "inline embeds (`embed` fenced code block)",
+    groupOn("chat") ? "chat history search (`chat-history`)" : "",
+    groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
+    "connecting Builder.io (`connect-builder`)",
+    "browser automation (`set-browser-control`/`activate-browser`)",
+    "structured memory (`save-memory`/`delete-memory`)",
+  ].filter(Boolean);
+  const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
+  const callAgentSection = groupOn("workspaceApps")
+    ? `
+**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets".
+`
+    : "";
 
   return `
 ### How You Work
@@ -101,7 +137,7 @@ ${SHARED_RULE_9}
 **Downloadable files** — When the user asks you to create or export a file, deliver it in the same chat turn. For compact tabular results, prefer \`render-data-widget\` so the user gets the native Download CSV action without a second stored copy. For a complete or durable file written through \`workspaceWrite\`, use a normal non-\`scratch/\` path and then call \`show-workspace-file\` with that path so chat renders a direct download card. Never finish by giving filesystem paths or telling the user to navigate elsewhere to find the file.
 10. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
 11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
-${SHARED_RULE_14}
+${sharedRule14(options)}
 ${SHARED_RULE_15}
 ${SHARED_RULE_AGENT_WARNINGS}
 
@@ -109,22 +145,11 @@ ${SHARED_RULE_AGENT_WARNINGS}
 
 Gather context efficiently: when you need several independent read-only lookups (reading state, querying different tables, searching, fetching unrelated records), issue those tool calls together in one batch rather than one at a time. Keep mutating actions ordered and sequential — anything that creates, updates, deletes, sends, or publishes runs one at a time so each can be confirmed before the next, and so writes that depend on each other stay consistent.
 
-### Resources
-
-You have access to a Resources system for persistent notes and context files.
-Use the \`resources\` tool to manage resources: \`action: "list"\`, \`"read"\`, \`"effective"\`, \`"write"\`, \`"promote"\`, or \`"delete"\`.
-Resources can be workspace defaults inherited from Dispatch, shared organization/app overrides, or personal overrides. By default, resources are personal. Workspace-scope resources are read-only from app agents; create shared or personal resources to override or narrow them.
-
-When the user gives instructions that should apply to all users/sessions, update the shared "AGENTS.md" resource.
-
-Workspace resources are user-facing by default. If you need temporary working files, use the \`resources\` tool with \`visibility: "agent_scratch"\`; scratch resources are hidden from the Workspace view by default and expire automatically. Use \`visibility: "workspace"\` only when the user explicitly asked to save/create/manage that file, or for durable control files such as \`AGENTS.md\`, \`LEARNINGS.md\`, \`memory/\`, \`skills/\`, \`jobs/\`, or \`agents/\`. If a scratch result becomes useful to the user, call \`resources\` with \`action: "promote"\` or rewrite it with \`visibility: "workspace"\`.
-
+${resourcesSection}
 ### Extended Capabilities
 
-You also have tools for inline embeds (\`embed\` fenced code block), chat history search (\`chat-history\`), recurring jobs (\`manage-jobs\`), connecting Builder.io (\`connect-builder\`), browser automation (\`set-browser-control\`/\`activate-browser\`), and structured memory (\`save-memory\`/\`delete-memory\`). Call \`get-framework-context\` with the matching key — it lists its own topics — for full instructions before non-trivial work in any of these areas.
+You also have tools for ${extendedCapabilitiesList}. Call \`get-framework-context\` with the matching key — it lists its own topics — for full instructions before non-trivial work in any of these areas.
 
 **Agent teams:** default to doing the work yourself in this thread, but treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming delegated work is done. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries), then read all results and synthesize one integrated answer. Full details: \`get-framework-context\` key \`agent-teams\`.
-
-**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets".
-`;
+${callAgentSection}`;
 }

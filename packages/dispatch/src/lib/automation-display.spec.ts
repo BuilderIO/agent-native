@@ -31,7 +31,7 @@ describe("automation-display", () => {
   it("prepares a thread-debug search for an automation", () => {
     expect(
       automationTroubleshootPath({ name: "coach onboarding reminder" }),
-    ).toBe("/thread-debug?query=coach+onboarding+reminder");
+    ).toBe("/admin/thread-debug?query=coach+onboarding+reminder");
   });
 
   it("prefers event names, then schedule descriptions", () => {

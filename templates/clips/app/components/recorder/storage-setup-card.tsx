@@ -61,6 +61,18 @@ export function StorageSetupCard({
   const [err, setErr] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const inFlightRef = useRef(false);
+  const visibilityHandlerRef = useRef<(() => void) | null>(null);
+
+  const stopVisibilityHandler = useCallback(() => {
+    if (visibilityHandlerRef.current) {
+      document.removeEventListener(
+        "visibilitychange",
+        visibilityHandlerRef.current,
+      );
+      visibilityHandlerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -70,14 +82,17 @@ export function StorageSetupCard({
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
+      stopVisibilityHandler();
     };
-  }, []);
+  }, [stopVisibilityHandler]);
 
   const handleConnect = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    stopVisibilityHandler();
+    inFlightRef.current = false;
     setConnecting(true);
     setErr(null);
 
@@ -93,14 +108,23 @@ export function StorageSetupCard({
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
+      stopVisibilityHandler();
     };
-    pollRef.current = setInterval(async () => {
+    const tick = async () => {
+      if (document.hidden || inFlightRef.current) return;
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        Math.max(10_000, 2000 * 4),
+      );
       try {
         const r = await fetch(
           new URL(
             agentNativePath("/_agent-native/builder/status"),
             window.location.origin,
           ).toString(),
+          { signal: controller.signal },
         );
         if (!r.ok) return;
         const s = (await r.json()) as { configured: boolean };
@@ -119,10 +143,19 @@ export function StorageSetupCard({
           setErr(t("storageSetup.builderTimeout"));
         }
       } catch {
-        // transient poll error
+        // coercion-ok: a transient poll error keeps the loop running; the
+        // timeoutMs bound above surfaces builderTimeout if it never succeeds.
+      } finally {
+        clearTimeout(abortTimer);
+        inFlightRef.current = false;
       }
-    }, 2000);
-  }, [onConfigured, connectSource, connectFlow]);
+    };
+    pollRef.current = setInterval(() => void tick(), 2000);
+    visibilityHandlerRef.current = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener("visibilitychange", visibilityHandlerRef.current);
+  }, [onConfigured, connectSource, connectFlow, stopVisibilityHandler, t]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">

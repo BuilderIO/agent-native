@@ -248,6 +248,7 @@ const messages = {
   },
   dispatch: {
     nav: {
+      admin: "管理",
       automations: "自動化",
       approvals: "核准",
       delivery: "投遞",
@@ -258,6 +259,17 @@ const messages = {
       agent: "代理",
     },
     pages: {
+      adminDescription: "工作區控制與營運",
+      adminNavigation: "管理導覽",
+      adminWelcome: "工作區控制中心",
+      adminChooseArea: "在同一處管理應用程式、連線、自動化和營運工具。",
+      adminChooseAreaHint: "從管理導覽中選擇區域。",
+      adminWorkspace: "工作區",
+      adminOperations: "營運",
+      adminAutomation: "自動化與投遞",
+      adminConnections: "連線",
+      adminAgentPlatform: "代理平台",
+      adminWorkspaceExtensions: "工作區擴充功能",
       dataLoadFailed: "無法載入資料",
       dataLoadFailedDescription: "Dispatch 無法載入這些資料。",
       tryAgain: "再試一次",

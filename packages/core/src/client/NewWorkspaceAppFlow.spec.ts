@@ -236,6 +236,9 @@ describe("NewWorkspaceAppFlow", () => {
       "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
     );
     expect(message).toContain(
+      "Do not ask a non-admin builder to add keys to local project settings or .env",
+    );
+    expect(message).toContain(
       "Requested Dispatch workspace resources for this app:",
     );
     expect(message).toContain(

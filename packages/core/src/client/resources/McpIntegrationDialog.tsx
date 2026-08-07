@@ -32,6 +32,7 @@ import {
   isCustomMcpIntegrationEnabled,
   navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
+  shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
@@ -122,6 +123,33 @@ function compareUrl(value: string): string {
   }
 }
 
+function requiresMcpIntegrationSetup(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return Boolean(
+    !integration.managedOAuth &&
+    (integration.connectionMode === "manual" ||
+      integration.availability === "provider-setup" ||
+      integration.availability === "client-restricted"),
+  );
+}
+
+function resolveIntegrationScope(
+  integration: DefaultMcpIntegration | null | undefined,
+  defaultScope: McpServerScope,
+  hasOrg: boolean,
+  canCreateOrgMcp: boolean,
+): McpServerScope {
+  return resolveMcpIntegrationScope(
+    defaultScope,
+    hasOrg,
+    canCreateOrgMcp,
+    !integration ||
+      (integration.supportsOrganizationScope === true &&
+        integration.managedOAuth !== true),
+  );
+}
+
 export function McpIntegrationDialog({
   open,
   onOpenChange,
@@ -184,10 +212,7 @@ export function McpIntegrationDialog({
   );
 
   const selectedRequiresSetup = Boolean(
-    selected &&
-    (selected.connectionMode === "manual" ||
-      selected.availability === "provider-setup" ||
-      selected.availability === "client-restricted"),
+    selected && requiresMcpIntegrationSetup(selected),
   );
 
   useEffect(() => {
@@ -202,7 +227,14 @@ export function McpIntegrationDialog({
     setMode(initialIntegration || !showCatalog ? "form" : "catalog");
     setQuery("");
     setSelected(initialIntegration ?? null);
-    setScope(safeDefaultScope);
+    setScope(
+      resolveIntegrationScope(
+        initialIntegration,
+        defaultScope,
+        hasOrg,
+        canCreateOrgMcp,
+      ),
+    );
     setName(initialDefaults.name);
     setUrl(initialDefaults.url);
     setDescription(initialDefaults.description);
@@ -214,6 +246,9 @@ export function McpIntegrationDialog({
   }, [
     defaultIntegrations,
     initialIntegrationId,
+    canCreateOrgMcp,
+    defaultScope,
+    hasOrg,
     open,
     safeDefaultScope,
     showCatalog,
@@ -234,7 +269,14 @@ export function McpIntegrationDialog({
   const openForm = (integration?: DefaultMcpIntegration | null) => {
     const defaults = createMcpIntegrationFormDefaults(integration);
     setSelected(integration ?? null);
-    setScope(safeDefaultScope);
+    setScope(
+      resolveIntegrationScope(
+        integration,
+        defaultScope,
+        hasOrg,
+        canCreateOrgMcp,
+      ),
+    );
     setName(defaults.name);
     setUrl(defaults.url);
     setDescription(defaults.description);
@@ -250,7 +292,7 @@ export function McpIntegrationDialog({
       url: string;
       description: string;
     },
-    options?: { quickId?: string },
+    options?: { quickId?: string; scope?: McpServerScope },
   ) => {
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
@@ -272,7 +314,7 @@ export function McpIntegrationDialog({
           name: args.name,
           url: args.url,
           description: args.description,
-          scope,
+          scope: options?.scope ?? scope,
           returnUrl,
         }),
       ),
@@ -289,7 +331,14 @@ export function McpIntegrationDialog({
         url: integration.url,
         description: integration.description,
       },
-      options,
+      {
+        ...options,
+        scope:
+          integration.supportsOrganizationScope === true &&
+          integration.managedOAuth !== true
+            ? scope
+            : "user",
+      },
     );
 
   const connectCustomWithOAuth = () => {
@@ -345,11 +394,16 @@ export function McpIntegrationDialog({
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
     if (
-      integration.connectionMode === "manual" ||
-      integration.availability === "provider-setup"
+      shouldOfferMcpIntegrationOrganizationScope(
+        integration,
+        hasOrg,
+        canCreateOrgMcp,
+      )
     ) {
+      openForm(integration);
       return;
     }
+    if (requiresMcpIntegrationSetup(integration)) return;
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration, { quickId: integration.id });
       return;
@@ -360,7 +414,12 @@ export function McpIntegrationDialog({
     }
     void createServer(
       {
-        scope: safeDefaultScope,
+        scope: resolveIntegrationScope(
+          integration,
+          defaultScope,
+          hasOrg,
+          canCreateOrgMcp,
+        ),
         name: integration.name,
         url: integration.url,
         description: integration.description,
@@ -404,34 +463,56 @@ export function McpIntegrationDialog({
   };
 
   const renderScopeSelector = () => {
-    if (!shouldOfferMcpOrganizationScope(hasOrg, canCreateOrgMcp)) return null;
+    if (selected?.managedOAuth) return null;
+    const canSelectScope = selected
+      ? shouldOfferMcpIntegrationOrganizationScope(
+          selected,
+          hasOrg,
+          canCreateOrgMcp,
+        )
+      : shouldOfferMcpOrganizationScope(hasOrg, canCreateOrgMcp);
+    if (!canSelectScope) return null;
 
     return (
-      <div className="flex gap-1 rounded-md border border-border bg-background p-0.5">
-        <button
-          type="button"
-          onClick={() => setScope("user")}
-          className={cn(
-            "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
+      <div className="space-y-1.5">
+        <p className="text-[11px] font-medium text-foreground">
+          {t("mcpIntegrations.scopeQuestion")}
+        </p>
+        <div className="flex gap-1 rounded-md border border-border bg-background p-0.5">
+          <button
+            type="button"
+            onClick={() => setScope("user")}
+            aria-pressed={scope === "user"}
+            className={cn(
+              "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
+              scope === "user"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t("mcpIntegrations.personal")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setScope("org")}
+            aria-pressed={scope === "org"}
+            className={cn(
+              "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
+              scope === "org"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t("mcpIntegrations.sharedWithWorkspace")}
+          </button>
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          {t(
             scope === "user"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:text-foreground",
+              ? "mcpIntegrations.personalDescription"
+              : "mcpIntegrations.organizationDescription",
           )}
-        >
-          {t("mcpIntegrations.personal")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setScope("org")}
-          className={cn(
-            "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
-            scope === "org"
-              ? "bg-accent text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {t("mcpIntegrations.organization")}
-        </button>
+        </p>
       </div>
     );
   };
@@ -485,10 +566,7 @@ export function McpIntegrationDialog({
                     compareUrl(integration.url),
                   );
                   const requiresHeaders = integration.authMode === "headers";
-                  const setupOnly =
-                    integration.connectionMode === "manual" ||
-                    integration.availability === "provider-setup" ||
-                    integration.availability === "client-restricted";
+                  const setupOnly = requiresMcpIntegrationSetup(integration);
                   return (
                     <article
                       key={integration.id}
@@ -549,15 +627,13 @@ export function McpIntegrationDialog({
                                 {t("mcpIntegrations.useApiToken")}
                               </button>
                             )}
-                            <a
-                              href={integration.docsUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => openForm(integration)}
                               className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground hover:bg-accent"
                             >
                               {t("mcpIntegrations.viewSetup")}
-                              <IconExternalLink className="h-3.5 w-3.5" />
-                            </a>
+                            </button>
                           </>
                         ) : (
                           <button
@@ -633,16 +709,22 @@ export function McpIntegrationDialog({
               </button>
               <DialogTitle>
                 {selected
-                  ? t("mcpIntegrations.configureTitle", {
-                      name: selected.name,
-                    })
+                  ? selectedRequiresSetup
+                    ? t("mcpIntegrations.setupTitle", {
+                        name: selected.name,
+                      })
+                    : t("mcpIntegrations.configureTitle", {
+                        name: selected.name,
+                      })
                   : t("mcpIntegrations.customTitle")}
               </DialogTitle>
               <DialogDescription>
                 {selected
-                  ? selected.authMode === "none"
-                    ? t("mcpIntegrations.presetNoAuthDescription")
-                    : t("mcpIntegrations.presetAuthDescription")
+                  ? selectedRequiresSetup
+                    ? t("mcpIntegrations.providerSetupFormDescription")
+                    : selected.authMode === "none"
+                      ? t("mcpIntegrations.presetNoAuthDescription")
+                      : t("mcpIntegrations.presetAuthDescription")
                   : t("mcpIntegrations.customDescription")}
               </DialogDescription>
             </DialogHeader>
@@ -654,88 +736,106 @@ export function McpIntegrationDialog({
                     {t(selected.setupNoteKey)}
                   </div>
                 )}
-                {selected?.authMode === "oauth" && (
-                  <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
-                    {t("mcpIntegrations.oauthNotice")}
+                {selectedRequiresSetup && selected && (
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed">
+                    <p className="font-medium text-foreground">
+                      {t("mcpIntegrations.providerSetupRequired")}
+                    </p>
+                    <p className="mt-0.5 text-muted-foreground">
+                      {t("mcpIntegrations.providerSetupDescription", {
+                        name: selected.name,
+                      })}
+                    </p>
                   </div>
                 )}
-                <label className="block">
-                  <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                    {t("mcpIntegrations.serverName")}
-                  </span>
-                  <input
-                    ref={inputRef}
-                    value={name}
-                    onChange={(event) => {
-                      setName(event.target.value);
-                      clearFeedback();
-                    }}
-                    className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                    placeholder={t("mcpIntegrations.serverNamePlaceholder")}
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                    {t("mcpIntegrations.url")}
-                  </span>
-                  <input
-                    value={url}
-                    onChange={(event) => {
-                      setUrl(event.target.value);
-                      clearFeedback();
-                    }}
-                    className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                    placeholder={t("mcpIntegrations.urlPlaceholder")}
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                    {t("mcpIntegrations.fieldDescription")}
-                  </span>
-                  <input
-                    value={description}
-                    onChange={(event) => {
-                      setDescription(event.target.value);
-                      clearFeedback();
-                    }}
-                    className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                    placeholder={t("mcpIntegrations.descriptionPlaceholder")}
-                  />
-                </label>
-                {selected?.authMode !== "oauth" && (
-                  <label className="block">
-                    <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                      {t("mcpIntegrations.headers")}
-                    </span>
-                    <textarea
-                      value={headersText}
-                      onChange={(event) => {
-                        setHeadersText(event.target.value);
-                        clearFeedback();
-                      }}
-                      rows={3}
-                      className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                      style={{
-                        fontFamily:
-                          'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                      }}
-                      placeholder={
-                        selected?.headerPlaceholder ??
-                        t("mcpIntegrations.headersPlaceholder")
-                      }
-                    />
-                  </label>
-                )}
-                {selected?.docsUrl && (
-                  <a
-                    href={selected.docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline hover:text-foreground"
-                  >
-                    {t("mcpIntegrations.openSetupDocs")}
-                    <IconExternalLink className="h-3 w-3" />
-                  </a>
+                {!selectedRequiresSetup && (
+                  <>
+                    {selected?.authMode === "oauth" && (
+                      <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-primary">
+                        {t("mcpIntegrations.oauthNotice")}
+                      </div>
+                    )}
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                        {t("mcpIntegrations.serverName")}
+                      </span>
+                      <input
+                        ref={inputRef}
+                        value={name}
+                        onChange={(event) => {
+                          setName(event.target.value);
+                          clearFeedback();
+                        }}
+                        className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                        placeholder={t("mcpIntegrations.serverNamePlaceholder")}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                        {t("mcpIntegrations.url")}
+                      </span>
+                      <input
+                        value={url}
+                        onChange={(event) => {
+                          setUrl(event.target.value);
+                          clearFeedback();
+                        }}
+                        className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                        placeholder={t("mcpIntegrations.urlPlaceholder")}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                        {t("mcpIntegrations.fieldDescription")}
+                      </span>
+                      <input
+                        value={description}
+                        onChange={(event) => {
+                          setDescription(event.target.value);
+                          clearFeedback();
+                        }}
+                        className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                        placeholder={t(
+                          "mcpIntegrations.descriptionPlaceholder",
+                        )}
+                      />
+                    </label>
+                    {selected?.authMode !== "oauth" && (
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                          {t("mcpIntegrations.headers")}
+                        </span>
+                        <textarea
+                          value={headersText}
+                          onChange={(event) => {
+                            setHeadersText(event.target.value);
+                            clearFeedback();
+                          }}
+                          rows={3}
+                          className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                          style={{
+                            fontFamily:
+                              'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                          }}
+                          placeholder={
+                            selected?.headerPlaceholder ??
+                            t("mcpIntegrations.headersPlaceholder")
+                          }
+                        />
+                      </label>
+                    )}
+                    {selected?.docsUrl && (
+                      <a
+                        href={selected.docsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline hover:text-foreground"
+                      >
+                        {t("mcpIntegrations.openSetupDocs")}
+                        <IconExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </>
                 )}
                 {testResult && (
                   <div
@@ -787,17 +887,33 @@ export function McpIntegrationDialog({
                 </button>
               ) : null}
               {selectedRequiresSetup ? (
-                selected?.docsUrl ? (
-                  <a
-                    href={selected.docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ms-auto inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
-                  >
-                    {t("mcpIntegrations.viewSetup")}
-                    <IconExternalLink className="h-3 w-3" />
-                  </a>
-                ) : null
+                <div className="ms-auto flex items-center gap-2">
+                  {selected?.docsUrl ? (
+                    <a
+                      href={selected.docsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent"
+                    >
+                      {t("mcpIntegrations.viewSetup")}
+                      <IconExternalLink className="h-3 w-3" />
+                    </a>
+                  ) : null}
+                  {selected?.authMode === "oauth" && (
+                    <button
+                      type="button"
+                      onClick={() => connectWithOAuth(selected)}
+                      disabled={busy}
+                      aria-busy={busy}
+                      className="inline-flex min-w-[132px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      {busy && (
+                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      )}
+                      {t("mcpIntegrations.continueToConnect")}
+                    </button>
+                  )}
+                </div>
               ) : selected?.authMode === "oauth" ? (
                 <button
                   type="button"

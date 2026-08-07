@@ -7,6 +7,10 @@ import {
   DISABLED_SSR_CACHE_HEADERS,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MIN_LENGTH_MESSAGE,
+} from "../shared/password-policy.js";
 
 // The explicit login page is CDN-cached on the same long-fresh / long-SWR
 // policy as the rest of the server shell. Its HTML
@@ -1278,7 +1282,7 @@ describe("server/auth", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("lets the public health/warmup probe bypass auth", async () => {
+    it("lets public liveness probes bypass auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       const { autoMountAuth } = await import("./auth.js");
@@ -1291,9 +1295,9 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      await expect(
-        guard(createMockEvent({ path: "/_agent-native/health" })),
-      ).resolves.toBeUndefined();
+      for (const path of ["/_agent-native/ping", "/_agent-native/health"]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
     });
 
     it("lets public avatar reads bypass auth while keeping avatar writes protected", async () => {
@@ -2071,7 +2075,7 @@ describe("server/auth", () => {
       expect(signUpEmail).not.toHaveBeenCalled();
     });
 
-    it("passes request headers through email registration for signup attribution", async () => {
+    it("enforces the password minimum and passes request headers through registration", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -2105,6 +2109,15 @@ describe("server/auth", () => {
         (call: any[]) => call[0] === "/_agent-native/auth/register",
       )?.[1];
       expect(registerHandler).toBeTypeOf("function");
+
+      const tooShortResult = await registerHandler(
+        createJsonPostEvent("/_agent-native/auth/register", {
+          email: "steve+1@builder.io",
+          password: "p".repeat(PASSWORD_MIN_LENGTH - 1),
+        }),
+      );
+      expect(tooShortResult).toEqual({ error: PASSWORD_MIN_LENGTH_MESSAGE });
+      expect(signUpEmail).not.toHaveBeenCalled();
 
       const event = createJsonPostEvent(
         "/_agent-native/auth/register",

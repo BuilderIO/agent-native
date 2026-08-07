@@ -81,6 +81,8 @@ export interface ExecuteCodeAgentRunOptions {
   reasoningEffort?: ReasoningEffort;
   attachments?: AgentPromptAttachment[];
   stdout?: NodeJS.WritableStream;
+  /** Keep tool output in transcript events when the caller has a structured UI. */
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }
 
@@ -95,6 +97,7 @@ interface PendingCodeAgentApproval {
 
 interface CodeAgentApprovalExecutionOptions {
   stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }
 
@@ -134,6 +137,9 @@ export async function executeCodeAgentRun(
 ): Promise<CodeAgentRunRecord | null> {
   const existing = getCodeAgentRunRecord(options.runId);
   if (!existing) return null;
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
 
   const prompt = options.prompt ?? latestUserPrompt(existing.id);
   const rawAttachments =
@@ -210,6 +216,7 @@ export async function executeCodeAgentRun(
       model: options.model ?? metadataString(existing, "model"),
       permissionMode: existing.permissionMode ?? "full-auto",
       stdout: options.stdout,
+      streamToolOutputToStdout,
       signal: options.signal,
     });
   }
@@ -219,7 +226,9 @@ export async function executeCodeAgentRun(
   if (!engine) {
     const message =
       "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, another supported provider key, or run `codex login` to use Codex CLI.";
-    options.stdout?.write(`${message}\n`);
+    if (streamToolOutputToStdout) {
+      options.stdout?.write(`${message}\n`);
+    }
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
@@ -268,8 +277,11 @@ export async function executeCodeAgentRun(
       pendingToolMeta.set(toolName, meta);
     },
     (chunk) => {
-      // Stream incremental bash output to stdout for the terminal smoother
-      options.stdout?.write(chunk);
+      // Structured desktop transcripts render tool output separately from
+      // assistant text. Keep the legacy terminal stream opt-in for them.
+      if (streamToolOutputToStdout) {
+        options.stdout?.write(chunk);
+      }
     },
     toolProfile,
   );
@@ -427,7 +439,9 @@ export async function executeCodeAgentRun(
     }
     await outputSmoother.flush();
     if (assistantText.trim()) {
-      options.stdout?.write("\n");
+      if (streamToolOutputToStdout) {
+        options.stdout?.write("\n");
+      }
       appendCodeAgentTranscriptEvent({
         runId: existing.id,
         kind: "system",
@@ -443,7 +457,9 @@ export async function executeCodeAgentRun(
     const approvalPending = getPendingApproval(existing.id);
     if (approvalPending) {
       const message = `Agent-Native Code run paused for approval: ${approvalPending.reason}`;
-      options.stdout?.write(`\n${message}\n`);
+      if (streamToolOutputToStdout) {
+        options.stdout?.write(`\n${message}\n`);
+      }
       appendCodeAgentTranscriptEvent({
         runId: existing.id,
         kind: "status",
@@ -527,7 +543,9 @@ export async function executeCodeAgentRun(
   } catch (err) {
     await outputSmoother.flush().catch(() => undefined);
     const message = err instanceof Error ? err.message : String(err);
-    options.stdout?.write(`\nAgent-Native Code run failed: ${message}\n`);
+    if (streamToolOutputToStdout) {
+      options.stdout?.write(`\nAgent-Native Code run failed: ${message}\n`);
+    }
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
@@ -575,6 +593,7 @@ async function executeCodexCliRun(options: {
   model?: string;
   permissionMode: CodeAgentPermissionMode;
   stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }): Promise<CodeAgentRunRecord | null> {
   const cwd = options.run.cwd || process.cwd();
@@ -583,6 +602,9 @@ async function executeCodexCliRun(options: {
   );
   const outputPath = path.join(outputDir, "last-message.txt");
   const model = normalizeCodexCliModel(options.model);
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const args = [
     "--ask-for-approval",
     "never",
@@ -617,6 +639,7 @@ async function executeCodexCliRun(options: {
       cwd,
       prompt: buildCodexCliPrompt(options.run, options.prompt),
       stdout: options.stdout,
+      streamToolOutputToStdout,
       signal: options.signal,
     });
 
@@ -629,7 +652,9 @@ async function executeCodexCliRun(options: {
       const summary = interrupted
         ? "Codex CLI run paused."
         : `Codex CLI run failed: ${message}`;
-      options.stdout?.write(`\n${summary}\n`);
+      if (streamToolOutputToStdout) {
+        options.stdout?.write(`\n${summary}\n`);
+      }
       appendCodeAgentTranscriptEvent({
         runId: options.run.id,
         kind: "status",
@@ -714,6 +739,7 @@ async function executeCodexCliRun(options: {
           ),
         appendUserEvent: false,
         stdout: options.stdout,
+        streamToolOutputToStdout: options.streamToolOutputToStdout,
         signal: options.signal,
       });
     }
@@ -755,6 +781,7 @@ function runCodexCliProcess(options: {
   cwd: string;
   prompt: string;
   stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }): Promise<CodexCliProcessResult> {
   return new Promise((resolve) => {
@@ -784,7 +811,9 @@ function runCodexCliProcess(options: {
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString();
       stdout += text;
-      options.stdout?.write(text);
+      if (options.streamToolOutputToStdout ?? true) {
+        options.stdout?.write(text);
+      }
     });
     child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
@@ -897,15 +926,22 @@ export async function executePendingCodeAgentApproval(
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
   const approval = getPendingApproval(runId);
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   if (!approval) {
-    options.stdout?.write("No pending approval was found for this run.\n");
+    if (streamToolOutputToStdout) {
+      options.stdout?.write("No pending approval was found for this run.\n");
+    }
     return record;
   }
 
   const permission = classifyCodeAgentCommandPermission(approval.command);
   if (permission.kind === "forbidden") {
     const message = `Approval cannot run forbidden command: ${permission.reason}`;
-    options.stdout?.write(`${message}\n`);
+    if (streamToolOutputToStdout) {
+      options.stdout?.write(`${message}\n`);
+    }
     appendCodeAgentTranscriptEvent({
       runId,
       kind: "status",
@@ -951,7 +987,9 @@ export async function executePendingCodeAgentApproval(
       .join("\n\n"),
     MAX_TOOL_OUTPUT_CHARS,
   );
-  options.stdout?.write(`${summary}\n`);
+  if (streamToolOutputToStdout) {
+    options.stdout?.write(`${summary}\n`);
+  }
   appendCodeAgentTranscriptEvent({
     runId,
     kind: "status",
@@ -987,6 +1025,7 @@ export async function executePendingCodeAgentApproval(
   });
   return executeExistingCodeAgentRun(runId, {
     stdout: options.stdout,
+    streamToolOutputToStdout,
     signal: options.signal,
   });
 }
@@ -1003,13 +1042,20 @@ export async function executeDenyCodeAgentApproval(
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
   const approval = getPendingApproval(runId);
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   if (!approval) {
-    options.stdout?.write("No pending approval was found for this run.\n");
+    if (streamToolOutputToStdout) {
+      options.stdout?.write("No pending approval was found for this run.\n");
+    }
     return record;
   }
 
   const message = `User denied command: ${approval.command} (${approval.reason})`;
-  options.stdout?.write(`${message}\n`);
+  if (streamToolOutputToStdout) {
+    options.stdout?.write(`${message}\n`);
+  }
   appendCodeAgentTranscriptEvent({
     runId,
     kind: "status",
@@ -1042,6 +1088,7 @@ export async function executeDenyCodeAgentApproval(
   });
   return executeExistingCodeAgentRun(runId, {
     stdout: options.stdout,
+    streamToolOutputToStdout,
     signal: options.signal,
   });
 }

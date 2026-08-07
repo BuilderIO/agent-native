@@ -150,6 +150,49 @@ export function resolveSsrCacheHeaders(
   return memoizedHeaders;
 }
 
+/**
+ * Provider-specific cache-KEY headers, emitted only on the provider that
+ * understands them.
+ *
+ * Netlify keys its durable cache on the FULL query string by default, so every
+ * `?fbclid=`, `?gclid=` and `?utm_source=` mints a separate entry. On a
+ * marketing URL that fan-out is unbounded: measured on www.agent-native.com,
+ * every ad or social click was a guaranteed cold render (~4.5s) that could
+ * never be reused. `netlify-vary` narrows the key to the params that actually
+ * change the response.
+ *
+ * `_routes` is react-router's partial-payload param and DOES change the body —
+ * `.data` is ~45KB while `.data?_routes=root` is ~108 bytes — so it must stay
+ * in the key. (Remix v2's `_data` is inert here; naming it instead collapses
+ * those two into one entry and serves the wrong payload.)
+ *
+ * This lives in core, gated by runtime, for two reasons. It was written once
+ * before — `DEFAULT_SSR_NETLIFY_VARY`, added 2026-07-11 in PR #2026 and deleted
+ * 2h09m later in PR #2031 — and then independently re-derived inside an app,
+ * where the next person cannot find it. And a header no other provider
+ * understands should not be on every response everywhere: on anything but
+ * Netlify this returns {}.
+ */
+export function resolveSsrCacheKeyHeaders(
+  env: Record<string, string | undefined> = typeof process === "undefined"
+    ? {}
+    : process.env,
+): Readonly<Record<string, string>> {
+  // NETLIFY is the build-time marker; deployed functions expose SITE_ID at
+  // runtime. An explicit "false"/local override means we are not really hosted.
+  const explicitlyNotNetlify =
+    env.NETLIFY_LOCAL === "true" || env.NETLIFY === "false";
+  const onNetlify =
+    !explicitlyNotNetlify && (Boolean(env.NETLIFY) || Boolean(env.SITE_ID)); // guard:allow-env-credential -- Netlify's public runtime host marker, not a credential.
+  const none: Readonly<Record<string, string>> = Object.freeze({});
+  if (!onNetlify) return none;
+  // This NARROWS the cache key rather than splitting it per user: it removes
+  // utm/fbclid/gclid so one entry serves everyone. The shapes the guard exists
+  // to stop are `private`, `no-store` and `Vary: Cookie`, none of which this is.
+  // guard:allow-ssr-shell-exception — narrows the shared key, never splits it
+  return Object.freeze({ "netlify-vary": "query=_routes|index" });
+}
+
 export function isSsrCacheEnabled(
   env: Record<string, string | undefined> = typeof process === "undefined"
     ? {}

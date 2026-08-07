@@ -93,6 +93,10 @@ import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MIN_LENGTH_MESSAGE,
+} from "../shared/password-policy.js";
+import {
   SIGN_IN_CONTINUATION_PARAM,
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
@@ -175,6 +179,12 @@ import {
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
 import { captureAuthError } from "./sentry.js";
+import {
+  forgetCachedSessionEmail,
+  getCachedSessionEmail,
+  invalidateSessionEmailCache,
+  setCachedSessionEmail,
+} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
@@ -1060,6 +1070,9 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
+  // The upsert can REBIND an existing token to a different email, so a cached
+  // resolution for it is now wrong.
+  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1086,13 +1099,20 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
+  // Sign-out must take effect immediately, not after the cache TTL.
+  invalidateSessionEmailCache();
 }
 
 /**
  * Look up the email associated with a legacy session token.
  * Returns null if the session doesn't exist, is expired, or has no email.
+ *
+ * Resolutions are cached across requests — see `session-email-cache.ts` for the
+ * TTL and the only-cache-successes rule.
  */
 export async function getSessionEmail(token: string): Promise<string | null> {
+  const cached = getCachedSessionEmail(token);
+  if (cached !== undefined) return cached;
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1108,9 +1128,12 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
+    forgetCachedSessionEmail(token);
     return null;
   }
-  return (rows[0].email as string) ?? null;
+  const email = (rows[0].email as string) ?? null;
+  if (email) setCachedSessionEmail(token, email);
+  return email;
 }
 
 // ---------------------------------------------------------------------------
@@ -1376,6 +1399,7 @@ async function consumeDesktopExchangeFromDB(
       sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
+    forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
@@ -2037,12 +2061,12 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
-    // Liveness probe: always public so uptime monitors and the keep-warm cron
-    // can reach the DB-warmup route without a session. It exposes no per-user
-    // data (just ok/db/ms) and runs a trivial `SELECT 1`. Without this bypass
-    // the gate below 401s anonymous /_agent-native/* requests before any DB
-    // query, so the database would never get warmed.
-    if (p === "/_agent-native/health") return;
+    // Liveness probes: always public so uptime monitors and the keep-warm cron
+    // can reach them without a session. Ping exposes only a static message;
+    // health exposes only aggregate readiness and a trivial `SELECT 1`.
+    // Without this bypass the gate below 401s anonymous /_agent-native/*
+    // requests before either probe can run.
+    if (p === "/_agent-native/ping" || p === "/_agent-native/health") return;
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
@@ -3405,6 +3429,9 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
+              // Deleted by email, so the removed tokens are unknown here — the
+              // whole cache goes.
+              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -3562,9 +3589,13 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3669,6 +3700,7 @@ async function mountBetterAuthRoutes(
         } catch {
           // Best-effort.
         }
+        invalidateSessionEmailCache();
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
@@ -3840,9 +3872,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
