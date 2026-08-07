@@ -12,7 +12,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Authenticate the Dispatch MCP connector in the host app, then grant the connector access to the workspace apps it should be able to inspect or scaffold. No shared secrets are stored in this package."
+    "setup": "Authenticate the Dispatch MCP connector in the host app, then grant the connector access to the workspace apps it should be able to inspect or scaffold. Dispatch provisions or reuses the Builder project server-side through the Builder Projects API; no separate Builder CMS MCP or shared secret is required."
   },
   "surfaces": [
     {
