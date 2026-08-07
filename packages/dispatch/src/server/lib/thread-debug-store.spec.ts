@@ -390,9 +390,13 @@ describe("thread-debug-store", () => {
   it("keeps explicit remote sources admin-only", async () => {
     vi.stubEnv("REMOTE_DATABASE_URL", "libsql://remote");
 
-    await expect(listAgentRunFailures({ sourceId: "remote" })).rejects.toThrow(
-      "Only Dispatch admins",
-    );
+    await expect(
+      listAgentRunFailures({ sourceId: "remote" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message:
+        "Only Dispatch admins can inspect thread databases from other apps.",
+    });
     expect(mocks.createDbExec).not.toHaveBeenCalled();
   });
 

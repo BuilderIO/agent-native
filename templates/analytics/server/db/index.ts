@@ -29,6 +29,33 @@ registerShareableResource({
     resourceKind: ANALYTICS_DASHBOARD_AGENT_RESOURCE_KIND,
     getContextPath: () => ANALYTICS_DASHBOARD_AGENT_CONTEXT_ENDPOINT,
   },
+  persistVisibilityChange: async ({
+    resource,
+    resourceId,
+    visibility,
+    update,
+    userEmail,
+    orgId,
+  }) => {
+    const { persistDashboardVisibilityChange } =
+      await import("../lib/dashboards-store.js");
+    await persistDashboardVisibilityChange(
+      {
+        id: resourceId,
+        title: resource.title,
+        orgId: resource.orgId ?? null,
+      },
+      visibility,
+      update,
+      {
+        email: userEmail ?? resource.ownerEmail,
+        orgId:
+          typeof update.orgId === "string"
+            ? update.orgId
+            : (orgId ?? resource.orgId ?? null),
+      },
+    );
+  },
   getDb,
 });
 

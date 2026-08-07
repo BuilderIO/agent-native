@@ -655,17 +655,17 @@ const messages = {
     mine: "Mine",
     deckCount_one: "deck",
     deckCount_other: "decks",
-    createDeckOrVisual: "Create a deck or visual",
+    createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
     deleteDeckTitle: "Delete Deck?",
     deleteDeckDescription:
       "This will permanently delete this deck and all its slides. This action cannot be undone.",
     cancel: "Cancel",
     delete: "Delete",
-    newDeckPromptTitle: "New deck",
-    newDeckPlaceholder: "Describe your deck, visual, or diagram...",
+    newDeckPromptTitle: "New presentation",
+    newDeckPlaceholder: "Describe the presentation you want to generate...",
     skipPrompt: "Skip prompt",
-    firstDeckPromptTitle: "What do you want to make?",
+    firstDeckPromptTitle: "What kind of presentation should we generate?",
     firstDeckSkip: "Skip",
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
@@ -685,6 +685,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Connect Google Drive to import a Slides deck.",
     googleSlidesReferenceChoose: "Choose Google Slides deck",
+    googleSlidesReferenceUrl: "Paste a Google Slides link",
     googleSlidesReferencePicking: "Working...",
     googleSlidesReferenceConnected:
       "Connected. Choose a Google Slides deck to import as a reusable reference.",
@@ -717,7 +718,7 @@ const messages = {
     emptyTitle: "No decks yet",
     createFirstDeck: "Create your first deck",
     emptyDescription:
-      "Build beautiful presentations, standalone visuals, diagrams, and image-rich stories with AI-powered generation.",
+      "Build beautiful presentations with AI-powered generation.",
   },
 };
 

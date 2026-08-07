@@ -17,6 +17,7 @@ const USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
 export const GOOGLE_DOCS_PROVIDER = "google-docs";
 export const GOOGLE_DOCS_SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/presentations.readonly",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];

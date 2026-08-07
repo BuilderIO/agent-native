@@ -33,6 +33,10 @@ import { fileURLToPath } from "node:url";
 import prettier from "prettier";
 
 import {
+  AGENT_PLUGIN_MCP_SCHEMA,
+  AGENT_PLUGIN_SCHEMA,
+} from "../packages/core/src/cli/agent-plugin.js";
+import {
   type AppSkillManifest,
   type AppSkillManifestSkill,
   resolvePluginVersion,
@@ -224,6 +228,37 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
         },
       },
     };
+
+    // Standard Agent Plugin files live at the package root. Keep the legacy
+    // host adapter files below because Codex and Claude still use their own
+    // discovery conventions, but make the committed bundle portable too.
+    files.push(
+      await jsonFile(join(".agents", "plugins", name, "plugin.json"), {
+        $schema: AGENT_PLUGIN_SCHEMA,
+        name,
+        version: codexPluginVersion(app),
+        description: manifest.description,
+        author: {
+          name: "Agent-Native",
+          url: "https://agent-native.com",
+        },
+        homepage: manifest.hosted.url,
+        repository: "https://github.com/BuilderIO/agent-native",
+        license: "MIT",
+        keywords: keywords(app),
+      }),
+    );
+    files.push(
+      await jsonFile(join(".agents", "plugins", name, "mcp.json"), {
+        $schema: AGENT_PLUGIN_MCP_SCHEMA,
+        mcpServers: {
+          [manifest.mcp.serverName]: {
+            type: "streamable-http",
+            url: manifest.hosted.mcpUrl,
+          },
+        },
+      }),
+    );
 
     // Shared .mcp.json for both hosts.
     files.push(

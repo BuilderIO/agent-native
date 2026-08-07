@@ -216,6 +216,9 @@ describe("<ExportMenu>", () => {
         "https://docs.google.com/presentation/u/0/?usp=import",
       ),
     );
+    expect((await screen.findByRole("dialog")).textContent).toContain(
+      "Import the downloaded PPTX into Google Slides.",
+    );
     expect(toastSuccessMock).toHaveBeenCalledWith(
       "Downloaded for Google Slides",
       expect.objectContaining({

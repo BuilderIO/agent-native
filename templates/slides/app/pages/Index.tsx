@@ -32,6 +32,7 @@ import {
 import PromptPopover, {
   uploadPromptFiles,
   type UploadedFile,
+  type PromptImportSelection,
 } from "@/components/editor/PromptDialog";
 import {
   AlertDialog,
@@ -45,7 +46,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { Deck } from "@/context/DeckContext";
+import {
+  describeDeckPersistenceFailure,
+  type Deck,
+} from "@/context/DeckContext";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
@@ -578,14 +582,17 @@ export default function Index() {
     setNewDeckPromptOpen(false);
 
     const persisted = await ensureDeckPersisted(deck.id);
-    if (!persisted) {
+    if (!persisted.persisted) {
       if (!savePromptForRetry(prompt)) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), {
-        description: t("home.generationStartFailedDescription"),
+        description: describeDeckPersistenceFailure(
+          persisted,
+          t("home.generationStartFailedDescription"),
+        ),
       });
       setShowNewDeckPrompt(true);
       return;
@@ -664,9 +671,11 @@ export default function Index() {
         deckId +
         '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder.',
       "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
+      "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deckId +
         ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
+      "Use create-deck and add-slide for this already-created deck. Do not call the legacy generate-slides-ai action: it returns Markdown drafts rather than persisted rendered slide HTML. Treat each successful add-slide result as confirmation to continue with the next planned slide.",
       "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
@@ -699,6 +708,90 @@ export default function Index() {
       setShowNewDeckReferenceStep(true);
     },
     [setNewDeckPromptOpen],
+  );
+
+  const handleDirectImport = useCallback(
+    async (selection: PromptImportSelection): Promise<boolean> => {
+      if (!session) {
+        setSignInPromptHadFiles(selection.kind !== "google-slides");
+        setShowSignInDialog(true);
+        return false;
+      }
+
+      if (selection.kind === "google-slides") {
+        const imported = (await callAction("import-google-slides-reference", {
+          presentationUrl: selection.url,
+        })) as { id?: unknown };
+        if (typeof imported.id !== "string" || !imported.id) {
+          throw new Error(
+            "The Google Slides presentation did not create a deck.",
+          );
+        }
+        await reloadDecks();
+        navigate(`/deck/${imported.id}`, { flushSync: true });
+        return true;
+      }
+
+      const uploaded = await uploadPromptFiles(selection.files);
+      const file = uploaded[0];
+      if (!file) throw new Error("The selected file could not be uploaded.");
+
+      if (selection.kind === "pptx") {
+        const imported = (await callAction("import-pptx", {
+          filePath: file.path,
+        })) as { id?: unknown };
+        if (typeof imported.id !== "string" || !imported.id) {
+          throw new Error("The PowerPoint presentation did not create a deck.");
+        }
+        await reloadDecks();
+        navigate(`/deck/${imported.id}`, { flushSync: true });
+        return true;
+      }
+
+      let deck: ReturnType<typeof createDeck> | undefined;
+      flushSync(() => {
+        deck = createDeck(undefined, { noDefaultSlides: true });
+      });
+      if (!deck) throw new Error("The PDF deck could not be created.");
+
+      const persisted = await ensureDeckPersisted(deck.id);
+      if (!persisted.persisted) {
+        deleteDeck(deck.id);
+        throw new Error(
+          describeDeckPersistenceFailure(
+            persisted,
+            "The PDF deck could not be saved.",
+          ),
+        );
+      }
+
+      try {
+        const imported = (await callAction("import-file", {
+          filePath: file.path,
+          format: "pdf",
+          deckId: deck.id,
+          importIntoDeck: true,
+        })) as { imported?: unknown; deckId?: unknown };
+        if (imported.imported !== true || imported.deckId !== deck.id) {
+          throw new Error("The PDF could not be imported into the new deck.");
+        }
+        await reloadDecks();
+        navigate(`/deck/${deck.id}`, { flushSync: true });
+        return true;
+      } catch (error) {
+        deleteDeck(deck.id);
+        throw error;
+      }
+    },
+    [
+      callAction,
+      createDeck,
+      deleteDeck,
+      ensureDeckPersisted,
+      navigate,
+      reloadDecks,
+      session,
+    ],
   );
 
   const handleReferenceSelect = useCallback(
@@ -762,9 +855,14 @@ export default function Index() {
             noDefaultSlides: true,
           });
           const persisted = await ensureDeckPersisted(referenceDeck.id);
-          if (!persisted) {
+          if (!persisted.persisted) {
             deleteDeck(referenceDeck.id);
-            throw new Error("The PDF reference deck could not be saved.");
+            throw new Error(
+              describeDeckPersistenceFailure(
+                persisted,
+                "The PDF reference deck could not be saved.",
+              ),
+            );
           }
           try {
             const imported = (await callAction("import-file", {
@@ -1155,6 +1253,9 @@ export default function Index() {
         onSkip={handleCreateDeckBlank}
         skipLabel={t("home.skipPrompt")}
         onSubmit={handlePromptSubmit}
+        onImport={handleDirectImport}
+        importFromLabel={t("home.importFrom")}
+        importingLabel={t("editorToolbar.importing")}
         onBeforeUpload={(prompt, files) => {
           if (session) return true;
           preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });

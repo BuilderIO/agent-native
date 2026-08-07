@@ -18,13 +18,11 @@ export const INITIAL_TOOL_NAMES = [
   // while the agent lazily discovers the next mutating action.
   "get-sql-dashboard",
   "list-sql-dashboards",
-  "list-dashboard-templates",
   "list-extensions",
   "get-extension",
   "update-dashboard",
   "mutate-dashboard",
   "compose-dashboard",
-  "install-dashboard-template",
   "create-extension",
   "update-extension",
   "extension-data-set",

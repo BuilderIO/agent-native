@@ -21,7 +21,7 @@ export function registerWorkspaceConnectionOnboardingStep({
   description,
   order = 50,
   required = false,
-  settingsUrl = "/settings#integrations",
+  settingsUrl = "/settings/integrations",
   isComplete,
 }: RegisterWorkspaceConnectionOnboardingStepOptions): void {
   const label = providerLabel ?? providerId;

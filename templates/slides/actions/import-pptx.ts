@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -13,51 +12,70 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
+import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
 import {
   parsePptx,
-  type ParsedSlide,
+  type ParsedElement,
+  type ParsedImage,
+  type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 
-// EMF/WMF (Windows metafiles) and TIFF are valid PPTX embed formats but
-// browsers can't render them in an <img> tag — uploading and linking one
-// would just produce a broken image icon.
-const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/svg+xml",
-  "image/bmp",
-]);
+export interface ImportedImageFallback {
+  slideIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  data: Uint8Array;
+  mimeType: string;
+  name: string;
+  crop?: ParsedImage["crop"];
+}
 
-async function uploadFirstSlideImage(
-  slide: ParsedSlide,
-  slideIndex: number,
-  ownerEmail: string,
-): Promise<string | undefined> {
-  const image = slide.images[0];
-  if (!image || !BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)) {
-    return undefined;
+/** Add source-native image objects that a Google Slides PPTX export omitted. */
+export function applyImageFallbacks(
+  presentation: Awaited<ReturnType<typeof parsePptx>>,
+  fallbacks: ImportedImageFallback[] = [],
+): number {
+  let added = 0;
+  for (const [fallbackIndex, fallback] of fallbacks.entries()) {
+    const slide = presentation.slides[fallback.slideIndex];
+    if (!slide || fallback.width <= 0 || fallback.height <= 0) continue;
+
+    const duplicate = slide.elements.some(
+      (element) =>
+        element.kind === "image" &&
+        Math.abs(element.x - fallback.x) < 1000 &&
+        Math.abs(element.y - fallback.y) < 1000 &&
+        Math.abs(element.width - fallback.width) < 1000 &&
+        Math.abs(element.height - fallback.height) < 1000,
+    );
+    if (duplicate) continue;
+
+    const image: ParsedImage = {
+      data: fallback.data,
+      mimeType: fallback.mimeType,
+      name: fallback.name,
+      aspectRatio: fallback.width / fallback.height,
+      ...(fallback.crop ? { crop: fallback.crop } : {}),
+    };
+    const element: ParsedElement = {
+      id: `image-fallback-${fallback.slideIndex}-${fallbackIndex}`,
+      name: fallback.name,
+      kind: "image",
+      x: fallback.x,
+      y: fallback.y,
+      width: fallback.width,
+      height: fallback.height,
+      image,
+    };
+    slide.images.push(image);
+    slide.elements.push(element);
+    added++;
   }
-  const filename =
-    "pptx-import-" + Date.now() + "-s" + slideIndex + "-" + image.name;
-  try {
-    const result = await uploadFile({
-      data: Buffer.from(image.data),
-      filename,
-      mimeType: image.mimeType,
-      ownerEmail,
-      recordAsset: false,
-    });
-    return result?.url;
-  } catch {
-    // A single slide's upload failing (network/API/rate-limit) shouldn't
-    // abort the whole deck import — that slide's text still imports fine,
-    // it just falls back to a placeholder like an unsupported format would.
-    return undefined;
-  }
+  return added;
 }
 
 export async function importPptxBufferToDeck(args: {
@@ -65,6 +83,8 @@ export async function importPptxBufferToDeck(args: {
   title?: string;
   deckId?: string;
   source?: string;
+  imageFallbacks?: ImportedImageFallback[];
+  parsedPresentation?: ParsedPresentation;
 }): Promise<{
   id: string;
   title: string;
@@ -74,8 +94,16 @@ export async function importPptxBufferToDeck(args: {
   url: string;
   imagesSkipped?: number;
 }> {
-  const { fileBuffer, title, deckId, source = "import-pptx" } = args;
-  const presentation = await parsePptx(fileBuffer);
+  const {
+    fileBuffer,
+    title,
+    deckId,
+    source = "import-pptx",
+    imageFallbacks,
+    parsedPresentation,
+  } = args;
+  const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
+  applyImageFallbacks(presentation, imageFallbacks);
   const deckTitle = title || presentation.title || "Imported Presentation";
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
@@ -88,38 +116,35 @@ export async function importPptxBufferToDeck(args: {
     await assertAccess("deck", deckId, "editor");
   }
 
-  // Convert each parsed slide to our HTML format, uploading the first
-  // embedded image (if any) so it renders as a real image instead of a
-  // text placeholder. Concurrency is capped so a large deck doesn't fire
-  // one outbound upload per slide at once. An image can end up unused
-  // (unsupported format, or upload storage not configured) without
-  // failing the whole import — the slide's text still imports fine — but
-  // that shouldn't be a silent, invisible degradation, so it's counted
-  // and returned to the caller.
+  // Convert each parsed slide to its positioned scene graph, uploading every
+  // browser-renderable image so the imported deck keeps the source layering
+  // and media instead of collapsing to a one-image approximation.
   const uploadLimit = pLimit(4);
   const results = await Promise.all(
     presentation.slides.map((parsedSlide, i) =>
       uploadLimit(async () => {
-        const imageUrl = await uploadFirstSlideImage(
-          parsedSlide,
-          i,
+        const uploadedImages = await uploadPptxSlideImages({
+          slide: parsedSlide,
+          slideIndex: i,
           ownerEmail,
+        });
+        const html = convertToSlideHtml(
+          parsedSlide,
+          uploadedImages.urls,
+          themeFont,
         );
-        const html = convertToSlideHtml(parsedSlide, imageUrl, themeFont);
         return {
           slide: {
             id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             content: html,
             layout: parsedSlide.layoutHint ?? "content",
             notes: parsedSlide.notes,
+            ...(parsedSlide.transition
+              ? { transition: parsedSlide.transition }
+              : {}),
+            ...(parsedSlide.splitByParagraph ? { splitByParagraph: true } : {}),
           },
-          // Only the first image on a slide is ever uploaded, so every
-          // other image on that slide is unconditionally dropped too —
-          // not just the first one when it's unsupported.
-          imageSkippedCount: Math.max(
-            0,
-            parsedSlide.images.length - (imageUrl ? 1 : 0),
-          ),
+          imageSkippedCount: uploadedImages.imageSkippedCount,
         };
       }),
     ),

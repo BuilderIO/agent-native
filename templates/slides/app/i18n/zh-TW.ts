@@ -630,16 +630,16 @@ const messages = {
     showMineDecks: "顯示我建立的幻燈片",
     mine: "我的",
     deckCount_other: "份幻燈片",
-    createDeckOrVisual: "建立幻燈片或視覺頁面",
+    createDeckOrVisual: "建立簡報",
     noMineDecks: "你還沒有建立任何幻燈片。",
     deleteDeckTitle: "刪除幻燈片？",
     deleteDeckDescription: "這會永久刪除此幻燈片及其所有頁面。此操作無法撤銷。",
     cancel: "取消",
     delete: "刪除",
-    newDeckPromptTitle: "新建幻燈片",
-    newDeckPlaceholder: "描述你的幻燈片、視覺頁面或圖表...",
+    newDeckPromptTitle: "新建簡報",
+    newDeckPlaceholder: "描述你想產生的簡報...",
     skipPrompt: "跳過提示",
-    firstDeckPromptTitle: "你想建立什麼？",
+    firstDeckPromptTitle: "我們要產生什麼類型的簡報？",
     firstDeckSkip: "跳過",
     chooseReferences: "選擇參考資料",
     addDesignSystem: "+ 設計系統",
@@ -658,6 +658,7 @@ const messages = {
     googleSlidesReferenceTitle: "Google Slides 投影片",
     googleSlidesReferenceConnect: "連接 Google Drive 以匯入 Slides 投影片。",
     googleSlidesReferenceChoose: "選擇 Google Slides 投影片",
+    googleSlidesReferenceUrl: "貼上 Google Slides 連結",
     googleSlidesReferencePicking: "處理中...",
     googleSlidesReferenceConnected:
       "已連接。選擇 Google Slides 投影片，將其匯入為可重複使用的參考內容。",
@@ -689,8 +690,7 @@ const messages = {
     signIn: "登入",
     emptyTitle: "還沒有簡報",
     createFirstDeck: "建立你的第一份簡報",
-    emptyDescription:
-      "使用 AI 產生精美簡報、獨立視覺頁面、圖表和圖片豐富的故事。",
+    emptyDescription: "使用 AI 產生精美簡報。",
   },
 };
 

@@ -43,7 +43,7 @@ describe("automationCreationContext", () => {
     expect(container.textContent).toContain("Scheduled");
     expect(container.textContent).toContain("Event-triggered");
     expect(
-      container.querySelector('a[href="/settings#agent:automations"]'),
+      container.querySelector('a[href="/settings/agent/automations"]'),
     ).not.toBe(null);
 
     act(() => root.unmount());

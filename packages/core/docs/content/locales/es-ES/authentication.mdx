@@ -380,7 +380,7 @@ function MyComponent() {
 Las plantillas con **páginas públicas** (enlaces compartidos, incrustaciones, páginas de marketing) a menudo necesitan un CTA en la página que solicita a los espectadores anónimos que inicien sesión y los devuelve a la página en la que se encontraban. El marco proporciona un único punto de entrada para esto:
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 Cuando un espectador anónimo accede a este URL, se muestra la página de inicio de sesión del marco. Después de un inicio de sesión exitoso (cualquier flujo: token, correo electrónico/contraseña o Google OAuth), el navegador vuelve a `return`.
@@ -395,8 +395,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -404,13 +403,13 @@ function SignInCta() {
 
 ### Rutas privadas marcadas
 
-Las páginas normales de la aplicación usan una única shell SSR impersonal y almacenable en caché pública para todos los visitantes. `AppProviders` comprueba la sesión en el cliente; en una ruta privada como `/dashboard`, redirige al visitante anónimo a `/_agent-native/sign-in?return=%2Fdashboard` antes de montar la interfaz privada. Tras iniciar sesión, vuelve a `/dashboard`. Usa `isPublicPath` para rutas públicas o de SEO, o `sessionBypass` para una superficie autenticada mediante otro mecanismo limitado, como un token de inserción MCP.
+Las páginas normales de la aplicación usan una única shell SSR impersonal y almacenable en caché pública para todos los visitantes. `AppProviders` comprueba la sesión en el cliente; en una ruta privada como `/dashboard`, redirige al visitante anónimo a `/sign-in?return=%2Fdashboard` antes de montar la interfaz privada. Tras iniciar sesión, vuelve a `/dashboard`. Usa `isPublicPath` para rutas públicas o de SEO, o `sessionBypass` para una superficie autenticada mediante otro mecanismo limitado, como un token de inserción MCP.
 
 Cuánto tiempo se almacena en caché esa shell es una configuración de toda la implementación — consulta [SSR Caching](/docs/deployment#ssr-caching) para `AGENT_NATIVE_SSR_CACHE`. Acortar o desactivar la caché solo cambia la duración; el SSR sigue renderizando la rama anónima con las cookies eliminadas.
 
 ### Detrás de escena: Google OAuth
 
-Ambos flujos (el punto de entrada explícito `/_agent-native/sign-in` y el caso de ruta marcada) enhebran el retorno URL a través del estado OAuth. El estado está firmado por HMAC, por lo que no se puede falsificar en tránsito. En la devolución de llamada, la devolución URL se revalida como del mismo origen antes de la redirección, por lo que una clave de firma filtrada aún no se puede convertir en un oráculo de redirección abierta.
+Ambos flujos (el punto de entrada explícito `/sign-in` y el caso de ruta marcada) enhebran el retorno URL a través del estado OAuth. El estado está firmado por HMAC, por lo que no se puede falsificar en tránsito. En la devolución de llamada, la devolución URL se revalida como del mismo origen antes de la redirección, por lo que una clave de firma filtrada aún no se puede convertir en un oráculo de redirección abierta.
 
 Si su plantilla envuelve `/_agent-native/google/auth-url` directamente (por ejemplo, las plantillas de correo y calendario lo hacen, para ampliar el alcance), acepte una consulta `?return=<path>` y reenvíela a través del formulario de objeto de opciones de `encodeOAuthState`:
 

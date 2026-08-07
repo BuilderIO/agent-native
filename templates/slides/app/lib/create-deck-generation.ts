@@ -8,7 +8,7 @@ import { flushSync } from "react-dom";
 
 import type { NewDeckReferenceSelection } from "@/components/editor/NewDeckReferenceStep";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import type { Deck } from "@/context/DeckContext";
+import type { Deck, DeckPersistenceResult } from "@/context/DeckContext";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -156,13 +156,17 @@ export interface StartDeckGenerationOptions {
   selectedReferenceDeckId?: string | null;
   designSystems: Array<{ id: string; title: string }>;
   createDeck: CreateDeck;
-  ensureDeckPersisted: (id: string) => Promise<boolean>;
+  ensureDeckPersisted: (id: string) => Promise<DeckPersistenceResult>;
   deleteDeck: (id: string) => void;
   navigate: Navigate;
   agentSubmit: SubmitAgent;
   onPromptClosed: () => void;
   onUnauthenticated: (prompt: string, hadFiles: boolean) => void;
-  onPersistenceFailure: (prompt: string, files: UploadedFile[]) => void;
+  onPersistenceFailure: (
+    prompt: string,
+    files: UploadedFile[],
+    failure: DeckPersistenceResult,
+  ) => void;
 }
 
 /** Create the optimistic deck, hydrate references, and start the agent run. */
@@ -220,8 +224,8 @@ export async function startDeckGeneration({
   onPromptClosed();
 
   const persisted = await ensureDeckPersisted(deck.id);
-  if (!persisted) {
-    onPersistenceFailure(prompt, filesForGeneration);
+  if (!persisted.persisted) {
+    onPersistenceFailure(prompt, filesForGeneration, persisted);
     deleteDeck(deckId);
     return "failed";
   }

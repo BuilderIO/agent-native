@@ -29,8 +29,11 @@
  */
 import React, { useEffect, useRef } from "react";
 
-import { signInJourney } from "../shared/sign-in-journey.js";
-import { agentNativePath, appBasePath } from "./api-path.js";
+import {
+  SIGN_IN_ENTRY_PATH,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
+import { appBasePath, appPath } from "./api-path.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
 import { useSession } from "./use-session.js";
 
@@ -60,7 +63,7 @@ export interface RequireSessionProps {
   fallback?: React.ReactNode;
   /**
    * When true (default), unauthenticated visitors are redirected to the
-   * framework sign-in entry point (`/_agent-native/sign-in`) carrying a `c`
+   * framework sign-in entry point (`/sign-in`) carrying a `c`
    * continuation for the current URL — so they land back here once signed in.
    * When false, `signedOut` is rendered instead and no navigation happens.
    */
@@ -88,7 +91,7 @@ export interface RequireSessionProps {
  * directly and honour its `signInHref: null`.
  */
 export function buildSignInReturnHref(opts?: { returnTo?: string }): string {
-  const base = agentNativePath("/_agent-native/sign-in");
+  const base = appPath(SIGN_IN_ENTRY_PATH);
   if (typeof window === "undefined") return base;
   return currentJourney(opts?.returnTo).signInHref ?? base;
 }

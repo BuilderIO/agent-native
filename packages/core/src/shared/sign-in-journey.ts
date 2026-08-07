@@ -18,7 +18,7 @@
  *  - `signInJourney` returns `signInHref: null` — no token at all — when the
  *    browser is already at an auth entry path, so the one function permitted
  *    to mint continuations refuses to mint the dangerous value;
- *  - the sign-in URL is `<base>/_agent-native/sign-in?c=<opaque>`, so
+ *  - the sign-in URL is `<base>/sign-in?c=<opaque>`, so
  *    "capture the current location as the return" has no URL-shaped input to
  *    re-encode;
  *  - `c` does not look like a URL, so Better Auth's `callbackURL`, a proxy, or
@@ -45,7 +45,11 @@ export const SIGN_IN_CONTINUATION_PARAM = "c";
  */
 export const SIGN_IN_LEGACY_RETURN_PARAM = "return";
 
-export const SIGN_IN_ENTRY_PATH = "/_agent-native/sign-in";
+/** The clean, user-facing sign-in entry point emitted by current clients. */
+export const SIGN_IN_ENTRY_PATH = "/sign-in";
+
+/** The old framework entry point, retained for generated apps and bookmarks. */
+export const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
 
 /** Max length of an encoded continuation token, in characters. */
 export const SIGN_IN_CONTINUATION_MAX_LENGTH = 512;
@@ -93,7 +97,8 @@ export interface SignInJourneyInput {
 function createSignInJourneyRuntime(basePath: string) {
   var PARAM = "c";
   var LEGACY_PARAM = "return";
-  var ENTRY_PATH = "/_agent-native/sign-in";
+  var ENTRY_PATH = "/sign-in";
+  var LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
   var MAX_TOKEN = 512;
   var SENTINEL = "http://an.invalid";
 
@@ -119,7 +124,9 @@ function createSignInJourneyRuntime(basePath: string) {
     // serving a sibling app's URL).
     if (
       pathname === ENTRY_PATH ||
-      pathname.slice(-ENTRY_PATH.length) === ENTRY_PATH
+      pathname.slice(-ENTRY_PATH.length) === ENTRY_PATH ||
+      pathname === LEGACY_ENTRY_PATH ||
+      pathname.slice(-LEGACY_ENTRY_PATH.length) === LEGACY_ENTRY_PATH
     ) {
       return true;
     }
