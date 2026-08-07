@@ -5,7 +5,7 @@ description: "agent-native ऐप्स तीन लेयर्स में �
 
 # मुख्य अवधारणाएं
 
-अंदर से agent-native ऐप्स कैसे काम करते हैं: सिद्धांत और architecture। यह page वह contract है: वे तय नियम जिन्हें एक ऐप को agent-native गिने जाने के लिए follow करना होता है। इस तरह बनाने के vision और तर्क के लिए देखें [What Is Agent-Native?](/docs/what-is-agent-native)।
+अंदर से agent-native ऐप्स कैसे काम करते हैं: सिद्धांत और architecture। यह page वह contract है: वे तय नियम जिन्हें एक ऐप को agent-native गिने जाने के लिए follow करना होता है। इस तरह बनाने के vision और तर्क के लिए देखें [Agent-Native क्या है?](/docs/what-is-agent-native)।
 
 ## तीन लेयर्स {#three-layers}
 
@@ -53,7 +53,7 @@ Runtime पर, हर agent-native ऐप तीन चीज़ें है�
   </div>
   <div class="diagram-box" data-rough>
     Computer<br /><small class="diagram-muted"
-      >SQL database · browser · code execution</small
+      >SQL डेटाबेस · ब्राउज़र · कोड execution</small
     >
   </div>
 </div>
@@ -154,10 +154,10 @@ Framework अपनाना मुख्यतः इसलिए valuable ह�
 | एक action = हर surface            | `defineAction()` से define की गई हर action एक साथ एक agent tool, एक typesafe frontend hook (`useActionQuery` / `useActionMutation`), एक framework-owned HTTP transport, एक CLI command, external clients के लिए एक MCP tool, और अन्य agent-native ऐप्स के लिए एक A2A tool होती है। वैकल्पिक `link` और `mcpApp` metadata बिना किसी दूसरे implementation के deep links और MCP Apps UI जोड़ देता है। |
 | प्रति user पूर्ण agent resources  | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, और connected MCP servers। सब कुछ SQL-backed है, किसी dev-box की ज़रूरत नहीं। देखें [Agent Resources](/docs/agent-resources)।                                                                                                                                                          |
 | Drop-in React components          | `<AgentPanel />` और `<AgentSidebar />` आपके ऐप में कहीं भी chat + resources render करते हैं। देखें [Drop-in Agent](/docs/drop-in-agent)।                                                                                                                                                                                                                                                          |
-| BYO agent chat runtimes           | वही chat UI OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, या आपके अपने normalized HTTP stream के ऊपर बैठ सकता है। देखें [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes)।                                                                                                                                                                                     |
+| BYO agent chat runtimes           | वही chat UI OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, या आपके अपने normalized HTTP stream के ऊपर बैठ सकता है। देखें [मूल चैट UI](/docs/native-chat-ui#byo-agent-runtimes)।                                                                                                                                                                                         |
 | Agent और UI के बीच Live sync      | Same-process writes तुरंत `/_agent-native/events` पर stream होते हैं; एक lightweight poll serverless, cron, और cross-process writes को convergent रखती है। Mutating actions automatically action-backed queries को invalidate कर देती हैं, इसलिए agent द्वारा बनाए गए records बिना manual refresh के दिखाई देते हैं। नीचे देखें [Live Sync](#polling-sync)।                                       |
 | Auth, orgs, RBAC                  | orgs/members/roles के साथ Better Auth हर template में wired है। देखें [Authentication](/docs/authentication)। एक से ज़्यादा user के लिए, शुरुआत करें [Organizations, Teams & Permissions](/docs/organizations-teams-permissions) से।                                                                                                                                                              |
-| Context awareness                 | `navigation` app-state key के ज़रिए agent को हमेशा पता होता है कि user क्या देख रहा है। देखें [Context Awareness](/docs/context-awareness)।                                                                                                                                                                                                                                                       |
+| Context awareness                 | `navigation` app-state key के ज़रिए agent को हमेशा पता होता है कि user क्या देख रहा है। देखें [संदर्भ जागरूकता](/docs/context-awareness)।                                                                                                                                                                                                                                                         |
 | MCP client + server, दोनों दिशाएं | ऐप MCP servers (local, remote, hub-shared) को ingest करता है _और_ अपनी actions को एक MCP server के रूप में expose करता है। देखें [MCP Clients](/docs/mcp-clients) और [MCP Protocol](/docs/mcp-protocol)।                                                                                                                                                                                          |
 | Inter-app delegation              | अलग-अलग ऐप्स में agents [A2A](/docs/a2a-protocol) पर बात करते हैं। Same-origin deploys JWT को skip कर देते हैं; cross-origin एक shared `A2A_SECRET` का उपयोग करता है।                                                                                                                                                                                                                             |
 | Sub-agent teams                   | अपने खुद के thread और tools के साथ एक sub-agent spawn करें, जो chat में inline एक chip के रूप में दिखता है। देखें [Agent Teams](/docs/agent-teams)।                                                                                                                                                                                                                                               |
@@ -167,11 +167,11 @@ Framework अपनाना मुख्यतः इसलिए valuable ह�
 
 सारा application state Drizzle ORM के ज़रिए एक SQL database में रहता है। Schemas provider-agnostic हैं; supported databases, `DATABASE_URL` config, और portability नियम [Database](/docs/database) में हैं।
 
-Core SQL stores auto-created हैं और हर template में उपलब्ध हैं:
+Core SQL स्टोर auto-created हैं और हर template में उपलब्ध हैं:
 
 - `application_state`: अस्थायी UI state (navigation, drafts, selections)
 - `settings`: स्थायी key-value config
-- `oauth_tokens`: OAuth credentials
+- `oauth_tokens`: OAuth क्रेडेंशियल्स
 - `sessions`: auth sessions
 
 नीचे हर row अपने fields दिखाने के लिए expand होती है:
@@ -197,7 +197,7 @@ Core SQL stores auto-created हैं और हर template में उप�
         {
           name: "value",
           type: "json",
-          note: "view, selection, drafts",
+          note: "व्यू, चयन, ड्राफ्ट्स",
         },
       ],
     },
@@ -270,7 +270,7 @@ export const forms = table("forms", {
 आप और agent दोनों उस data को terminal से inspect कर सकते हैं, बिना किसी अलग SQL client के:
 
 ```bash
-# Core actions for quick database inspection
+# डेटाबेस की तुरंत जांच के लिए Core actions
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 ```
@@ -377,11 +377,11 @@ Diagram उसी sequence को end to end trace करता है:
 ```html
 <div class="diagram-sync">
   <div class="diagram-node">
-    Agent action<br /><small class="diagram-muted">DB में लिखता है</small>
+    Agent एक्शन<br /><small class="diagram-muted">DB में लिखता है</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    Change event<br /><small class="diagram-muted"
+    Change इवेंट<br /><small class="diagram-muted"
       >source: action / settings</small
     >
   </div>
@@ -392,7 +392,7 @@ Diagram उसी sequence को end to end trace करता है:
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    Query refetch<br /><small class="diagram-muted"
+    Query रीफ़ेच<br /><small class="diagram-muted"
       >render, बिना reload के</small
     >
   </div>
@@ -432,9 +432,9 @@ agent-native ऐप्स में एक embedded agent panel शामिल 
 - **Embedded Agent Panel:** हर ऐप में built-in Chat और वैकल्पिक CLI terminal। Claude Code, Codex, Gemini, OpenCode, और Builder.io को support करता है। Locally चलता है, free और open source।
 - **Cloud:** real-time collaboration, visual editing, roles, और permissions के साथ किसी भी cloud पर deploy करें। Teams के लिए सबसे बेहतर।
 
-## Context Awareness {#context-awareness}
+## संदर्भ जागरूकता {#context-awareness}
 
-Agent को हमेशा पता होता है कि user क्या देख रहा है। हर route change पर UI application-state में एक `navigation` key लिखता है। Agent action लेने से पहले इसे `view-screen` action के ज़रिए पढ़ता है।
+Agent को हमेशा पता होता है कि user क्या देख रहा है। हर route change पर UI application-state में एक `navigation` key लिखता है। Agent एक्शन लेने से पहले इसे `view-screen` action के ज़रिए पढ़ता है।
 
 उदाहरण के लिए, जब आप कोई email thread खोलते हैं तो UI इस तरह की एक row upsert करता है:
 
@@ -448,13 +448,13 @@ UI इसे route change पर लिखता है; agent कोई भी 
 
 </Callout>
 
-पूरे pattern के लिए देखें [Context Awareness](/docs/context-awareness): navigation state, view-screen, navigate commands, और jitter prevention।
+पूरे pattern के लिए देखें [संदर्भ जागरूकता](/docs/context-awareness): navigation state, view-screen, navigate commands, और jitter prevention।
 
 ## एक Action, कई Surfaces {#protocols}
 
 किसी domain operation को एक बार action के रूप में implement करें; framework इसे हर consumer के सामने expose करता है। वही `defineAction()` एक agent tool, एक typesafe UI hook, एक HTTP endpoint, एक CLI command, एक MCP tool, और एक A2A tool बन जाता है, साथ ही वैकल्पिक `link`, `mcpApp`, native-widget metadata, या Generative UI wrappers तभी जोड़े जाते हैं जब किसी surface को richer interaction चाहिए। Behavior को Skills और instructions cover करते हैं।
 
-पूरे protocol/surface matrix (MCP server और OAuth, MCP Apps, A2A, deep links, native chat widgets, Generative UI, AgentChatRuntime connectors, Agent Web, और ACP और A2UI के लिए adapter horizon) के लिए, और एक product shape चुनने के लिए (chat, inline UI, full app pages, embedded sidecar, automation, या external-agent access), देखें [Agent Surfaces](/docs/agent-surfaces)।
+पूरे protocol/surface matrix (MCP server और OAuth, MCP Apps, A2A, deep links, native chat widgets, Generative UI, AgentChatRuntime connectors, Agent Web, और ACP और A2UI के लिए adapter horizon) के लिए, और एक product shape चुनने के लिए (chat, inline UI, full app pages, embedded sidecar, automation, या external-agent access), देखें [एजेंट Surfaces](/docs/agent-surfaces)।
 
 ## App कोड और कस्टमाइज़ेशन {#agent-modifies-code}
 
@@ -477,33 +477,33 @@ Framework embedded agent को ऐप के source code तक ambient access 
 
 - **[Dispatch](/docs/dispatch):** workspace control plane, जिसमें एक shared inbox, secrets vault, scheduled jobs, और एक orchestrator है जो A2A पर specialist ऐप्स को delegate करता है।
 - **[Extensions](/docs/extensions):** sandboxed Alpine.js mini-apps जिन्हें agent runtime पर बनाता है, बिना किसी source changes या migrations के।
-- **[A2A Protocol](/docs/a2a-protocol):** एक ही workspace में ऐप्स JSON-RPC पर एक-दूसरे को कैसे discover और call करते हैं।
+- **[A2A प्रोटोकॉल](/docs/a2a-protocol):** एक ही workspace में ऐप्स JSON-RPC पर एक-दूसरे को कैसे discover और call करते हैं।
 
 ## आगे क्या है {#deep-dives}
 
 <Cards>
 
-### [What Is Agent-Native?](/docs/what-is-agent-native)
+### [Agent-Native क्या है?](/docs/what-is-agent-native)
 
 इन नियमों के पीछे का vision और philosophy।
 
-### [Context Awareness](/docs/context-awareness)
+### [संदर्भ जागरूकता](/docs/context-awareness)
 
 Navigation state, view-screen, और navigate commands गहराई में।
 
-### [Skills Guide](/docs/skills-guide)
+### [Skills गाइड](/docs/skills-guide)
 
 Framework skills, domain skills, और custom skills बनाना।
 
-### [Native Chat UI](/docs/native-chat-ui)
+### [मूल चैट UI](/docs/native-chat-ui)
 
 Action-declared tables, charts, और BYO runtime posture।
 
-### [Agent Surfaces](/docs/agent-surfaces)
+### [एजेंट Surfaces](/docs/agent-surfaces)
 
 Chat, native inline UI, full app pages, embedded sidecar, automation, और external-agent paths।
 
-### [A2A Protocol](/docs/a2a-protocol)
+### [A2A प्रोटोकॉल](/docs/a2a-protocol)
 
 Agent-to-agent communication।
 
