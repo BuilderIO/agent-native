@@ -227,13 +227,28 @@ describe("walkPageGraphics", () => {
     expect(graphics.textColors).toEqual(["#0000ff"]);
   });
 
-  it("marks the color unknown after an undecoded colorspace fill (scn), instead of reusing a stale value", async () => {
+  it("marks the color unknown after a named Pattern fill (scn with a pattern name), instead of reusing a stale value", async () => {
     const page = fakePage(
       [OPS.setFillColorN, OPS.showText],
       [["Pattern1"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textColors).toEqual([undefined]);
+  });
+
+  it("decodes a numeric-only scn as RGB — ICCBased/CalRGB colors are commonly routed through scn instead of rg", async () => {
+    const page = fakePage([OPS.setFillColorN, OPS.showText], [[1, 1, 1], [{}]]);
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.textColors).toEqual(["#ffffff"]);
+  });
+
+  it("decodes a single-number scn as gray, matching a solid black page background set via scn instead of rg/g", async () => {
+    const page = fakePage(
+      [OPS.setFillColorN, OPS.constructPath],
+      [[0], [OPS.fill, [], [0, 0, 100, 100]]],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.backgroundColor).toBe("#000000");
   });
 
   it("detects a full-page fill as the background when the color is known", async () => {

@@ -143,7 +143,25 @@ export function contrastingDefaultColor(
   return luminance < 0.5 ? "#ffffff" : "#000000"; // guard:allow-raw-color - contrast fallback, not a design-system token
 }
 
-/** Returns the fill color set by this op, or undefined when it isn't a (simple RGB/gray/CMYK) fill-color op. */
+function isAllFiniteNumbers(args: unknown[]): args is number[] {
+  return (
+    args.length > 0 &&
+    args.every((a) => typeof a === "number" && Number.isFinite(a))
+  );
+}
+
+/**
+ * Returns the fill color set by this op, or undefined when it isn't
+ * decodable. `sc`/`scn` ("set color", `OPS.setFillColor`/`setFillColorN`)
+ * are the generic operators PDF uses for *any* non-Device colorspace — a
+ * professionally-authored PDF (Adobe/Figma/Keynote exports commonly do
+ * this) routes even plain RGB-equivalent colors (ICCBased/CalRGB/Lab) through
+ * `scn` instead of `rg`, purely because a `cs` op selected that colorspace
+ * earlier. When its operands are all plain numbers (no pattern name), 1/3/4
+ * of them still mean exactly what `g`/`rg`/`k` mean; only a *named* Pattern
+ * operand (tiling pattern, shading pattern, or `scn`'s trailing pattern
+ * name) is genuinely undecodable without resolving that pattern object.
+ */
 function fillColorFromOp(fn: number, args: unknown[]): string | undefined {
   if (fn === OPS.setFillRGBColor) {
     const [r, g, b] = args as number[];
@@ -156,6 +174,14 @@ function fillColorFromOp(fn: number, args: unknown[]): string | undefined {
   if (fn === OPS.setFillCMYKColor) {
     const [c, m, y, k] = args as number[];
     return cmykToHex(c, m, y, k);
+  }
+  if (
+    (fn === OPS.setFillColor || fn === OPS.setFillColorN) &&
+    isAllFiniteNumbers(args)
+  ) {
+    if (args.length === 1) return rgbToHex(args[0], args[0], args[0]);
+    if (args.length === 3) return rgbToHex(args[0], args[1], args[2]);
+    if (args.length === 4) return cmykToHex(args[0], args[1], args[2], args[3]);
   }
   return undefined;
 }
@@ -191,13 +217,15 @@ const PAINT_OPS = new Set([...FILL_PAINT_OPS, ...STROKE_PAINT_OPS]);
 /** A page-covering fill is almost always the very first thing painted, so keep the earliest match. */
 const BACKGROUND_COVERAGE_RATIO = 0.9;
 
-/** Color-affecting ops that aren't decoded to a hex value (pattern/separation/ICC fills, gradients). */
-const UNTRACKED_COLOR_OPS = new Set([
-  OPS.setFillColor,
-  OPS.setFillColorN,
-  OPS.setFillColorSpace,
-  OPS.shadingFill,
-]);
+/**
+ * Color-affecting ops that always invalidate the tracked fill color: a
+ * colorspace change (`cs`) resets the current color to that space's
+ * initial value (not necessarily black), and a shading fill (`sh`) paints
+ * a gradient with no single color at all. `sc`/`scn` are handled inline in
+ * the walk below instead, since whether they're decodable depends on
+ * their operands (see `fillColorFromOp`), not just which op it is.
+ */
+const UNTRACKED_COLOR_OPS = new Set([OPS.setFillColorSpace, OPS.shadingFill]);
 
 /**
  * `getTextContent()` gives baseline position + font size per run but no
@@ -583,10 +611,21 @@ export async function walkPageGraphics(
         }
       }
     } else if (UNTRACKED_COLOR_OPS.has(fn)) {
-      // Pattern/separation/ICC colorspace fill (scn/SCN) or a gradient
-      // (sh) is not decoded, so the previously tracked fillColor can no
-      // longer be trusted until a recognized rg/g/k op sets it again.
+      // A colorspace change or a gradient shading fill is never decoded,
+      // so the previously tracked fillColor can no longer be trusted
+      // until a recognized color-setting op sets it again.
       fillColorKnown = false;
+    } else if (fn === OPS.setFillColor || fn === OPS.setFillColorN) {
+      // Numeric operands decode the same as rg/g/k (see fillColorFromOp);
+      // a Pattern operand (a name, not a number) doesn't, and must
+      // invalidate the previous color rather than silently keep it.
+      const color = fillColorFromOp(fn, args);
+      if (color) {
+        fillColor = color;
+        fillColorKnown = true;
+      } else {
+        fillColorKnown = false;
+      }
     } else {
       const color = fillColorFromOp(fn, args as number[]);
       if (color) {
