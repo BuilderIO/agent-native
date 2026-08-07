@@ -65,9 +65,7 @@ export function isRetryableTranscriptFailure(
  * in production, and it sent people looking for a microphone problem when the
  * screen-share simply never included audio.
  */
-export function transcriptFailureMessage(
-  code: TranscriptFailureCode,
-): string {
+export function transcriptFailureMessage(code: TranscriptFailureCode): string {
   switch (code) {
     case "NO_AUDIO_SAVED":
       return "This recording has no audio track, so there was nothing to transcribe. Screen recordings only capture audio when you share tab or system audio, or record with a microphone.";
