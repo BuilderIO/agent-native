@@ -169,9 +169,10 @@ const AUTOMATION_SEEDS: AutomationSeed[] = [
 # Factory Slack feedback triage
 
 Read the Factory configuration. When Slack polling is enabled and a channel is
-configured, call poll-slack-channel first. Then list a bounded page of
-received Slack items and call get-slack-feedback-context for each item before
-classifying it.
+configured, call poll-slack-channel first. Then list at most 2 received Slack
+items by passing limit 2, process them sequentially, and call
+get-slack-feedback-context for each item before classifying it. Never use the
+action's default page size.
 
 Start work only for a clear bug: a concrete broken behavior, reproducible
 failure, error, regression, stuck run, incorrect result, or a report with a
@@ -203,9 +204,9 @@ PR, merge, or fix unless an action returned that state.
 # Factory Sentry error triage
 
 Read the Factory configuration. When Sentry polling is enabled and a Sentry
-organization is configured, call poll-sentry-errors. List a bounded page of
-received Sentry items and inspect the title, culprit, level, event count, and
-errorReport metadata.
+organization is configured, call poll-sentry-errors. List at most 3 received
+Sentry items by passing limit 3 and inspect the title, culprit, level, event
+count, and errorReport metadata. Never use the action's default page size.
 
 Only classify a concrete unresolved error as a clear bug when the Sentry
 evidence is sufficient to investigate. Do not dispatch on noise, expected
@@ -226,7 +227,8 @@ run callback or PR observation confirms it.
 
 Read the Factory configuration. When GitHub source polling is enabled and a
 repository is configured, call poll-github-sources with includeIssues true and
-includePullRequests false. List a bounded page of received github_issue items.
+includePullRequests false. List at most 3 received github_issue items by
+passing limit 3. Never use the action's default page size.
 
 Treat an issue as a clear bug only when it has a concrete error report,
 reproduction, incorrect behavior, regression, or specific failing path. Do
@@ -247,7 +249,8 @@ confirmation.
 
 Read the Factory configuration. When GitHub polling is enabled and a repository
 is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List a bounded page of github pull-request items.
+includePullRequests true. List at most 3 github pull-request items by passing
+limit 3. Never use the action's default page size.
 
 For each open agent-native PR, inspect the item and classify whether it is a
 clear bug fix or has product or UX implications. Call
@@ -275,7 +278,8 @@ governance action confirms it.
 
 Read the Factory configuration. When GitHub polling is enabled and a repository
 is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List a bounded page of open github pull-request items.
+includePullRequests true. List at most 3 open github pull-request items by
+passing limit 3. Never use the action's default page size.
 
 For each item, call babysit-agent-native-pull-request. That action fetches fresh
 GitHub and ai-services evidence and is the only place allowed to decide whether
@@ -310,6 +314,22 @@ function defaultGithubPollingEnabled(): 0 | 1 {
     "true"
     ? 1
     : 0;
+}
+
+function automationPromptGuard(name: string): string | undefined {
+  switch (name) {
+    case "factory-slack-feedback":
+      return "Runtime safety bound: pass limit 2 to list-triage-items, process at most two Slack items sequentially, and never use the default page size.";
+    case "factory-sentry-errors":
+      return "Runtime safety bound: pass limit 3 to list-triage-items and process at most three Sentry items.";
+    case "factory-github-issues":
+      return "Runtime safety bound: pass limit 3 to list-triage-items and process at most three GitHub issue items.";
+    case "factory-pr-governance":
+    case "factory-pr-babysit":
+      return "Runtime safety bound: pass limit 3 to list-triage-items and process at most three pull-request items.";
+    default:
+      return undefined;
+  }
 }
 
 function setFrontmatterField(
@@ -388,6 +408,10 @@ async function ensureOrganizationAutomations(
       repaired = setFrontmatterField(repaired, "orgId", orgId);
       repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
       repaired = setFrontmatterField(repaired, "runAs", "creator");
+      const promptGuard = automationPromptGuard(seed.name);
+      if (promptGuard && !repaired.includes(promptGuard)) {
+        repaired = `${repaired.trimEnd()}\n\n${promptGuard}\n`;
+      }
       if (repaired === existing.content) return;
 
       const updated = await resourcePutIfCurrent({
@@ -417,35 +441,15 @@ async function ensureDefaultTriageConfig(
     await db
       .select({
         id: triageConfig.id,
-        githubPollingEnabled: triageConfig.githubPollingEnabled,
-        repository: triageConfig.repository,
       })
       .from(triageConfig)
       .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
       .limit(1)
   )[0];
   const repository = defaultRepository();
-  if (existing) {
-    // A prior bootstrap could create the row before deployment defaults were
-    // present. Repair only that unconfigured shape; an existing repository
-    // remains an explicit operator choice, including an intentional disable.
-    if (
-      repository &&
-      defaultGithubPollingEnabled() === 1 &&
-      !existing.repository &&
-      existing.githubPollingEnabled !== 1
-    ) {
-      await db
-        .update(triageConfig)
-        .set({
-          repository,
-          githubPollingEnabled: 1,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)));
-    }
-    return;
-  }
+  // Existing rows are operator-owned. An empty repository plus disabled
+  // polling can be an intentional choice, so do not infer bootstrap state.
+  if (existing) return;
   const now = new Date().toISOString();
   await db.insert(triageConfig).values({
     id: orgId,
@@ -470,17 +474,25 @@ async function ensureDefaultTriageConfig(
 }
 
 async function ensureSchedulerJobs(): Promise<void> {
-  const ownerEmail = workspaceOwnerEmail();
-  if (!ownerEmail) {
-    throw new Error(
-      "WORKSPACE_OWNER_EMAIL is required to seed Factory automations",
-    );
-  }
-  const orgId = await resolveOrgIdForEmail(ownerEmail);
-  if (!orgId) {
-    throw new Error(
-      "The Factory deployment owner must belong to an organization before automations can be seeded",
-    );
+  let ownerEmail = workspaceOwnerEmail();
+  let orgId = ownerEmail ? await resolveOrgIdForEmail(ownerEmail) : undefined;
+  if (!ownerEmail || !orgId) {
+    const existingConfigs = await getDb()
+      .select({
+        id: triageConfig.id,
+        ownerEmail: triageConfig.ownerEmail,
+        orgId: triageConfig.orgId,
+      })
+      .from(triageConfig)
+      .limit(2);
+    if (existingConfigs.length !== 1) {
+      throw new Error(
+        "WORKSPACE_OWNER_EMAIL is required to seed Factory automations when the Factory organization is not uniquely configured",
+      );
+    }
+    const existingConfig = existingConfigs[0];
+    ownerEmail = existingConfig.ownerEmail.trim().toLowerCase();
+    orgId = existingConfig.orgId?.trim() || existingConfig.id;
   }
   await ensureDefaultTriageConfig(ownerEmail, orgId);
   await ensureOrganizationAutomations(ownerEmail, orgId);

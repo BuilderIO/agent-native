@@ -63,7 +63,7 @@ const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
+  "public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600";
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
@@ -649,6 +649,24 @@ export default (event) =>
     );
   });
 
+  it("inlines the Netlify SSR cache-key policy in generated workers", async () => {
+    vi.stubEnv("NETLIFY", "true");
+
+    const source = generateWorkerEntry([], []);
+    expect(source).toContain(
+      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
+    );
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox?utm_source=campaign"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
 
@@ -682,7 +700,7 @@ export default (event) =>
       'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
     );
     expect(source).toContain(
-      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600";',
     );
   });
 

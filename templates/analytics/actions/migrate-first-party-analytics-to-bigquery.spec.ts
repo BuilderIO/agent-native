@@ -120,6 +120,7 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
       { userEmail: "owner@builder.io", orgId: "org_builder" },
       table,
       undefined,
+      null,
     );
     expect(mocks.saveBackend).toHaveBeenCalledWith(
       { userEmail: "owner@builder.io", orgId: "org_builder" },
@@ -130,6 +131,72 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
         backfillCompleted: false,
       },
     );
+  });
+
+  it("preserves the legacy cursor when recovering a dual-write migration", async () => {
+    const legacyCursor = JSON.stringify({
+      receivedAt: "2026-08-07T00:00:00.000Z",
+      id: "evt_last",
+    });
+    mocks.getBackend.mockResolvedValueOnce({
+      sink: "dual",
+      table,
+      backfillCursor: legacyCursor,
+      backfillCompleted: false,
+    });
+    mocks.assertReady.mockResolvedValueOnce({
+      table: {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified: table,
+      },
+      rowCount: 9_141_896,
+    });
+
+    await expect(
+      migrateAction.run({ mode: "prepare", table }),
+    ).resolves.toMatchObject({ sink: "dual", table });
+
+    expect(mocks.saveBackend).toHaveBeenCalledWith(
+      { userEmail: "owner@builder.io", orgId: "org_builder" },
+      {
+        sink: "dual",
+        table,
+        backfillCursor: legacyCursor,
+        backfillCompleted: false,
+      },
+    );
+    expect(mocks.queueJob).toHaveBeenCalledWith(
+      { userEmail: "owner@builder.io", orgId: "org_builder" },
+      table,
+      undefined,
+      legacyCursor,
+    );
+  });
+
+  it("refuses to restart a dual-write migration with rows but no cursor", async () => {
+    mocks.getBackend.mockResolvedValueOnce({
+      sink: "dual",
+      table,
+      backfillCursor: null,
+      backfillCompleted: false,
+    });
+    mocks.assertReady.mockResolvedValueOnce({
+      table: {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified: table,
+      },
+      rowCount: 1,
+    });
+
+    await expect(migrateAction.run({ mode: "prepare", table })).rejects.toThrow(
+      "without its legacy cursor",
+    );
+    expect(mocks.saveBackend).not.toHaveBeenCalled();
+    expect(mocks.queueJob).not.toHaveBeenCalled();
   });
 
   it("queues the durable backfill worker instead of running in the request", async () => {

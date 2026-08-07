@@ -961,7 +961,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
-        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 
@@ -975,7 +975,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
-        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 

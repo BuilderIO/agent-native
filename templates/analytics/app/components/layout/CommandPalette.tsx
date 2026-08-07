@@ -1,6 +1,6 @@
 import { ChangelogDialog } from "@agent-native/core/client/changelog";
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconFlask,
@@ -11,7 +11,6 @@ import {
   IconMoon,
   IconHistory,
   IconHierarchy2,
-  IconLanguage,
   IconRefresh,
   IconSettings,
 } from "@tabler/icons-react";
@@ -41,13 +40,6 @@ import {
   CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
@@ -263,7 +255,6 @@ export function CommandPalette() {
   const dashboardScope = dashboardCacheScope(auth);
   const [open, setOpen] = useState(false);
   const [changelogOpen, setChangelogOpen] = useState(false);
-  const [languageOpen, setLanguageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCommand, setSelectedCommand] = useState("");
   const commandListRef = useRef<HTMLDivElement>(null);
@@ -554,25 +545,6 @@ export function CommandPalette() {
               heading={t("commandPalette.groupAppearance")}
             >
               <CommandItem
-                value={`appearance:language:${t("settings.languageTitle")}`}
-                onSelect={() => {
-                  setOpen(false);
-                  setLanguageOpen(true);
-                }}
-                keywords={commandPaletteKeywords(
-                  t("settings.languageTitle"),
-                  t("settings.languageLabel"),
-                  "language",
-                  "locale",
-                  "translation",
-                  "internationalization",
-                  "i18n",
-                )}
-              >
-                <IconLanguage className="me-2 h-4 w-4 text-muted-foreground" />
-                {t("settings.languageTitle")}
-              </CommandItem>
-              <CommandItem
                 value={`appearance:theme:${
                   isDark
                     ? t("commandPalette.toggleLightMode")
@@ -678,17 +650,6 @@ export function CommandPalette() {
         onOpenChange={setChangelogOpen}
         markdown={changelog}
       />
-      <Dialog open={languageOpen} onOpenChange={setLanguageOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t("settings.languageTitle")}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1.5">
-            <Label>{t("settings.languageLabel")}</Label>
-            <LanguagePicker label={t("settings.languageLabel")} />
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

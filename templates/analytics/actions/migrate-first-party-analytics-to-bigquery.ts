@@ -100,16 +100,32 @@ export default defineAction({
           `BigQuery backfill already targets ${existingJob.table}; prepare the existing migration before changing tables.`,
         );
       }
+      const initialCursor =
+        existingJob?.cursor ?? current.backfillCursor ?? null;
+      if (
+        !existingJob &&
+        current.sink === "dual" &&
+        !initialCursor &&
+        ready.rowCount > 0
+      ) {
+        throw new Error(
+          "Refusing to restart an existing dual-write BigQuery backfill without its legacy cursor; recover the migration cursor before preparing again.",
+        );
+      }
+      const initialCompleted =
+        existingJob?.status === "completed" ||
+        current.backfillCompleted === true;
       await saveFirstPartyAnalyticsBackend(scope, {
         sink: "dual",
         table: ready.table.fullyQualified,
-        backfillCursor: existingJob?.cursor ?? null,
-        backfillCompleted: existingJob?.status === "completed",
+        backfillCursor: initialCursor,
+        backfillCompleted: initialCompleted,
       });
       const job = await queueFirstPartyAnalyticsBigQueryBackfill(
         scope,
         ready.table.fullyQualified,
         limit,
+        initialCursor,
       );
       return {
         sink: "dual" as const,

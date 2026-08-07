@@ -9,10 +9,6 @@ publish = "templates/analytics/dist"
 functions = "templates/analytics/.netlify/functions-internal"
 
 [build.environment]
-# Analytics owns its schema at release time (`migrate:production` above), so
-# request functions skip migrations. Only set this in an app that actually has
-# that release step — without it, "skip on the request path" means "never".
-AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
@@ -21,6 +17,13 @@ AGENT_PROD_CODE_EXECUTION = "sandboxed"
 # Analytics dashboard creation can span multiple model/tool rounds; keep those
 # turns on the durable background worker instead of the short foreground wall.
 AGENT_CHAT_DURABLE_BACKGROUND = "true"
+
+[context.production.environment]
+# Analytics owns its schema at release time (`migrate:production` above), so
+# production request functions skip migrations. Preview functions still run
+# request-path migrations because previews do not run the production release
+# migration step.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # Hosted agent chat uses a soft timeout before this function timeout so the

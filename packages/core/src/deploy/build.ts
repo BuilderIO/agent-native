@@ -47,6 +47,7 @@ import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
@@ -878,6 +879,7 @@ export function generateWorkerEntry(
   // The worker ships as a static bundle with no access to runtime env, so the
   // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
+  const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1231,6 +1233,7 @@ function injectHeadScript(html, script) {
 const SSR_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cache-control"])};
 const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cdn-cache-control"])};
 const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["netlify-cdn-cache-control"])};
+const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1335,6 +1338,9 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
   // Netlify-specific header so SSR HTML/.data are served from the shared
   // durable CDN cache instead of stampeding origin — for every visitor.
   headers.set("netlify-cdn-cache-control", SSR_NETLIFY_CDN_CACHE_CONTROL);
+  for (const [name, value] of Object.entries(SSR_CACHE_KEY_HEADERS)) {
+    headers.set(name, value);
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {

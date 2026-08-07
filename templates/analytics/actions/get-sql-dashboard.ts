@@ -10,10 +10,8 @@ import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
 } from "../server/lib/agent-readable-resource-context";
-import { repairCanonicalFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import { getDashboard } from "../server/lib/dashboards-store";
-import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
 
 export default defineAction({
   description:
@@ -66,28 +64,14 @@ export default defineAction({
     if (!dash || dash.kind !== "sql") {
       const seed = loadDashboardSeed(args.id);
       if (seed)
-        return buildDashboardSeedAgentContext(
-          args.id,
-          args.id === FIRST_PARTY_DASHBOARD_ID
-            ? repairCanonicalFirstPartyDashboardQueries(seed).config
-            : seed,
-          {
-            includeConfig: args.includeConfig === true,
-          },
-        );
+        return buildDashboardSeedAgentContext(args.id, seed, {
+          includeConfig: args.includeConfig === true,
+        });
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
       });
     }
-    const dashboard =
-      args.id === FIRST_PARTY_DASHBOARD_ID
-        ? {
-            ...dash,
-            config: repairCanonicalFirstPartyDashboardQueries(dash.config)
-              .config,
-          }
-        : dash;
-    return buildDashboardAgentContext(dashboard, {
+    return buildDashboardAgentContext(dash, {
       includeConfig: args.includeConfig === true,
     });
   },

@@ -50,7 +50,10 @@ import {
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
-import { getDbExec } from "../db/client.js";
+import {
+  getDbExec,
+  isProductionServerlessFunctionRuntime,
+} from "../db/client.js";
 import {
   getDatabaseRuntimeFingerprint,
   getRuntimeDebugFingerprint,
@@ -1340,6 +1343,16 @@ export async function readLegacyCoreRouteInitSettings(
 }
 
 /**
+ * Production release jobs own schema setup. Request functions must not spend
+ * their cold-start budget on legacy cleanup or best-effort table warmups.
+ */
+export function shouldRunCoreRouteBootDatabaseWork(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return !isProductionServerlessFunctionRuntime(env);
+}
+
+/**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
  * All routes are mounted under `/_agent-native/` to avoid collisions
@@ -1454,8 +1467,10 @@ export function createCoreRoutesPlugin(
 
       await awaitBootstrap(nitroApp);
 
-      const { persistedEnvVars, builderDisconnected } =
-        await readLegacyCoreRouteInitSettings();
+      const runBootDatabaseWork = shouldRunCoreRouteBootDatabaseWork();
+      const { persistedEnvVars, builderDisconnected } = runBootDatabaseWork
+        ? await readLegacyCoreRouteInitSettings()
+        : { persistedEnvVars: null, builderDisconnected: null };
 
       // Legacy cleanup: key saves now go to scoped app_secrets rows. Do not
       // rehydrate the old deployment-global `persisted-env-vars` row into
@@ -1542,7 +1557,7 @@ export function createCoreRoutesPlugin(
           await import("../observability/routes.js");
         const { ensureObservabilityTables } =
           await import("../observability/store.js");
-        ensureObservabilityTables().catch(() => {});
+        if (runBootDatabaseWork) ensureObservabilityTables().catch(() => {});
         getH3App(nitroApp).use(
           `${FRAMEWORK_ROUTE_PREFIX}/observability`,
           createObservabilityHandler(),
@@ -1559,8 +1574,10 @@ export function createCoreRoutesPlugin(
         const { ensureAuditTables } = await import("../audit/store.js");
         const { startAuditCleanupJob } =
           await import("../audit/cleanup-job.js");
-        ensureAuditTables().catch(() => {});
-        startAuditCleanupJob();
+        if (runBootDatabaseWork) {
+          ensureAuditTables().catch(() => {});
+          startAuditCleanupJob();
+        }
       } catch {
         // Audit module not available — skip
       }
@@ -4021,7 +4038,7 @@ export function createCoreRoutesPlugin(
           await import("../extensions/store.js");
         const { createExtensionsHandler } =
           await import("../extensions/routes.js");
-        ensureExtensionsTables().catch(() => {});
+        if (runBootDatabaseWork) ensureExtensionsTables().catch(() => {});
         registerExtensionsShareable();
         const extensionsHandler = createExtensionsHandler({
           extensionTools: options.extensionTools,
@@ -4037,7 +4054,7 @@ export function createCoreRoutesPlugin(
           await import("../extensions/slots/store.js");
         const { createSlotsHandler } =
           await import("../extensions/slots/routes.js");
-        ensureSlotTables().catch(() => {});
+        if (runBootDatabaseWork) ensureSlotTables().catch(() => {});
         getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
       } catch {
         // Extensions module not available — skip
@@ -4047,7 +4064,7 @@ export function createCoreRoutesPlugin(
       try {
         const { ensureDataProgramTables, registerDataProgramsShareable } =
           await import("../data-programs/store.js");
-        ensureDataProgramTables().catch(() => {});
+        if (runBootDatabaseWork) ensureDataProgramTables().catch(() => {});
         registerDataProgramsShareable();
       } catch {
         // Data programs module not available — skip
