@@ -337,6 +337,131 @@ export function verifyRealtimeSubscribeToken(
   };
 }
 
+// ── Realtime voice tool capabilities ─────────────────────────────────────────
+// Signed, not stored: minting and spending are separate requests, and under a
+// serverless preset they land on different instances.
+
+/** Payload `typ` discriminator for realtime voice tool capabilities. */
+export const REALTIME_VOICE_CAPABILITY_TOKEN_TYPE = "rt-voice-capability";
+
+/** Inputs for {@link signRealtimeVoiceCapability}. */
+export interface RealtimeVoiceCapabilityClaims {
+  /** Authenticated caller. Re-checked against the session on every tool call. */
+  userEmail: string;
+  orgId?: string;
+  /** Binds the capability to the tab that opened the session. */
+  browserTabId?: string;
+  /** Tool names packed into the session's opening manifest. */
+  toolNames: readonly string[];
+  /** Names added later by a successful `tool-search`, capped separately. */
+  discoveredToolNames?: readonly string[];
+  ttlSeconds?: number;
+}
+
+interface DecodedRealtimeVoiceCapabilityClaims {
+  typ: string;
+  userEmail: string;
+  orgId?: string;
+  browserTabId?: string;
+  toolNames: string[];
+  discovered?: string[];
+  exp: number;
+}
+
+/** Result of {@link verifyRealtimeVoiceCapability}. */
+export type RealtimeVoiceCapabilityVerifyResult =
+  | {
+      ok: true;
+      userEmail: string;
+      orgId?: string;
+      browserTabId?: string;
+      toolNames: string[];
+      discoveredToolNames: string[];
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Mint a capability authorising `claims.toolNames` for one realtime voice
+ * session. The token is a bounded manifest scope layered on top of the
+ * caller's session cookie — never a standalone credential.
+ */
+export function signRealtimeVoiceCapability(
+  claims: RealtimeVoiceCapabilityClaims,
+  ttlSecondsDefault: number,
+): string {
+  const payload: DecodedRealtimeVoiceCapabilityClaims = {
+    typ: REALTIME_VOICE_CAPABILITY_TOKEN_TYPE,
+    userEmail: claims.userEmail.trim().toLowerCase(),
+    toolNames: [...claims.toolNames],
+    exp:
+      Math.floor(Date.now() / 1000) + (claims.ttlSeconds ?? ttlSecondsDefault),
+  };
+  if (claims.orgId) payload.orgId = claims.orgId;
+  if (claims.browserTabId) payload.browserTabId = claims.browserTabId;
+  if (claims.discoveredToolNames?.length) {
+    payload.discovered = [...claims.discoveredToolNames];
+  }
+
+  const payloadStr = base64UrlEncode(JSON.stringify(payload));
+  return `${payloadStr}.${hmacB64(payloadStr, getSigningKey())}`;
+}
+
+/**
+ * Verify a realtime voice capability and confirm it was minted for exactly the
+ * identity now making the request. Identity mismatch is reported separately
+ * from a bad signature so callers can tell a replay from a stale tab.
+ */
+export function verifyRealtimeVoiceCapability(
+  token: string | undefined,
+  expected: { userEmail: string; orgId?: string; browserTabId?: string },
+): RealtimeVoiceCapabilityVerifyResult {
+  if (typeof token !== "string" || !token.includes(".")) {
+    return { ok: false, reason: "malformed" };
+  }
+  const [payloadStr, sig] = token.split(".", 2);
+  if (!payloadStr || !sig) return { ok: false, reason: "malformed" };
+
+  if (!timingSafeEqualB64(sig, hmacB64(payloadStr, getSigningKey()))) {
+    return { ok: false, reason: "bad_signature" };
+  }
+
+  let claims: DecodedRealtimeVoiceCapabilityClaims;
+  try {
+    claims = JSON.parse(base64UrlDecode(payloadStr).toString("utf8"));
+  } catch {
+    return { ok: false, reason: "bad_payload" };
+  }
+
+  if (claims.typ !== REALTIME_VOICE_CAPABILITY_TOKEN_TYPE) {
+    return { ok: false, reason: "wrong_type" };
+  }
+  if (typeof claims.exp !== "number" || !Array.isArray(claims.toolNames)) {
+    return { ok: false, reason: "bad_payload" };
+  }
+  if (claims.exp * 1000 < Date.now()) return { ok: false, reason: "expired" };
+  if (
+    claims.userEmail !== expected.userEmail.trim().toLowerCase() ||
+    claims.orgId !== expected.orgId ||
+    claims.browserTabId !== expected.browserTabId
+  ) {
+    return { ok: false, reason: "identity_mismatch" };
+  }
+
+  const stringsOnly = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((name): name is string => typeof name === "string")
+      : [];
+
+  return {
+    ok: true,
+    userEmail: claims.userEmail,
+    orgId: claims.orgId,
+    browserTabId: claims.browserTabId,
+    toolNames: stringsOnly(claims.toolNames),
+    discoveredToolNames: stringsOnly(claims.discovered),
+  };
+}
+
 // ── Gateway access-check tokens ──────────────────────────────────────────────
 //
 // The hosted gateway has no access to an app's shareable-resource registry, so

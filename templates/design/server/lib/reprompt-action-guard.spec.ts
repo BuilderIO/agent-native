@@ -86,8 +86,8 @@ describe("guardRepromptActionRegistry", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
-  it("fails closed when a mutating tool call has no verifiable thread", async () => {
-    const edit = vi.fn();
+  it("lets an off-thread caller mutate when no chat thread exists", async () => {
+    const edit = vi.fn().mockResolvedValue("edited");
     mocks.getThread.mockResolvedValue(null);
     const actions = guardRepromptActionRegistry({
       "edit-design": actionEntry(edit),
@@ -96,8 +96,21 @@ describe("guardRepromptActionRegistry", () => {
     await expect(
       actions["edit-design"]!.run(
         {},
-        { caller: "tool", threadId: "missing-thread" },
+        { caller: "tool", threadId: "realtime:sess_u2_EAEpZcpYI6t5xNKGCWxjs" },
       ),
+    ).resolves.toBe("edited");
+    expect(edit).toHaveBeenCalledTimes(1);
+  });
+
+  it("still fails closed when the thread lookup itself errors", async () => {
+    const edit = vi.fn();
+    mocks.getThread.mockRejectedValue(new Error("connection reset"));
+    const actions = guardRepromptActionRegistry({
+      "edit-design": actionEntry(edit),
+    });
+
+    await expect(
+      actions["edit-design"]!.run({}, { caller: "tool", threadId: "thread-1" }),
     ).rejects.toThrow("Cannot verify the agent thread");
     expect(edit).not.toHaveBeenCalled();
   });
