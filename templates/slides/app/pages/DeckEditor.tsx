@@ -44,7 +44,7 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { Button } from "@/components/ui/button";
-import { useDecks } from "@/context/DeckContext";
+import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -1026,7 +1026,16 @@ export default function DeckEditor() {
         onToggleTextBoxMode={toggleTextBoxMode}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
-          const optimistic = duplicateDeck(id, newId);
+          const optimistic = duplicateDeck(id, newId, undefined, () => {
+            // The background duplicate-deck action failed after we already
+            // navigated to the optimistic copy. If the user is still there,
+            // send them back instead of stranding them on a "Deck
+            // unavailable" screen for a deck that no longer exists.
+            if (deckIdFromPathname(window.location.pathname) === newId) {
+              navigate("/");
+            }
+            toast.error(t("home.duplicateFailed"));
+          });
           if (optimistic) navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {

@@ -4409,6 +4409,7 @@ export default function SlideEditor({
 
       <DrawOverlay
         visible={!!drawMode}
+        scopeKey={slideId || slide.id}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
           const summary = annotations

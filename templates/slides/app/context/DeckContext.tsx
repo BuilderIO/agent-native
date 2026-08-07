@@ -143,6 +143,27 @@ export type DeckPersistenceResult =
   | { persisted: false; reason: "request-failed"; error: unknown }
   | { persisted: false; reason: "not-found" };
 
+/**
+ * Ask the server whether a deck row exists, keeping "absent" and "could not
+ * check" distinct — a rejected write is not by itself proof the row is missing.
+ */
+async function probeDeckPersisted(id: string): Promise<DeckPersistenceResult> {
+  try {
+    const result = await callAction<unknown>(
+      "get-deck",
+      { id },
+      {
+        method: "GET",
+      },
+    );
+    return normalizeActionDeck(result)
+      ? { persisted: true }
+      : { persisted: false, reason: "not-found" };
+  } catch (error) {
+    return { persisted: false, reason: "request-failed", error };
+  }
+}
+
 export function describeDeckPersistenceFailure(
   result: DeckPersistenceResult,
   fallback: string,
@@ -178,6 +199,7 @@ interface DeckContextType {
     sourceDeckId: string,
     newId: string,
     title?: string,
+    onFailure?: () => void,
   ) => Deck | null;
   deleteDeck: (id: string) => void;
   updateDeck: (
@@ -1776,24 +1798,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      try {
-        const result = await callAction<unknown>(
-          "get-deck",
-          { id },
-          { method: "GET" },
-        );
-        return normalizeActionDeck(result)
-          ? { persisted: true }
-          : { persisted: false, reason: "not-found" };
-      } catch (error) {
-        return { persisted: false, reason: "request-failed", error };
-      }
+      return probeDeckPersisted(id);
     },
     [],
   );
 
   const duplicateDeck = useCallback(
-    (sourceDeckId: string, newId: string, title?: string): Deck | null => {
+    (
+      sourceDeckId: string,
+      newId: string,
+      title?: string,
+      onFailure?: () => void,
+    ): Deck | null => {
       if (pendingDuplicateSourceIdsRef.current.has(sourceDeckId)) return null;
       const source = decks.find((d) => d.id === sourceDeckId);
       if (!source) return null;
@@ -1843,10 +1859,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       ).then(() => undefined);
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
       duplicatePromise
-        .catch((err) => {
+        .catch(async (err) => {
+          // A rejected request is not proof the row is missing: a timeout or
+          // dropped response can land after the server committed the insert.
+          // Discarding the copy then would delete work that actually exists
+          // and tell the user it failed, so confirm against the server first.
+          const probe = await probeDeckPersisted(newId);
+          if (probe.persisted) {
+            console.warn(
+              `Duplicate request for ${newId} failed but the deck persisted:`,
+              err,
+            );
+            return;
+          }
           console.error("Duplicate failed:", err);
-          // Roll back: drop the optimistic deck from local state.
+          // Roll back: drop the optimistic deck from local state. The caller
+          // (via onFailure) is responsible for navigating away if the user is
+          // still sitting on this now-gone deck's route — otherwise they're
+          // stranded on a "Deck unavailable" screen with no way back.
           setDecks((prev) => prev.filter((d) => d.id !== newId));
+          onFailure?.();
         })
         .finally(() => {
           pendingCreateIdsRef.current.delete(newId);

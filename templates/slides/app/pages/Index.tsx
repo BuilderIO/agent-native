@@ -45,7 +45,7 @@ import {
   describeDeckPersistenceFailure,
   type Deck,
 } from "@/context/DeckContext";
-import { useDecks } from "@/context/DeckContext";
+import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
@@ -1088,7 +1088,16 @@ export default function Index() {
     (id: string) => {
       let copy: ReturnType<typeof duplicateDeck> | undefined;
       flushSync(() => {
-        copy = duplicateDeck(id, `deck-${nanoid()}`);
+        copy = duplicateDeck(id, `deck-${nanoid()}`, undefined, () => {
+          // The background duplicate-deck action failed after we already
+          // navigated to the optimistic copy's route. If the user is still
+          // there, send them back to the deck list instead of stranding them
+          // on a "Deck unavailable" screen for a deck that no longer exists.
+          if (deckIdFromPathname(window.location.pathname) === copy?.id) {
+            navigate("/");
+          }
+          toast.error(t("home.duplicateFailed"));
+        });
       });
       // The context refuses a second copy of the same deck while the first
       // one's action is still in flight.
