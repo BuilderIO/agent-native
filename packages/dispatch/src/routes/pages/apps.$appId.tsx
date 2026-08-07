@@ -7,7 +7,7 @@ import {
   IconClockHour4,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -25,6 +25,7 @@ export function meta() {
 
 export default function WorkspaceAppRoute() {
   const t = useT();
+  const location = useLocation();
   const { appId } = useParams();
   const appsQuery = useActionQuery("list-workspace-apps", {
     includeAgentCards: false,
@@ -49,7 +50,11 @@ export default function WorkspaceAppRoute() {
     >
       <div className="max-w-2xl rounded-lg bg-card p-5">
         <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
-          <Link to="/apps">
+          <Link
+            to={
+              location.pathname.startsWith("/admin/") ? "/admin/apps" : "/apps"
+            }
+          >
             <IconArrowLeft size={15} className="mr-1.5" />
             {t("dispatch.nav.apps")}
           </Link>

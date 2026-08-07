@@ -17,7 +17,7 @@ export function automationTroubleshootPath(
   item: Pick<DispatchAutomationItem, "name">,
 ): string {
   const params = new URLSearchParams({ query: item.name });
-  return `/thread-debug?${params.toString()}`;
+  return `/admin/thread-debug?${params.toString()}`;
 }
 
 export function automationTarget(item: DispatchAutomationItem): string {
