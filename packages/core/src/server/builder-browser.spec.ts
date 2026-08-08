@@ -821,6 +821,31 @@ describe("Builder callback CSRF state", () => {
       expect(body.userId).toBeUndefined();
     });
 
+    it("bounds a stalled agent run instead of leaving the MCP request hanging", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      const fetchSpy = vi
+        .fn()
+        .mockRejectedValue(
+          new DOMException("request timed out", "TimeoutError"),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }),
+      ).rejects.toThrow("Builder agent run timed out after 30000ms");
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+
     it("falls back to the credential user when the caller email is not a Space member", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
@@ -1036,6 +1061,24 @@ describe("Builder callback CSRF state", () => {
       });
       expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
         "https://api.test.builder.io/projects?apiKey=pub-test&includeHidden=true",
+      );
+    });
+
+    it("bounds a stalled project lookup instead of leaving provisioning hanging", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockRejectedValue(new DOMException("request timed out", "AbortError"));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        findBuilderProjectForRepo({
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        }),
+      ).rejects.toThrow("Builder project lookup timed out after 30000ms");
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
     });
   });

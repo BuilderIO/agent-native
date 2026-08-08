@@ -36,7 +36,8 @@ Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
 To bring an older workspace current, run `pnpm upgrade:agent-native` or
 `npx @agent-native/core@latest upgrade` from the workspace root. That bumps
 `@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
-Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+Do **not** run `pnpm patch` / `pnpm patch-commit`, add
+`pnpm.patchedDependencies`, commit dependency patches, or edit
 `node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
 See the `upgrade-agent-native` and `self-modifying-code` skills.
 After a manual core bump only, `pnpm skills:update` (or

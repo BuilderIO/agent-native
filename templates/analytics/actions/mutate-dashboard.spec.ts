@@ -255,16 +255,23 @@ describe("mutate-dashboard", () => {
     }
   });
 
-  it("advertises one unambiguous code input to the agent", () => {
+  it("advertises structured operations first and bounds legacy code", () => {
     const parameters = mutateDashboard.tool.parameters as {
-      properties: Record<string, { minLength?: number }>;
+      properties: Record<string, { minLength?: number; maxLength?: number }>;
       required: string[];
     };
 
-    expect(Object.keys(parameters.properties)).toEqual(["dashboardId", "code"]);
-    expect(parameters.required).toEqual(["dashboardId", "code"]);
+    expect(Object.keys(parameters.properties)).toEqual([
+      "dashboardId",
+      "operations",
+      "code",
+      "dryRun",
+      "returnConfig",
+    ]);
+    expect(parameters.required).toEqual(["dashboardId"]);
     expect(parameters.properties.dashboardId.minLength).toBe(1);
-    expect(parameters.properties.code.minLength).toBe(1);
+    expect(parameters.properties.code.maxLength).toBe(12_000);
+    expect(parameters.properties.operations).toBeDefined();
   });
 
   it("accepts structured operations and can dry-run without saving", async () => {
@@ -339,6 +346,48 @@ describe("mutate-dashboard", () => {
     ).rejects.toThrow(/SQL is invalid: bad column/);
 
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("validates multiple BigQuery panels in parallel within one batch", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: {
+          ...dashboardConfig(),
+          panels: [panel("a", "bigquery"), panel("b", "bigquery")],
+        },
+      });
+      mocks.dryRunQuery.mockImplementation(
+        async () =>
+          await new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 100),
+          ),
+      );
+
+      const pending = mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "updatePanel",
+            panelId: "a",
+            patch: { sql: "SELECT 1" },
+          },
+          {
+            op: "updatePanel",
+            panelId: "b",
+            patch: { sql: "SELECT 2" },
+          },
+        ],
+      });
+
+      await vi.advanceTimersByTimeAsync(99);
+      expect(mocks.dryRunQuery).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({ saved: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not let unrelated legacy-invalid SQL block a valid duplicate", async () => {

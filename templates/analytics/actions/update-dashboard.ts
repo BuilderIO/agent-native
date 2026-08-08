@@ -16,6 +16,7 @@ import {
 } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
+import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   applyPanelOrder,
   compactDashboardResult,
@@ -388,15 +389,30 @@ export function validateDashboardConfig(
   return null;
 }
 
+const MAX_CONCURRENT_SQL_VALIDATIONS = 8;
+
+export interface ValidatePanelSqlOptions {
+  signal?: AbortSignal;
+}
+
 /** Validate every query panel, or only the supplied ids for a targeted edit. */
 export async function validatePanelSql(
   config: Record<string, unknown>,
   panelIds?: ReadonlySet<string>,
+  options: ValidatePanelSqlOptions = {},
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
   const vars = buildDryRunVars(config);
+  const bigQueryPanels: Array<{
+    index: number;
+    panel: Record<string, unknown>;
+    sql: string;
+  }> = [];
   for (let i = 0; i < panels.length; i++) {
+    if (options.signal?.aborted) {
+      throw new Error("Dashboard SQL validation was cancelled");
+    }
     const p = panels[i] as Record<string, unknown>;
     if (panelIds && (typeof p.id !== "string" || !panelIds.has(p.id))) {
       continue;
@@ -458,14 +474,72 @@ export async function validatePanelSql(
     if (!raw.trim()) continue;
     const sql = interpolate(raw, vars);
     if (!sql.trim()) continue;
-    let err: string | null;
-    try {
-      err = await dryRunQuery(sql);
-    } catch (e: any) {
-      err = e?.message ?? String(e);
+    bigQueryPanels.push({ index: i, panel: p, sql });
+  }
+
+  if (bigQueryPanels.length === 0) return null;
+
+  // A dashboard save is one logical operation. Validate the selected BigQuery
+  // panels as one bounded batch so a slow panel cannot multiply the per-query
+  // timeout by the number of panels in the mutation.
+  const validationController = new AbortController();
+  const abortFromCaller = () => validationController.abort();
+  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    validationController.abort();
+  }, DASHBOARD_SQL_VALIDATION_TIMEOUT_MS);
+  const errors: Array<string | null> = Array(bigQueryPanels.length).fill(null);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (!validationController.signal.aborted) {
+      const taskIndex = nextIndex++;
+      const task = bigQueryPanels[taskIndex];
+      if (!task) return;
+
+      let err: string | null;
+      try {
+        err = await dryRunQuery(task.sql, {
+          signal: validationController.signal,
+        });
+      } catch (e: any) {
+        err = e?.message ?? String(e);
+      }
+      errors[taskIndex] = err;
     }
+  };
+
+  try {
+    await Promise.all(
+      Array.from(
+        {
+          length: Math.min(
+            MAX_CONCURRENT_SQL_VALIDATIONS,
+            bigQueryPanels.length,
+          ),
+        },
+        () => worker(),
+      ),
+    );
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
+
+  if (options.signal?.aborted && !timedOut) {
+    throw new Error("Dashboard SQL validation was cancelled");
+  }
+  if (timedOut) {
+    return `Dashboard SQL validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`;
+  }
+
+  for (let i = 0; i < bigQueryPanels.length; i++) {
+    const err = errors[i];
     if (err) {
-      return `panel[${i}] "${p.title || p.id}" SQL is invalid: ${err}`;
+      const task = bigQueryPanels[i];
+      return `panel[${task.index}] "${task.panel.title || task.panel.id}" SQL is invalid: ${err}`;
     }
   }
   return null;

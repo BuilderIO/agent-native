@@ -348,19 +348,8 @@ function isServerlessRequestRuntime(): boolean {
 }
 
 /**
- * Whether this app migrates at RELEASE time, so skipping on the request path
- * is safe.
- *
- * Without this, "skip in serverless" silently means "never migrate" for any app
- * that has no release entrypoint — and at the time this was written exactly one
- * of seventeen templates had one. Existing tables keep working, so nothing
- * fails; a newly added migration just never applies, and a fresh deploy comes
- * up with missing tables. That is a skip indistinguishable from success, which
- * is the failure mode this repo bans.
- *
- * So the request-path skip is opt-in per app. An app sets this once it owns a
- * release migration step (see templates/analytics/scripts/migrate-production.ts
- * and the `migrate:production` build step in its netlify.toml).
+ * Whether this deployment has a release-time migration runner. Request-path
+ * migration skipping is safe only when that runner owns schema setup.
  */
 function appMigratesAtRelease(): boolean {
   const raw = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim();
@@ -873,6 +862,10 @@ export function runMigrations(
         !!globalThis.process?.env?.VERCEL ||
         "__cf_env" in globalThis ||
         "__env__" in globalThis;
+      // A release migration runs in the same Netlify environment as a request,
+      // but it must fail the deploy when DDL fails instead of publishing an
+      // app against an incomplete schema.
+      if (isMigrationAuthorizedRuntime()) throw err;
       if (typeof globalThis.process?.exit === "function" && !isServerless) {
         process.exit(1);
       }

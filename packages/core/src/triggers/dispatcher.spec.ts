@@ -427,6 +427,38 @@ Respond to the event.`,
     );
   });
 
+  it("does not subscribe to event automations owned by another app", async () => {
+    const eventName = "cross-app.event.ownership";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-cross-app",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/cross-app-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: ${eventName}
+mode: agentic
+appId: calendar
+createdBy: alice+triggers@agent-native.test
+---
+
+Respond to the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      appId: "plan",
+    });
+
+    expect(subscribeMock.mock.calls.some(([name]) => name === eventName)).toBe(
+      false,
+    );
+  });
+
   it("passes a stored delegated policy only from trigger frontmatter", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {

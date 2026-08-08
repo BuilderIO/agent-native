@@ -136,6 +136,10 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   'dashboard.insertPanel({"id":"personal-widget-slot","title":"Personal Widget Slot","chartType":"extension","width":3,"config":{"extensionSlotId":"analytics.dashboard.<dashboard-id>.panel.personal-widget-slot"}}).atBottom();',
 ] as const;
 
+/** Keep the legacy script surface bounded before it reaches the parser. */
+export const MAX_DASHBOARD_MUTATION_CODE_LENGTH = 12_000;
+export const MAX_DASHBOARD_MUTATION_OPERATIONS = 100;
+
 export type DashboardMutationOperation =
   | {
       op: "movePanels";
@@ -1494,8 +1498,10 @@ export function parseDashboardMutationScript(
   config: Record<string, unknown>,
   code: string,
 ): DashboardMutationOperation[] {
-  if (code.length > 12_000) {
-    throw new Error("mutation script is too large; keep it under 12000 chars");
+  if (code.length > MAX_DASHBOARD_MUTATION_CODE_LENGTH) {
+    throw new Error(
+      `mutation script is too large; keep it under ${MAX_DASHBOARD_MUTATION_CODE_LENGTH} chars or use structured operations/compose-dashboard`,
+    );
   }
   if (hasTemplateLiteralSyntax(code)) {
     throw new Error("mutation script does not support template literals");

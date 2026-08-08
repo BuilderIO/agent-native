@@ -43,7 +43,7 @@ import {
   updateAutomation,
 } from "./service.js";
 
-const actor = { userEmail: "Alice@Example.com", orgId: "org-1" };
+const actor = { userEmail: "Alice@Example.com", orgId: "org-1", appId: "mail" };
 const orgOwner = "__organization__:org-1";
 
 function resource(content: string, owner = orgOwner) {
@@ -139,13 +139,14 @@ describe("automation domain service", () => {
       orgOwner,
       "jobs/notify.md",
       expect.stringMatching(
-        /createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
+        /appId: "mail"[\s\S]*createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
       ),
     );
     expect(definition.meta).toMatchObject({
       triggerType: "event",
       createdBy: "alice@example.com",
       orgId: "org-1",
+      appId: "mail",
       runAs: "creator",
       model: "claude-sonnet",
       mcpTools: ["mcp__mail__read"],

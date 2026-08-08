@@ -67,6 +67,21 @@ describe("automation run history", () => {
     expect(run.status).toBe("running");
   });
 
+  it("filters run history to the requesting app while keeping legacy rows", async () => {
+    await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+      appId: "mail",
+    });
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      sql: string;
+    };
+    expect(query.sql).toContain("(app_id = ? OR app_id IS NULL)");
+    expect(query.args).toEqual(["alice@example.com", "digest", "mail"]);
+  });
+
   it("does not rewrite a finished run's status", async () => {
     executeMock.mockResolvedValue({
       rows: [

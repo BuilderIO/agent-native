@@ -277,6 +277,7 @@ export async function runBackgroundAutomation(
         path: automation.resource.path,
         scope: options.orgId ? "organization" : "personal",
         orgId: options.orgId ?? null,
+        appId: deps.appId,
       });
     } catch (err) {
       console.error(
@@ -459,6 +460,7 @@ async function executeBackgroundAutomation(
                 threadId: thread.id,
                 ownerEmail,
                 orgId,
+                appId: deps.appId,
                 actionCaller: options.actionCaller,
                 automation: options.actionAutomation,
                 runId,

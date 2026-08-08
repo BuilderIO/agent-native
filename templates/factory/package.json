@@ -5,6 +5,7 @@
   "description": "Build agent factories: work in one end, shipped changes out the other, with gates you control.",
   "type": "module",
   "scripts": {
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "dev": "agent-native dev --open",
     "build": "agent-native build",
     "start": "agent-native start",

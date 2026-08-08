@@ -358,6 +358,7 @@ schedule: "${seed.schedule}"
 ${seed.timezone ? `timezone: ${seed.timezone}\n` : ""}enabled: true
 triggerType: schedule
 domain: factory
+appId: factory
 orgId: ${orgId}
 createdBy: ${ownerEmail}
 runAs: creator
@@ -405,6 +406,7 @@ async function ensureOrganizationAutomations(
       let repaired = existing.content;
       repaired = setFrontmatterField(repaired, "triggerType", "schedule");
       repaired = setFrontmatterField(repaired, "domain", "factory");
+      repaired = setFrontmatterField(repaired, "appId", "factory");
       repaired = setFrontmatterField(repaired, "orgId", orgId);
       repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
       repaired = setFrontmatterField(repaired, "runAs", "creator");

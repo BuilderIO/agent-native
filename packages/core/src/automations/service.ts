@@ -23,6 +23,7 @@ export type AutomationScope = "personal" | "organization";
 export interface AutomationActor {
   userEmail: string;
   orgId?: string | null;
+  appId?: string | null;
 }
 
 export interface AutomationDefinition {
@@ -87,7 +88,11 @@ function httpError(message: string, statusCode: number): Error {
 function normalizeActor(actor: AutomationActor): AutomationActor {
   const userEmail = actor.userEmail.trim().toLowerCase();
   if (!userEmail) throw httpError("Not authenticated.", 401);
-  return { userEmail, orgId: actor.orgId?.trim() || null };
+  return {
+    userEmail,
+    orgId: actor.orgId?.trim() || null,
+    appId: actor.appId?.trim() || null,
+  };
 }
 
 function automationName(path: string): string {
@@ -151,6 +156,15 @@ function isOrganizationAdmin(membership: OrganizationMembership): boolean {
   return membership.role === "owner" || membership.role === "admin";
 }
 
+function automationBelongsToApp(
+  meta: JobFrontmatter,
+  appId: string | null | undefined,
+): boolean {
+  const ownerAppId = meta.appId?.trim();
+  if (!ownerAppId || !appId?.trim()) return true;
+  return ownerAppId === appId.trim();
+}
+
 async function mutationAccess(
   actorInput: AutomationActor,
   resource: Resource,
@@ -187,7 +201,9 @@ export async function canUpdateAutomationResource(
   resource: Resource,
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
-  return (await mutationAccess(actorInput, resource, meta)).canUpdate;
+  const actor = normalizeActor(actorInput);
+  if (!automationBelongsToApp(meta, actor.appId)) return false;
+  return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
 function assertExplicitAutomation(
@@ -225,6 +241,9 @@ async function readDefinition(
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
   const definition = assertExplicitAutomation(resource);
+  if (!automationBelongsToApp(definition.meta, actor.appId)) {
+    throw httpError(`Automation "${automationName(path)}" not found.`, 404);
+  }
   const access = await mutationAccess(actor, resource, definition.meta);
   return {
     ...definition,
@@ -258,6 +277,7 @@ export async function listAutomationDefinitions(
     if (!resource) continue;
     const parsed = parseJobResource(resource.content);
     if (parsed.classification.kind !== "automation") continue;
+    if (!automationBelongsToApp(parsed.meta, actor.appId)) continue;
     const isCreator =
       parsed.meta.createdBy?.trim().toLowerCase() === actor.userEmail;
     automations.push({
@@ -333,6 +353,7 @@ export async function defineAutomation(
     condition: input.condition?.trim() || undefined,
     mode: "agentic",
     domain: input.domain?.trim() || undefined,
+    appId: actor.appId || undefined,
     delegatedPolicyId: input.delegatedPolicyId?.trim() || undefined,
     createdBy: actor.userEmail,
     orgId: input.scope === "organization" ? actor.orgId! : undefined,

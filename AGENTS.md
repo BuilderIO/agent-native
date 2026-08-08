@@ -24,6 +24,10 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
+- Never use `pnpm patch` or `pnpm patch-commit`, add
+  `pnpm.patchedDependencies`, or commit dependency patch artifacts under
+  `patches/`. Upgrade the dependency or fix app-owned code instead. The
+  `pnpm guards` check enforces this boundary.
 - A `catch`, default, or coercion that returns a value callers cannot
   distinguish from success is a bug, not a guard. "Absent" and "unreadable" must
   be different values; a truncated run is not a completed one; a dropped payload
@@ -69,8 +73,9 @@ Rules here are carried by skills, not by blocking your tools. Two exceptions
 exist, and both are narrow on purpose.
 
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
-Code, and a human equally): `no-secret-literals`, `additive-migrations`,
-`no-silent-coercion`, `no-raw-colors`, alongside the existing 37. The last two
+Code, and a human equally): `no-pnpm-patches`, `no-secret-literals`,
+`additive-migrations`, `no-silent-coercion`, `no-raw-colors`, alongside the
+existing 37. The last two
 check only lines this branch added, so the pre-existing backlog stays a separate
 cleanup. Each has a documented opt-out pragma, and every opt-out is a decision a
 reviewer should see.

@@ -105,6 +105,7 @@ describe("durable BigQuery backfill worker", () => {
 
   it("claims and completes one bounded job batch", async () => {
     vi.stubEnv("ANALYTICS_BIGQUERY_BACKFILL_SWEEP_LIMIT", "1");
+    vi.stubEnv("ANALYTICS_BIGQUERY_BACKFILL_BATCH_SIZE", "750");
     const tx = {
       execute: vi
         .fn()
@@ -160,7 +161,7 @@ describe("durable BigQuery backfill worker", () => {
     expect(mocks.backfill).toHaveBeenCalledWith(
       scope,
       null,
-      250,
+      750,
       job.table_ref,
     );
     expect(mocks.saveBackend).not.toHaveBeenCalled();
@@ -185,7 +186,9 @@ describe("durable BigQuery backfill worker", () => {
     });
     expect(db.execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: expect.stringContaining("ON CONFLICT (id) DO NOTHING"),
+        sql: expect.stringContaining(
+          "ON CONFLICT (id) DO UPDATE SET batch_size",
+        ),
         args: expect.arrayContaining([scope.orgId, scope.userEmail, 750]),
       }),
     );
@@ -234,6 +237,13 @@ describe("durable BigQuery backfill worker", () => {
       status: "pending",
       batchSize: 250,
     });
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining(
+          "ON CONFLICT (id) DO UPDATE SET batch_size",
+        ),
+      }),
+    );
     expect(db.execute).toHaveBeenCalledTimes(2);
   });
 

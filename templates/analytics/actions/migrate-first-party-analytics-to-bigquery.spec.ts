@@ -175,6 +175,35 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
     );
   });
 
+  it("passes an explicit larger batch to an existing migration job", async () => {
+    const legacyCursor = JSON.stringify({
+      receivedAt: "2026-08-07T00:00:00.000Z",
+      id: "evt_last",
+    });
+    mocks.getBackend.mockResolvedValueOnce({
+      sink: "dual",
+      table,
+      backfillCursor: legacyCursor,
+      backfillCompleted: false,
+    });
+    mocks.getJob.mockResolvedValueOnce({
+      status: "pending" as const,
+      table,
+      cursor: legacyCursor,
+    });
+
+    await expect(
+      migrateAction.run({ mode: "prepare", table, limit: 750 }),
+    ).resolves.toMatchObject({ sink: "dual", table });
+
+    expect(mocks.queueJob).toHaveBeenCalledWith(
+      { userEmail: "owner@builder.io", orgId: "org_builder" },
+      table,
+      750,
+      legacyCursor,
+    );
+  });
+
   it("refuses to restart a dual-write migration with rows but no cursor", async () => {
     mocks.getBackend.mockResolvedValueOnce({
       sink: "dual",

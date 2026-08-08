@@ -43,7 +43,7 @@ function scheduleBlocksRepairRetry(attempt = 1): void {
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the analytics db.ts v75-v83 incident this
 // convention was introduced to prevent.
-const runContentMigrations = runMigrations(
+export const runContentMigrations = runMigrations(
   [
     {
       version: 1,
@@ -960,7 +960,7 @@ const runContentMigrations = runMigrations(
   { table: "content_migrations" },
 );
 
-const runContentSourceMigrations = runMigrations(
+export const runContentSourceMigrations = runMigrations(
   [
     {
       version: 1,

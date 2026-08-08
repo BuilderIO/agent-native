@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs assets"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter assets build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter assets build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter assets migrate:production; fi"
 publish = "templates/assets/dist"
 functions = "templates/assets/.netlify/functions-internal"
 
