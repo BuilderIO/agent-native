@@ -13,6 +13,7 @@ import {
   useAgentSettingsTabs,
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
+import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
 import { IconBell } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -136,7 +137,10 @@ export default function Settings() {
       }
     />
   );
-  const agentSettingsTabs = useAgentSettingsTabs({ agentAdditionalContent });
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalContent,
+    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+  });
 
   const extraTabs = useMemo<SettingsTabItem[]>(
     () => [

@@ -3,6 +3,8 @@ export {
   areExtensionSettingsEnabled,
   SettingsPanel,
   useAgentSettingsTabs,
+  type AgentSettingsTabFactory,
+  type AgentSettingsTabFactoryContext,
   type AgentSettingsTabsOptions,
   type SettingsPanelProps,
 } from "./SettingsPanel.js";

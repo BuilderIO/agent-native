@@ -54,6 +54,23 @@ export interface StandardOpenPathResolverOptions {
   fallback?: StandardOpenPathRoute;
 }
 
+const LEGACY_AGENT_RESOURCE_TABS = new Set([
+  "files",
+  "instructions",
+  "agents",
+  "memory",
+  "skills",
+  "learnings",
+]);
+
+const LEGACY_AGENT_SETTINGS_TABS = new Set([
+  "llm",
+  "app-models",
+  "limits",
+  "voice",
+  "background",
+]);
+
 function normalizeLeadingPath(path: string): string {
   const trimmed = path.trim();
   if (!trimmed || trimmed === "/") return "/";
@@ -102,6 +119,30 @@ export function buildSettingsRoute(
     .map((segment) => pathSegment(segment))
     .filter(Boolean);
   return `${path}/${segments.join("/")}`;
+}
+
+export function buildLegacyAgentSettingsRoute(
+  hash?: string | null,
+  search = "",
+): string {
+  const legacyTab = hash?.replace(/^#/, "").toLowerCase() ?? "";
+  const destination = LEGACY_AGENT_RESOURCE_TABS.has(legacyTab)
+    ? buildSettingsRoute(`agent:resources:${legacyTab}`)
+    : legacyTab === "remote-agents"
+      ? buildSettingsRoute("agent:agents")
+      : legacyTab === "connections"
+        ? buildSettingsRoute("connections")
+        : legacyTab === "jobs"
+          ? buildSettingsRoute("agent:automations")
+          : legacyTab === "library"
+            ? buildSettingsRoute("library")
+            : legacyTab === "access"
+              ? buildSettingsRoute("agent")
+              : LEGACY_AGENT_SETTINGS_TABS.has(legacyTab)
+                ? buildSettingsRoute(`agent:${legacyTab}`)
+                : buildSettingsRoute("agent");
+
+  return `${destination}${search}`;
 }
 
 export function buildTeamRoute(

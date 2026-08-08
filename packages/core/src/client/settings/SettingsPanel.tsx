@@ -69,6 +69,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
@@ -2802,7 +2803,19 @@ export interface AgentSettingsTabsOptions {
   extensionTools?: boolean;
   /** Optional page-level settings to show in the Agent section. */
   agentAdditionalContent?: React.ReactNode;
+  /** Optional app-owned tabs that share the Agent settings scope. */
+  agentAdditionalTabFactories?: AgentSettingsTabFactory[];
 }
+
+export interface AgentSettingsTabFactoryContext {
+  scope: "user";
+  canManageOrg?: boolean;
+  scopeControl: React.ReactNode;
+}
+
+export type AgentSettingsTabFactory = (
+  context: AgentSettingsTabFactoryContext,
+) => SettingsTabItem;
 
 export function areExtensionSettingsEnabled(
   options: AgentSettingsTabsOptions = {},
@@ -3626,8 +3639,12 @@ export function useAgentSettingsTabs(
   options: AgentSettingsTabsOptions = {},
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const { data: org } = useOrg();
+  const canManageOrg =
+    !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
   const agentAdditionalContent = options.agentAdditionalContent;
+  const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3637,6 +3654,17 @@ export function useAgentSettingsTabs(
       showDevToggle: canToggle,
     }),
     [canToggle, isDevMode, setDevMode],
+  );
+  const additionalTabs = useMemo(
+    () =>
+      agentAdditionalTabFactories.map((factory) =>
+        factory({
+          scope: "user",
+          canManageOrg,
+          scopeControl: null,
+        }),
+      ),
+    [agentAdditionalTabFactories, canManageOrg],
   );
 
   return useMemo<SettingsTabItem[]>(() => {
@@ -3837,6 +3865,12 @@ export function useAgentSettingsTabs(
         ],
         content: <AgentWorkspaceContent activeTab="agents" overview={null} />,
       },
+      ...additionalTabs,
     ];
-  }, [agentAdditionalContent, baseProps, extensionToolsEnabled]);
+  }, [
+    agentAdditionalContent,
+    additionalTabs,
+    baseProps,
+    extensionToolsEnabled,
+  ]);
 }

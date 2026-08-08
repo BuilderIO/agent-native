@@ -89,7 +89,7 @@ export function Layout({ children }: LayoutProps) {
         ) : (
           <AgentSidebar
             position="right"
-            agentPageHref="/agent"
+            agentPageHref="/settings/agent"
             defaultOpen={false}
             chatViewTransition
             chatViewTransitionHandoff={chatHomeHandoffPending}

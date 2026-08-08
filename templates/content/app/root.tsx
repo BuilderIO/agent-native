@@ -570,7 +570,7 @@ function ContentCommandMenu({
       )}
     >
       <CommandMenu.Group heading={t("root.commandContent")}>
-        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>

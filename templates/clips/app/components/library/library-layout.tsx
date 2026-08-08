@@ -722,7 +722,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           t("navigation.agentSuggestionPricing"),
           t("navigation.agentSuggestionFiller"),
         ]}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
         scope={recordingScope}
         browserTabId={getBrowserTabId()}
       >

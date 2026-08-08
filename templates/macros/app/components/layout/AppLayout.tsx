@@ -62,7 +62,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const isAnalytics = location.pathname === "/analytics";
   const isSettings = location.pathname.startsWith("/settings");
-  const isAgent = location.pathname.startsWith("/agent");
+  const isAgent =
+    location.pathname.startsWith("/settings/agent") ||
+    location.pathname.startsWith("/agent");
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -120,7 +122,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       } else if (cmd.view === "settings") {
         navigate("/settings");
       } else if (cmd.view === "agent") {
-        navigate("/agent");
+        navigate("/settings/agent");
       } else if (cmd.view === "entry") {
         navigate("/");
       }
@@ -144,7 +146,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           t("agent.suggestionMacros"),
           t("agent.suggestionRun"),
         ]}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
       >
         <div className="agent-layout-shell flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}
