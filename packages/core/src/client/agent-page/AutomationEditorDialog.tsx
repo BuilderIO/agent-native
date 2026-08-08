@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import {
   friendlyAutomationScheduleToCron,
   isValidAutomationSchedule,
@@ -27,10 +28,20 @@ import {
   type EmailFilters,
 } from "./AutomationEditorTriggerFields.js";
 import { AutomationScheduleFields } from "./AutomationScheduleFields.js";
+import {
+  automationSharingIsValid,
+  automationSharingRequiresAcknowledgement,
+  automationSharingStateFromSummary,
+  defaultAutomationSharingState,
+  AutomationSharingFields,
+  AutomationSharingSummaryView,
+  type AutomationSharingState,
+} from "./AutomationSharingFields.js";
 import { browserTimezone } from "./TimezoneSelect.js";
 import {
   useAutomationEvents,
   type Automation,
+  type AutomationSharingSubmission,
   type ManageAutomationInput,
 } from "./use-jobs.js";
 
@@ -111,10 +122,17 @@ export function AutomationEditorDialog({
 }: AutomationEditorDialogProps) {
   const t = useT();
   const eventsQuery = useAutomationEvents();
+  const org = useOrg();
+  const orgId = org.data?.orgId ?? null;
+  const orgName = org.data?.orgName ?? null;
+  const isOwner = !automation || automation.capabilities.canManageSharing;
   const defaultSchedule = friendlyAutomationScheduleToCron(
     DEFAULT_FRIENDLY_AUTOMATION_SCHEDULE,
   );
   const [name, setName] = useState("");
+  const [sharing, setSharing] = useState<AutomationSharingState>(
+    defaultAutomationSharingState(),
+  );
   const [trigger, setTrigger] = useState<EditorTrigger>("schedule");
   const [schedule, setSchedule] = useState(defaultSchedule);
   const [timezone, setTimezone] = useState(browserTimezone());
@@ -154,6 +172,11 @@ export function AutomationEditorDialog({
     setBody(automation?.body ?? "");
     setEventPickerOpen(false);
     setSubmitted(false);
+    setSharing(
+      automation
+        ? automationSharingStateFromSummary(automation.sharing)
+        : defaultAutomationSharingState(),
+    );
   }, [automation, defaultSchedule, open, scope]);
 
   const events = eventsQuery.data ?? [];
@@ -163,7 +186,13 @@ export function AutomationEditorDialog({
   const eventInvalid = trigger === "event" && !eventName;
   const scheduleInvalid =
     trigger === "schedule" && !isValidAutomationSchedule(schedule);
-  const invalid = nameInvalid || bodyInvalid || eventInvalid || scheduleInvalid;
+  const sharingInvalid = isOwner && !automationSharingIsValid(sharing, orgId);
+  const invalid =
+    nameInvalid ||
+    bodyInvalid ||
+    eventInvalid ||
+    scheduleInvalid ||
+    sharingInvalid;
 
   const reviewSummary = useMemo(() => {
     switch (trigger) {
@@ -230,22 +259,55 @@ export function AutomationEditorDialog({
     setSubmitted(true);
     if (invalid) return;
 
-    const input: ManageAutomationInput = {
-      operation: automation ? "update" : "create",
-      name: automation?.name ?? name.trim(),
-      scope,
-      triggerType: trigger === "email" ? "event" : trigger,
-      body: body.trim(),
-      ...(trigger === "schedule"
-        ? { schedule, timezone, condition: null }
-        : {}),
-      ...(trigger === "event"
-        ? { event: eventName, condition: eventCondition.trim() || null }
-        : {}),
-      ...(trigger === "email"
-        ? { event: EMAIL_EVENT, condition: emailCondition(emailFilters) }
-        : {}),
-    };
+    const needsAcknowledgement = automationSharingRequiresAcknowledgement(
+      sharing.grants,
+    );
+    const sharingFields = isOwner
+      ? {
+          sharing: sharingSubmission(sharing, orgId),
+          ...(needsAcknowledgement
+            ? {
+                acknowledgeExternalCollaborators:
+                  sharing.acknowledgeExternalCollaborators,
+              }
+            : {}),
+        }
+      : {};
+
+    const input: ManageAutomationInput = automation
+      ? {
+          operation: "update",
+          resourceId: automation.resourceId,
+          triggerType: trigger === "email" ? "event" : trigger,
+          body: body.trim(),
+          ...(trigger === "schedule"
+            ? { schedule, timezone, condition: null }
+            : {}),
+          ...(trigger === "event"
+            ? { event: eventName, condition: eventCondition.trim() || null }
+            : {}),
+          ...(trigger === "email"
+            ? { event: EMAIL_EVENT, condition: emailCondition(emailFilters) }
+            : {}),
+          ...sharingFields,
+        }
+      : {
+          operation: "create",
+          name: name.trim(),
+          scope,
+          triggerType: trigger === "email" ? "event" : trigger,
+          body: body.trim(),
+          ...(trigger === "schedule"
+            ? { schedule, timezone, condition: null }
+            : {}),
+          ...(trigger === "event"
+            ? { event: eventName, condition: eventCondition.trim() || null }
+            : {}),
+          ...(trigger === "email"
+            ? { event: EMAIL_EVENT, condition: emailCondition(emailFilters) }
+            : {}),
+          ...sharingFields,
+        };
     onSave(input);
   }
 
@@ -371,6 +433,19 @@ export function AutomationEditorDialog({
               </p>
             ) : null}
           </div>
+
+          {isOwner ? (
+            <AutomationSharingFields
+              value={sharing}
+              onChange={setSharing}
+              orgId={orgId}
+              orgName={orgName}
+              disabled={saving}
+              submitted={submitted}
+            />
+          ) : automation ? (
+            <AutomationSharingSummaryView sharing={automation.sharing} />
+          ) : null}
 
           <div className="rounded-lg border bg-muted/40 p-3">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

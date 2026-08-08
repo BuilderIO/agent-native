@@ -25,7 +25,6 @@ import {
   prepareResourceCreate,
   prepareResourceDelete,
   prepareResourceUpdate,
-  resourceDeleteWithDb,
   resourceGetByPath,
   resourceList,
   resourcePutWithDb,
@@ -718,6 +717,9 @@ export async function updateAutomation(
     meta.schedule = schedule;
     meta.timezone = timezone;
     meta.event = undefined;
+    // No schedule-valid condition policy exists yet; a condition left over
+    // from a prior event trigger must not silently keep gating schedule runs.
+    meta.condition = undefined;
     meta.nextRun = nextOccurrence(schedule, undefined, timezone).toISOString();
   } else if (triggerType === "event") {
     if (!event) {
@@ -762,6 +764,12 @@ export async function updateAutomation(
     }
   }
   if (input.condition !== undefined) {
+    if (meta.triggerType !== "event") {
+      throw httpError(
+        "Only event-triggered automations support a condition.",
+        400,
+      );
+    }
     meta.condition = input.condition?.trim() || undefined;
   }
   if (input.delegatedPolicyId !== undefined) {
@@ -805,6 +813,8 @@ export async function updateAutomation(
       })
     : undefined;
   let write: TransactionScopedResourceWrite<Resource> = preparedWrite;
+  const updateConflictError = () =>
+    httpError("Automation changed while it was being updated.", 409);
   await runAtomicAutomationMutation(
     async (tx) => {
       const current = await tx.execute({
@@ -814,15 +824,14 @@ export async function updateAutomation(
       if (String(current.rows[0]?.id ?? "") !== definition.resource.id) {
         throw httpError("Automation not found.", 404);
       }
-      write = await resourcePutWithDb(
-        tx,
-        definition.resource.owner,
-        definition.resource.path,
-        content,
-      );
-      if (write.value.id !== definition.resource.id) {
-        throw new Error("Automation resource identity changed during update.");
+      // Same optimistic-concurrency guard as the D1 batch path: the prepared
+      // statement's WHERE clause only matches the row this update read, so a
+      // concurrent writer makes rowsAffected 0 instead of silently upserting.
+      const result = await tx.execute(preparedWrite.statements[0]);
+      if (result.rowsAffected !== 1) {
+        throw updateConflictError();
       }
+      write = preparedWrite;
       if (sharing) {
         await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
       }
@@ -844,8 +853,7 @@ export async function updateAutomation(
           definition.resource.content,
         ],
       },
-      conflictError: () =>
-        httpError("Automation changed while it was being updated.", 409),
+      conflictError: updateConflictError,
     },
   );
   write.notifyAfterCommit();
@@ -897,10 +905,19 @@ export async function deleteAutomation(
     ...preparedWrite.statements,
   ];
   let write: TransactionScopedResourceWrite<boolean> = preparedWrite;
+  const deleteConflictError = () =>
+    httpError("Automation changed while it was being deleted.", 409);
   await runAtomicAutomationMutation(
     async (tx) => {
-      write = await resourceDeleteWithDb(tx, definition.resource.id);
-      if (!write.value) throw httpError("Automation not found.", 404);
+      // Same optimistic-concurrency guard as the D1 batch path: the prepared
+      // statement's WHERE clause only matches the row this delete read, so a
+      // concurrent writer makes rowsAffected 0 instead of silently deleting
+      // whatever now lives at that id.
+      const result = await tx.execute(preparedWrite.statements[0]);
+      if (result.rowsAffected !== 1) {
+        throw deleteConflictError();
+      }
+      write = preparedWrite;
       await deleteAutomationSharingStateWithDb(tx, definition.resource.id);
       await deleteAutomationRunsWithDb(
         tx,
@@ -922,8 +939,7 @@ export async function deleteAutomation(
           definition.resource.content,
         ],
       },
-      conflictError: () =>
-        httpError("Automation changed while it was being deleted.", 409),
+      conflictError: deleteConflictError,
     },
   );
   write.notifyAfterCommit();

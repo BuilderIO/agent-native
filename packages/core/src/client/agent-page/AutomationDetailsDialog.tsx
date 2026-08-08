@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
-import { useAutomationRuns, type JobsScope } from "./use-jobs.js";
+import { useAutomationRuns } from "./use-jobs.js";
 
 export interface AutomationDetailsField {
   label: string;
@@ -18,6 +18,7 @@ export interface AutomationDetailsField {
 
 export interface AutomationDetailsDialogProps {
   open: boolean;
+  resourceId: string;
   name: string;
   triggerSummary: string;
   fields: AutomationDetailsField[];
@@ -25,7 +26,6 @@ export interface AutomationDetailsDialogProps {
   instructions: string;
   mcpTools: string[];
   lastError: string | null;
-  scope: JobsScope;
   formatTimestamp: (value: number) => string;
   onClose: () => void;
 }
@@ -53,12 +53,11 @@ export function AutomationDetailsDialog({
   instructions,
   mcpTools,
   lastError,
-  scope,
   formatTimestamp,
   onClose,
 }: AutomationDetailsDialogProps) {
   const t = useT();
-  const runsQuery = useAutomationRuns(scope, open ? name : null, open);
+  const runsQuery = useAutomationRuns(open ? { resourceId } : null, open);
   const runs = runsQuery.data ?? [];
 
   return (

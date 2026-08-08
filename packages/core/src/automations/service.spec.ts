@@ -198,6 +198,20 @@ deliveryDestination: "channel-1"
 
 Send the notification.`;
 
+const eventAutomationWithCondition = `---
+schedule: ""
+enabled: true
+triggerType: event
+event: mail.received
+condition: only for urgent messages
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+runAs: creator
+---
+
+Send the notification.`;
+
 function batchResults(count: number, successIndex: number, affected = 1) {
   return Array.from({ length: count }, (_, index) => ({
     rows: [],
@@ -716,11 +730,14 @@ describe("automation domain service", () => {
       model: "claude-opus",
       mcpTools: ["mcp__mail__read", "mcp__mail__send"],
     });
-    expect(resourcePutWithDbMock).toHaveBeenCalledWith(
-      expect.objectContaining({ execute: transactionExecuteMock }),
-      orgOwner,
-      "jobs/notify.md",
-      expect.stringContaining("createdBy: alice@example.com"),
+    expect(transactionExecuteMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: "resource-update",
+        args: [
+          "automation-1",
+          expect.stringContaining("createdBy: alice@example.com"),
+        ],
+      }),
     );
 
     await expect(
@@ -729,15 +746,19 @@ describe("automation domain service", () => {
         { resourceId: "automation-1" },
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
-    expect(resourceDeleteWithDbMock).not.toHaveBeenCalled();
+    expect(transactionExecuteMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sql: "resource-delete" }),
+    );
 
     resolveAutomationAccessMock.mockResolvedValue(
       accessible(automationResource, "owner"),
     );
     await deleteAutomation(actor, { resourceId: "automation-1" });
-    expect(resourceDeleteWithDbMock).toHaveBeenCalledWith(
-      expect.objectContaining({ execute: transactionExecuteMock }),
-      "automation-1",
+    expect(transactionExecuteMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: "resource-delete",
+        args: ["automation-1"],
+      }),
     );
     expect(deleteSharingMock).toHaveBeenCalled();
     expect(deleteRunsWithDbMock).toHaveBeenCalledWith(
@@ -745,6 +766,77 @@ describe("automation domain service", () => {
       orgOwner,
       "notify",
     );
+  });
+
+  it("rejects a stale non-D1 update as a 409 conflict without writing sharing", async () => {
+    const automationResource = resource(eventAutomation);
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "owner"),
+    );
+    transactionExecuteMock.mockImplementation(async (statement: any) => {
+      if (statement?.sql === "resource-update") {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ id: "automation-1" }], rowsAffected: 1 };
+    });
+
+    await expect(
+      updateAutomation(actor, { resourceId: "automation-1", enabled: false }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(replaceSharingMock).not.toHaveBeenCalled();
+    expect(resourceNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale non-D1 delete as a 409 conflict without deleting sharing or history", async () => {
+    const automationResource = resource(eventAutomation);
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "owner"),
+    );
+    transactionExecuteMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await expect(
+      deleteAutomation(actor, { resourceId: "automation-1" }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(deleteSharingMock).not.toHaveBeenCalled();
+    expect(deleteRunsWithDbMock).not.toHaveBeenCalled();
+    expect(resourceNotificationMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a leftover event condition when an automation switches to schedule", async () => {
+    const automationResource = resource(eventAutomationWithCondition);
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "owner"),
+    );
+    transactionExecuteMock.mockResolvedValue({
+      rows: [{ id: "automation-1" }],
+      rowsAffected: 1,
+    });
+
+    const updated = await updateAutomation(actor, {
+      resourceId: "automation-1",
+      triggerType: "schedule",
+      schedule: "0 8 * * *",
+    });
+
+    expect(updated.meta.triggerType).toBe("schedule");
+    expect(updated.meta.condition).toBeUndefined();
+  });
+
+  it("rejects an explicit condition for a schedule automation", async () => {
+    const automationResource = resource(eventAutomation);
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "owner"),
+    );
+
+    await expect(
+      updateAutomation(actor, {
+        resourceId: "automation-1",
+        triggerType: "schedule",
+        schedule: "0 8 * * *",
+        condition: "only when urgent",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 
   it("rejects View mutating another creator's automation", async () => {
