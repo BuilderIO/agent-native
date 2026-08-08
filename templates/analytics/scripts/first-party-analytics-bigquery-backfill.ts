@@ -258,6 +258,22 @@ function cursorFromRow(row: unknown, description: string): BackfillCursor {
   return { receivedAt, id };
 }
 
+function assertCheckpointCursor(
+  cursor: unknown,
+  description: string,
+): asserts cursor is BackfillCursor {
+  if (!cursor || typeof cursor !== "object") {
+    throw new Error(`Backfill checkpoint ${description} is not an object`);
+  }
+  const record = cursor as Record<string, unknown>;
+  if (typeof record.receivedAt !== "string" || !record.receivedAt) {
+    throw new Error(`Backfill checkpoint ${description} is missing receivedAt`);
+  }
+  if (typeof record.id !== "string" || !record.id) {
+    throw new Error(`Backfill checkpoint ${description} is missing id`);
+  }
+}
+
 function emptyBranchCheckpoint(): BranchCheckpoint {
   return { cutoff: null, cursor: null, copied: 0, complete: false };
 }
@@ -309,6 +325,12 @@ function assertCheckpointMatches(
       throw new Error(`Backfill checkpoint is missing ${branch} state`);
     if (!Number.isInteger(state.copied) || state.copied < 0) {
       throw new Error(`Backfill checkpoint has an invalid ${branch} count`);
+    }
+    if (state.cutoff) {
+      assertCheckpointCursor(state.cutoff, `${branch} cutoff`);
+    }
+    if (state.cursor) {
+      assertCheckpointCursor(state.cursor, `${branch} cursor`);
     }
     if (state.cursor && !state.cutoff) {
       throw new Error(

@@ -184,6 +184,52 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
     });
   });
 
+  it("rejects a malformed stored cursor before paging", async () => {
+    const store = memoryStore();
+    store.checkpoint = {
+      version: 1,
+      scope,
+      table: null,
+      branches: {
+        org: {
+          cutoff: {
+            receivedAt: "2026-08-08T00:00:00.000Z",
+            id: "cutoff",
+          },
+          cursor: {
+            received_at: "2026-08-07T00:00:00.000Z",
+            id: "event-1",
+          },
+          copied: 0,
+          complete: false,
+        },
+        legacy: {
+          cutoff: null,
+          cursor: null,
+          copied: 0,
+          complete: false,
+        },
+      },
+      updatedAt: "2026-08-08T00:00:00.000Z",
+    } as unknown as DedicatedBackfillCheckpoint;
+    const execute = vi.fn();
+
+    await expect(
+      runDedicatedBackfill(
+        {
+          scope,
+          table: null,
+          batchSize: 2,
+          concurrency: 1,
+          maxBatches: 10,
+          checkpointPath: "/tmp/unused-in-memory-checkpoint.json",
+        },
+        dependencies(execute, vi.fn(), store),
+      ),
+    ).rejects.toThrow("org cursor is missing receivedAt");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("stops at the explicit work budget and can resume later", async () => {
     const execute = vi
       .fn()
