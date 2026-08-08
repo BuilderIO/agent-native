@@ -1,13 +1,20 @@
 import { defineAction } from "@agent-native/core";
-import { accessFilter } from "@agent-native/core/sharing";
-import { and, isNull, sql } from "drizzle-orm";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { asc, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
-  documentDiscoveryFilter,
-  parseDocumentHideFromSearch,
-} from "../server/lib/documents.js";
+  DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
+  DOCUMENT_DISCOVERY_MAX_LIMIT,
+  documentDiscoveryPagination,
+  documentDiscoveryWhere,
+} from "./_document-discovery-query.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -37,17 +44,78 @@ function makeSnippet(content: string, query: string, radius = 120) {
 
 export default defineAction({
   description:
-    "Search documents by title and content. Returns metadata and snippets; use get-document for full content.",
-  schema: z.object({
-    query: z.string().describe("Search text"),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
-  }),
+    "Search one bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.",
+  schema: z
+    .object({
+      query: z.string().trim().min(1).optional().describe("Search text"),
+      exactTitle: z
+        .string()
+        .trim()
+        .min(1)
+        .optional()
+        .describe("Case-sensitive exact document title"),
+      parentId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Exact parent document ID; null selects roots"),
+      spaceId: z.string().min(1).optional().describe("Exact Content space ID"),
+      documentType: z
+        .enum(["page", "database"])
+        .optional()
+        .describe("Only ordinary pages or database pages"),
+      limit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(DOCUMENT_DISCOVERY_MAX_LIMIT)
+        .default(DOCUMENT_DISCOVERY_DEFAULT_LIMIT)
+        .describe("Maximum documents returned in this page"),
+      offset: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .default(0)
+        .describe("Zero-based continuation offset"),
+    })
+    .refine(
+      (args) => args.query !== undefined || args.exactTitle !== undefined,
+      {
+        message: "Provide query or exactTitle.",
+      },
+    ),
   http: { method: "GET" },
+  readOnly: true,
   run: async (args) => {
-    const query = args.query;
-
     const db = getDb();
-    const pattern = `%${escapeLike(query)}%`;
+    const userEmail = getRequestUserEmail();
+    const activeOrgId = getRequestOrgId();
+    const memberships = userEmail
+      ? await listContentOrganizationMemberships(userEmail)
+      : [];
+    const authorizedOrgIds = [
+      ...new Set([
+        ...memberships.map((membership) => membership.orgId),
+        ...(!userEmail && activeOrgId ? [activeOrgId] : []),
+      ]),
+    ];
+    const pattern = args.query ? `%${escapeLike(args.query)}%` : undefined;
+    const where = documentDiscoveryWhere({
+      userEmail,
+      authorizedOrgIds,
+      exactTitle: args.exactTitle,
+      parentId: args.parentId,
+      spaceId: args.spaceId,
+      documentType: args.documentType,
+      additional: pattern
+        ? sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`
+        : undefined,
+    });
+    const [countRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.documents)
+      .where(where);
+    const totalItems = Number(countRow?.count ?? 0);
 
     // Project a bounded preview of `content` instead of the full column:
     // document bodies can be multi-MB, and this action only returns a short
@@ -71,16 +139,10 @@ export default defineAction({
         updatedAt: schema.documents.updatedAt,
       })
       .from(schema.documents)
-      .where(
-        and(
-          accessFilter(schema.documents, schema.documentShares),
-          isNull(schema.documents.trashedAt),
-          documentDiscoveryFilter(),
-          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
-        ),
-      )
-      .orderBy(sql`${schema.documents.updatedAt} DESC`)
-      .limit(args.limit);
+      .where(where)
+      .orderBy(desc(schema.documents.updatedAt), asc(schema.documents.id))
+      .limit(args.limit)
+      .offset(args.offset);
 
     return {
       documents: docs.map((doc) => ({
@@ -89,11 +151,20 @@ export default defineAction({
         title: doc.title,
         description: doc.description,
         icon: doc.icon,
-        snippet: makeSnippet(doc.contentPreview, query),
+        snippet: makeSnippet(
+          doc.contentPreview,
+          args.query ?? args.exactTitle ?? "",
+        ),
         contentLength: Number(doc.contentLength) || 0,
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         updatedAt: doc.updatedAt,
       })),
+      pagination: documentDiscoveryPagination({
+        offset: args.offset,
+        limit: args.limit,
+        totalItems,
+        returnedItems: docs.length,
+      }),
     };
   },
 });

@@ -128,6 +128,16 @@ export interface DocumentMoveRequest {
 
 export interface DocumentListResponse {
   documents: Document[];
+  pagination: DocumentDiscoveryPagination;
+}
+
+export interface DocumentDiscoveryPagination {
+  offset: number;
+  limit: number;
+  totalItems: number;
+  returnedItems: number;
+  hasMore: boolean;
+  nextOffset: number | null;
 }
 
 export interface DocumentTreeNode extends Document {

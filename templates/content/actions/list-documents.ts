@@ -3,22 +3,21 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import {
-  accessFilter,
-  ROLE_RANK,
-  type ShareRole,
-} from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { ROLE_RANK, type ShareRole } from "@agent-native/core/sharing";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  documentDiscoveryFilter,
-  parseDocumentHideFromSearch,
-} from "../server/lib/documents.js";
+import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
+import {
+  DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
+  DOCUMENT_DISCOVERY_MAX_LIMIT,
+  documentDiscoveryPagination,
+  documentDiscoveryWhere,
+} from "./_document-discovery-query.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import { parseDatabaseViewConfig } from "./_property-utils.js";
 
@@ -45,10 +44,41 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 
 export default defineAction({
   description:
-    "List document metadata ordered by position. Does not return full document bodies; use get-document for one document's content.",
-  schema: z.object({}),
+    "List one bounded page of access-scoped document metadata ordered by position. Returns explicit pagination; follow nextOffset until hasMore is false. Does not return full document bodies; use get-document for one document's content.",
+  schema: z.object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(DOCUMENT_DISCOVERY_MAX_LIMIT)
+      .default(DOCUMENT_DISCOVERY_DEFAULT_LIMIT)
+      .describe("Maximum documents returned in this page"),
+    offset: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe("Zero-based continuation offset"),
+    exactTitle: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Case-sensitive exact document title"),
+    parentId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Exact parent document ID; null selects roots"),
+    spaceId: z.string().min(1).optional().describe("Exact Content space ID"),
+    documentType: z
+      .enum(["page", "database"])
+      .optional()
+      .describe("Only ordinary pages or database pages"),
+  }),
   http: { method: "GET" },
-  run: async () => {
+  readOnly: true,
+  run: async (args) => {
     const db = getDb();
     const userEmail = getRequestUserEmail();
     const activeOrgId = getRequestOrgId();
@@ -61,13 +91,19 @@ export default defineAction({
         ...(!userEmail && activeOrgId ? [activeOrgId] : []),
       ]),
     ];
-    const accessContexts = [
-      { userEmail: userEmail ?? undefined },
-      ...authorizedOrgIds.map((orgId) => ({
-        userEmail: userEmail ?? undefined,
-        orgId,
-      })),
-    ];
+    const where = documentDiscoveryWhere({
+      userEmail,
+      authorizedOrgIds,
+      exactTitle: args.exactTitle,
+      parentId: args.parentId,
+      spaceId: args.spaceId,
+      documentType: args.documentType,
+    });
+    const [countRow] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.documents)
+      .where(where);
+    const totalItems = Number(countRow?.count ?? 0);
     // Projection that deliberately avoids pulling the full `content` blob:
     // document bodies can be multi-MB, and the list/tree path only needs a
     // short preview plus the true length. `substr` truncates the transferred
@@ -99,21 +135,10 @@ export default defineAction({
         updatedAt: schema.documents.updatedAt,
       })
       .from(schema.documents)
-      .where(
-        and(
-          or(
-            ...accessContexts.map((context) =>
-              accessFilter(schema.documents, schema.documentShares, context),
-            ),
-          ),
-          isNull(schema.documents.trashedAt),
-          documentDiscoveryFilter({
-            userEmail,
-            orgIds: authorizedOrgIds,
-          }),
-        ),
-      )
-      .orderBy(asc(schema.documents.position));
+      .where(where)
+      .orderBy(asc(schema.documents.position), asc(schema.documents.id))
+      .limit(args.limit)
+      .offset(args.offset);
 
     const shareRoleByDocumentId = new Map<string, ShareRole>();
     const notionPageIdByDocumentId = new Map<string, string>();
@@ -128,7 +153,6 @@ export default defineAction({
         database: typeof schema.contentDatabases.$inferSelect;
       }
     >();
-    const softDeletedDocumentIds = new Set<string>();
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(
           db,
@@ -161,89 +185,75 @@ export default defineAction({
       // These queries all depend only on the initial `documents` id list
       // (already fetched above), not on each other's results, so they run
       // concurrently instead of as sequential round-trips.
-      const [
-        notionLinks,
-        shareRows,
-        databases,
-        databaseMemberships,
-        softDeletedDatabases,
-      ] = await Promise.all([
-        db
-          .select({
-            documentId: schema.documentSyncLinks.documentId,
-            remotePageId: schema.documentSyncLinks.remotePageId,
-          })
-          .from(schema.documentSyncLinks)
-          .where(
-            inArray(schema.documentSyncLinks.documentId, visibleDocumentIds),
-          ),
-        principalClauses.length > 0
-          ? db
-              .select({
-                resourceId: schema.documentShares.resourceId,
-                role: schema.documentShares.role,
-              })
-              .from(schema.documentShares)
-              .where(
-                and(
-                  inArray(schema.documentShares.resourceId, visibleDocumentIds),
-                  or(...principalClauses),
-                ),
-              )
-          : Promise.resolve([] as { resourceId: string; role: ShareRole }[]),
-        db
-          .select()
-          .from(schema.contentDatabases)
-          .where(
-            and(
-              inArray(schema.contentDatabases.documentId, visibleDocumentIds),
-              isNull(schema.contentDatabases.deletedAt),
+      const [notionLinks, shareRows, databases, databaseMemberships] =
+        await Promise.all([
+          db
+            .select({
+              documentId: schema.documentSyncLinks.documentId,
+              remotePageId: schema.documentSyncLinks.remotePageId,
+            })
+            .from(schema.documentSyncLinks)
+            .where(
+              inArray(schema.documentSyncLinks.documentId, visibleDocumentIds),
             ),
-          )
-          .orderBy(
-            sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
-            sql`CASE WHEN ${schema.contentDatabases.systemRole} = 'files' THEN 0 ELSE 1 END`,
-            asc(schema.contentDatabases.id),
-          ),
-        db
-          .select({
-            item: schema.contentDatabaseItems,
-            database: schema.contentDatabases,
-          })
-          .from(schema.contentDatabaseItems)
-          .innerJoin(
-            schema.contentDatabases,
-            eq(
-              schema.contentDatabases.id,
-              schema.contentDatabaseItems.databaseId,
-            ),
-          )
-          .where(
-            and(
-              inArray(
-                schema.contentDatabaseItems.documentId,
-                visibleDocumentIds,
+          principalClauses.length > 0
+            ? db
+                .select({
+                  resourceId: schema.documentShares.resourceId,
+                  role: schema.documentShares.role,
+                })
+                .from(schema.documentShares)
+                .where(
+                  and(
+                    inArray(
+                      schema.documentShares.resourceId,
+                      visibleDocumentIds,
+                    ),
+                    or(...principalClauses),
+                  ),
+                )
+            : Promise.resolve([] as { resourceId: string; role: ShareRole }[]),
+          db
+            .select()
+            .from(schema.contentDatabases)
+            .where(
+              and(
+                inArray(schema.contentDatabases.documentId, visibleDocumentIds),
+                isNull(schema.contentDatabases.deletedAt),
               ),
-              isNull(schema.contentDatabases.deletedAt),
+            )
+            .orderBy(
+              sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
+              sql`CASE WHEN ${schema.contentDatabases.systemRole} = 'files' THEN 0 ELSE 1 END`,
+              asc(schema.contentDatabases.id),
             ),
-          )
-          .orderBy(
-            sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
-            asc(schema.contentDatabases.id),
-          ),
-        db
-          .select({
-            id: schema.contentDatabases.id,
-            documentId: schema.contentDatabases.documentId,
-          })
-          .from(schema.contentDatabases)
-          .where(
-            and(
-              inArray(schema.contentDatabases.documentId, visibleDocumentIds),
-              isNotNull(schema.contentDatabases.deletedAt),
+          db
+            .select({
+              item: schema.contentDatabaseItems,
+              database: schema.contentDatabases,
+            })
+            .from(schema.contentDatabaseItems)
+            .innerJoin(
+              schema.contentDatabases,
+              eq(
+                schema.contentDatabases.id,
+                schema.contentDatabaseItems.databaseId,
+              ),
+            )
+            .where(
+              and(
+                inArray(
+                  schema.contentDatabaseItems.documentId,
+                  visibleDocumentIds,
+                ),
+                isNull(schema.contentDatabases.deletedAt),
+              ),
+            )
+            .orderBy(
+              sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
+              asc(schema.contentDatabases.id),
             ),
-          ),
-      ]);
+        ]);
 
       for (const link of notionLinks) {
         notionPageIdByDocumentId.set(link.documentId, link.remotePageId);
@@ -268,93 +278,74 @@ export default defineAction({
           databaseMembershipByDocumentId.set(row.item.documentId, row);
         }
       }
-
-      for (const database of softDeletedDatabases) {
-        softDeletedDocumentIds.add(database.documentId);
-      }
-
-      if (softDeletedDatabases.length > 0) {
-        const softDeletedItems = await db
-          .select({ documentId: schema.contentDatabaseItems.documentId })
-          .from(schema.contentDatabaseItems)
-          .where(
-            and(
-              inArray(
-                schema.contentDatabaseItems.databaseId,
-                softDeletedDatabases.map((database) => database.id),
-              ),
-              inArray(
-                schema.contentDatabaseItems.documentId,
-                visibleDocumentIds,
-              ),
-            ),
-          );
-        for (const item of softDeletedItems) {
-          softDeletedDocumentIds.add(item.documentId);
-        }
-      }
     }
 
-    const mapped = documents
-      .filter((d) => !softDeletedDocumentIds.has(d.id))
-      .map((d) => {
-        let accessRole: EffectiveRole = "viewer";
-        const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
-        const database = databaseByDocumentId.get(d.id) ?? null;
-        const databaseMembership =
-          databaseMembershipByDocumentId.get(d.id) ?? null;
+    const mapped = documents.map((d) => {
+      let accessRole: EffectiveRole = "viewer";
+      const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
+      const database = databaseByDocumentId.get(d.id) ?? null;
+      const databaseMembership =
+        databaseMembershipByDocumentId.get(d.id) ?? null;
 
-        if (shareRole && ROLE_RANK[shareRole] > ROLE_RANK[accessRole]) {
-          accessRole = shareRole;
-        }
-        if (
-          userEmail &&
-          d.ownerEmail === userEmail &&
-          (!d.orgId || authorizedOrgIds.includes(d.orgId))
-        ) {
-          accessRole = "owner";
-        }
+      if (shareRole && ROLE_RANK[shareRole] > ROLE_RANK[accessRole]) {
+        accessRole = shareRole;
+      }
+      if (
+        userEmail &&
+        d.ownerEmail === userEmail &&
+        (!d.orgId || authorizedOrgIds.includes(d.orgId))
+      ) {
+        accessRole = "owner";
+      }
 
-        return {
-          id: d.id,
-          parentId: d.parentId,
-          title: d.title,
-          description: d.description,
-          contentPreview: contentPreview(d.contentSnippet),
-          contentLength: Number(d.contentLength) || 0,
-          icon: d.icon,
-          position: d.position,
-          isFavorite: favoriteIds.has(d.id),
-          hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
-          notionPageId: notionPageIdByDocumentId.get(d.id) ?? null,
-          notionPageUrl: notionPageIdByDocumentId.has(d.id)
-            ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
-            : null,
-          visibility: d.visibility,
-          source: serializeDocumentSource(d),
-          database: database
-            ? {
-                id: database.id,
-                documentId: database.documentId,
-                title: database.title,
-                systemRole: database.systemRole,
-                description: d.description,
-                viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
-                createdAt: database.createdAt,
-                updatedAt: database.updatedAt,
-              }
-            : undefined,
-          databaseMembership: databaseMembership
-            ? serializeDatabaseMembership(databaseMembership)
-            : undefined,
-          accessRole,
-          canEdit: canEditRole(accessRole),
-          canManage: canManageRole(accessRole),
-          createdAt: d.createdAt,
-          updatedAt: d.updatedAt,
-        };
-      });
+      return {
+        id: d.id,
+        parentId: d.parentId,
+        title: d.title,
+        description: d.description,
+        contentPreview: contentPreview(d.contentSnippet),
+        contentLength: Number(d.contentLength) || 0,
+        icon: d.icon,
+        position: d.position,
+        isFavorite: favoriteIds.has(d.id),
+        hideFromSearch: parseDocumentHideFromSearch(d.hideFromSearch),
+        notionPageId: notionPageIdByDocumentId.get(d.id) ?? null,
+        notionPageUrl: notionPageIdByDocumentId.has(d.id)
+          ? `https://www.notion.so/${notionPageIdByDocumentId.get(d.id)!.replace(/-/g, "")}`
+          : null,
+        visibility: d.visibility,
+        source: serializeDocumentSource(d),
+        database: database
+          ? {
+              id: database.id,
+              documentId: database.documentId,
+              title: database.title,
+              systemRole: database.systemRole,
+              description: d.description,
+              viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
+              createdAt: database.createdAt,
+              updatedAt: database.updatedAt,
+            }
+          : undefined,
+        databaseMembership: databaseMembership
+          ? serializeDatabaseMembership(databaseMembership)
+          : undefined,
+        accessRole,
+        canEdit: canEditRole(accessRole),
+        canManage: canManageRole(accessRole),
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+      };
+    });
 
-    return { documents: mapped };
+    return {
+      documents: mapped,
+      pagination: documentDiscoveryPagination({
+        offset: args.offset,
+        limit: args.limit,
+        totalItems,
+        returnedItems: mapped.length,
+      }),
+    };
   },
 });
