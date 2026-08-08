@@ -34,7 +34,15 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipTrigger: ({ children }: { children: ReactNode }) => children,
 }));
 
-describe("BubbleToolbar link shortcut", () => {
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: { children: ReactNode }) => children,
+  PopoverTrigger: ({ children }: { children: ReactNode }) => children,
+  PopoverContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
+
+describe("BubbleToolbar", () => {
   let editor: Editor | null = null;
   let root: Root | null = null;
   let editorElement: HTMLDivElement | null = null;
@@ -146,5 +154,159 @@ describe("BubbleToolbar link shortcut", () => {
     expect(
       toolbarElement.querySelector('input[aria-label="editor.pasteLink"]'),
     ).not.toBeNull();
+  });
+
+  it("shows the active text style and converts a heading to Text by keyboard", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<h2>Selected heading</h2>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const trigger = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.slash.turnInto: editor.heading2"]',
+    );
+    expect(trigger?.textContent).toContain("H2");
+
+    const textOption = [
+      ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitemradio"]',
+      ),
+    ].find((button) => button.textContent?.includes("editor.slash.text"));
+    act(() => {
+      textOption!.dispatchEvent(
+        new MouseEvent("click", {
+          detail: 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(editor.getHTML()).toContain("<p>Selected heading</p>");
+    expect(editor.getHTML()).not.toContain("<h2>Selected heading</h2>");
+  });
+
+  it.each([5, 6] as const)(
+    "identifies an H%s block and converts it to Text",
+    (level) => {
+      editorElement = document.createElement("div");
+      toolbarElement = document.createElement("div");
+      document.body.append(editorElement, toolbarElement);
+      editor = new Editor({
+        element: editorElement,
+        extensions: [StarterKit],
+        content: `<h${level}>Selected heading</h${level}>`,
+      });
+      editor.commands.setTextSelection({ from: 1, to: 9 });
+
+      root = createRoot(toolbarElement);
+      act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+      const trigger = toolbarElement.querySelector<HTMLButtonElement>(
+        `button[aria-label="editor.slash.turnInto: editor.heading${level}"]`,
+      );
+      expect(trigger?.textContent).toContain(`H${level}`);
+
+      const textOption = [
+        ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+          'button[role="menuitemradio"]',
+        ),
+      ].find((button) => button.textContent?.includes("editor.slash.text"));
+      act(() => textOption!.click());
+
+      expect(editor.getHTML()).toContain("<p>Selected heading</p>");
+      expect(editor.getHTML()).not.toContain(
+        `<h${level}>Selected heading</h${level}>`,
+      );
+    },
+  );
+
+  it("updates the selector when the active block becomes an H5", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Selected heading</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    act(() => editor!.commands.setHeading({ level: 5 }));
+
+    const trigger = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.slash.turnInto: editor.heading5"]',
+    );
+    expect(trigger?.textContent).toContain("H5");
+  });
+
+  it("sets an exact heading level without toggling the current style off", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<h3>Stable heading</h3>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 7 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const headingOption = [
+      ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitemradio"]',
+      ),
+    ].find((button) => button.textContent?.includes("editor.heading3"));
+    expect(headingOption?.getAttribute("aria-checked")).toBe("true");
+    act(() => headingOption!.click());
+
+    expect(editor.getHTML()).toContain("<h3>Stable heading</h3>");
+    expect(editor.getHTML()).not.toContain("<p>Stable heading</p>");
+  });
+
+  it("sets a heading from a pointer click", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Selected paragraph</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const headingOption = [
+      ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitemradio"]',
+      ),
+    ].find((button) => button.textContent?.includes("editor.heading3"));
+    editor.commands.blur();
+    act(() => {
+      headingOption!.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          button: 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(editor.getHTML()).toContain("<h3>Selected paragraph</h3>");
+    expect(editor.getHTML()).not.toContain("<p>Selected paragraph</p>");
   });
 });
