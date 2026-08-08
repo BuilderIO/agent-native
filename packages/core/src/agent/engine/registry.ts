@@ -724,9 +724,21 @@ async function engineCreateConfigForEntry(
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
   preferResolvedCredential = false,
+  apiKeyEnvVar?: string,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
   let matchingApiKey = apiKey;
+  // A declared provenance settles the question without inspecting values: a
+  // credential issued for another provider's env var is never this entry's
+  // key, so drop it on explicit branches too. Value comparison below cannot
+  // cover this — a host-supplied key (plugin `options.apiKey`) matches no
+  // stored secret, so it would otherwise reach whichever provider was picked.
+  if (
+    apiKeyEnvVar !== undefined &&
+    !entry.requiredEnvVars.includes(apiKeyEnvVar)
+  ) {
+    matchingApiKey = undefined;
+  }
   // Automatic engine selection must also select that engine's credential.
   // Callers historically passed one untagged "active" key before the registry
   // chose an engine, which could hand an Anthropic key to an app-default
@@ -869,10 +881,39 @@ export interface ResolveEngineConfig {
     | { name: string; config: Record<string, unknown> };
   /** API key (used as config for the resolved engine) */
   apiKey?: string;
+  /**
+   * Env var name `apiKey` was issued for, when the caller knows it. Declaring
+   * it keeps a provider-specific credential from reaching a different
+   * provider's engine; omit it for opaque keys.
+   */
+  apiKeyEnvVar?: string;
   /** Model override (used as part of engine config) */
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
+}
+
+/**
+ * Engine name a caller explicitly selected, when {@link resolveEngine} will
+ * honor it as a name. Callers resolve the API key before they call
+ * `resolveEngine`, so they need the same answer the registry will reach:
+ * an untagged "active" key resolved against a different provider's setting
+ * would otherwise ride along to whichever engine this names. Returns
+ * `undefined` for an engine instance, which carries its own credential.
+ */
+export function explicitEngineName(
+  engineOption: ResolveEngineConfig["engineOption"],
+): string | undefined {
+  if (!engineOption) return undefined;
+  if (typeof engineOption === "string") return engineOption;
+  if (
+    typeof engineOption === "object" &&
+    !("stream" in engineOption) &&
+    typeof engineOption.name === "string"
+  ) {
+    return engineOption.name;
+  }
+  return undefined;
 }
 
 /**
@@ -931,7 +972,7 @@ export async function getConfiguredEngineNameForRequest(
 export async function resolveEngine(
   config: ResolveEngineConfig,
 ): Promise<AgentEngine> {
-  const { engineOption, apiKey, model: _model, appId } = config;
+  const { engineOption, apiKey, apiKeyEnvVar, model: _model, appId } = config;
 
   // 1. Explicit instance passed directly
   if (
@@ -959,7 +1000,13 @@ export async function resolveEngine(
       );
     assertAgentEnginePackageInstalled(entry);
     return entry.create(
-      await engineCreateConfigForEntry(entry, apiKey, engineConfig),
+      await engineCreateConfigForEntry(
+        entry,
+        apiKey,
+        engineConfig,
+        false,
+        apiKeyEnvVar,
+      ),
     );
   }
 
@@ -971,7 +1018,15 @@ export async function resolveEngine(
         `[agent-engine] Unknown engine: "${engineOption}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
     assertAgentEnginePackageInstalled(entry);
-    return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+    return entry.create(
+      await engineCreateConfigForEntry(
+        entry,
+        apiKey,
+        undefined,
+        false,
+        apiKeyEnvVar,
+      ),
+    );
   }
 
   // 4. Env var — explicit engine name override
@@ -981,7 +1036,13 @@ export async function resolveEngine(
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
       return entry.create(
-        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+        await engineCreateConfigForEntry(
+          entry,
+          apiKey,
+          undefined,
+          true,
+          apiKeyEnvVar,
+        ),
       );
     }
   }
@@ -991,7 +1052,13 @@ export async function resolveEngine(
     const entry = _registry.get(appDefault.engine);
     if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
       return entry.create(
-        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+        await engineCreateConfigForEntry(
+          entry,
+          apiKey,
+          undefined,
+          true,
+          apiKeyEnvVar,
+        ),
       );
     }
   }
@@ -1026,6 +1093,7 @@ export async function resolveEngine(
             storedConfig as Record<string, unknown> | undefined,
           ),
           true,
+          apiKeyEnvVar,
         ),
       );
     }
@@ -1038,6 +1106,7 @@ export async function resolveEngine(
         apiKey,
         undefined,
         true,
+        apiKeyEnvVar,
       ),
     );
   }
@@ -1048,7 +1117,13 @@ export async function resolveEngine(
   const detected = await detectEngineFromEnvForRequest();
   if (detected) {
     return detected.create(
-      await engineCreateConfigForEntry(detected, apiKey, undefined, true),
+      await engineCreateConfigForEntry(
+        detected,
+        apiKey,
+        undefined,
+        true,
+        apiKeyEnvVar,
+      ),
     );
   }
 
@@ -1060,7 +1135,13 @@ export async function resolveEngine(
     );
   }
   return anthropicEntry.create(
-    await engineCreateConfigForEntry(anthropicEntry, apiKey, undefined, true),
+    await engineCreateConfigForEntry(
+      anthropicEntry,
+      apiKey,
+      undefined,
+      true,
+      apiKeyEnvVar,
+    ),
   );
 }
 

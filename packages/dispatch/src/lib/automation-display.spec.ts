@@ -7,6 +7,7 @@ import {
   automationStatus,
   automationTarget,
   automationTroubleshootPath,
+  belongsToDispatch,
   sortAutomations,
 } from "./automation-display.js";
 import type { DispatchAutomationItem } from "./automations.js";
@@ -32,6 +33,12 @@ describe("automation-display", () => {
     expect(
       automationTroubleshootPath({ name: "coach onboarding reminder" }),
     ).toBe("/admin/thread-debug?query=coach+onboarding+reminder");
+  });
+
+  it("keeps Dispatch-owned and legacy automations in the default view", () => {
+    expect(belongsToDispatch({})).toBe(true);
+    expect(belongsToDispatch({ appId: "dispatch" })).toBe(true);
+    expect(belongsToDispatch({ appId: "mail" })).toBe(false);
   });
 
   it("prefers event names, then schedule descriptions", () => {

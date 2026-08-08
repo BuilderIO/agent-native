@@ -13,6 +13,7 @@ import {
   ReconnectStreamMessage,
   ToolCallDisplay,
   ToolCallFallback,
+  ToolCallStackMotion,
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
   formatWorkedDuration,
   ReasoningCell,
@@ -343,6 +344,36 @@ describe("ToolCallDisplay native renderers", () => {
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBe("true");
     expect(row?.className).toContain("agent-tool-call--entering");
+  });
+
+  it("replays the entry when an existing row becomes the active tail", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          isRunning={false}
+          isActiveTail={false}
+        />,
+      );
+    });
+    expect(
+      container.querySelector(".agent-tool-call")?.className,
+    ).not.toContain("agent-tool-call--entering");
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          isRunning={false}
+          isActiveTail={true}
+        />,
+      );
+    });
+    expect(container.querySelector(".agent-tool-call")?.className).toContain(
+      "agent-tool-call--entering",
+    );
   });
 
   it("shimmers only the newest running reconnect tool", () => {
@@ -798,7 +829,8 @@ describe("ToolCallDisplay native renderers", () => {
         "Still working. Large updates can take a minute or two.",
       );
       expect(
-        container.querySelector(".agent-tool-call > div:last-child")?.className,
+        container.querySelector(".agent-tool-call > div > div:last-child")
+          ?.className,
       ).toContain("pb-2");
 
       act(() => {
@@ -1867,6 +1899,182 @@ describe("RanToolsSummary", () => {
     });
 
     expect(container.textContent).toContain("Older tool call");
+  });
+
+  it("keeps the summary label in place when its count changes", () => {
+    const render = (toolCount: number) => (
+      <RanToolsSummary toolCount={toolCount}>
+        <div>Older tool call</div>
+      </RanToolsSummary>
+    );
+
+    act(() => root.render(render(1)));
+    const initialLabel = container.querySelector(".agent-tool-summary__label");
+    expect(initialLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(1)));
+    expect(container.querySelector(".agent-tool-summary__label")).toBe(
+      initialLabel,
+    );
+    expect(initialLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(2)));
+    const changedLabel = container.querySelector(".agent-tool-summary__label");
+    expect(changedLabel).toBe(initialLabel);
+    expect(changedLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(2)));
+    expect(container.querySelector(".agent-tool-summary__label")).toBe(
+      changedLabel,
+    );
+  });
+});
+
+describe("ToolCallStackMotion", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let originalRect: PropertyDescriptor | undefined;
+  let originalAnimate: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    originalRect = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "getBoundingClientRect",
+    );
+    originalAnimate = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "animate",
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    if (originalRect) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+        originalRect,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "getBoundingClientRect");
+    }
+    if (originalAnimate) {
+      Object.defineProperty(HTMLElement.prototype, "animate", originalAnimate);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "animate");
+    }
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("moves retained rows and sends the oldest row into the summary", () => {
+    const layout = new Map<string, number>([
+      ["tool-a", 0],
+      ["tool-b", 24],
+      ["tool-c", 48],
+    ]);
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        const key =
+          this.dataset.agentToolCallId ??
+          (this.dataset.agentToolSummary
+            ? `summary:${this.dataset.agentToolSummary}`
+            : "");
+        const top = layout.get(key) ?? 0;
+        return {
+          top,
+          left: 0,
+          width: 240,
+          height: 24,
+          bottom: top + 24,
+          right: 240,
+          x: 0,
+          y: top,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    });
+    const animations: Array<{
+      element: HTMLElement;
+      keyframes: Keyframe[];
+      animation: {
+        cancel: () => void;
+        oncancel: (() => void) | null;
+        onfinish: (() => void) | null;
+      };
+    }> = [];
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value(this: HTMLElement, keyframes: Keyframe[]) {
+        const animation = {
+          cancel: vi.fn(),
+          oncancel: null,
+          onfinish: null,
+        };
+        animations.push({ element: this, keyframes, animation });
+        return animation as unknown as Animation;
+      },
+    });
+
+    const render = (ids: string[], includeSummary = false) => (
+      <ToolCallStackMotion>
+        {includeSummary && (
+          <div data-agent-tool-summary="summary">Ran 1 tool</div>
+        )}
+        {ids.map((id) => (
+          <div key={id} data-agent-tool-call-id={id}>
+            {id}
+          </div>
+        ))}
+      </ToolCallStackMotion>
+    );
+
+    act(() => root.render(render(["tool-a", "tool-b", "tool-c"])));
+
+    layout.set("summary:summary", 0);
+    layout.set("tool-b", 48);
+    layout.set("tool-c", 72);
+    layout.set("tool-d", 96);
+    act(() => root.render(render(["tool-b", "tool-c", "tool-d"], true)));
+
+    const retainedRowAnimation = animations.find(
+      ({ element }) => element.dataset.agentToolCallId === "tool-b",
+    );
+    expect(retainedRowAnimation?.keyframes[0]?.transform).toBe(
+      "translate3d(0px, -24px, 0)",
+    );
+    expect(retainedRowAnimation?.keyframes[1]?.transform).toBe(
+      "translate3d(0, 0, 0)",
+    );
+    expect(
+      container.querySelector('[data-agent-tool-call-id="tool-d"]')?.classList,
+    ).toContain("agent-tool-call--stack-entering");
+    expect(
+      container.querySelector("[data-agent-tool-summary]")?.classList,
+    ).not.toContain("agent-tool-summary--entering");
+    expect(
+      animations.some(
+        ({ element }) => element.dataset.agentToolSummary !== undefined,
+      ),
+    ).toBe(false);
+    expect(
+      document.querySelector(".agent-tool-call-stack__exit"),
+    ).not.toBeNull();
+
+    const exitAnimation = animations.find(({ element }) =>
+      element.classList.contains("agent-tool-call-stack__exit"),
+    );
+    expect(exitAnimation).toBeDefined();
+    exitAnimation?.animation.onfinish?.();
+    expect(document.querySelector(".agent-tool-call-stack__exit")).toBeNull();
   });
 });
 

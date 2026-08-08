@@ -59,6 +59,14 @@ function run(args: Record<string, unknown>): Promise<string> {
   return tools["manage-jobs"].run(args as any, {} as any) as Promise<string>;
 }
 
+function runForApp(
+  appId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const tools = createJobTools(appId);
+  return tools["manage-jobs"].run(args as any, {} as any) as Promise<string>;
+}
+
 function sharedJobContent(opts: {
   createdBy?: string;
   orgId?: string;
@@ -153,6 +161,18 @@ describe("manage-jobs tool", () => {
       // Default runAs is "creator" unless explicitly "shared".
       expect(meta.runAs).toBe("creator");
       expect(meta.nextRun).toBeTruthy();
+    });
+
+    it("binds an app-owned job to the app that created it", async () => {
+      await runForApp("calendar", {
+        action: "create",
+        name: "calendar-digest",
+        schedule: "0 9 * * *",
+        instructions: "Summarize the calendar.",
+      });
+
+      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      expect(meta.appId).toBe("calendar");
     });
 
     it("creates a personal job owned by the caller", async () => {
@@ -260,6 +280,29 @@ describe("manage-jobs tool", () => {
   });
 
   describe("update authorization (shared-job privilege escalation guard)", () => {
+    it("blocks a different app from mutating an app-owned job", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }).replace(
+          "enabled: true",
+          "enabled: true\nappId: calendar",
+        ),
+      });
+
+      const out = JSON.parse(
+        await runForApp("factory", {
+          action: "update",
+          name: "j",
+          instructions: "evil",
+        }),
+      );
+
+      expect(out.error).toMatch(/belongs to another app/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
     it("lets the original creator update their shared job", async () => {
       resourceGetByPathMock.mockResolvedValueOnce({
         id: "r1",
@@ -420,6 +463,25 @@ describe("manage-jobs tool", () => {
   });
 
   describe("delete", () => {
+    it("blocks a different app from deleting an app-owned job", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }).replace(
+          "enabled: true",
+          "enabled: true\nappId: calendar",
+        ),
+      });
+
+      const out = JSON.parse(
+        await runForApp("factory", { action: "delete", name: "j" }),
+      );
+
+      expect(out.error).toMatch(/belongs to another app/);
+      expect(resourceDeleteMock).not.toHaveBeenCalled();
+    });
+
     it("deletes a shared job by its creator", async () => {
       resourceGetByPathMock.mockResolvedValueOnce({
         id: "r1",
@@ -474,6 +536,28 @@ describe("manage-jobs tool", () => {
   });
 
   describe("list", () => {
+    it("does not list jobs owned by another app", async () => {
+      resourceListMock.mockResolvedValueOnce([]);
+      resourceListMock.mockResolvedValueOnce([
+        { owner: SHARED_OWNER, path: "jobs/calendar.md" },
+        { owner: SHARED_OWNER, path: "jobs/factory.md" },
+      ]);
+      resourceGetByPathMock.mockImplementation(
+        async (_owner: string, path: string) => ({
+          content: sharedJobContent({ createdBy: "alice@example.com" }).replace(
+            "enabled: true",
+            `enabled: true\nappId: ${path.includes("calendar") ? "calendar" : "factory"}`,
+          ),
+        }),
+      );
+
+      const jobs = JSON.parse(
+        await runForApp("factory", { action: "list", scope: "shared" }),
+      );
+
+      expect(jobs.map((job: any) => job.name)).toEqual(["factory"]);
+    });
+
     it("merges the caller's personal and shared jobs (org isolation: no other users')", async () => {
       // resourceList is called for the caller and active org partition.
       resourceListMock.mockImplementation(async (owner: string) => {

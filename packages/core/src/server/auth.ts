@@ -128,9 +128,11 @@ import {
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
+  createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
   getBetterAuth,
   getBetterAuthSync,
+  isDeployPreview,
 } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
@@ -172,6 +174,7 @@ import {
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getOnboardingHtml,
@@ -179,6 +182,12 @@ import {
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
 import { captureAuthError } from "./sentry.js";
+import {
+  forgetCachedSessionEmail,
+  getCachedSessionEmail,
+  invalidateSessionEmailCache,
+  setCachedSessionEmail,
+} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
@@ -467,6 +476,14 @@ async function getLegacyCookieSession(
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
     const email = await getSessionEmail(value);
     if (email) {
+      try {
+        await ensureCanonicalUserForLegacySession(email);
+      } catch (error) {
+        console.warn(
+          "[auth] legacy session canonical-user backfill failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
       return { email, token: value };
     }
@@ -1064,6 +1081,9 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
+  // The upsert can REBIND an existing token to a different email, so a cached
+  // resolution for it is now wrong.
+  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1090,13 +1110,20 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
+  // Sign-out must take effect immediately, not after the cache TTL.
+  invalidateSessionEmailCache();
 }
 
 /**
  * Look up the email associated with a legacy session token.
  * Returns null if the session doesn't exist, is expired, or has no email.
+ *
+ * Resolutions are cached across requests — see `session-email-cache.ts` for the
+ * TTL and the only-cache-successes rule.
  */
 export async function getSessionEmail(token: string): Promise<string | null> {
+  const cached = getCachedSessionEmail(token);
+  if (cached !== undefined) return cached;
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1112,9 +1139,12 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
+    forgetCachedSessionEmail(token);
     return null;
   }
-  return (rows[0].email as string) ?? null;
+  const email = (rows[0].email as string) ?? null;
+  if (email) setCachedSessionEmail(token, email);
+  return email;
 }
 
 // ---------------------------------------------------------------------------
@@ -1380,6 +1410,7 @@ async function consumeDesktopExchangeFromDB(
       sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
+    forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
@@ -2224,6 +2255,102 @@ async function createAutoDevAccountForSession(
 
   const result = await creationPromise;
   return result?.password ?? null;
+}
+
+function isHostedPreviewRequest(event: H3Event): boolean {
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return (
+    host.endsWith(".agent-native.com") ||
+    host.endsWith(".builderio.xyz") ||
+    host.endsWith(".builderio.dev") ||
+    host.endsWith(".builder.codes") ||
+    host.endsWith(".builder.my") ||
+    host.includes("deploy-preview")
+  );
+}
+
+export function isLocalDevAuthAllowed(event: H3Event): boolean {
+  const deployPreview =
+    typeof isDeployPreview === "function" && isDeployPreview();
+  return (
+    isDevEnvironment() &&
+    !deployPreview &&
+    !isAuthDisabled() &&
+    process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
+    !isHostedPreviewRequest(event) &&
+    isLoopbackRequest(event)
+  );
+}
+
+async function createOrReuseAutoDevSession(
+  auth: NonNullable<Awaited<ReturnType<typeof getBetterAuth>>>,
+  config?: BetterAuthConfig,
+): Promise<{ email: string; token: string } | null> {
+  let session = await createBetterAuthSessionForEmail(
+    AUTO_DEV_ACCOUNT_EMAIL,
+    config,
+  );
+  if (!session) {
+    session = await createBetterAuthSessionForEmail(
+      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      config,
+    );
+  }
+  if (session) return { email: session.email, token: session.token };
+
+  const db = getDbExec();
+  const { rows: realUsers } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  if (realUsers.length > 0) return null;
+
+  const devPassword = await createAutoDevAccountForSession(auth, db);
+  if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
+
+  session = await createBetterAuthSessionForEmail(
+    AUTO_DEV_ACCOUNT_EMAIL,
+    config,
+  );
+  if (!session) {
+    session = await createBetterAuthSessionForEmail(
+      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      config,
+    );
+  }
+  return session ? { email: session.email, token: session.token } : null;
+}
+
+function createLocalDevAuthHandler(config?: BetterAuthConfig) {
+  return defineEventHandler(async (event) => {
+    if (getMethod(event) !== "POST") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    // This exact route is also allowed through createAuthGuardFn's public auth
+    // route branch. The state-changing handler still owns the full local gate.
+    if (!isLocalDevAuthAllowed(event)) {
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }
+
+    try {
+      const auth = await getBetterAuth(config);
+      const session = await createOrReuseAutoDevSession(auth, config);
+      if (!session) {
+        setResponseStatus(event, 404);
+        return { error: "Local development sign-in is unavailable" };
+      }
+      setFrameworkSessionCookie(event, session.token);
+      await addSession(session.token, session.email);
+      return authLoginResponse(event, session.token, session.email);
+    } catch {
+      // The local convenience must fail closed without exposing adapter or
+      // generated credential details to the browser or terminal.
+      setResponseStatus(event, 503);
+      return { error: "Local development sign-in is unavailable" };
+    }
+  });
 }
 
 /**
@@ -3176,6 +3303,11 @@ async function mountBetterAuthRoutes(
       ? await getAuthLoginMode()
       : ("password" as const);
 
+  app.use(
+    "/_agent-native/auth/local-dev",
+    createLocalDevAuthHandler(betterAuthConfig),
+  );
+
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
   app.use(
     "/_agent-native/auth/ba",
@@ -3409,6 +3541,9 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
+              // Deleted by email, so the removed tokens are unknown here — the
+              // whole cache goes.
+              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -3677,6 +3812,7 @@ async function mountBetterAuthRoutes(
         } catch {
           // Best-effort.
         }
+        invalidateSessionEmailCache();
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
@@ -3771,6 +3907,11 @@ async function mountBetterAuthRoutes(
 // ---------------------------------------------------------------------------
 
 function mountAuthFallbackRoutes(app: H3App): void {
+  // Keep the local-dev action available when Better Auth initialization failed
+  // during boot. The handler retries Better Auth lazily and preserves the same
+  // production, preview, and loopback gates as the normal route set.
+  app.use("/_agent-native/auth/local-dev", createLocalDevAuthHandler());
+
   app.use(
     "/_agent-native/auth/login",
     defineEventHandler(async (event) => {

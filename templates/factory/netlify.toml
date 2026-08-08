@@ -1,5 +1,5 @@
 [build]
-command = "NITRO_PRESET=netlify pnpm --filter factory build"
+command = "NITRO_PRESET=netlify pnpm --filter factory build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter factory migrate:production; fi"
 publish = "dist"
 functions = ".netlify/functions-internal"
 

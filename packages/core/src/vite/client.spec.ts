@@ -734,6 +734,25 @@ describe("route warmup config", () => {
     }
   });
 
+  it("embeds release migration ownership into the server bundle", () => {
+    const previous = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = " 1 ";
+
+    try {
+      const config = defineConfig();
+
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"],
+      ).toBe(JSON.stringify("1"));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+      } else {
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = previous;
+      }
+    }
+  });
+
   it("exposes the build-time GTM container id for SSR bundles", () => {
     const previous = process.env.GTM_CONTAINER_ID;
     process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";
@@ -876,6 +895,129 @@ describe("agent-native app config", () => {
     }
   });
 
+  it("prefers agent-native.config.ts when both typed filename aliases exist", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-primary-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.ts"),
+      `export default {
+  onboarding: { firstRun: "connect" },
+};\n`,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.config.ts"),
+      `export default {
+  onboarding: { firstRun: "off" },
+};\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        onboarding: { firstRun: "off" },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads agent-native.ts and deep-merges it with JSON defaults", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-bare-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        version: 1,
+        runtime: {
+          auth: { enabled: true },
+          environment: { required: ["NOTION_API_KEY"] },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.ts"),
+      `export default ({ isBuild }) => ({
+  runtime: {
+    database: { required: isBuild },
+    environment: { required: ["GOOGLE_CLIENT_ID"] },
+  },
+});\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toEqual({
+        version: 1,
+        runtime: {
+          auth: { enabled: true },
+          database: { required: false },
+          environment: {
+            required: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"],
+          },
+        },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses Vite production env files for build diagnostics", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-env-config-"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        runtime: {
+          auth: { enabled: false },
+          database: { required: false },
+          environment: { required: ["NOTION_API_KEY"] },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, ".env.production"),
+      "NOTION_API_KEY=local-test\n",
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      await configPlugin.config({}, { command: "build", mode: "production" });
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("loads agent-native.json defaults from the app root", async () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-json-config-"));
@@ -995,6 +1137,33 @@ describe("agentNative Vite plugin preset", () => {
     expect(pluginNames).toContain("agent-native-agents-bundle");
     expect(pluginNames).toContain("agent-native-auto-reload-optimize-dep");
     expect(pluginNames).toContain("agent-native-port-exposer");
+  });
+
+  it("does not start Nitro during React Router's build-time preview", () => {
+    const previous = process.env.IS_RR_BUILD_REQUEST;
+    const nitroPreview = flatPlugins(agentNative()).find(
+      (plugin) => plugin?.name === "nitro:preview",
+    );
+    expect(nitroPreview).toBeDefined();
+
+    try {
+      process.env.IS_RR_BUILD_REQUEST = "yes";
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: true, mode: "production" },
+        ),
+      ).toBe(false);
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: false, mode: "development" },
+        ),
+      ).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.IS_RR_BUILD_REQUEST;
+      else process.env.IS_RR_BUILD_REQUEST = previous;
+    }
   });
 
   it("applies framework defaults without clobbering ordinary Vite config", async () => {

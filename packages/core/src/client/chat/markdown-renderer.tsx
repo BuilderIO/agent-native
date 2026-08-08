@@ -392,6 +392,47 @@ function sliceGraphemes(
   return graphemes.slice(0, count).join("");
 }
 
+type SmoothStreamingTextCacheEntry = {
+  targetText: string;
+  visibleText: string;
+};
+
+// Grouped message parts are rebuilt as tool calls arrive. A text part can
+// therefore be unmounted and mounted again even though its identity did not
+// change. Keep the reveal cursor outside that subtree so a structural update
+// continues from the current cursor instead of replaying the opening sentence.
+const smoothStreamingTextCache = new Map<
+  string,
+  SmoothStreamingTextCacheEntry
+>();
+
+function cachedStreamingText(
+  resetKey: string,
+  targetText: string,
+): string | undefined {
+  const cached = smoothStreamingTextCache.get(resetKey);
+  if (!cached) return undefined;
+  if (
+    !targetText.startsWith(cached.targetText) ||
+    !targetText.startsWith(cached.visibleText)
+  ) {
+    return undefined;
+  }
+  return cached.visibleText;
+}
+
+function rememberStreamingText(
+  resetKey: string,
+  targetText: string,
+  visibleText: string,
+): void {
+  smoothStreamingTextCache.delete(resetKey);
+  smoothStreamingTextCache.set(resetKey, { targetText, visibleText });
+  if (smoothStreamingTextCache.size <= 128) return;
+  const oldestKey = smoothStreamingTextCache.keys().next().value;
+  if (oldestKey !== undefined) smoothStreamingTextCache.delete(oldestKey);
+}
+
 export function useSmoothStreamingText(
   targetText: string,
   streaming: boolean,
@@ -400,6 +441,8 @@ export function useSmoothStreamingText(
   const prefersReducedMotion = usePrefersReducedMotion();
   const [visibleText, setVisibleText] = useState(() => {
     if (!streaming || prefersReducedMotion) return targetText;
+    const cachedText = cachedStreamingText(resetKey, targetText);
+    if (cachedText !== undefined) return cachedText;
     const graphemes = splitStreamingTextGraphemes(targetText);
     return sliceGraphemes(
       targetText,
@@ -417,7 +460,14 @@ export function useSmoothStreamingText(
   const lastCommitAtRef = useRef(0);
   const pauseUntilRef = useRef(0);
   const resetKeyRef = useRef(resetKey);
+  const cacheKeyRef = useRef(resetKey);
+  const cacheStreamingRef = useRef(streaming);
+  const cacheReducedMotionRef = useRef(prefersReducedMotion);
   const stepRef = useRef<(time: number) => void>(() => {});
+
+  cacheKeyRef.current = resetKey;
+  cacheStreamingRef.current = streaming;
+  cacheReducedMotionRef.current = prefersReducedMotion;
 
   const commitVisibleCount = useCallback((nextCount: number) => {
     const graphemes = targetGraphemesRef.current;
@@ -431,6 +481,13 @@ export function useSmoothStreamingText(
     if (visibleTextRef.current !== nextText) {
       visibleTextRef.current = nextText;
       setVisibleText(nextText);
+    }
+    if (cacheStreamingRef.current && !cacheReducedMotionRef.current) {
+      rememberStreamingText(
+        cacheKeyRef.current,
+        targetTextRef.current,
+        nextText,
+      );
     }
   }, []);
 
@@ -550,6 +607,11 @@ export function useSmoothStreamingText(
     scheduleFrame,
   ]);
 
+  useEffect(() => {
+    if (!streaming || prefersReducedMotion) return;
+    rememberStreamingText(resetKey, targetText, visibleText);
+  }, [prefersReducedMotion, resetKey, streaming, targetText, visibleText]);
+
   // When the tab returns from background, rAF has been paused and the backlog
   // may be tens of thousands of characters. Animating from where we left off
   // would replay minutes of content at the normal rate — instead jump the
@@ -625,17 +687,24 @@ export function SmoothMarkdownText({
   streaming,
   resetKey,
   statusType = "complete",
+  onRevealComplete,
 }: {
   text: string;
   streaming: boolean;
   resetKey: string;
   statusType?: string;
+  onRevealComplete?: () => void;
 }) {
   const mdReady = useMarkdownReady();
   const visibleText = useSmoothStreamingText(text, streaming, resetKey);
   const isVisuallyStreaming = streaming && visibleText !== text;
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
+
+  useEffect(() => {
+    if (!onRevealComplete || !streaming || visibleText !== text) return;
+    onRevealComplete();
+  }, [onRevealComplete, streaming, text, visibleText]);
 
   // Block-memoized rendering: during streaming split the visible text into
   // stable completed blocks + an in-progress tail.  Only the tail re-renders
@@ -709,7 +778,7 @@ export function MarkdownText() {
     <SmoothMarkdownText
       text={localizeKnownChatErrorText(textPart.text, t)}
       streaming={textStreaming && isLastAssistantMessage}
-      resetKey={`${message.id}:${statusType}`}
+      resetKey={message.id}
       statusType={statusType}
     />
   );

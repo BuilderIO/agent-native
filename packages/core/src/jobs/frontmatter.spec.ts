@@ -17,6 +17,7 @@ describe("job resource frontmatter", () => {
       condition: 'attendee says "yes"\nwith context',
       mode: "agentic",
       domain: "calendar",
+      appId: "calendar",
       delegatedPolicyId: "calendar-safe:v1",
       createdBy: "alice@example.com",
       orgId: "org-1",

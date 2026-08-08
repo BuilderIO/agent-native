@@ -53,6 +53,14 @@ Call the action with the destination so Assets can ground the generation:
 generate-image-api { prompt, deckId, slideId, slideContent }
 ```
 
+For direct insertion, add `insertIntoSlide: true`. This requires both IDs and
+only returns `inserted: true` after Slides writes the transformed HTML through
+`update-slide` and re-reads it through `get-deck` to find the image source.
+Never say the image was added based on `url`, `previewUrl`, or a completed
+Assets reply alone. For preview-only variations, leave `insertIntoSlide` false;
+after choosing one, use `update-slide` and verify the persisted source with
+`get-deck` before claiming insertion.
+
 Do **not** reach for the generic `call-agent` tool to ask Assets for an image.
 It talks to the same app, so it looks equivalent, but it skips the slide
 grounding, the completed-vs-failed task handling, and the ready-to-render
@@ -65,7 +73,8 @@ generation settings, and provenance. Include the active design system's
 image-style guidance in the prompt context, but do not ask Assets to invent a
 competing brand direction.
 
-Drop the returned `previewUrl` into the slide HTML's `<img src="...">`.
+Use the returned `previewUrl` for previews. Do not drop it into slide HTML
+without the verified insertion workflow above.
 
 ## Showing the result in chat
 

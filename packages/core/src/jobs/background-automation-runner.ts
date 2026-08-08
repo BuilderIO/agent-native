@@ -52,7 +52,7 @@ export interface BackgroundAutomationContext {
 export interface BackgroundAutomationDeps {
   getActions: (
     automation?: BackgroundAutomationContext,
-  ) => Record<string, ActionEntry>;
+  ) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   getSystemPrompt: (owner: string) => Promise<string>;
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
@@ -277,6 +277,7 @@ export async function runBackgroundAutomation(
         path: automation.resource.path,
         scope: options.orgId ? "organization" : "personal",
         orgId: options.orgId ?? null,
+        appId: deps.appId,
       });
     } catch (err) {
       console.error(
@@ -356,7 +357,7 @@ async function executeBackgroundAutomation(
       orgId,
     },
     async () => {
-      const baseActions = deps.getActions(automation);
+      const baseActions = await deps.getActions(automation);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
       const configuredInitialTools = deps.getInitialToolNames?.(automation);
@@ -459,6 +460,7 @@ async function executeBackgroundAutomation(
                 threadId: thread.id,
                 ownerEmail,
                 orgId,
+                appId: deps.appId,
                 actionCaller: options.actionCaller,
                 automation: options.actionAutomation,
                 runId,

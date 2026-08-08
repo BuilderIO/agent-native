@@ -80,7 +80,7 @@ export default defineAction({
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     const definitions = await listAutomationDefinitions(
-      { userEmail, orgId: ctx?.orgId },
+      { userEmail, orgId: ctx?.orgId, appId: ctx?.appId },
       scope as AutomationScope,
     );
     return definitions.map(({ resource, name, meta, body, canUpdate }) => ({

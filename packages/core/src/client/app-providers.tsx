@@ -64,6 +64,7 @@ import {
 import { RequireSession } from "./require-session.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
 import { RouteTransitionIndicator } from "./RouteTransitionIndicator.js";
+import { RuntimeConfigNotice } from "./RuntimeConfigNotice.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -187,6 +188,7 @@ function ProvidersInner({
       >
         <TooltipProvider delayDuration={tooltipDelayDuration}>
           {localizedChildren}
+          <RuntimeConfigNotice />
           <RoutedAppEnhancements />
           {toaster}
         </TooltipProvider>

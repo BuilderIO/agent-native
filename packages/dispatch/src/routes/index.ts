@@ -38,8 +38,6 @@ export const dispatchRoutes: RouteConfig = [
   route("overview", "./pages/overview.js"),
   route("admin", "./pages/admin.js", [
     index("./pages/admin._index.js"),
-    route("apps", "./pages/apps.js"),
-    route("apps/:appId", "./pages/apps.$appId.js"),
     route("new-app", "./pages/new-app.js"),
     route("operations", "./pages/operations.js"),
     route("metrics", "./pages/metrics.js"),

@@ -40,6 +40,12 @@ function getSharedOwner(): string {
   return sharedResourceOwner(getRequestOrgId());
 }
 
+export function jobBelongsToApp(meta: JobFrontmatter, appId?: string): boolean {
+  const ownerAppId = meta.appId?.trim();
+  if (!ownerAppId) return true;
+  return ownerAppId === appId?.trim();
+}
+
 /**
  * Determine if the current request's user is an org owner/admin in the
  * given org. Used to allow privileged users to update or delete shared
@@ -80,7 +86,11 @@ async function isCurrentUserOrgAdmin(
 export async function authorizeJobMutation(
   resourceOwner: string,
   meta: JobFrontmatter,
+  appId?: string,
 ): Promise<string | null> {
+  if (!jobBelongsToApp(meta, appId)) {
+    return "This job belongs to another app and cannot be changed here.";
+  }
   const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
   if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
     // Personal-scope job — owner is the request's user. resourceGetByPath is
@@ -100,7 +110,10 @@ export async function authorizeJobMutation(
   return "Only the job's creator (or an org admin) can update or delete it.";
 }
 
-async function runCreate(args: Record<string, any>): Promise<string> {
+async function runCreate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, schedule, instructions, scope, runAs, model } = args;
   const requestedTimezone = args.timezone;
 
@@ -147,6 +160,7 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     enabled: true,
     createdBy: getOwner(),
     orgId: getRequestOrgId() || undefined,
+    appId: appId?.trim() || undefined,
     runAs: runAs === "shared" ? "shared" : "creator",
     nextRun: next.toISOString(),
     ...(integration?.scopeId ? { originScopeId: integration.scopeId } : {}),
@@ -182,7 +196,10 @@ async function runCreate(args: Record<string, any>): Promise<string> {
   });
 }
 
-async function runList(args: Record<string, any>): Promise<string> {
+async function runList(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const owner = getOwner();
   const sharedOwner = getSharedOwner();
   // Fetch only current user's and shared jobs (not other users')
@@ -202,6 +219,7 @@ async function runList(args: Record<string, any>): Promise<string> {
       if (!full) return null;
       if (classifyJobResource(full.content).kind === "automation") return null;
       const { meta } = parseJobFrontmatter(full.content);
+      if (!jobBelongsToApp(meta, appId)) return null;
       return {
         name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
         path: r.path,
@@ -233,7 +251,10 @@ async function runList(args: Record<string, any>): Promise<string> {
   return JSON.stringify(scheduledJobs, null, 2);
 }
 
-async function runUpdate(args: Record<string, any>): Promise<string> {
+async function runUpdate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, schedule, instructions, enabled, scope, runAs, model } = args;
   const path = `jobs/${name}.md`;
 
@@ -259,10 +280,12 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   // `createdBy` is alice@…, and the next cron tick would run the
   // attacker's instructions as alice (creator-runAs schedules in
   // jobs/scheduler.ts line 273-278).
-  const denied = await authorizeJobMutation(resource.owner, meta);
+  const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
+
+  if (!meta.appId && appId?.trim()) meta.appId = appId.trim();
 
   if (schedule) {
     if (!isValidCron(schedule)) {
@@ -331,7 +354,10 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   });
 }
 
-async function runDelete(args: Record<string, any>): Promise<string> {
+async function runDelete(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, scope } = args;
   const path = `jobs/${name}.md`;
 
@@ -353,7 +379,7 @@ async function runDelete(args: Record<string, any>): Promise<string> {
       error: `"${name}" is an automation. Use manage-automations to delete it.`,
     });
   }
-  const denied = await authorizeJobMutation(resource.owner, meta);
+  const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -362,7 +388,7 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   return JSON.stringify({ deleted: true, name });
 }
 
-export function createJobTools(): Record<string, ActionEntry> {
+export function createJobTools(appId?: string): Record<string, ActionEntry> {
   return {
     "manage-jobs": {
       tool: {
@@ -446,13 +472,13 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
       run: async (args) => {
         switch (args.action) {
           case "create":
-            return runCreate(args);
+            return runCreate(args, appId);
           case "list":
-            return runList(args);
+            return runList(args, appId);
           case "update":
-            return runUpdate(args);
+            return runUpdate(args, appId);
           case "delete":
-            return runDelete(args);
+            return runDelete(args, appId);
           default:
             return JSON.stringify({
               error: `Unknown action "${args.action}". Use "create", "list", or "update".`,

@@ -151,6 +151,36 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return { frame: frame!, label: label! };
   }
 
+  it("reports an unchanged empty layer marquee selection once per drag", async () => {
+    const onLayerMarqueeSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          activeTool="move"
+          onPick={() => {}}
+          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+
+    await act(async () => {
+      dispatchMouse(surface!, "mousedown", 100, 100);
+      dispatchMouse(window, "mousemove", 140, 140);
+      dispatchMouse(window, "mousemove", 180, 180);
+      dispatchMouse(window, "mouseup", 180, 180);
+    });
+
+    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(1);
+    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({ source: "marquee" }),
+    );
+  });
+
   it("keeps the selection box moving when the drag also selects the frame", async () => {
     const { frame, label } = await renderSelectedFrame(320, false);
     expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
@@ -187,6 +217,171 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     await act(async () => {
       dispatchMouse(window, "mouseup", 355, 125);
+    });
+  });
+
+  it("reserves an empty screen body for frame selection", async () => {
+    const onPick = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper" />
+          )}
+          onPick={onPick}
+        />,
+      );
+    });
+    const interactiveBody = container.querySelector<HTMLElement>(
+      ".design-canvas-iframe-wrapper",
+    );
+    const screenCard =
+      container.querySelector<HTMLElement>("[data-screen-card]");
+    expect(interactiveBody).not.toBeNull();
+    expect(screenCard).not.toBeNull();
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      screenCard!.click();
+    });
+
+    expect(onPick).toHaveBeenCalledWith("screen-a");
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
+  });
+
+  it("keeps screen content with child layers interactive before frame selection", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content:
+                "<!doctype html><html><body><button>Layer</button></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper" />
+          )}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const interactiveBody = container.querySelector<HTMLElement>(
+      ".design-canvas-iframe-wrapper",
+    );
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
+  });
+
+  it("drags a selected frame from its selection outline", async () => {
+    const { frame } = await renderSelectedFrame();
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    const before = { left: frame.style.left, top: frame.style.top };
+
+    await act(async () => {
+      dispatchMouse(dragSurface!, "mousedown", 320, 740);
+      dispatchMouse(window, "mousemove", 355, 765);
+      await nextAnimationFrame();
+    });
+
+    expect(frame.style.left).not.toBe(before.left);
+    expect(frame.style.top).not.toBe(before.top);
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 355, 765);
+    });
+  });
+
+  it("drags every screen in a multi-selection from the group outline", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+            {
+              id: "screen-b",
+              filename: "screen-b.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          selectedScreenIds={["screen-a", "screen-b"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const frameA = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const frameB = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-b"]',
+    );
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(frameA).not.toBeNull();
+    expect(frameB).not.toBeNull();
+    expect(dragSurface).not.toBeNull();
+    const beforeA = { left: frameA!.style.left, top: frameA!.style.top };
+    const beforeB = { left: frameB!.style.left, top: frameB!.style.top };
+
+    await act(async () => {
+      dispatchMouse(dragSurface!, "mousedown", 450, 450);
+      dispatchMouse(window, "mousemove", 490, 480);
+      await nextAnimationFrame();
+    });
+
+    const deltaA = {
+      x:
+        Number.parseFloat(frameA!.style.left) - Number.parseFloat(beforeA.left),
+      y: Number.parseFloat(frameA!.style.top) - Number.parseFloat(beforeA.top),
+    };
+    const deltaB = {
+      x:
+        Number.parseFloat(frameB!.style.left) - Number.parseFloat(beforeB.left),
+      y: Number.parseFloat(frameB!.style.top) - Number.parseFloat(beforeB.top),
+    };
+    expect(deltaA.x).not.toBe(0);
+    expect(deltaA.y).not.toBe(0);
+    expect(deltaB.x).toBeCloseTo(deltaA.x);
+    expect(deltaB.y).toBeCloseTo(deltaA.y);
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 490, 480);
     });
   });
 

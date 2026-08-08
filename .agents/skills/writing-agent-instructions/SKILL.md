@@ -117,6 +117,14 @@ contract:
 - Do not create pass-through routes whose main job is to call, repackage, or
   re-export an action.
 
+Generated guidance must also distinguish deterministic tools from AI-shaped
+workflows. Provider reads, validation, deterministic transforms, CRUD, and
+persistence belong in focused actions. Research, analysis, generation,
+recommendation, synthesis, and other user-steerable multi-step work should
+start in the AgentSidebar and let the agent orchestrate those actions. State
+that `sendToAgentChat({ openSidebar: true })` is the default handoff and that
+follow-ups stay in the same thread; do not add a second freeform prompt box.
+
 ## Budget the first model request
 
 Treat the initial prompt and tool catalog as a latency budget. The agent should

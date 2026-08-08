@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "turn-into-app",
   "displayName": "Turn Into App",
-  "description": "Turn a proven thread, skill, or workflow into a runnable Agent-Native app with a focused UI, visible agent handoffs, local verification, and deployment guidance.",
+  "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
   "hosted": {
     "url": "https://dispatch.agent-native.com",
     "mcpUrl": "https://dispatch.agent-native.com/mcp"
@@ -12,7 +12,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Authenticate the Dispatch MCP connector in the host app, then grant the connector access to the workspace apps it should be able to inspect or scaffold. No shared secrets are stored in this package."
+    "setup": "Authenticate the Dispatch MCP connector in the host app, then grant the connector access to the workspace apps it should be able to inspect or scaffold. Dispatch provisions or reuses the Builder project server-side through the Builder Projects API; no separate Builder CMS MCP or shared secret is required."
   },
   "surfaces": [
     {

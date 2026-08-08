@@ -35,6 +35,7 @@ export { getClientSurface, type ClientSurface } from "../client-surface.js";
 export { ErrorBoundary } from "../ErrorBoundary.js";
 export { ClientOnly } from "../ClientOnly.js";
 export { DefaultSpinner } from "../DefaultSpinner.js";
+export { RuntimeConfigNotice } from "../RuntimeConfigNotice.js";
 export {
   RouteTransitionIndicator,
   ROUTE_TRANSITION_INDICATOR_DELAY_MS,

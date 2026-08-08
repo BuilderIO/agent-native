@@ -6,7 +6,7 @@ export const DEFAULT_SSR_CACHE_CONTROL = DEFAULT_PUBLIC_CACHE_CONTROL;
 export const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 
 export const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
+  "public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600";
 
 export const DEFAULT_SSR_CACHE_HEADERS = {
   "cache-control": DEFAULT_SSR_CACHE_CONTROL,
@@ -118,7 +118,7 @@ export function ssrCacheHeadersForPolicy(
     `public, max-age=${policy.seconds}, ` +
     `stale-while-revalidate=${policy.seconds}, stale-if-error=3600`;
   const netlifyControl =
-    `public, durable, max-age=${policy.seconds}, ` +
+    `public, durable, s-maxage=${policy.seconds}, ` +
     `stale-while-revalidate=${policy.seconds}, stale-if-error=3600`;
   return {
     "cache-control": control,

@@ -1,6 +1,7 @@
 import {
   Checkbox,
   Picker,
+  Skeleton,
   TextField,
 } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
@@ -68,6 +69,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
@@ -93,6 +95,7 @@ import {
   useSettingsSurface,
   type SettingsSurface,
 } from "./SettingsSection.js";
+import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
@@ -147,60 +150,6 @@ const IntegrationsPanel = lazy(() =>
     default: m.IntegrationsPanel,
   })),
 );
-
-// ─── Shared helpers ─────────────────────────────────────────────────────────
-
-function SettingsSkeleton({ lines = 3 }: { lines?: number }) {
-  return (
-    <div className="space-y-3 animate-pulse">
-      {Array.from({ length: lines }, (_, i) => (
-        <div key={i} className="space-y-1.5">
-          <div
-            className="h-3 rounded bg-muted-foreground/10"
-            style={{ width: i === 0 ? "30%" : i === 1 ? "100%" : "60%" }}
-          />
-          {i < 2 && (
-            <div className="h-9 rounded-md border border-border bg-muted-foreground/5" />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SettingsLoadingRow({
-  label,
-  description,
-  controlCount = 1,
-}: {
-  label: string;
-  description?: string;
-  controlCount?: number;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
-      <div className="min-w-0 space-y-2">
-        <div className="text-sm font-medium text-foreground">{label}</div>
-        {description ? (
-          <p className="text-sm leading-5 text-muted-foreground">
-            {description}
-          </p>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-2" aria-hidden="true">
-        {Array.from({ length: controlCount }, (_, index) => (
-          <div
-            key={index}
-            className={cn(
-              "h-9 animate-pulse rounded-md border border-border bg-muted-foreground/10",
-              index === 0 ? "w-28" : "w-20",
-            )}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 interface SettingsSelectOption {
   value: string;
@@ -1248,11 +1197,7 @@ function LLMSectionInner({
       onToggle={onToggle}
     >
       {initialLoading ? (
-        <SettingsLoadingRow
-          label="Connect an LLM"
-          description="Use Builder.io free credits or your own provider."
-          controlCount={2}
-        />
+        <SettingsLoadingRow controlCount={2} />
       ) : (
         <div
           className={cn(
@@ -1973,10 +1918,7 @@ function AppModelDefaultsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsLoadingRow
-          label="Default model"
-          description="Choose the model used by this app by default."
-        />
+        <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2627,10 +2569,7 @@ function AgentLimitsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsLoadingRow
-          label="Max iterations"
-          description="Set how long a response can work before pausing."
-        />
+        <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2864,7 +2803,19 @@ export interface AgentSettingsTabsOptions {
   extensionTools?: boolean;
   /** Optional page-level settings to show in the Agent section. */
   agentAdditionalContent?: React.ReactNode;
+  /** Optional app-owned tabs that share the Agent settings scope. */
+  agentAdditionalTabFactories?: AgentSettingsTabFactory[];
 }
+
+export interface AgentSettingsTabFactoryContext {
+  scope: "user";
+  canManageOrg?: boolean;
+  scopeControl: React.ReactNode;
+}
+
+export type AgentSettingsTabFactory = (
+  context: AgentSettingsTabFactoryContext,
+) => SettingsTabItem;
 
 export function areExtensionSettingsEnabled(
   options: AgentSettingsTabsOptions = {},
@@ -2933,7 +2884,7 @@ function CapabilityStatusStrip({
           active={builderConnected}
           value={
             builderLoading ? (
-              "Checking..."
+              <Skeleton className="h-3 w-16" />
             ) : builderConnected ? (
               "Connected"
             ) : (
@@ -3688,8 +3639,12 @@ export function useAgentSettingsTabs(
   options: AgentSettingsTabsOptions = {},
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const { data: org } = useOrg();
+  const canManageOrg =
+    !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
   const agentAdditionalContent = options.agentAdditionalContent;
+  const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3699,6 +3654,17 @@ export function useAgentSettingsTabs(
       showDevToggle: canToggle,
     }),
     [canToggle, isDevMode, setDevMode],
+  );
+  const additionalTabs = useMemo(
+    () =>
+      agentAdditionalTabFactories.map((factory) =>
+        factory({
+          scope: "user",
+          canManageOrg,
+          scopeControl: null,
+        }),
+      ),
+    [agentAdditionalTabFactories, canManageOrg],
   );
 
   return useMemo<SettingsTabItem[]>(() => {
@@ -3899,6 +3865,12 @@ export function useAgentSettingsTabs(
         ],
         content: <AgentWorkspaceContent activeTab="agents" overview={null} />,
       },
+      ...additionalTabs,
     ];
-  }, [agentAdditionalContent, baseProps, extensionToolsEnabled]);
+  }, [
+    agentAdditionalContent,
+    additionalTabs,
+    baseProps,
+    extensionToolsEnabled,
+  ]);
 }

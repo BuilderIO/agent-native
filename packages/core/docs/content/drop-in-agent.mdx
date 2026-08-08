@@ -142,11 +142,11 @@ children stays in the main app area. The agent chat is the side panel.
   ]}
 />
 
-That's it. The user now has a toggleable agent on every page — with chat history, resources tab, CLI terminal, voice input, and a fullscreen mode. State persists across reloads via `localStorage`.
+That's it. The user now has a toggleable agent on every page — with chat history, resources tab, CLI terminal, voice input, and a wider drawer. State persists across reloads via `localStorage`.
 
 ### Props
 
-- **`children`** — your app's normal layout and routes. Rendered in the main area; the agent panel mounts beside it on desktop and over it on mobile/fullscreen.
+- **`children`** — your app's normal layout and routes. Rendered in the main area; the agent panel mounts beside it on desktop and over it on mobile.
 - **`emptyStateText`** — greeting shown when the chat has no messages. Default: `"How can I help you?"`.
 - **`suggestions`** — starter prompts rendered as clickable chips when empty.
 - **`dynamicSuggestions`** — context-aware prompt chips merged with `suggestions`. Enabled by default; pass `false` to show only static suggestions, or `{ max, includeStatic, getSuggestions }` to customize.
@@ -177,14 +177,14 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` or `"cli"`. Default: `"chat"`.
 - **`className`** — CSS class for the outer container.
 - **`onCollapse`** — if provided, a collapse button appears in the header.
-- **`isFullscreen`** / **`onToggleFullscreen`** — wire up external fullscreen state if you want a Claude-style centered column.
+- **`isFullscreen`** — set this when you want a Claude-style centered column for a page-level or custom panel surface. The sidebar uses the wider drawer instead.
 - **`storageKey`** — namespace for `localStorage` keys. Useful when you render multiple panels (different app instances or workspaces) in the same page.
 
 Full props: `AgentPanelProps` in `@agent-native/core/client`.
 
 ## Programmatic messages: `sendToAgentChat()` {#send}
 
-A button that hands work off to the agent (instead of running an inline `llm()` call — the anti-pattern from the [ladder](/docs/what-is-agent-native#the-ladder)):
+A button that hands work off to the agent (instead of running an inline `llm()` call — the anti-pattern from the [ladder](/docs/what-is-agent-native#the-ladder)). For visible, user-initiated AI work, open the sidebar explicitly so the user can see, steer, and continue the same thread:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -194,6 +194,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -208,7 +209,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`submit`** — `true` to auto-run, `false` to prefill but wait. Omit to use the project default.
 - **`newTab`** — create a separate chat thread for this prompt.
 - **`background`** — with `newTab`, run without focusing the new thread. The hidden run is tracked in `RunsTray`.
-- **`openSidebar`** — set to `false` for background/silent sends. Default opens the sidebar so the user sees the response.
+- **`openSidebar`** — use `true` for visible user-initiated AI work. Set to `false` only for explicitly silent background or system-initiated sends. The default opens the sidebar so the user sees the response.
 - **`type`** — `"content"` (default) keeps the work in the embedded app agent, which operates through app tools unless its frame is intentionally granted workspace and write tooling. `"code"` routes to a separate code-capable frame (for repository source changes, see [Frames](/docs/frames)).
 
 `sendToAgentChat` returns a stable `tabId` you can use to track the chat run.
@@ -228,6 +229,11 @@ sendToAgentChat({
 
 This is still a full agent run with tools, actions, thread state, and run
 tracking. It simply does not steal focus from the user's current sidebar state.
+
+Keep follow-up and revision prompts in the existing sidebar thread. Do not add
+a second freeform input beside the generated result. A small local form or
+popover is appropriate for structured values the UI must validate, but the
+conversation itself belongs in the AgentSidebar composer.
 
 When the same route is embedded as an MCP App, submitted
 `sendToAgentChat()` calls are forwarded to the host chat where supported; see
@@ -264,6 +270,16 @@ Whichever layer you pick, keep actions and SQL-backed app state as the contract,
 and avoid posting directly to `/_agent-native/agent-chat` from product UI. If a
 named helper is missing for a real custom surface, add that helper first so
 client code does not learn a second, ad hoc transport.
+
+## Choosing agent chat versus an action {#agent-or-action}
+
+Use `useActionQuery` or `useActionMutation` directly for deterministic local
+operations such as CRUD, validation, provider reads, and persistence. If the
+user experiences the workflow as research, analysis, generation,
+recommendation, synthesis, or other multi-step reasoning, start it with
+`sendToAgentChat({ openSidebar: true })` and let the agent orchestrate focused
+actions. Deterministic implementation alone is not a reason to hide an
+AI-shaped workflow inside one opaque action.
 
 ## Typesafe actions from the UI: `useActionMutation()` {#use-action-mutation}
 
@@ -324,6 +340,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

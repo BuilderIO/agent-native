@@ -3,6 +3,8 @@ export {
   areExtensionSettingsEnabled,
   SettingsPanel,
   useAgentSettingsTabs,
+  type AgentSettingsTabFactory,
+  type AgentSettingsTabFactoryContext,
   type AgentSettingsTabsOptions,
   type SettingsPanelProps,
 } from "./SettingsPanel.js";
@@ -40,6 +42,12 @@ export {
   type SettingsGroupProps,
   type SettingsRowProps,
 } from "./SettingsRow.js";
+export {
+  SettingsLoadingRow,
+  SettingsSkeleton,
+  type SettingsLoadingRowProps,
+  type SettingsSkeletonProps,
+} from "./SettingsSkeleton.js";
 export {
   normalizeSettingsSection,
   settingsSectionDomId,

@@ -1954,6 +1954,8 @@ export interface AssistantChatProps {
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
   isNewThread?: boolean;
+  /** Defer restore until the owning thread list has reconciled the active id. */
+  isThreadStateLoading?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
   onSlashCommand?: (command: string) => void;
   /** Current execution mode (build/plan) */
@@ -2345,6 +2347,7 @@ const AssistantChatInner = forwardRef<
     composerDisabled = false,
     composerDisabledPlaceholder,
     isNewThread,
+    isThreadStateLoading,
     onSlashCommand,
     execMode,
     onExecModeChange,
@@ -3720,6 +3723,7 @@ const AssistantChatInner = forwardRef<
   // first, so what the user sees in the chat panel always matches what the
   // history list (and the agent) sees on disk.
   useEffect(() => {
+    if (isThreadStateLoading) return;
     if (hasRestoredRef.current) return;
     hasRestoredRef.current = true;
 
@@ -3833,6 +3837,7 @@ const AssistantChatInner = forwardRef<
     reconnectActiveRunForThread,
     loadHistoryRepository,
     isNewThread,
+    isThreadStateLoading,
   ]);
 
   useEffect(() => {

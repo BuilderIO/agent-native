@@ -334,7 +334,16 @@ function formatFidelityRun(
     `font-style:${run.italic ? "italic" : "normal"}`,
     `text-decoration:${run.underline ? "underline" : "none"}`,
   ].join(";");
+  const href = run.href && isSafeLinkHref(run.href) ? run.href : undefined;
+  if (href) {
+    return `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" style="${styles};">${esc(run.content)}</a>`;
+  }
   return `<span style="${styles};">${esc(run.content)}</span>`;
+}
+
+/** A source PDF/PPTX link annotation is untrusted input — only render schemes a browser treats as navigation, never `javascript:`/`data:`/etc. */
+function isSafeLinkHref(href: string): boolean {
+  return /^(https?:|mailto:)/i.test(href);
 }
 
 function fontWeightForFamily(

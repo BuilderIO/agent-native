@@ -30,6 +30,7 @@ interface ContentPart {
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }
 
 interface BuildAssistantMessageOptions {
@@ -194,6 +195,20 @@ export function buildAssistantMessage(
         argsText: JSON.stringify(args),
         args,
       });
+      continue;
+    }
+
+    if (event.type === "approval_required") {
+      const matchingIndex = findApprovalToolCallIndex(
+        content,
+        event.tool ?? "unknown",
+        event.toolCallId,
+      );
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.approval = { approvalKey: event.approvalKey };
+      }
       continue;
     }
 
@@ -438,6 +453,55 @@ function normalizeAttachmentIdentity(attachments: unknown): unknown {
     name: att?.name,
     contentType: att?.contentType,
   }));
+}
+
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (toolCallId) {
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolCallId === toolCallId &&
+        part.result === undefined
+      ) {
+        return i;
+      }
+    }
+
+    // Older tool_start events without an id use one reader-local tc_N id.
+    // Only accept that fallback when it is unambiguous, so a replayed approval
+    // cannot attach its key to another same-name call.
+    const readerLocalCandidates: number[] = [];
+    for (let i = 0; i < content.length; i += 1) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === toolName &&
+        part.result === undefined &&
+        typeof part.toolCallId === "string" &&
+        /^tc_\d+$/.test(part.toolCallId)
+      ) {
+        readerLocalCandidates.push(i);
+      }
+    }
+    return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
+  }
+
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 // Strip the render-only `toolCallId` before fingerprinting. The id is generated

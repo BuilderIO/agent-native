@@ -211,7 +211,7 @@ export function Layout({ children }: LayoutProps) {
             chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="plans"
             openOnChatRunning={chatHomeHandoffActive}
-            agentPageHref="/agent"
+            agentPageHref="/settings/agent"
             emptyStateText={t("agent.emptyState")}
             suggestions={[
               t("agent.suggestionShipped"),

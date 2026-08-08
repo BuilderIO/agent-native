@@ -136,11 +136,11 @@ description: "एजेंट चैट + एजेंट संसाधन क
   ]}
 />
 
-बस इतना ही। उपयोगकर्ता के पास अब प्रत्येक पृष्ठ पर एक टॉगल करने योग्य एजेंट है - चैट इतिहास, कार्यक्षेत्र टैब, CLI टर्मिनल, वॉयस इनपुट और एक फुलस्क्रीन मोड के साथ। स्थिति `localStorage` के माध्यम से पुनः लोड करने पर बनी रहती है।
+बस इतना ही। उपयोगकर्ता के पास अब प्रत्येक पृष्ठ पर एक टॉगल करने योग्य एजेंट है - चैट इतिहास, कार्यक्षेत्र टैब, CLI टर्मिनल, वॉयस इनपुट और एक व्यापक ड्रॉअर के साथ। स्थिति `localStorage` के माध्यम से पुनः लोड करने पर बनी रहती है।
 
 ### प्रॉप्स
 
-- **`children`** - आपके ऐप का सामान्य लेआउट और रूट। मुख्य क्षेत्र में प्रस्तुत; एजेंट पैनल डेस्कटॉप पर इसके बगल में और मोबाइल/फुलस्क्रीन पर इसके ऊपर लगा होता है।
+- **`children`** - आपके ऐप का सामान्य लेआउट और रूट। मुख्य क्षेत्र में प्रस्तुत; एजेंट पैनल डेस्कटॉप पर इसके बगल में और मोबाइल पर इसके ऊपर लगा होता है।
 - **`emptyStateText`** — जब चैट में कोई संदेश न हो तो अभिवादन दिखाया जाता है। डिफ़ॉल्ट: `"How can I help you?"`.
 - **`suggestions`** - खाली होने पर स्टार्टर संकेत क्लिक करने योग्य चिप्स के रूप में प्रस्तुत किया जाता है।
 - **`dynamicSuggestions`** - संदर्भ-जागरूक प्रॉम्प्ट चिप्स को `suggestions` के साथ विलय कर दिया गया। डिफ़ॉल्ट रूप से सक्षम; केवल स्थिर सुझाव दिखाने के लिए `false` पास करें, या अनुकूलित करने के लिए `{ max, includeStatic, getSuggestions }` पास करें।
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` या `"cli"`। डिफ़ॉल्ट: `"chat"`.
 - **`className`** - बाहरी कंटेनर के लिए CSS वर्ग।
 - **`onCollapse`** - यदि प्रदान किया गया है, तो हेडर में एक संक्षिप्त बटन दिखाई देता है।
-- **`isFullscreen`** / **`onToggleFullscreen`** - यदि आप Claude-शैली केंद्रित कॉलम चाहते हैं तो बाहरी पूर्णस्क्रीन स्थिति को तार दें।
+- **`isFullscreen`** - यदि आप किसी पृष्ठ या कस्टम पैनल पर Claude-शैली का केंद्रित कॉलम चाहते हैं तो इसे सेट करें। साइडबार इसके बजाय व्यापक ड्रॉअर का उपयोग करता है।
 - **`storageKey`** — `localStorage` कुंजियों के लिए नामस्थान। तब उपयोगी होता है जब आप एक ही पेज में एकाधिक पैनल (अलग-अलग ऐप इंस्टेंस या वर्कस्पेस) प्रस्तुत करते हैं।
 
 पूर्ण प्रॉप्स: `@agent-native/core/client` में `AgentPanelProps`।
@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,6 +204,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — इस प्रॉम्प्ट के लिए एक अलग चैट थ्रेड बनाएं।
 - **`background`** - `newTab` के साथ, नए थ्रेड पर ध्यान केंद्रित किए बिना चलाएं। छिपे हुए रन को `RunsTray` में ट्रैक किया जाता है।
 - **`openSidebar`** - पृष्ठभूमि/मूक प्रेषण के लिए `false` पर सेट करें। डिफ़ॉल्ट रूप से साइडबार खुलता है ताकि उपयोगकर्ता प्रतिक्रिया देख सके।
+- **उपयोगकर्ता द्वारा शुरू किए गए दिखाई देने वाले AI कार्य** के लिए `openSidebar: true` का उपयोग करें। `false` का उपयोग केवल स्पष्ट रूप से शांत बैकग्राउंड या सिस्टम-आरंभित कार्य के लिए करें, और follow-up को उसी AgentSidebar thread में रखें।
 - **`type`** — `"content"` (डिफ़ॉल्ट) कार्य को embedded app agent में रखता है, जो app tools का उपयोग करता है। `"code"` repository source changes के लिए अलग code-capable frame तक route करता है; write access केवल तभी उपलब्ध है जब host जानबूझकर repository/workspace tooling दे। [Frames](/docs/frames) देखें।
 
 `sendToAgentChat` एक स्थिर `tabId` लौटाता है जिसका उपयोग आप चैट रन को ट्रैक करने के लिए कर सकते हैं।
@@ -222,6 +224,7 @@ sendToAgentChat({
 
 यह अभी भी टूल, actions, थ्रेड स्टेट और रन के साथ एक पूर्ण एजेंट रन है
 ट्रैकिंग। यह उपयोगकर्ता की वर्तमान साइडबार स्थिति से फोकस चुराता नहीं है।
+Follow-up और revision prompts को मौजूदा AgentSidebar thread में रखें। परिणाम के पास दूसरा freeform input न जोड़ें; local form केवल उन structured values के लिए हो जिन्हें UI को validate करना है।
 
 जब उसी रूट को MCP ऐप के रूप में एम्बेड किया जाता है, सबमिट किया जाता है
 `sendToAgentChat()` कॉल होस्ट चैट पर अग्रेषित की जाती हैं जहां समर्थित है; देखें
@@ -258,6 +261,10 @@ const { send, isGenerating } = useSendToAgentChat();
 और उत्पाद UI से सीधे `/_agent-native/agent-chat` पर पोस्ट करने से बचें। यदि ए
 वास्तविक कस्टम सतह के लिए नामित सहायक गायब है, इसलिए पहले उस सहायक को जोड़ें
 क्लाइंट कोड दूसरा, तदर्थ परिवहन नहीं सीखता।
+
+## एजेंट चैट और action के बीच चुनाव {#agent-or-action}
+
+CRUD, validation, provider reads और persistence जैसे deterministic local operations के लिए सीधे `useActionQuery` या `useActionMutation` का उपयोग करें। यदि उपयोगकर्ता workflow को research, analysis, generation, recommendation, synthesis या multi-step reasoning के रूप में अनुभव करता है, तो इसे `sendToAgentChat({ openSidebar: true })` से शुरू करें और agent को focused actions orchestrate करने दें। केवल implementation का deterministic होना AI-जैसे workflow को एक opaque action में छिपाने का कारण नहीं है।
 
 ## UI से टाइपसेफ actions: `useActionMutation()` {#use-action-mutation}
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

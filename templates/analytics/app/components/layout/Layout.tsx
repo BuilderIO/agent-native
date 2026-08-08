@@ -205,7 +205,7 @@ function InteractiveLayout({ children }: LayoutProps) {
               openOnChatRunning={chatHomeHandoffActive}
               onFullscreenRequest={openAskAgentFullscreen}
               emptyStateText={t("chat.emptyState")}
-              agentPageHref="/agent"
+              agentPageHref="/settings/agent"
               suggestions={[
                 t("chat.suggestionArrGrowth"),
                 t("chat.suggestionChurn"),

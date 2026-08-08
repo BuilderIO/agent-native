@@ -136,11 +136,11 @@ les enfants restent dans la zone principale de l'application. Le chat de l'agent
   ]}
 />
 
-C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet ressources de l'agent, terminal CLI, saisie vocale et mode plein écran. L'état persiste lors des rechargements via `localStorage`.
+C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet ressources de l'agent, terminal CLI, saisie vocale et un panneau élargi. L'état persiste lors des rechargements via `localStorage`.
 
 ### Accessoires
 
-- **`children`** : présentation et itinéraires normaux de votre application. Rendu dans la zone principale ; le panneau d'agent se monte à côté sur le bureau et par-dessus sur mobile/plein écran.
+- **`children`** : présentation et itinéraires normaux de votre application. Rendu dans la zone principale ; le panneau d'agent se monte à côté sur le bureau et par-dessus sur mobile.
 - **`emptyStateText`** — message d'accueil affiché lorsque le chat n'a aucun message. Par défaut : `"How can I help you?"`.
 - **`suggestions`** — invites de démarrage affichées sous forme de puces cliquables lorsqu'elles sont vides.
 - **`dynamicSuggestions`** — puces d'invite contextuelles fusionnées avec `suggestions`. Activé par défaut ; transmettez `false` pour afficher uniquement les suggestions statiques, ou `{ max, includeStatic, getSuggestions }` pour personnaliser.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` ou `"cli"`. Par défaut : `"chat"`.
 - **`className`** — Classe CSS pour le conteneur externe.
 - **`onCollapse`** — s'il est fourni, un bouton de réduction apparaît dans l'en-tête.
-- **`isFullscreen`** / **`onToggleFullscreen`** – connectez l'état plein écran externe si vous souhaitez une colonne centrée de style Claude.
+- **`isFullscreen`** – activez cette option pour une colonne centrée de style Claude sur une surface de page ou un panneau personnalisé. La barre latérale utilise plutôt le panneau élargi.
 - **`storageKey`** — espace de noms pour les clés `localStorage`. Utile lorsque vous affichez plusieurs panneaux (différentes instances d'application ou espaces de travail) sur la même page.
 
 Accessoires complets : `AgentPanelProps` dans `@agent-native/core/client`.
@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,6 +204,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** : créez un fil de discussion distinct pour cette invite.
 - **`background`** — avec `newTab`, exécutez sans focaliser le nouveau thread. La course cachée est suivie dans `RunsTray`.
 - **`openSidebar`** — défini sur `false` pour les envois en arrière-plan/silencieux. La valeur par défaut ouvre la barre latérale pour que l'utilisateur voie la réponse.
+- **Pour un travail d'IA visible lancé par l'utilisateur**, utilisez `openSidebar: true`. Utilisez `false` uniquement pour un travail d'arrière-plan ou lancé par le système explicitement silencieux, et gardez les suivis dans le même fil AgentSidebar.
 - **`type`** — `"content"` (par défaut) conserve le travail dans l'agent intégré, qui utilise les outils de l'application. `"code"` l'achemine vers un frame distinct capable de modifier le dépôt ; l'écriture n'est disponible que si l'hôte accorde intentionnellement des outils repository/workspace. Voir [Frames](/docs/frames).
 
 `sendToAgentChat` renvoie un `tabId` stable que vous pouvez utiliser pour suivre l'exécution du chat.
@@ -222,6 +224,7 @@ sendToAgentChat({
 
 Il s'agit toujours d'un agent complet exécuté avec des outils, actions, l'état du thread et une exécution
 suivi. Cela ne détourne tout simplement pas le focus de l'état actuel de la barre latérale de l'utilisateur.
+Gardez les messages de suivi et de révision dans le fil existant de la barre latérale. N'ajoutez pas un second champ de texte libre à côté du résultat; utilisez des formulaires locaux uniquement pour les valeurs structurées que l'interface doit valider.
 
 Lorsque le même itinéraire est intégré en tant qu'application MCP, soumis
 Les appels `sendToAgentChat()` sont transférés vers le chat hôte lorsque cela est pris en charge ; voir
@@ -258,6 +261,10 @@ Quelle que soit la couche que vous choisissez, conservez l'état des application
 et évitez de publier directement sur `/_agent-native/agent-chat` à partir du produit UI. Si un
 l'assistant nommé manque pour une véritable surface personnalisée, ajoutez d'abord cet assistant donc
 le code client n'apprend pas un deuxième transport ad hoc.
+
+## Choisir entre le chat de l'agent et une action {#agent-or-action}
+
+Utilisez directement `useActionQuery` ou `useActionMutation` pour les opérations locales déterministes comme le CRUD, la validation, les lectures de fournisseurs et la persistance. Si l'utilisateur vit le flux comme une recherche, une analyse, une génération, une recommandation, une synthèse ou un raisonnement en plusieurs étapes, démarrez-le avec `sendToAgentChat({ openSidebar: true })` et laissez l'agent orchestrer des actions ciblées. Une implémentation déterministe ne suffit pas à justifier de cacher un flux de type IA dans une action opaque.
 
 ## Typesafe actions du UI : `useActionMutation()` {#use-action-mutation}
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

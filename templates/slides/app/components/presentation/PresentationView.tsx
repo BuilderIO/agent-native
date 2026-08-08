@@ -22,6 +22,7 @@ import {
   resolveSlideAnimationElement,
 } from "@/lib/slide-animation-elements";
 
+import type { DesignSystemData } from "../../../shared/api";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
 
 interface PresentationViewProps {
@@ -29,6 +30,7 @@ interface PresentationViewProps {
   deckId: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
@@ -182,6 +184,7 @@ export default function PresentationView({
   deckId,
   startIndex = 0,
   aspectRatio,
+  designSystem,
 }: PresentationViewProps) {
   const t = useT();
   const safeSlides = useMemo(
@@ -534,6 +537,7 @@ export default function PresentationView({
             slide={safeSlides[prevIndex]}
             thumbnail={false}
             aspectRatio={aspectRatio}
+            designSystem={designSystem}
           />
         </div>
       )}
@@ -548,6 +552,7 @@ export default function PresentationView({
           slide={displaySlide}
           thumbnail={false}
           aspectRatio={aspectRatio}
+          designSystem={designSystem}
         />
       </div>
 

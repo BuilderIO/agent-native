@@ -7,6 +7,7 @@ import {
   isSsrCacheEnabled,
   parseSsrCacheSetting,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
   ssrCacheHeadersForPolicy,
 } from "./cache-control.js";
@@ -142,7 +143,7 @@ describe("ssrCacheHeadersForPolicy", () => {
       "cdn-cache-control":
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
       "netlify-cdn-cache-control":
-        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
     });
   });
 });
@@ -188,6 +189,24 @@ describe("resolveSsrCacheHeaders", () => {
     expect(resolveSsrCacheHeaders(envWith("banana"))).toEqual({
       ...DEFAULT_SSR_CACHE_HEADERS,
     });
+  });
+});
+
+describe("resolveSsrCacheKeyHeaders", () => {
+  it("narrows query variation on Netlify", () => {
+    expect(resolveSsrCacheKeyHeaders({ NETLIFY: "true" })).toEqual({
+      "netlify-vary": "query=_routes|index",
+    });
+    expect(resolveSsrCacheKeyHeaders({ SITE_ID: "site-test" })).toEqual({
+      "netlify-vary": "query=_routes|index",
+    });
+  });
+
+  it("does not emit a Netlify header outside Netlify", () => {
+    expect(resolveSsrCacheKeyHeaders({})).toEqual({});
+    expect(
+      resolveSsrCacheKeyHeaders({ NETLIFY: "true", NETLIFY_LOCAL: "true" }),
+    ).toEqual({});
   });
 });
 

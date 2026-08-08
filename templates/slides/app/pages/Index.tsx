@@ -1,10 +1,15 @@
-import { callAction, useSession } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  deleteClientAppState,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
@@ -45,7 +50,7 @@ import {
   describeDeckPersistenceFailure,
   type Deck,
 } from "@/context/DeckContext";
-import { useDecks } from "@/context/DeckContext";
+import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
@@ -61,6 +66,7 @@ import {
   rememberRecentReference,
   type RecentReference,
 } from "@/lib/recent-references";
+import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
@@ -198,7 +204,7 @@ function describeUploadedFilesForAgent(
     "",
     importedSourceDeck
       ? `The user uploaded ${files.length} file(s). The ${importedSourceDeck.file.originalName} source deck has already been imported into target deck ${deckId} with ${importedSourceDeck.slideCount} source slide(s); do not import it again.`
-      : `The user uploaded ${files.length} file(s). These paths are real uploaded files; process them with import actions before using their contents:`,
+      : `The user uploaded ${files.length} file(s). These are mandatory source material, not optional references — process every one of them with the matching import action BEFORE adding the first slide:`,
     fileList,
     "",
     "File handling rules:",
@@ -207,10 +213,11 @@ function describeUploadedFilesForAgent(
       : `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` before adding or editing slides.`,
     importedSourceDeck
       ? "- For a PDF source, keep the original full-page image in every slide and add restrained design-system chrome around it without obscuring source content. Never OCR-reconstruct a source-faithful page from extracted text."
-      : `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text.`,
+      : `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text. Do not proceed to add-slide until this call has returned for every PDF/DOCX in the list above.`,
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
-    '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
+    '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
+    "- Before your final response, verify every uploaded file above was either imported (PPTX/PDF/DOCX) or placed as requested (images). If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
   ].join("\n");
 }
 
@@ -731,11 +738,19 @@ export default function Index() {
       "",
       "Before generating, if the request or selected references leave a meaningful choice unresolved, use the `ask-question` tool to ask one concise, prompt-specific question in the inline guided-question flow. Generate the question wording and 2 to 4 options from the user's request and selected references, like Claude's design-question flow; do not use a fixed generic questionnaire. Ask only a choice that materially affects the deck, such as audience, tone, structure, or length. If the prompt already makes the choice clear, do not ask it again. Wait for the user's answer or skip before adding slides.",
       sourceModeInstructions,
-      "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
+      "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you. If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
+
+    // See the matching comment in create-deck-generation.ts: clear any
+    // guided-question card left over from the previous deck's still-finishing
+    // run so it can't surface on top of the deck we're navigating to now.
+    deleteClientAppState(
+      appStateKeyForBrowserTab("guided-questions", TAB_ID),
+    ).catch(() => {});
+    deleteClientAppState("guided-questions").catch(() => {});
 
     navigate(`/deck/${deck.id}?generating=1`, {
       replace: true,
@@ -1088,7 +1103,16 @@ export default function Index() {
     (id: string) => {
       let copy: ReturnType<typeof duplicateDeck> | undefined;
       flushSync(() => {
-        copy = duplicateDeck(id, `deck-${nanoid()}`);
+        copy = duplicateDeck(id, `deck-${nanoid()}`, undefined, () => {
+          // The background duplicate-deck action failed after we already
+          // navigated to the optimistic copy's route. If the user is still
+          // there, send them back to the deck list instead of stranding them
+          // on a "Deck unavailable" screen for a deck that no longer exists.
+          if (deckIdFromPathname(window.location.pathname) === copy?.id) {
+            navigate("/");
+          }
+          toast.error(t("home.duplicateFailed"));
+        });
       });
       // The context refuses a second copy of the same deck while the first
       // one's action is still in flight.

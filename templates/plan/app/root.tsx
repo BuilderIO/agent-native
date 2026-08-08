@@ -177,7 +177,7 @@ function AppContent() {
             {t("root.openRecaps")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => go("/agent")}
+            onSelect={() => go("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
           >
             <IconHierarchy2 size={16} />
