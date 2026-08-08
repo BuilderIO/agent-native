@@ -52,6 +52,13 @@ const sourceTypeSchema = z
 const BUILDER_CMS_ATTACH_INITIAL_PAGES = 1;
 const BUILDER_CMS_ATTACH_METADATA_LIMIT = 10_000;
 
+export function shouldBootstrapLocalDetailsSource(args: {
+  relationshipMode: "items" | "details" | undefined;
+  hasExistingSource: boolean;
+}) {
+  return args.relationshipMode === "details" && !args.hasExistingSource;
+}
+
 export async function readInitialBuilderCmsAttachEntries(
   sourceTable: string,
   readEntries: typeof readBuilderCmsContentEntries = readBuilderCmsContentEntries,
@@ -318,12 +325,13 @@ export default defineAction({
       args.relationshipMode ?? (args.mode === "add" ? "items" : undefined);
 
     // A normal local Content database has rows but no explicit source record.
-    // Bootstrap that local snapshot before attaching a read-only details source
-    // so Notion federation works without forcing users to attach Builder first.
+    // A details join needs that local snapshot to remain the primary side;
+    // otherwise the candidate source would fall through to replacement semantics.
     if (
-      sourceType === "notion-database" &&
-      relationshipMode === "details" &&
-      !existingSource
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode,
+        hasExistingSource: Boolean(existingSource),
+      })
     ) {
       const setup = await sourceSetupPayload(database.id);
       const localSourceId = await replaceSourceMetadata({

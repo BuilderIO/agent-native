@@ -20,6 +20,7 @@ import {
   formatPropertyDateTimeInputValue,
   isValidFilesMediaLink,
   mergeFilesMediaItems,
+  matchesConnectSourceQuery,
   nextPropertyOption,
   personItems,
   personLabel,
@@ -73,6 +74,15 @@ describe("document property type picker", () => {
     expect(filterDocumentPropertyTypes("")).not.toContain("formula");
     expect(filterDocumentPropertyTypes("")).toContain("last_edited_time");
     expect(filterDocumentPropertyTypes("")).toContain("last_edited_by");
+  });
+
+  it("matches Connect source using its localized label", () => {
+    expect(matchesConnectSourceQuery("Conectar una fuente", "fuente")).toBe(
+      true,
+    );
+    expect(matchesConnectSourceQuery("Conectar una fuente", "source")).toBe(
+      false,
+    );
   });
 });
 

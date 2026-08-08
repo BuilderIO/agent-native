@@ -15,6 +15,7 @@ import attachSource, {
   readCompleteBuilderCmsAttachSource,
   readInitialBuilderCmsAttachEntries,
   readInitialBuilderCmsAttachSource,
+  shouldBootstrapLocalDetailsSource,
 } from "./attach-content-database-source";
 import changeSourceRole, {
   readBuilderCmsEntriesForRoleChange,
@@ -198,6 +199,27 @@ describe("content database source actions", () => {
       limit: 50,
       offset: 25,
     });
+  });
+
+  it("keeps an ordinary local database primary when adding detail sources", () => {
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "details",
+        hasExistingSource: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "details",
+        hasExistingSource: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "items",
+        hasExistingSource: false,
+      }),
+    ).toBe(false);
   });
 
   it("accepts a bounded read-only Notion database details source", () => {

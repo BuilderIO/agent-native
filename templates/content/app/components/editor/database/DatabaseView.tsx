@@ -888,6 +888,9 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const sourceHandoffActiveRef = useRef(false);
+  const addPropertyOpenRequestSequenceRef = useRef(0);
+  const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
   const [inlineAddFilterOpen, setInlineAddFilterOpen] = useState(false);
@@ -921,6 +924,22 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
+  const openSourcesFromAddProperty = () => {
+    sourceHandoffActiveRef.current = true;
+    setSettingsPanel("source");
+    setSettingsOpen(true);
+  };
+  const completeSourceHandoff = () => {
+    if (!sourceHandoffActiveRef.current) return;
+    sourceHandoffActiveRef.current = false;
+    setSettingsOpen(false);
+    addPropertyOpenRequestSequenceRef.current += 1;
+    setAddPropertyOpenRequestId(addPropertyOpenRequestSequenceRef.current);
+  };
+  const closeDatabaseSettings = () => {
+    sourceHandoffActiveRef.current = false;
+    setSettingsOpen(false);
+  };
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
@@ -2559,6 +2578,7 @@ function DatabaseTable({
               "relative",
             )}
             onClick={() => {
+              sourceHandoffActiveRef.current = false;
               setSettingsPanel("main");
               setSettingsOpen((open) => !open);
             }}
@@ -2887,6 +2907,13 @@ function DatabaseTable({
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
           hideEmptyGroups={activeView.hideEmptyGroups === true}
           focusedTitleDocumentId={inlineTitleFocusDocumentId}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           onClearResultConstraints={clearSearchAndFilters}
           onSortsChange={setActiveSorts}
           onFiltersChange={setActiveFilters}
@@ -2987,10 +3014,10 @@ function DatabaseTable({
         sources={sources}
         hiddenCount={hiddenProperties.length}
         groupIds={toolbarGroups.map((group) => group.id)}
-        onClose={() => setSettingsOpen(false)}
+        onClose={closeDatabaseSettings}
         onPanelChange={setSettingsPanel}
-        onAttachBuilderSource={(model, relationshipMode) =>
-          attachSource.mutateAsync({
+        onAttachBuilderSource={async (model, relationshipMode) => {
+          const result = await attachSource.mutateAsync({
             documentId: document.id,
             sourceType: "builder-cms",
             sourceName: model.displayName,
@@ -3003,18 +3030,22 @@ function DatabaseTable({
                 : sources.length > 0 || source
                   ? undefined
                   : "replace",
-          })
-        }
-        onFederateSource={(candidate, join) =>
-          attachSource.mutateAsync({
+          });
+          completeSourceHandoff();
+          return result;
+        }}
+        onFederateSource={async (candidate, join) => {
+          const result = await attachSource.mutateAsync({
             documentId: document.id,
             sourceType: candidate.sourceType,
             sourceName: candidate.sourceName,
             sourceTable: candidate.sourceTable,
             relationshipMode: "details",
             join,
-          })
-        }
+          });
+          completeSourceHandoff();
+          return result;
+        }}
         onChangeSourceRole={(sourceId, relationshipMode, join) =>
           changeSourceRole.mutateAsync({
             documentId: document.id,
@@ -5286,6 +5317,9 @@ function DatabaseTableView({
   collapsedGroupIds,
   hideEmptyGroups,
   focusedTitleDocumentId,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onSortsChange,
   onFiltersChange,
   onResizeColumn,
@@ -5336,6 +5370,9 @@ function DatabaseTableView({
   collapsedGroupIds: string[];
   hideEmptyGroups: boolean;
   focusedTitleDocumentId: string | null;
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onResizeColumn: (
@@ -5876,6 +5913,9 @@ function DatabaseTableView({
                   label={dbText("addProperty")}
                   source={source}
                   sources={sources}
+                  onConnectSource={onConnectSource}
+                  openRequestId={addPropertyOpenRequestId}
+                  onOpenRequestHandled={onAddPropertyOpenRequestHandled}
                 />
               </div>
             ) : null}

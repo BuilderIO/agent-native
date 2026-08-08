@@ -2,6 +2,7 @@ import type {
   BuilderCmsModelSummary,
   ContentDatabaseItem,
   ContentDatabaseResponse,
+  ContentDatabaseSource,
   ContentDatabaseTableQuery,
 } from "@shared/api";
 // @vitest-environment happy-dom
@@ -61,8 +62,21 @@ const builderModel = vi.hoisted<BuilderCmsModelSummary>(() => ({
   fields: [],
 }));
 
+const secondBuilderModel = vi.hoisted<BuilderCmsModelSummary>(() => ({
+  id: "model-2",
+  name: "author",
+  displayName: "Author model",
+  kind: "data",
+  fields: [],
+}));
+
 const builderCmsModelsQuery = vi.hoisted(() => ({
-  data: { state: "live", models: [builderModel], fetchedAt: "", message: null },
+  data: {
+    state: "live",
+    models: [builderModel, secondBuilderModel],
+    fetchedAt: "",
+    message: null,
+  },
   isLoading: false,
   isFetching: false,
   refetch: vi.fn(),
@@ -157,6 +171,13 @@ vi.mock("@/hooks/use-content-database", () => ({
   useDuplicateDatabaseItems: () => benignMutation,
   useMoveDatabaseItem: () => benignMutation,
   useBuilderCmsModels: () => builderCmsModelsQuery,
+  useMaterializeBuilderRequiredFields: () => benignMutation,
+  useSuggestSourceJoinKey: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+  }),
 }));
 
 vi.mock("@/hooks/use-document-properties", () => ({
@@ -259,6 +280,9 @@ describe("DatabaseView UI regressions", () => {
     attachSourceMutation.mutateAsync.mockReset();
     benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
     databaseResponse.items = [];
+    databaseResponse.properties = [];
+    databaseResponse.source = null;
+    databaseResponse.sources = [];
     databasePagination.totalItems = 0;
     databasePagination.hasMore = false;
 
@@ -480,6 +504,163 @@ describe("DatabaseView UI regressions", () => {
     // root.
     expect(findButtonByText(container, "Attach")).toBeTruthy();
     expect(container.textContent).toContain("Article");
+  });
+
+  it("opens Sources from Add property and keeps Add property closed when canceled", async () => {
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    const connectSource = findButtonByText(
+      document.body,
+      "editor.properties.connectASource",
+    );
+    expect(connectSource).toBeTruthy();
+
+    await act(async () => {
+      connectSource?.click();
+    });
+    expect(container.textContent).toContain("Sources");
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          `[aria-label="${messagesByLocale["en-US"].database.closeDatabaseSettings}"]`,
+        )
+        ?.click();
+    });
+    expect(container.textContent).not.toContain("Connected sources");
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("returns from each successful source connection with Add property reopened", async () => {
+    const connectedSource: ContentDatabaseSource = {
+      id: "source-1",
+      databaseId: "database-1",
+      sourceType: "builder-cms",
+      sourceName: "Articles",
+      sourceTable: "article",
+      syncState: "idle",
+      freshness: "fresh",
+      lastRefreshedAt: null,
+      lastSourceUpdatedAt: null,
+      lastError: null,
+      capabilities: {
+        canRefresh: true,
+        canCreateChangeSets: false,
+        canWriteFields: false,
+        canWriteBody: false,
+        canPush: false,
+        canPull: true,
+        canPublish: false,
+        canDelete: false,
+        canStageLocalRevision: false,
+        liveWritesEnabled: false,
+        readOnlyRefresh: true,
+      },
+      metadata: { primaryKey: "id", titleField: "title" },
+      fields: [
+        {
+          id: "source-field-author",
+          propertyId: null,
+          propertyName: null,
+          localFieldKey: "property:author",
+          sourceFieldKey: "data.author",
+          sourceFieldLabel: "Author",
+          sourceFieldType: "text",
+          mappingType: "property",
+          writeOwner: "source",
+          readOnly: true,
+          provenance: "builder-cms:article",
+          freshness: "fresh",
+          lastSyncedAt: null,
+        },
+      ],
+      rows: [],
+      changeSets: [],
+    };
+    attachSourceMutation.mutateAsync.mockImplementation(async () => {
+      databaseResponse.source = connectedSource;
+      databaseResponse.sources = [connectedSource];
+      return databaseResponse;
+    });
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
+        "editor.properties.connectASource",
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Builder")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Test Space")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Article")?.click();
+    });
+
+    await act(async () => {
+      findButtonByText(container, "Attach")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeTruthy();
+    expect(document.body.textContent).toContain("editor.properties.fromSource");
+    expect(document.body.textContent).toContain("Author");
+    expect(container.textContent).not.toContain("Connected sources");
+
+    await act(async () => {
+      findButtonByText(
+        document.body,
+        "editor.properties.connectASource",
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Builder")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Test Space")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Author model")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        container,
+        messagesByLocale["en-US"].database.addMoreItemsToThisList,
+      )?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(2);
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeTruthy();
   });
 
   it("removes the confirmed selection snapshot without clearing newer selections", async () => {
