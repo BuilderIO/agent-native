@@ -621,15 +621,8 @@ export function createAgentChatPlugin(
             "[mcp-client] no configured MCP servers — skipping MCP tools",
           );
         }
-        try {
-          await mcpManager.reconfigure(mcpConfig);
-        } catch (err: any) {
-          console.warn(
-            `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
-          );
-        } finally {
-          startMcpConfigRefresh(mcpManager);
-        }
+        await mcpManager.reconfigure(mcpConfig);
+        startMcpConfigRefresh(mcpManager);
       };
       /**
        * Start MCP initialization at most once, and return the run in flight.
