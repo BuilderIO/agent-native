@@ -8,6 +8,7 @@ import {
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
 } from "../../../action-ui.js";
+import { useT } from "../../i18n.js";
 import {
   registerReservedActionChatRenderer,
   registerReservedFallbackToolRenderer,
@@ -134,9 +135,10 @@ function renderDataWidget(context: ToolRendererContext) {
 }
 
 function BuiltinToolRendererSkeleton({ framed = true }: { framed?: boolean }) {
+  const t = useT();
   return (
     <div
-      aria-label="Loading tool result"
+      aria-label={t("agentChat.widget.loadingToolResult")}
       className={
         framed
           ? "my-1.5 h-24 animate-pulse rounded-lg border border-border bg-muted/30"

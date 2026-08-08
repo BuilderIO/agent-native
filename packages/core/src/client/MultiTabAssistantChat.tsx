@@ -58,6 +58,7 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
+import { DEFAULT_LOCALE, useOptionalLocale, useT } from "./i18n.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
@@ -240,16 +241,23 @@ function formatScopeType(type: string) {
 
 // ─── History Popover ─────────────────────────────────────────────────────────
 
-function formatThreadTime(ts: number): string {
+function formatThreadTime(
+  ts: number,
+  locale: string,
+  yesterdayLabel: string,
+): string {
   const d = new Date(ts);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffDays = Math.floor(diffMs / 86400000);
   if (diffDays === 0)
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+    return d.toLocaleTimeString(locale, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  if (diffDays === 1) return yesterdayLabel;
+  if (diffDays < 7) return d.toLocaleDateString(locale, { weekday: "short" });
+  return d.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }
 
 function HistoryPopover({
@@ -282,6 +290,8 @@ function HistoryPopover({
   /** Presence enables the inline rename row action. */
   onRename?: (id: string, nextTitle: string) => void;
 }) {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<
     ChatThreadSummary[] | null
@@ -347,7 +357,8 @@ function HistoryPopover({
 
   const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
     const isActive = thread.id === activeThreadId;
-    const title = thread.title || thread.preview || "Chat";
+    const title =
+      thread.title || thread.preview || t("agentChat.history.untitledChat");
     return {
       id: thread.id,
       title,
@@ -357,10 +368,14 @@ function HistoryPopover({
           ? thread.preview
           : undefined,
       timestamp: isActive
-        ? "Active"
+        ? t("agentChat.history.active")
         : openTabIds.has(thread.id)
-          ? "Open"
-          : formatThreadTime(thread.updatedAt),
+          ? t("agentChat.history.open")
+          : formatThreadTime(
+              thread.updatedAt,
+              locale,
+              t("agentChat.history.yesterday"),
+            ),
       pinned: thread.pinnedAt != null,
     };
   };
@@ -370,7 +385,7 @@ function HistoryPopover({
       ? [
           {
             id: "pinned",
-            label: "Pinned",
+            label: t("agentChat.history.pinned"),
             items: pinnedThreads.map(toHistoryItem),
           },
         ]
@@ -412,13 +427,13 @@ function HistoryPopover({
           onRename={onRename}
           searchValue={search}
           onSearchChange={setSearch}
-          searchPlaceholder="Search chats..."
+          searchPlaceholder={t("agentChat.history.search")}
           searchInputRef={inputRef}
           loading={isSearching}
-          loadingLabel="Searching..."
+          loadingLabel={t("agentChat.history.searching")}
           error={loadError && !search.trim() ? loadError : undefined}
-          emptyLabel="No chats yet"
-          emptySearchLabel="No matching chats"
+          emptyLabel={t("agentChat.history.empty")}
+          emptySearchLabel={t("agentChat.history.noMatches")}
           footer={
             !search.trim() && hasMoreThreads ? (
               <button
@@ -427,7 +442,9 @@ function HistoryPopover({
                 disabled={isLoadingMoreThreads}
                 className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
               >
-                {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+                {isLoadingMoreThreads
+                  ? t("agentChat.common.loading")
+                  : t("agentChat.history.loadOlder")}
               </button>
             ) : undefined
           }
@@ -440,6 +457,7 @@ function HistoryPopover({
 // ─── Help Popover ────────────────────────────────────────────────────────────
 
 function HelpPopover({ onClose }: { onClose: () => void }) {
+  const t = useT();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -451,14 +469,14 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
   const commands = [
     {
       name: "/clear",
-      description: "Start a new chat (keeps current chat in history)",
+      description: t("agentChat.commands.clear"),
     },
-    { name: "/new", description: "Same as /clear" },
-    { name: "/history", description: "Browse all chats" },
-    { name: "/plan", description: "Switch to read-only planning" },
-    { name: "/act", description: "Switch back to acting" },
-    { name: "/help", description: "Show this list of commands" },
-    { name: "@", description: "Mention files, agents, or resources" },
+    { name: "/new", description: t("agentChat.commands.new") },
+    { name: "/history", description: t("agentChat.commands.history") },
+    { name: "/plan", description: t("agentChat.commands.plan") },
+    { name: "/act", description: t("agentChat.commands.act") },
+    { name: "/help", description: t("agentChat.commands.help") },
+    { name: "@", description: t("agentChat.commands.mention") },
   ];
 
   return (
@@ -467,11 +485,11 @@ function HelpPopover({ onClose }: { onClose: () => void }) {
       <div className="absolute end-2 top-0 z-50 w-72 rounded-lg border border-border bg-popover shadow-lg">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border">
           <span className="text-xs font-medium text-foreground">
-            Available Commands
+            {t("agentChat.commands.available")}
           </span>
           <button
             onClick={onClose}
-            aria-label="Close help"
+            aria-label={t("agentChat.commands.closeHelp")}
             className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
           >
             <IconX size={12} />
@@ -757,6 +775,7 @@ export function MultiTabAssistantChat({
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   ...props
 }: MultiTabAssistantChatProps) {
+  const translate = useT();
   const {
     enabled: threadUrlSyncEnabled,
     paramName: threadUrlParamName,
@@ -2292,7 +2311,10 @@ export function MultiTabAssistantChat({
       );
       return {
         id,
-        label: t?.title || t?.preview?.slice(0, 30) || "New chat",
+        label:
+          t?.title ||
+          t?.preview?.slice(0, 30) ||
+          translate("agentChat.tabs.newChat"),
         status:
           agentTeamStatus ??
           (runningThreads.has(id)
@@ -2311,7 +2333,10 @@ export function MultiTabAssistantChat({
       tabs.push({
         id,
         label:
-          subAgentNames[id] || (parentMap[id] ? "Sub-agent..." : "New chat"),
+          subAgentNames[id] ||
+          (parentMap[id]
+            ? translate("agentChat.tabs.subAgent")
+            : translate("agentChat.tabs.newChat")),
         status:
           chatTabStatusFromAgentTeamStatus(subAgentStatuses[id]) ??
           ("running" as const),
@@ -2405,7 +2430,7 @@ export function MultiTabAssistantChat({
                             </button>
                             <button
                               type="button"
-                              aria-label="Close tab"
+                              aria-label={translate("agentChat.tabs.closeTab")}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
@@ -2436,19 +2461,21 @@ export function MultiTabAssistantChat({
                           <TooltipTrigger asChild>
                             <button
                               onClick={addTab}
-                              aria-label="New chat"
+                              aria-label={translate("agentChat.tabs.newChat")}
                               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
                             >
                               <IconPlus size={12} />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>New chat</TooltipContent>
+                          <TooltipContent>
+                            {translate("agentChat.tabs.newChat")}
+                          </TooltipContent>
                         </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => setShowHistory(!showHistory)}
-                              aria-label="All chats"
+                              aria-label={translate("agentChat.tabs.allChats")}
                               className={cn(
                                 "flex h-6 w-6 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
                                 showHistory && "bg-accent text-foreground",
@@ -2457,7 +2484,9 @@ export function MultiTabAssistantChat({
                               <IconHistory size={12} />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>All chats</TooltipContent>
+                          <TooltipContent>
+                            {translate("agentChat.tabs.allChats")}
+                          </TooltipContent>
                         </Tooltip>
                       </div>
                     </TooltipProvider>
@@ -2474,7 +2503,7 @@ export function MultiTabAssistantChat({
                               : "text-muted-foreground hover:bg-accent hover:text-foreground",
                           )}
                         >
-                          Main
+                          {translate("agentChat.tabs.main")}
                         </button>
                         {childTabs.map((tab) => (
                           <div
@@ -2505,7 +2534,7 @@ export function MultiTabAssistantChat({
                             </button>
                             <button
                               type="button"
-                              aria-label="Close tab"
+                              aria-label={translate("agentChat.tabs.closeTab")}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
@@ -2609,6 +2638,7 @@ export function MultiTabAssistantChat({
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(
+                      // i18n-ignore -- stable hidden agent instruction.
                       "Continue from where you left off and finish my last request. Do not repeat completed work.",
                       "continue",
                     );
@@ -2662,7 +2692,7 @@ export function MultiTabAssistantChat({
                   composerDisabled={Boolean(parentMap[tabId])}
                   composerDisabledPlaceholder={
                     parentMap[tabId]
-                      ? "Send messages to the orchestrator chat — this sub-agent runs automatically"
+                      ? translate("agentChat.composer.subAgentReadOnly")
                       : undefined
                   }
                 />

@@ -9,7 +9,11 @@ import {
 } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { formatContextTokens } from "./format.js";
-import type { ContextManifestViewData } from "./types.js";
+import {
+  fallbackContextTranslate,
+  type ContextManifestViewData,
+  type ContextTranslate,
+} from "./types.js";
 
 function ContextDonut({ pct, advisory }: { pct: number; advisory: boolean }) {
   const radius = 7.5;
@@ -50,12 +54,14 @@ export function ContextMeterView({
   open,
   onOpenChange,
   children,
+  translate = fallbackContextTranslate,
 }: {
   manifest: ContextManifestViewData;
   contextWindow: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
+  translate?: ContextTranslate;
 }) {
   const pct = Math.min(
     100,
@@ -70,7 +76,22 @@ export function ContextMeterView({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                aria-label={`Context ${pct}%, ${formatContextTokens(manifest.totalTokens)}${systemTokens > 0 ? ` total: ${formatContextTokens(systemTokens)} system + ${formatContextTokens(conversationTokens)} conversation` : ""}. Open Context X-Ray.`}
+                aria-label={translate("agentChat.contextMeter.ariaLabel", {
+                  defaultValue:
+                    "Context {{percent}}%, {{totalTokens}}{{breakdown}}. Open Context X-Ray.",
+                  percent: pct,
+                  totalTokens: formatContextTokens(manifest.totalTokens),
+                  breakdown:
+                    systemTokens > 0
+                      ? translate("agentChat.contextMeter.breakdown", {
+                          defaultValue:
+                            " total: {{systemTokens}} system + {{conversationTokens}} conversation",
+                          systemTokens: formatContextTokens(systemTokens),
+                          conversationTokens:
+                            formatContextTokens(conversationTokens),
+                        })
+                      : "",
+                })}
                 className={cn(
                   "flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   open && "bg-accent/60 text-foreground",
@@ -81,9 +102,18 @@ export function ContextMeterView({
             </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>
-            Context {pct}% · {formatContextTokens(manifest.totalTokens)}
+            {translate("agentChat.contextMeter.summary", {
+              defaultValue: "Context {{percent}}% · {{totalTokens}}",
+              percent: pct,
+              totalTokens: formatContextTokens(manifest.totalTokens),
+            })}
             {systemTokens > 0
-              ? ` (${formatContextTokens(systemTokens)} system + ${formatContextTokens(conversationTokens)} conversation)`
+              ? translate("agentChat.contextMeter.summaryBreakdown", {
+                  defaultValue:
+                    " ({{systemTokens}} system + {{conversationTokens}} conversation)",
+                  systemTokens: formatContextTokens(systemTokens),
+                  conversationTokens: formatContextTokens(conversationTokens),
+                })
               : ""}
           </TooltipContent>
         </Tooltip>

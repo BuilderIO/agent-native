@@ -62,6 +62,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { localizeKnownChatErrorText } from "../error-format.js";
+import {
+  DEFAULT_LOCALE,
+  useFormatters,
+  useOptionalLocale,
+  useT,
+} from "../i18n.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
@@ -91,9 +98,9 @@ import {
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
   ChatRunDurationContext,
-  formatWorkedDuration,
   RanToolsSummary,
   ReasoningCell,
+  useLocalizedWorkedDuration,
   WorkedForSummary,
   toolCallHasPendingApproval,
 } from "./tool-call-display.js";
@@ -108,7 +115,7 @@ const PENDING_SELECTION_KEY = "pending-selection-context";
 
 export function displayableUserMessageText(text: string): string {
   return text
-    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "") // i18n-ignore -- parsing regex, not UI copy.
     .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
     .replace(/<\/context>/gi, "")
     .trim();
@@ -161,6 +168,8 @@ function isSameCalendarDay(a: Date, b: Date): boolean {
 
 export function formatMessageTimestamp(
   value: unknown,
+  locale?: string,
+  yesterdayLabel = "Yesterday",
 ): FormattedMessageTimestamp | null {
   const date = coerceMessageDate(value);
   if (!date) return null;
@@ -168,7 +177,7 @@ export function formatMessageTimestamp(
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  const time = new Intl.DateTimeFormat(undefined, {
+  const time = new Intl.DateTimeFormat(locale, {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
@@ -177,14 +186,14 @@ export function formatMessageTimestamp(
   if (isSameCalendarDay(date, now)) {
     short = time;
   } else if (isSameCalendarDay(date, yesterday)) {
-    short = `Yesterday ${time}`;
+    short = `${yesterdayLabel} ${time}`;
   } else if (date.getFullYear() === now.getFullYear()) {
-    short = `${new Intl.DateTimeFormat(undefined, {
+    short = `${new Intl.DateTimeFormat(locale, {
       month: "short",
       day: "numeric",
     }).format(date)}, ${time}`;
   } else {
-    short = `${new Intl.DateTimeFormat(undefined, {
+    short = `${new Intl.DateTimeFormat(locale, {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -193,7 +202,7 @@ export function formatMessageTimestamp(
 
   return {
     short,
-    full: new Intl.DateTimeFormat(undefined, {
+    full: new Intl.DateTimeFormat(locale, {
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -227,6 +236,8 @@ export function MessageTimestamp({
 // ─── SelectionAttachedPill ────────────────────────────────────────────────────
 
 export function SelectionAttachedPill() {
+  const t = useT();
+  const { formatNumber } = useFormatters();
   const [length, setLength] = useState<number | null>(null);
 
   useEffect(() => {
@@ -272,10 +283,15 @@ export function SelectionAttachedPill() {
     <div className="agent-selection-attached-pill shrink-0 px-3 pt-1.5 -mb-1">
       <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
         <IconQuote size={11} />
-        <span>{length.toLocaleString()} chars of selection attached</span>
+        <span>
+          {t("agentChat.selection.attached", {
+            count: length,
+            formattedCount: formatNumber(length),
+          })}
+        </span>
         <button
           type="button"
-          aria-label="Clear selection context"
+          aria-label={t("agentChat.selection.clear")}
           onClick={() => {
             setLength(null);
             // Dispatch clear event; AssistantChat owns the DELETE call.
@@ -356,6 +372,7 @@ export function assistantMessageRunId(message: unknown): string | undefined {
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
+  const t = useT();
   return (
     <BranchPickerPrimitive.Root
       hideWhenSingleBranch
@@ -364,7 +381,7 @@ export function MessageBranchPicker() {
       <BranchPickerPrimitive.Previous asChild>
         <button
           type="button"
-          aria-label="Previous branch"
+          aria-label={t("agentChat.message.previousBranch")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         >
           <IconChevronLeft className="h-3.5 w-3.5" />
@@ -378,7 +395,7 @@ export function MessageBranchPicker() {
       <BranchPickerPrimitive.Next asChild>
         <button
           type="button"
-          aria-label="Next branch"
+          aria-label={t("agentChat.message.nextBranch")}
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         >
           <IconChevronRight className="h-3.5 w-3.5" />
@@ -555,6 +572,7 @@ function UserMessageAttachments() {
 // ─── UserMessageEditComposer ──────────────────────────────────────────────────
 
 function UserMessageEditComposer() {
+  const t = useT();
   return (
     <ComposerPrimitive.Root className="flex flex-col gap-2 rounded-lg border border-border bg-background px-3 py-2 shadow-sm">
       <ComposerPrimitive.Input
@@ -568,7 +586,7 @@ function UserMessageEditComposer() {
             type="button"
             className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            Cancel
+            {t("agentChat.common.cancel")}
           </button>
         </ComposerPrimitive.Cancel>
         <ComposerPrimitive.Send asChild>
@@ -576,7 +594,7 @@ function UserMessageEditComposer() {
             type="submit"
             className="cursor-pointer rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
           >
-            Save
+            {t("agentChat.common.save")}
           </button>
         </ComposerPrimitive.Send>
       </div>
@@ -593,11 +611,17 @@ export function MessageActionsMenu({
   showRevert?: boolean;
   onRevert?: () => void;
 } = {}) {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const actionsCtx = React.useContext(MessageActionsContext);
-  const timestamp = formatMessageTimestamp(messageRuntime.getState().createdAt);
+  const timestamp = formatMessageTimestamp(
+    messageRuntime.getState().createdAt,
+    locale,
+    t("agentChat.history.yesterday"),
+  );
 
   const handleCopyMessage = useCallback(() => {
     const m = messageRuntime.getState();
@@ -653,7 +677,7 @@ export function MessageActionsMenu({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label="Message actions"
+          aria-label={t("agentChat.message.actions")}
           className={cn(
             "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
             open && "bg-accent text-foreground",
@@ -670,7 +694,7 @@ export function MessageActionsMenu({
         {actionsCtx?.onForkChat && (
           <DropdownMenuItem onSelect={handleForkChat}>
             <IconGitFork className="h-3.5 w-3.5" />
-            Fork Chat
+            {t("agentChat.message.forkChat")}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
@@ -684,7 +708,9 @@ export function MessageActionsMenu({
           ) : (
             <IconCopy className="h-3.5 w-3.5" />
           )}
-          {copied === "message" ? "Copied!" : "Copy Message"}
+          {copied === "message"
+            ? t("agentChat.common.copied")
+            : t("agentChat.message.copyMessage")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={(e) => {
@@ -697,19 +723,21 @@ export function MessageActionsMenu({
           ) : (
             <IconId className="h-3.5 w-3.5" />
           )}
-          {copied === "id" ? "Copied!" : "Copy Request ID"}
+          {copied === "id"
+            ? t("agentChat.common.copied")
+            : t("agentChat.message.copyRequestId")}
         </DropdownMenuItem>
         {showRevert && (
           <DropdownMenuItem onSelect={handleRevert}>
             <IconArrowBackUp className="h-3.5 w-3.5" />
-            Revert to here
+            {t("agentChat.message.revertHere")}
           </DropdownMenuItem>
         )}
         {timestamp && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="px-2 py-1 text-[11px] font-normal text-muted-foreground">
-              Sent {timestamp.short}
+              {t("agentChat.message.sentAt", { time: timestamp.short })}
             </DropdownMenuLabel>
           </>
         )}
@@ -721,12 +749,18 @@ export function MessageActionsMenu({
 // ─── UserMessage ──────────────────────────────────────────────────────────────
 
 export function UserMessage() {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [expanded, setExpanded] = useState(false);
   const [isExpandable, setIsExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
-  const timestamp = formatMessageTimestamp(message.createdAt);
+  const timestamp = formatMessageTimestamp(
+    message.createdAt,
+    locale,
+    t("agentChat.history.yesterday"),
+  );
   const isEditing = useComposer((state) => state.isEditing);
   const chatRunning = React.useContext(ChatRunningContext);
   const hidden = isHiddenUserMessage(message);
@@ -817,7 +851,7 @@ export function UserMessage() {
                     <ActionBarPrimitive.Edit asChild>
                       <button
                         type="button"
-                        aria-label="Edit message"
+                        aria-label={t("agentChat.message.edit")}
                         className="absolute -left-8 top-1 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/0 transition-colors duration-150 group-hover:text-muted-foreground/70 group-hover:hover:bg-accent group-hover:hover:text-foreground"
                       >
                         <IconPencil className="h-3.5 w-3.5" />
@@ -825,7 +859,7 @@ export function UserMessage() {
                     </ActionBarPrimitive.Edit>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="text-xs">
-                    Edit message
+                    {t("agentChat.message.edit")}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -844,7 +878,9 @@ export function UserMessage() {
                 expanded && "rotate-180",
               )}
             />
-            {expanded ? "Collapse" : "Expand"}
+            {expanded
+              ? t("agentChat.common.collapse")
+              : t("agentChat.common.expand")}
           </button>
         )}
         <div className="mt-1 flex items-center justify-end gap-1">
@@ -1421,11 +1457,19 @@ export function InlineRunErrorNotice({
   durationMs?: number | null;
   onRetry?: (() => void) | undefined;
 }) {
+  const t = useT();
+  const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(false);
-  const headline = runErrorHeadline(info);
+  const headline = runErrorHeadline(info, {
+    recoverable: t("agentChat.error.stopped"),
+    terminal: t("agentChat.error.failed"),
+  });
   const label =
     durationMs != null && durationMs >= 1000
-      ? `${headline} after ${formatWorkedDuration(durationMs)}`
+      ? t("agentChat.error.afterDuration", {
+          headline,
+          duration: formatDuration(durationMs),
+        })
       : headline;
 
   return (
@@ -1447,7 +1491,9 @@ export function InlineRunErrorNotice({
       </button>
       {open && (
         <div className="mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground">
-          <p className="whitespace-pre-wrap break-words">{info.message}</p>
+          <p className="whitespace-pre-wrap break-words">
+            {localizeKnownChatErrorText(info.message, t)}
+          </p>
           {info.errorCode && (
             <div className="mt-1 font-mono">code: {info.errorCode}</div>
           )}
@@ -1464,7 +1510,7 @@ export function InlineRunErrorNotice({
               className="mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
             >
               <IconRefresh className="size-3" />
-              Retry
+              {t("agentChat.common.retry")}
             </button>
           )}
         </div>
@@ -1528,6 +1574,8 @@ function MissingFinalResponseNotice({
 }
 
 export function AssistantMessage() {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring" | "error"
   >("idle");
@@ -1538,7 +1586,11 @@ export function AssistantMessage() {
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const persistedDurationMs = getAssistantRunDurationMs(msg);
-  const timestamp = formatMessageTimestamp(msg.createdAt);
+  const timestamp = formatMessageTimestamp(
+    msg.createdAt,
+    locale,
+    t("agentChat.history.yesterday"),
+  );
   const isLast =
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
@@ -1575,9 +1627,7 @@ export function AssistantMessage() {
   );
   const missingFinalResponseNoticeText =
     missingWarningText ??
-    (showMissingFinalResponse
-      ? "The agent stopped without sending a final message. Ask the agent to continue or retry."
-      : null);
+    (showMissingFinalResponse ? t("agentChat.message.missingFinal") : null);
   const animateMissingFinalResponse = Boolean(
     isLast && missingFinalResponseNoticeText && wasLiveRef.current,
   );
@@ -1677,7 +1727,7 @@ export function AssistantMessage() {
     }
     if (restoreState !== "confirming" || !cpCtx) return;
     if (!messageRunId) {
-      setRestoreError("This message has no run to restore to.");
+      setRestoreError(t("agentChat.message.noRestoreRun"));
       setRestoreState("error");
       return;
     }
@@ -1698,16 +1748,20 @@ export function AssistantMessage() {
       setRestoreError(
         typeof payload?.error === "string"
           ? payload.error
-          : `Restore failed (${restoreRes.status}).`,
+          : t("agentChat.message.restoreFailed", {
+              status: restoreRes.status,
+            }),
       );
       setRestoreState("error");
     } catch (err) {
       setRestoreError(
-        err instanceof Error ? err.message : "Restore request failed.",
+        err instanceof Error
+          ? err.message
+          : t("agentChat.message.restoreRequestFailed"),
       );
       setRestoreState("error");
     }
-  }, [restoreState, cpCtx, messageRunId]);
+  }, [restoreState, cpCtx, messageRunId, t]);
 
   const cancelRestore = useCallback(() => {
     setRestoreError(null);
@@ -1883,7 +1937,7 @@ export function AssistantMessage() {
                     <ActionBarPrimitive.Reload asChild>
                       <button
                         type="button"
-                        aria-label="Regenerate response"
+                        aria-label={t("agentChat.message.regenerate")}
                         className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         <IconRefresh className="h-3.5 w-3.5" />
@@ -1891,7 +1945,7 @@ export function AssistantMessage() {
                     </ActionBarPrimitive.Reload>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="text-xs">
-                    Regenerate response
+                    {t("agentChat.message.regenerate")}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -1910,19 +1964,19 @@ export function AssistantMessage() {
                 onClick={handleRestore}
                 className="rounded-md bg-destructive px-1.5 py-0.5 text-destructive-foreground hover:bg-destructive/90"
               >
-                Restore to here?
+                {t("agentChat.message.restoreQuestion")}
               </button>
               <button
                 onClick={cancelRestore}
                 className="rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
               >
-                Cancel
+                {t("agentChat.common.cancel")}
               </button>
             </div>
           ) : showRestore && restoreState === "restoring" ? (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <IconLoader2 className="h-3 w-3 animate-spin" />
-              Restoring...
+              {t("agentChat.message.restoring")}
             </span>
           ) : restoreState === "error" ? (
             <span className="flex items-center gap-1 text-xs text-destructive">
@@ -1932,7 +1986,7 @@ export function AssistantMessage() {
                 onClick={cancelRestore}
                 className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
               >
-                Dismiss
+                {t("agentChat.common.dismiss")}
               </button>
             </span>
           ) : (
@@ -1958,17 +2012,17 @@ export function RunningActivityStatus({ label }: { label: string }) {
   );
 }
 
-export function ThinkingIndicator({
-  label = "Thinking",
-}: { label?: string } = {}) {
+export function ThinkingIndicator({ label }: { label?: string } = {}) {
+  const t = useT();
+  const resolvedLabel = label ?? t("agentChat.status.thinking");
   return (
     <div
       className="agent-thinking-indicator"
       role="status"
       aria-live="polite"
-      aria-label={label}
+      aria-label={resolvedLabel}
     >
-      <span className="agent-thinking-indicator__text">{label}</span>
+      <span className="agent-thinking-indicator__text">{resolvedLabel}</span>
     </div>
   );
 }

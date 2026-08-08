@@ -326,6 +326,7 @@ function ChatLoadingSkeleton({
   composerAreaClassName?: string;
   composerLayoutVariant?: AssistantChatProps["composerLayoutVariant"];
 }) {
+  const t = useT();
   // Provide empty no-op implementations so renderHeader can render the real
   // tab/mode buttons without needing actual chat state.
   const noop = useCallback(() => {}, []);
@@ -354,7 +355,7 @@ function ChatLoadingSkeleton({
         >
           <div className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0">
             <div className="agent-empty-state sr-only" aria-busy="true">
-              Loading chat...
+              {t("agentChat.empty.loadingChat")}
             </div>
           </div>
           {composerSlot}
@@ -1311,7 +1312,7 @@ function AgentPanelInner({
               <ShareButton
                 resourceType="chat_thread"
                 resourceId={activeTab.id}
-                resourceTitle={activeTab.label || "Chat"}
+                resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
                 trigger="icon"
                 triggerClassName="h-7 w-7"
@@ -1623,7 +1624,7 @@ function AgentPanelInner({
                 <ShareButton
                   resourceType="chat_thread"
                   resourceId={activeTab.id}
-                  resourceTitle={activeTab.label || "Chat"}
+                  resourceTitle={activeTab.label || t("agentPanel.chat")}
                   shareUrl={getChatThreadShareUrl(activeTab.id)}
                   trigger="icon"
                   triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
@@ -1753,7 +1754,7 @@ function AgentPanelInner({
                         )}
                         <button
                           type="button"
-                          aria-label="Close tab"
+                          aria-label={t("agentPanel.closeTab")}
                           onClick={(e) => {
                             e.stopPropagation();
                             closeTab(tab.id);
@@ -1851,7 +1852,7 @@ function AgentPanelInner({
                                   )}
                                   <button
                                     type="button"
-                                    aria-label="Close tab"
+                                    aria-label={t("agentPanel.closeTab")}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       closeTab(tab.id);
@@ -1898,7 +1899,7 @@ function AgentPanelInner({
                                 <span>Terminal {i + 1}</span>
                                 <button
                                   type="button"
-                                  aria-label="Close tab"
+                                  aria-label={t("agentPanel.closeTab")}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     closeCliTab(id);
@@ -1977,7 +1978,7 @@ function AgentPanelInner({
                             )}
                             <button
                               type="button"
-                              aria-label="Close tab"
+                              aria-label={t("agentPanel.closeTab")}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 closeTab(tab.id);
@@ -2023,6 +2024,7 @@ function AgentPanelInner({
       activeTabRefCb,
       activateOnKeyDown,
       closeCliTab,
+      t,
     ],
   );
 
@@ -2159,7 +2161,7 @@ function AgentPanelInner({
               <Suspense
                 fallback={
                   <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    Loading terminal...
+                    {t("agentPanel.loadingTerminal")}
                   </div>
                 }
               >
@@ -3689,6 +3691,7 @@ export function focusAgentChat() {
  * Dispatches a custom event that AgentSidebar listens for.
  */
 export function AgentToggleButton({ className }: { className?: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const handler = (event: Event) => {
@@ -3708,7 +3711,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
       trigger={
         <button
           type="button"
-          aria-label="Toggle agent"
+          aria-label={t("agentPanel.toggleAgent")}
           onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -3718,7 +3721,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
           <IconMessageDots size={20} aria-hidden />
         </button>
       }
-      content="Toggle agent"
+      content={t("agentPanel.toggleAgent")}
       delayMs={200}
     />
   );

@@ -25,6 +25,25 @@ afterEach(() => {
 });
 
 describe("ComposerRuntimeAdaptersProvider", () => {
+  it("interpolates fallback translations without a provider", () => {
+    let translated = "";
+
+    function Consumer() {
+      const runtime = useComposerRuntimeAdapters();
+      translated = runtime.translate!("attachment.tooLarge", {
+        defaultValue: '"{{name}}" is {{size}} MB (max {{maxSize}} MB)',
+        name: "report.pdf",
+        size: 12.5,
+        maxSize: 10,
+      });
+      return null;
+    }
+
+    act(() => root.render(<Consumer />));
+
+    expect(translated).toBe('"report.pdf" is 12.5 MB (max 10 MB)');
+  });
+
   it("keeps the context value stable so consumer effects do not refire", () => {
     const readAppState = vi.fn(() => undefined);
     const adapters: ComposerRuntimeAdapters = { voice: { readAppState } };

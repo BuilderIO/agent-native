@@ -271,7 +271,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run --passWithNoTests"
+    "test": "vitest --run --dir src --passWithNoTests"
   },
   "dependencies": {
     "@assistant-ui/react": "catalog:",

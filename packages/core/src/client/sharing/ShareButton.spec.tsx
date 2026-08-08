@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeI18nProvider } from "../i18n.js";
 import { ShareButton } from "./ShareButton.js";
 
 const shareMutate = vi.hoisted(() => vi.fn());
@@ -332,7 +333,7 @@ describe("ShareButton", () => {
       'button[aria-label="Share (Private)"]',
     ) as HTMLButtonElement | null;
 
-    expect(trigger).toBeTruthy();
+    expect(trigger, container.innerHTML).toBeTruthy();
     expect(trigger?.textContent).not.toContain("Share");
   });
 
@@ -775,5 +776,35 @@ describe("ShareButton", () => {
 
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=25");
     expect(container.textContent).toContain("second@builder.io");
+  });
+
+  // Keep the non-source-locale provider test last: react-i18next's global
+  // fallback instance otherwise leaks the selected language into tests that
+  // intentionally exercise providerless compatibility.
+  it("localizes the icon-only trigger and its visibility", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="plan"
+              resourceId="plan-1"
+              trigger="icon"
+            />
+          </QueryClientProvider>
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('button[aria-label="Teilen (Privat)"]'),
+        container.innerHTML,
+      ).not.toBeNull();
+    });
   });
 });

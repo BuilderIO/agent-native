@@ -22,7 +22,10 @@ import {
   type RealtimeVoiceModeCopy,
   type RealtimeVoiceModeState,
 } from "./RealtimeVoiceMode.js";
-import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
+import {
+  type ComposerTranslate,
+  useComposerRuntimeAdapters,
+} from "./runtime-adapters.js";
 
 const REALTIME_VOICE_STATE_KEY = "realtime-voice-session";
 const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
@@ -1097,81 +1100,203 @@ export function listenForRealtimeVoicePageHide(
   return () => window.removeEventListener("pagehide", cleanup);
 }
 
-function voiceCopy(t: (key: string) => string): RealtimeVoiceModeCopy {
+function voiceCopy(t: ComposerTranslate): RealtimeVoiceModeCopy {
   return {
-    entryButtonLabel: t("agentPanel.voiceMode.entryButtonLabel"),
-    promptTitle: t("agentPanel.voiceMode.promptTitle"),
-    promptDescription: t("agentPanel.voiceMode.promptDescription"),
-    setupTitle: t("agentPanel.voiceMode.setupTitle"),
-    setupDescription: t("agentPanel.voiceMode.setupDescription"),
-    connectBuilder: t("agentPanel.voiceMode.connectBuilder"),
-    useOpenAiKey: t("agentPanel.voiceMode.useOpenAiKey"),
-    startWithOpenAiKey: t("agentPanel.voiceMode.startWithOpenAiKey"),
-    startVoiceMode: t("agentPanel.voiceMode.start"),
-    keepDictating: t("agentPanel.voiceMode.keepDictating"),
-    rememberPreference: t("agentPanel.voiceMode.rememberPreference"),
-    showChat: t("agentPanel.voiceMode.showChat"),
-    hideChat: t("agentPanel.voiceMode.hideChat"),
-    endVoiceMode: t("agentPanel.voiceMode.end"),
-    voiceSettings: t("agentPanel.voiceMode.voiceSettings"),
+    entryButtonLabel: t("agentChat.voiceMode.entryButtonLabel", {
+      defaultValue: "Use microphone",
+    }),
+    promptTitle: t("agentChat.voiceMode.promptTitle", {
+      defaultValue: "Use your voice",
+    }),
+    promptDescription: t("agentChat.voiceMode.promptDescription", {
+      defaultValue:
+        "Voice mode keeps listening while the agent navigates and takes actions.",
+    }),
+    setupTitle: t("agentChat.voiceMode.setupTitle", {
+      defaultValue: "Set up voice mode",
+    }),
+    setupDescription: t("agentChat.voiceMode.setupDescription", {
+      defaultValue:
+        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
+    }),
+    connectBuilder: t("agentChat.voiceMode.connectBuilder", {
+      defaultValue: "Connect Builder.io",
+    }),
+    useOpenAiKey: t("agentChat.voiceMode.useOpenAiKey", {
+      defaultValue: "Add your own keys",
+    }),
+    startWithOpenAiKey: t("agentChat.voiceMode.startWithOpenAiKey", {
+      defaultValue: "Start with OpenAI key",
+    }),
+    startVoiceMode: t("agentChat.voiceMode.start", {
+      defaultValue: "Real-time voice",
+    }),
+    keepDictating: t("agentChat.voiceMode.keepDictating", {
+      defaultValue: "Dictate",
+    }),
+    rememberPreference: t("agentChat.voiceMode.rememberPreference", {
+      defaultValue: "Remember my preference",
+    }),
+    showChat: t("agentChat.voiceMode.showChat", {
+      defaultValue: "Show chat",
+    }),
+    hideChat: t("agentChat.voiceMode.hideChat", {
+      defaultValue: "Hide chat",
+    }),
+    endVoiceMode: t("agentChat.voiceMode.end", {
+      defaultValue: "End voice mode",
+    }),
+    voiceSettings: t("agentChat.voiceMode.voiceSettings", {
+      defaultValue: "Voice settings",
+    }),
     settings: {
-      language: t("agentPanel.voiceMode.settings.language"),
-      autoLanguage: t("agentPanel.voiceMode.settings.autoLanguage"),
+      language: t("agentChat.voiceMode.settings.language", {
+        defaultValue: "Language",
+      }),
+      autoLanguage: t("agentChat.voiceMode.settings.autoLanguage", {
+        defaultValue: "Auto",
+      }),
       languages: {
-        en: t("agentPanel.voiceMode.settings.languages.en"),
-        es: t("agentPanel.voiceMode.settings.languages.es"),
-        fr: t("agentPanel.voiceMode.settings.languages.fr"),
-        de: t("agentPanel.voiceMode.settings.languages.de"),
-        it: t("agentPanel.voiceMode.settings.languages.it"),
-        pt: t("agentPanel.voiceMode.settings.languages.pt"),
-        ja: t("agentPanel.voiceMode.settings.languages.ja"),
-        ko: t("agentPanel.voiceMode.settings.languages.ko"),
-        zh: t("agentPanel.voiceMode.settings.languages.zh"),
+        en: t("agentChat.voiceMode.settings.languages.en", {
+          defaultValue: "English",
+        }),
+        es: t("agentChat.voiceMode.settings.languages.es", {
+          defaultValue: "Spanish",
+        }),
+        fr: t("agentChat.voiceMode.settings.languages.fr", {
+          defaultValue: "French",
+        }),
+        de: t("agentChat.voiceMode.settings.languages.de", {
+          defaultValue: "German",
+        }),
+        it: t("agentChat.voiceMode.settings.languages.it", {
+          defaultValue: "Italian",
+        }),
+        pt: t("agentChat.voiceMode.settings.languages.pt", {
+          defaultValue: "Portuguese",
+        }),
+        ja: t("agentChat.voiceMode.settings.languages.ja", {
+          defaultValue: "Japanese",
+        }),
+        ko: t("agentChat.voiceMode.settings.languages.ko", {
+          defaultValue: "Korean",
+        }),
+        zh: t("agentChat.voiceMode.settings.languages.zh", {
+          defaultValue: "Chinese",
+        }),
       },
-      intelligence: t("agentPanel.voiceMode.settings.intelligence"),
+      intelligence: t("agentChat.voiceMode.settings.intelligence", {
+        defaultValue: "Intelligence",
+      }),
       intelligenceLevels: {
-        instant: t("agentPanel.voiceMode.settings.intelligenceLevels.instant"),
+        instant: t("agentChat.voiceMode.settings.intelligenceLevels.instant", {
+          defaultValue: "Instant",
+        }),
         balanced: t(
-          "agentPanel.voiceMode.settings.intelligenceLevels.balanced",
+          "agentChat.voiceMode.settings.intelligenceLevels.balanced",
+          { defaultValue: "Balanced" },
         ),
-        deep: t("agentPanel.voiceMode.settings.intelligenceLevels.deep"),
+        deep: t("agentChat.voiceMode.settings.intelligenceLevels.deep", {
+          defaultValue: "Deep",
+        }),
       },
-      voiceStyle: t("agentPanel.voiceMode.settings.voiceStyle"),
-      microphone: t("agentPanel.voiceMode.settings.microphone"),
-      defaultMicrophone: t("agentPanel.voiceMode.settings.defaultMicrophone"),
+      voiceStyle: t("agentChat.voiceMode.settings.voiceStyle", {
+        defaultValue: "Voice style",
+      }),
+      microphone: t("agentChat.voiceMode.settings.microphone", {
+        defaultValue: "Microphone",
+      }),
+      defaultMicrophone: t("agentChat.voiceMode.settings.defaultMicrophone", {
+        defaultValue: "System default",
+      }),
       microphoneSwitchFailed: t(
-        "agentPanel.voiceMode.settings.microphoneSwitchFailed",
+        "agentChat.voiceMode.settings.microphoneSwitchFailed",
+        {
+          defaultValue:
+            "Could not switch microphones. Your current microphone is still active.",
+        },
       ),
-      voiceChangePending: t("agentPanel.voiceMode.settings.voiceChangePending"),
+      voiceChangePending: t("agentChat.voiceMode.settings.voiceChangePending", {
+        defaultValue:
+          "Your new voice will apply next time you start voice mode.",
+      }),
       voiceDescriptions: {
-        marin: t("agentPanel.voiceMode.settings.voiceDescriptions.marin"),
-        cedar: t("agentPanel.voiceMode.settings.voiceDescriptions.cedar"),
-        coral: t("agentPanel.voiceMode.settings.voiceDescriptions.coral"),
-        sage: t("agentPanel.voiceMode.settings.voiceDescriptions.sage"),
-        verse: t("agentPanel.voiceMode.settings.voiceDescriptions.verse"),
-        alloy: t("agentPanel.voiceMode.settings.voiceDescriptions.alloy"),
-        ash: t("agentPanel.voiceMode.settings.voiceDescriptions.ash"),
-        ballad: t("agentPanel.voiceMode.settings.voiceDescriptions.ballad"),
-        echo: t("agentPanel.voiceMode.settings.voiceDescriptions.echo"),
-        shimmer: t("agentPanel.voiceMode.settings.voiceDescriptions.shimmer"),
+        marin: t("agentChat.voiceMode.settings.voiceDescriptions.marin", {
+          defaultValue: "Warm and natural",
+        }),
+        cedar: t("agentChat.voiceMode.settings.voiceDescriptions.cedar", {
+          defaultValue: "Clear and grounded",
+        }),
+        coral: t("agentChat.voiceMode.settings.voiceDescriptions.coral", {
+          defaultValue: "Friendly and bright",
+        }),
+        sage: t("agentChat.voiceMode.settings.voiceDescriptions.sage", {
+          defaultValue: "Calm and thoughtful",
+        }),
+        verse: t("agentChat.voiceMode.settings.voiceDescriptions.verse", {
+          defaultValue: "Expressive and versatile",
+        }),
+        alloy: t("agentChat.voiceMode.settings.voiceDescriptions.alloy", {
+          defaultValue: "Balanced and neutral",
+        }),
+        ash: t("agentChat.voiceMode.settings.voiceDescriptions.ash", {
+          defaultValue: "Smooth and confident",
+        }),
+        ballad: t("agentChat.voiceMode.settings.voiceDescriptions.ballad", {
+          defaultValue: "Warm and expressive",
+        }),
+        echo: t("agentChat.voiceMode.settings.voiceDescriptions.echo", {
+          defaultValue: "Clear and direct",
+        }),
+        shimmer: t("agentChat.voiceMode.settings.voiceDescriptions.shimmer", {
+          defaultValue: "Light and upbeat",
+        }),
       },
     },
     status: {
-      connecting: t("agentPanel.voiceMode.status.connecting"),
-      listening: t("agentPanel.voiceMode.status.listening"),
-      speaking: t("agentPanel.voiceMode.status.speaking"),
-      working: t("agentPanel.voiceMode.status.working"),
-      error: t("agentPanel.voiceMode.status.error"),
-      ending: t("agentPanel.voiceMode.status.ending"),
+      connecting: t("agentChat.voiceMode.status.connecting", {
+        defaultValue: "Connecting",
+      }),
+      listening: t("agentChat.voiceMode.status.listening", {
+        defaultValue: "Listening",
+      }),
+      speaking: t("agentChat.voiceMode.status.speaking", {
+        defaultValue: "Speaking",
+      }),
+      working: t("agentChat.voiceMode.status.working", {
+        defaultValue: "Working",
+      }),
+      error: t("agentChat.voiceMode.status.error", {
+        defaultValue: "Voice mode needs attention",
+      }),
+      ending: t("agentChat.voiceMode.status.ending", {
+        defaultValue: "Ending voice mode",
+      }),
     },
     errors: {
-      unsupported: t("agentPanel.voiceMode.errors.unsupported"),
-      responseFailed: t("agentPanel.voiceMode.errors.responseFailed"),
-      sessionFailed: t("agentPanel.voiceMode.errors.sessionFailed"),
-      channelDisconnected: t("agentPanel.voiceMode.errors.channelDisconnected"),
-      connectionTimedOut: t("agentPanel.voiceMode.errors.connectionTimedOut"),
-      connectionFailed: t("agentPanel.voiceMode.errors.connectionFailed"),
-      offerFailed: t("agentPanel.voiceMode.errors.offerFailed"),
+      unsupported: t("agentChat.voiceMode.errors.unsupported", {
+        defaultValue:
+          "This browser does not support realtime voice conversations.",
+      }),
+      responseFailed: t("agentChat.voiceMode.errors.responseFailed", {
+        defaultValue: "OpenAI could not complete the voice response.",
+      }),
+      sessionFailed: t("agentChat.voiceMode.errors.sessionFailed", {
+        defaultValue: "The realtime voice session encountered an error.",
+      }),
+      channelDisconnected: t("agentChat.voiceMode.errors.channelDisconnected", {
+        defaultValue: "The realtime voice control channel disconnected.",
+      }),
+      connectionTimedOut: t("agentChat.voiceMode.errors.connectionTimedOut", {
+        defaultValue:
+          "The realtime voice connection timed out. Try again after the app finishes loading.",
+      }),
+      connectionFailed: t("agentChat.voiceMode.errors.connectionFailed", {
+        defaultValue: "The realtime voice connection failed.",
+      }),
+      offerFailed: t("agentChat.voiceMode.errors.offerFailed", {
+        defaultValue: "The browser did not create an audio offer.",
+      }),
     },
   };
 }
@@ -1186,6 +1311,7 @@ function useRealtimeVoiceModeController(
   copy?: RealtimeVoiceModeCopy,
 ): RealtimeVoiceModeApi {
   const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
   const [state, setState] = useState<"idle" | RealtimeVoiceModeState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [chatVisible, setChatVisible] = useState(false);
@@ -1395,7 +1521,12 @@ function useRealtimeVoiceModeController(
         )
         .map((device, index) => ({
           deviceId: device.deviceId,
-          label: device.label || `Microphone ${index + 1}`,
+          label:
+            device.label ||
+            t("agentChat.voiceMode.settings.microphoneNumber", {
+              number: index + 1,
+              defaultValue: `Microphone ${index + 1}`,
+            }),
         }));
       setMicrophones(inputs);
       return inputs;
@@ -1403,7 +1534,7 @@ function useRealtimeVoiceModeController(
       // Enumeration is progressive enhancement; system default remains usable.
       return null;
     }
-  }, []);
+  }, [t]);
 
   const startMeterLoop = useCallback(() => {
     if (meterFrameRef.current !== null) return;
@@ -1508,7 +1639,10 @@ function useRealtimeVoiceModeController(
       } catch {
         setMicrophoneError(
           copy?.settings.microphoneSwitchFailed ??
-            "Could not switch microphones. Your current microphone is still active.",
+            t("agentChat.voiceMode.settings.microphoneSwitchFailed", {
+              defaultValue:
+                "Could not switch microphones. Your current microphone is still active.",
+            }),
         );
       } finally {
         setMicrophoneSwitching(false);
@@ -1520,6 +1654,7 @@ function useRealtimeVoiceModeController(
       microphoneDeviceId,
       microphoneSwitching,
       refreshMicrophones,
+      t,
     ],
   );
   switchMicrophoneRef.current = setMicrophone;
@@ -1740,7 +1875,9 @@ function useRealtimeVoiceModeController(
         fail(
           message ||
             copy?.errors.sessionFailed ||
-            "The realtime voice session encountered an error.",
+            t("agentChat.voiceMode.errors.sessionFailed", {
+              defaultValue: "The realtime voice session encountered an error.",
+            }),
         );
         return;
       }
@@ -1757,6 +1894,7 @@ function useRealtimeVoiceModeController(
       greetingStarter,
       handleFunctionCall,
       syncAppState,
+      t,
       transcriptSequencer,
       transition,
       responseCoordinator,
@@ -1773,7 +1911,10 @@ function useRealtimeVoiceModeController(
     ) {
       fail(
         copy?.errors.unsupported ??
-          "This browser does not support realtime voice conversations.",
+          t("agentChat.voiceMode.errors.unsupported", {
+            defaultValue:
+              "This browser does not support realtime voice conversations.",
+          }),
       );
       return;
     }
@@ -1804,7 +1945,9 @@ function useRealtimeVoiceModeController(
       if (!isCurrentAttempt()) return;
       fail(
         copy?.errors.connectionTimedOut ??
-          "The realtime voice connection timed out.",
+          t("agentChat.voiceMode.errors.connectionTimedOut", {
+            defaultValue: "The realtime voice connection timed out.",
+          }),
       );
     });
     connectionGateRef.current = connectionGate;
@@ -1870,7 +2013,9 @@ function useRealtimeVoiceModeController(
         if (!isCurrentAttempt()) return;
         fail(
           copy?.errors.channelDisconnected ??
-            "The realtime voice control channel disconnected.",
+            t("agentChat.voiceMode.errors.channelDisconnected", {
+              defaultValue: "The realtime voice control channel disconnected.",
+            }),
         );
       };
       peer.onconnectionstatechange = () => {
@@ -1881,7 +2026,9 @@ function useRealtimeVoiceModeController(
         if (peer.connectionState === "failed") {
           fail(
             copy?.errors.connectionFailed ??
-              "The realtime voice connection failed.",
+              t("agentChat.voiceMode.errors.connectionFailed", {
+                defaultValue: "The realtime voice connection failed.",
+              }),
           );
         }
       };
@@ -1893,7 +2040,9 @@ function useRealtimeVoiceModeController(
       if (!offer.sdp) {
         throw new Error(
           copy?.errors.offerFailed ??
-            "The browser did not create an audio offer.",
+            t("agentChat.voiceMode.errors.offerFailed", {
+              defaultValue: "The browser did not create an audio offer.",
+            }),
         );
       }
       const answer = await createRealtimeVoiceSessionWithCapability(offer.sdp, {
@@ -1945,6 +2094,7 @@ function useRealtimeVoiceModeController(
     handleServerEvent,
     hydratePreferences,
     refreshMicrophones,
+    t,
     transcriptSequencer,
     transition,
   ]);

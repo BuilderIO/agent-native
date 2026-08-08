@@ -3,16 +3,17 @@ import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
 import { useState, useCallback } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 
 const THUMBS_DOWN_CATEGORIES = [
-  "Inaccurate",
-  "Not helpful",
-  "Wrong tool",
-  "Too slow",
+  { value: "Inaccurate", key: "agentChat.feedback.inaccurate" },
+  { value: "Not helpful", key: "agentChat.feedback.notHelpful" },
+  { value: "Wrong tool", key: "agentChat.feedback.wrongTool" },
+  { value: "Too slow", key: "agentChat.feedback.tooSlow" },
 ] as const;
 
-type ThumbsDownCategory = (typeof THUMBS_DOWN_CATEGORIES)[number];
+type ThumbsDownCategory = (typeof THUMBS_DOWN_CATEGORIES)[number]["value"];
 
 export interface ThumbsFeedbackProps {
   threadId: string;
@@ -29,6 +30,7 @@ export function ThumbsFeedback({
   messageSeq,
   className,
 }: ThumbsFeedbackProps) {
+  const t = useT();
   const [selection, setSelection] = useState<Selection>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [submittedCategory, setSubmittedCategory] = useState<string | null>(
@@ -90,7 +92,7 @@ export function ThumbsFeedback({
     <div className={cn("inline-flex items-center gap-0.5", className)}>
       <button
         type="button"
-        aria-label="Thumbs up"
+        aria-label={t("agentChat.feedback.thumbsUp")}
         onClick={handleThumbsUp}
         className={cn(
           "flex h-6 w-6 items-center justify-center rounded",
@@ -110,7 +112,7 @@ export function ThumbsFeedback({
         <PopoverPrimitive.Trigger asChild>
           <button
             type="button"
-            aria-label="Thumbs down"
+            aria-label={t("agentChat.feedback.thumbsDown")}
             onClick={handleThumbsDown}
             className={cn(
               "flex h-6 w-6 items-center justify-center rounded",
@@ -138,17 +140,17 @@ export function ThumbsFeedback({
             <div className="flex flex-col gap-0.5">
               {THUMBS_DOWN_CATEGORIES.map((category) => (
                 <button
-                  key={category}
+                  key={category.value}
                   type="button"
-                  onClick={() => handleCategory(category)}
+                  onClick={() => handleCategory(category.value)}
                   className={cn(
-                    "rounded-md px-3 py-1.5 text-left text-xs",
-                    submittedCategory === category
+                    "rounded-md px-3 py-1.5 text-start text-xs",
+                    submittedCategory === category.value
                       ? "bg-accent text-foreground font-medium"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   )}
                 >
-                  {category}
+                  {t(category.key)}
                 </button>
               ))}
             </div>

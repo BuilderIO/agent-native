@@ -1,3 +1,4 @@
+import { useT } from "../../i18n.js";
 import type { DataChartWidget as DataChartWidgetData } from "./data-widget-types.js";
 
 const DEFAULT_COLORS = [
@@ -226,13 +227,14 @@ function ChartBody({ chart }: { chart: DataChartWidgetData }) {
 }
 
 export function DataChartRenderer({ chart }: { chart: DataChartWidgetData }) {
+  const t = useT();
   return (
     <div className="h-60 w-full min-w-0 overflow-hidden">
       <svg
         className="agent-data-chart-renderer h-full w-full"
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role="img"
-        aria-label={chart.title ?? "Data chart"}
+        aria-label={chart.title ?? t("agentChat.widget.dataChart")}
         preserveAspectRatio="none"
       >
         <ChartBody chart={chart} />
