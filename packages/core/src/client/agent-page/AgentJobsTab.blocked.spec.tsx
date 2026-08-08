@@ -11,16 +11,20 @@ const jobMocks = vi.hoisted(() => ({
   useAutomationRuns: vi.fn(),
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
-  useRecurringJobs: vi.fn(),
 }));
 
 vi.mock("./use-jobs.js", () => ({
   useAutomations: jobMocks.useAutomations,
+  useAutomationAccountSearch: () => ({ data: [], isFetching: false }),
+  useAutomationEvents: () => ({ data: [], error: null, isLoading: false }),
   useAutomationRuns: jobMocks.useAutomationRuns,
   useManageAutomation: jobMocks.useManageAutomation,
   useManageRecurringJob: jobMocks.useManageRecurringJob,
-  useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
+}));
+
+vi.mock("../org/hooks.js", () => ({
+  useOrg: () => ({ data: { orgId: null, orgName: null } }),
 }));
 
 vi.mock("../i18n.js", () => ({
@@ -57,34 +61,58 @@ describe("AgentJobsTab blocked automation", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") =>
-      queryResult(
-        scope === "user"
-          ? [
-              {
-                id: "blocked-job",
-                name: "competitive-intelligence-daily-email",
-                path: "jobs/competitive-intelligence-daily-email.md",
-                scope: "personal",
-                schedule: "0 8 * * *",
-                scheduleDescription: "Every day at 8 AM",
-                instructions: "Send the briefing.",
-                enabled: true,
-                // The job has never executed; a blocked tick only sets lastCheck.
-                lastRun: null,
-                lastCheck: "2026-07-31T17:04:14.688Z",
-                lastStatus: "skipped",
-                lastError: BLOCKED_REASON,
-                nextRun: "2026-08-01T08:00:00.000Z",
-                createdBy: "tmilazzo@builder.io",
-                mcpTools: [],
-                canUpdate: true,
-              },
-            ]
-          : [],
-      ),
+    jobMocks.useAutomations.mockReturnValue(
+      queryResult([
+        {
+          id: "blocked-job",
+          resourceId: "blocked-job",
+          name: "competitive-intelligence-daily-email",
+          path: "jobs/competitive-intelligence-daily-email.md",
+          scope: "personal",
+          classification: "recurring-job",
+          triggerType: "schedule",
+          event: null,
+          schedule: "0 8 * * *",
+          timezone: "UTC",
+          scheduleDescription: "Every day at 8 AM",
+          condition: null,
+          body: "Send the briefing.",
+          enabled: true,
+          // The job has never executed; a blocked tick only sets lastCheck.
+          lastRun: null,
+          lastCheck: "2026-07-31T17:04:14.688Z",
+          lastStatus: "skipped",
+          lastError: BLOCKED_REASON,
+          nextRun: "2026-08-01T08:00:00.000Z",
+          createdBy: "tmilazzo@builder.io",
+          model: null,
+          mcpTools: [],
+          originScopeId: null,
+          deliveryPlatform: null,
+          deliveryDestination: null,
+          deliveryThreadRef: null,
+          deliveryTenantId: null,
+          canUpdate: true,
+          effectiveRole: "owner",
+          capabilities: {
+            canEdit: true,
+            canOperate: true,
+            canDelete: true,
+            canManageSharing: true,
+          },
+          sharing: {
+            source: "legacy",
+            visibility: "private",
+            organizationId: null,
+            grantCount: 0,
+          },
+          creator: {
+            email: "tmilazzo@builder.io",
+            label: "tmilazzo@builder.io",
+          },
+        },
+      ]),
     );
-    jobMocks.useAutomations.mockReturnValue(queryResult([]));
     jobMocks.useAutomationRuns.mockReturnValue(queryResult([]));
     jobMocks.useManageRecurringJob.mockReturnValue({
       error: null,
@@ -123,9 +151,17 @@ describe("AgentJobsTab blocked automation", () => {
       root.render(<AgentJobsTab />);
     });
 
-    const row = container.querySelector("article");
-    expect(row?.textContent).toContain("Last run: Never");
-    expect(row?.textContent).toContain("Last checked");
+    const manageButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Manage",
+    );
+    act(() => manageButton?.click());
+    const detailsButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Details",
+    );
+    act(() => detailsButton?.click());
+
+    expect(document.body.textContent).toContain("Last run");
+    expect(document.body.textContent).toContain("Never");
   });
 
   it("submits a new cron expression from the edit dialog", () => {
@@ -133,7 +169,11 @@ describe("AgentJobsTab blocked automation", () => {
       root.render(<AgentJobsTab />);
     });
 
-    const editButton = Array.from(container.querySelectorAll("button")).find(
+    const manageButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Manage",
+    );
+    act(() => manageButton?.click());
+    const editButton = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Edit",
     );
     expect(editButton).toBeDefined();

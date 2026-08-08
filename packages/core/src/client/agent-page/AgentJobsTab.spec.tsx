@@ -5,25 +5,25 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const jobMocks = vi.hoisted(() => ({
-  manageAutomation: {
-    org: vi.fn(),
-    user: vi.fn(),
-  },
+  manageAutomation: vi.fn(),
   useRunAutomationNow: vi.fn(),
   useAutomationEvents: vi.fn(),
   useAutomations: vi.fn(),
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
-  useRecurringJobs: vi.fn(),
 }));
 
 vi.mock("./use-jobs.js", () => ({
   useAutomationEvents: jobMocks.useAutomationEvents,
+  useAutomationAccountSearch: () => ({ data: [], isFetching: false }),
   useAutomations: jobMocks.useAutomations,
   useManageAutomation: jobMocks.useManageAutomation,
   useManageRecurringJob: jobMocks.useManageRecurringJob,
-  useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
+}));
+
+vi.mock("../org/hooks.js", () => ({
+  useOrg: () => ({ data: { orgId: "org-1", orgName: "Acme" } }),
 }));
 
 vi.mock("../i18n.js", () => ({
@@ -45,24 +45,65 @@ vi.mock("../i18n.js", () => ({
 }));
 
 import { AgentJobsTab } from "./AgentJobsTab.js";
+import type { Automation } from "./use-jobs.js";
 
 function queryResult<T>(data: T) {
-  return {
-    data,
-    error: null,
-    isLoading: false,
-  };
+  return { data, error: null, isLoading: false };
 }
 
 function mutationResult(mutate: ReturnType<typeof vi.fn> = vi.fn()) {
+  return { error: null, isPending: false, mutate };
+}
+
+function ownerAutomation(patch: Partial<Automation> = {}): Automation {
   return {
-    error: null,
-    isPending: false,
-    mutate,
+    id: "event-automation",
+    resourceId: "event-automation",
+    name: "new-lead-alert",
+    path: "jobs/new-lead-alert.md",
+    scope: "organization",
+    classification: "automation",
+    triggerType: "event",
+    event: "lead.created",
+    schedule: null,
+    timezone: null,
+    scheduleDescription: null,
+    condition: null,
+    body: "Alert the sales team.",
+    enabled: true,
+    lastRun: null,
+    lastCheck: null,
+    lastStatus: null,
+    lastError: null,
+    nextRun: null,
+    createdBy: "owner@example.com",
+    model: null,
+    mcpTools: [],
+    originScopeId: null,
+    deliveryPlatform: null,
+    deliveryDestination: null,
+    deliveryThreadRef: null,
+    deliveryTenantId: null,
+    canUpdate: true,
+    effectiveRole: "owner",
+    capabilities: {
+      canEdit: true,
+      canOperate: true,
+      canDelete: true,
+      canManageSharing: true,
+    },
+    sharing: {
+      source: "explicit",
+      visibility: "organization",
+      organizationId: "org-1",
+      grantCount: 0,
+    },
+    creator: { email: "owner@example.com", label: "owner@example.com" },
+    ...patch,
   };
 }
 
-describe("AgentJobsTab organization automations", () => {
+describe("AgentJobsTab unified automations list", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -72,63 +113,12 @@ describe("AgentJobsTab organization automations", () => {
     document.body.appendChild(container);
     root = createRoot(container);
 
-    jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") =>
-      queryResult(
-        scope === "org"
-          ? [
-              {
-                id: "legacy-scheduled",
-                name: "weekly-report",
-                path: "jobs/weekly-report.md",
-                scope: "organization",
-                schedule: "0 9 * * 1",
-                scheduleDescription: "Every Monday",
-                instructions: "Send the weekly report.",
-                enabled: true,
-                lastRun: null,
-                lastStatus: null,
-                lastError: null,
-                nextRun: null,
-                createdBy: "owner@example.com",
-                mcpTools: [],
-                canUpdate: true,
-              },
-            ]
-          : [],
-      ),
-    );
-    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") =>
-      queryResult(
-        scope === "org"
-          ? [
-              {
-                id: "event-automation",
-                name: "new-lead-alert",
-                path: "jobs/new-lead-alert.md",
-                scope: "organization",
-                triggerType: "event",
-                event: "lead.created",
-                schedule: null,
-                scheduleDescription: null,
-                condition: null,
-                body: "Alert the sales team.",
-                enabled: true,
-                lastRun: null,
-                lastStatus: null,
-                lastError: null,
-                nextRun: null,
-                createdBy: "owner@example.com",
-                canUpdate: true,
-              },
-            ]
-          : [],
-      ),
-    );
+    jobMocks.useAutomations.mockReturnValue(queryResult([ownerAutomation()]));
     jobMocks.useAutomationEvents.mockReturnValue(queryResult([]));
     jobMocks.useManageRecurringJob.mockReturnValue(mutationResult());
     jobMocks.useRunAutomationNow.mockReturnValue(mutationResult());
-    jobMocks.useManageAutomation.mockImplementation((scope: "user" | "org") =>
-      mutationResult(jobMocks.manageAutomation[scope]),
+    jobMocks.useManageAutomation.mockReturnValue(
+      mutationResult(jobMocks.manageAutomation),
     );
   });
 
@@ -139,86 +129,96 @@ describe("AgentJobsTab organization automations", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows scheduled and event-triggered organization automations", () => {
+  it("shows one unified list with no Personal/Organization sections", () => {
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab />);
     });
 
-    expect(jobMocks.useAutomations).toHaveBeenCalledWith("org");
-    expect(container.textContent).toContain("weekly report");
     expect(container.textContent).toContain("new lead alert");
-    expect(container.textContent).toContain("Runs when lead.created.");
-    expect(container.textContent).toContain(
-      "Scheduled and event-triggered automations shared with this organization.",
-    );
-    expect(container.textContent).not.toContain("personal today");
+    expect(container.querySelectorAll("section").length).toBe(0);
+    expect(container.textContent).toContain("Organization");
+    expect(container.textContent).not.toContain("Personal automations");
   });
 
-  it("routes organization event updates through the organization mutation", () => {
+  it("routes pause/resume through the resourceId-first mutation", () => {
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab />);
     });
 
-    const eventRow = Array.from(container.querySelectorAll("article")).find(
-      (row) => row.textContent?.includes("new lead alert"),
-    );
-    const pauseButton = Array.from(
-      eventRow?.querySelectorAll("button") ?? [],
-    ).find((button) => button.textContent?.includes("Pause"));
-
+    const row = container.querySelector("article");
+    const toggle = row?.querySelector('[role="switch"]');
     act(() => {
-      pauseButton?.click();
+      (toggle as HTMLButtonElement | null)?.click();
     });
 
-    expect(jobMocks.manageAutomation.org).toHaveBeenCalledWith(
+    expect(jobMocks.manageAutomation).toHaveBeenCalledWith(
       {
         operation: "update",
-        name: "new-lead-alert",
-        scope: "organization",
+        resourceId: "event-automation",
         enabled: false,
       },
       undefined,
     );
-    expect(jobMocks.manageAutomation.user).not.toHaveBeenCalled();
   });
 
-  it("opens organization creation with scope fixed by its section", () => {
+  it("hides mutating controls for a View-only shared automation", () => {
+    jobMocks.useAutomations.mockReturnValue(
+      queryResult([
+        ownerAutomation({
+          effectiveRole: "view",
+          capabilities: {
+            canEdit: false,
+            canOperate: false,
+            canDelete: false,
+            canManageSharing: false,
+          },
+          sharing: {
+            source: "explicit",
+            visibility: "shared",
+            organizationId: null,
+            grantCount: 1,
+          },
+        }),
+      ]),
+    );
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab />);
     });
 
-    const organizationSection = [...container.querySelectorAll("section")].find(
-      (section) => section.textContent?.includes("Organization"),
-    );
-    const createButton = [
-      ...(organizationSection?.querySelectorAll("button") ?? []),
-    ].find((button) => button.textContent?.trim() === "New automation");
-    act(() => createButton?.click());
+    expect(container.textContent).toContain("Shared with you · View");
+    expect(container.querySelector('[role="switch"]')).toBeNull();
 
-    expect(document.body.textContent).toContain(
-      "fixed to the organization scope",
+    const manageButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Manage",
     );
+    act(() => manageButton?.click());
+    const menuButtons = [...document.body.querySelectorAll("button")].map(
+      (button) => button.textContent?.trim(),
+    );
+    expect(menuButtons).toContain("Details");
+    expect(menuButtons).not.toContain("Edit");
+    expect(menuButtons).not.toContain("Delete");
+    expect(menuButtons).not.toContain("Run now");
   });
 
   it("closes the full editor after an explicit automation update succeeds", () => {
-    jobMocks.useManageAutomation.mockImplementation(
-      (scope: "user" | "org") => ({
-        error: null,
-        isPending: false,
-        mutate: (input: unknown, options?: { onSuccess?: () => void }) => {
-          jobMocks.manageAutomation[scope](input);
-          options?.onSuccess?.();
-        },
-      }),
-    );
+    jobMocks.useManageAutomation.mockReturnValue({
+      error: null,
+      isPending: false,
+      mutate: (input: unknown, options?: { onSuccess?: () => void }) => {
+        jobMocks.manageAutomation(input);
+        options?.onSuccess?.();
+      },
+    });
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab />);
     });
 
-    const eventRow = [...container.querySelectorAll("article")].find((row) =>
-      row.textContent?.includes("new lead alert"),
+    const manageButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Manage",
     );
-    const editButton = [...(eventRow?.querySelectorAll("button") ?? [])].find(
+    act(() => manageButton?.click());
+    const editButton = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Edit",
     );
     act(() => editButton?.click());
@@ -241,11 +241,10 @@ describe("AgentJobsTab organization automations", () => {
     );
     act(() => saveButton?.click());
 
-    expect(jobMocks.manageAutomation.org).toHaveBeenCalledWith(
+    expect(jobMocks.manageAutomation).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "update",
-        name: "new-lead-alert",
-        scope: "organization",
+        resourceId: "event-automation",
         body: "Notify the account team.",
       }),
     );

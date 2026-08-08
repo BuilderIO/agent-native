@@ -2,7 +2,10 @@ import { Avatar, AvatarFallback } from "@agent-native/toolkit/ui/avatar";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import { Input } from "@agent-native/toolkit/ui/input";
-import { RadioGroup, RadioGroupItem } from "@agent-native/toolkit/ui/radio-group";
+import {
+  RadioGroup,
+  RadioGroupItem,
+} from "@agent-native/toolkit/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -37,14 +40,22 @@ export interface AutomationSharingState {
 }
 
 export function defaultAutomationSharingState(): AutomationSharingState {
-  return { mode: "personal", grants: [], acknowledgeExternalCollaborators: false };
+  return {
+    mode: "personal",
+    grants: [],
+    acknowledgeExternalCollaborators: false,
+  };
 }
 
 export function automationSharingStateFromSummary(
   summary: AutomationSharingSummary,
 ): AutomationSharingState {
   if (summary.visibility === "organization") {
-    return { mode: "organization", grants: [], acknowledgeExternalCollaborators: false };
+    return {
+      mode: "organization",
+      grants: [],
+      acknowledgeExternalCollaborators: false,
+    };
   }
   if (summary.visibility === "shared") {
     return {
@@ -113,13 +124,18 @@ export function AutomationSharingFields({
 }: AutomationSharingFieldsProps) {
   const t = useT();
   const [query, setQuery] = useState("");
-  const searchQuery = useAutomationAccountSearch(query, value.mode === "specific");
+  const searchQuery = useAutomationAccountSearch(
+    query,
+    value.mode === "specific",
+  );
   const results = (searchQuery.data ?? []).filter(
     (account) => !value.grants.some((grant) => grant.email === account.email),
   );
   const requiresAck = automationSharingRequiresAcknowledgement(value.grants);
-  const invalidGrants = submitted && value.mode === "specific" && value.grants.length === 0;
-  const invalidAck = submitted && requiresAck && !value.acknowledgeExternalCollaborators;
+  const invalidGrants =
+    submitted && value.mode === "specific" && value.grants.length === 0;
+  const invalidAck =
+    submitted && requiresAck && !value.acknowledgeExternalCollaborators;
 
   function setMode(mode: AutomationSharingMode) {
     onChange({ ...value, mode });
@@ -207,9 +223,11 @@ export function AutomationSharingFields({
                 ? t("jobs.sharingOrganizationDescription", {
                     defaultValue:
                       "Every current member of {{organization}} gets View access.",
-                    organization: orgName || t("jobs.organization", {
-                      defaultValue: "Organization",
-                    }),
+                    organization:
+                      orgName ||
+                      t("jobs.organization", {
+                        defaultValue: "Organization",
+                      }),
                   })
                 : t("jobs.sharingOrganizationUnavailable", {
                     defaultValue: "Join an organization to share with members.",
@@ -377,7 +395,11 @@ export function AutomationSharingFields({
                   })
                 }
               />
-              <span className={invalidAck ? "text-destructive" : "text-muted-foreground"}>
+              <span
+                className={
+                  invalidAck ? "text-destructive" : "text-muted-foreground"
+                }
+              >
                 {t("jobs.sharingAcknowledgement", {
                   defaultValue:
                     "I understand outside-organization collaborators can edit, pause/resume, and run this automation now. It will always execute using the creator's identity.",

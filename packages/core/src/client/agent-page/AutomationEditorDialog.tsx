@@ -96,6 +96,26 @@ function parseEmailCondition(condition: string | null): EmailFilters {
   return filters;
 }
 
+function buildSharingSubmission(
+  state: AutomationSharingState,
+  orgId: string | null,
+): AutomationSharingSubmission {
+  if (state.mode === "organization") {
+    return { kind: "organization", organizationId: orgId || "" };
+  }
+  if (state.mode === "specific") {
+    return {
+      kind: "specific",
+      organizationId: orgId,
+      grants: state.grants.map((grant) => ({
+        email: grant.email,
+        role: grant.role,
+      })),
+    };
+  }
+  return { kind: "personal" };
+}
+
 function emailCondition(filters: EmailFilters): string | null {
   const lines: string[] = [];
   for (const field of ["from", "to", "subject"] as const) {
@@ -264,7 +284,7 @@ export function AutomationEditorDialog({
     );
     const sharingFields = isOwner
       ? {
-          sharing: sharingSubmission(sharing, orgId),
+          sharing: buildSharingSubmission(sharing, orgId),
           ...(needsAcknowledgement
             ? {
                 acknowledgeExternalCollaborators:

@@ -808,6 +808,30 @@ const messages = {
     settingsSummary:
       "Manage scheduled and event-triggered agent tasks together from the Automations page.",
     openAutomations: "Open Automations",
+    manage: "Manage",
+    sharingLabel: "Sharing",
+    sharingPersonal: "Personal",
+    sharingPersonalDescription: "Only you can access this automation.",
+    sharingOrganization: "Organization",
+    sharingOrganizationDescription:
+      "Every current member of {{organization}} gets View access.",
+    sharingOrganizationUnavailable:
+      "Join an organization to share with members.",
+    sharingSpecific: "Specific people",
+    sharingSpecificDescription:
+      "Choose existing accounts and give each View or Collaborate access.",
+    sharingSpecificCount: "Shared with {{count}} people",
+    sharingSearchPlaceholder: "Search by name or email…",
+    sharingOutsideOrganization: "Outside organization",
+    sharingNoGrants: "No one has been added yet.",
+    sharingRoleView: "View",
+    sharingRoleCollaborate: "Collaborate",
+    sharingRemove: "Remove",
+    sharingAcknowledgement:
+      "I understand outside-organization collaborators can edit, pause/resume, and run this automation now. It will always execute using the creator's identity.",
+    sharingOwnerOnly: "Only the owner can change sharing.",
+    sharingBadgeSharedView: "Shared with you · View",
+    sharingBadgeSharedCollaborate: "Shared with you · Collaborate",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

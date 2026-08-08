@@ -39,7 +39,9 @@ export interface AutomationCreator {
 
 // Kept only because `manage-recurring-job` still accepts name/scope as a
 // compatibility input; every new caller should address by `resourceId`.
-export type LegacyJobLocator = { resourceId: string } | { name: string; scope: "personal" | "organization" };
+export type LegacyJobLocator =
+  | { resourceId: string }
+  | { name: string; scope: "personal" | "organization" };
 
 export interface Automation {
   id: string;
@@ -203,9 +205,13 @@ function matchesLocator(
 
 /** Single unified read for every accessible automation and legacy recurring job. */
 export function useAutomations() {
-  return useActionQuery<Automation[]>("list-automations", {}, {
-    staleTime: 5_000,
-  });
+  return useActionQuery<Automation[]>(
+    "list-automations",
+    {},
+    {
+      staleTime: 5_000,
+    },
+  );
 }
 
 export function useAutomationEvents() {
@@ -239,17 +245,20 @@ export function useManageRecurringJob() {
       const previous = queryClient.getQueryData<Automation[]>(
         AUTOMATIONS_QUERY_KEY,
       );
-      queryClient.setQueryData<Automation[]>(AUTOMATIONS_QUERY_KEY, (current) => {
-        if (!current) return current;
-        if (variables.operation === "delete") {
-          return current.filter((job) => !matchesLocator(job, variables));
-        }
-        return current.map((job) =>
-          matchesLocator(job, variables)
-            ? { ...job, ...optimisticJobPatch(variables) }
-            : job,
-        );
-      });
+      queryClient.setQueryData<Automation[]>(
+        AUTOMATIONS_QUERY_KEY,
+        (current) => {
+          if (!current) return current;
+          if (variables.operation === "delete") {
+            return current.filter((job) => !matchesLocator(job, variables));
+          }
+          return current.map((job) =>
+            matchesLocator(job, variables)
+              ? { ...job, ...optimisticJobPatch(variables) }
+              : job,
+          );
+        },
+      );
       return { previous };
     },
     onError: (_error, _variables, context) => {
@@ -315,14 +324,12 @@ export function useRunAutomationNow() {
     "run-automation-now",
     {
       onSuccess: (_result, variables) => {
-        const resourceId =
-          "resourceId" in variables ? variables.resourceId : undefined;
         queryClient.invalidateQueries({
           queryKey: [
             "action",
             "list-automation-runs",
-            resourceId
-              ? { resourceId }
+            "resourceId" in variables
+              ? { resourceId: variables.resourceId }
               : { name: variables.name, scope: variables.scope },
           ],
         });

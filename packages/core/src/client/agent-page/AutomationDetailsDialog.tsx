@@ -45,6 +45,7 @@ function RunStatusDot({ status }: { status: string }) {
 }
 
 export function AutomationDetailsDialog({
+  resourceId,
   open,
   name,
   triggerSummary,
