@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.20.4
+
+### Patch Changes
+
+- e959709: Export `runDispatchMigrations` so a consuming app can own dispatch schema in a release-time migration step instead of at server startup.
+- e959709: Scope workspace automations to their owning app by default, keep Dispatch's all-apps view explicit, and expose failed run threads for troubleshooting.
+
 ## 0.20.3
 
 ### Patch Changes
