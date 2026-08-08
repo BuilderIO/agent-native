@@ -183,6 +183,44 @@ Conventions:
 - Use `fatal()` for required arg validation
 - `helpers.ts` loads `dotenv/config` so env vars are available
 
+### Dedicated first-party Analytics backfill
+
+`backfill:first-party-bigquery` is a resumable, bounded Neon-to-BigQuery worker
+for an explicitly selected organization. It is dry-run by default. It uses the
+scoped credential resolver, fixed high-water marks, separate organization and
+legacy-owner cursors, atomic local checkpoints, and a single-process lock. It
+does not change the Analytics sink or perform cutover.
+
+```bash
+pnpm backfill:first-party-bigquery \
+  --owner-email=<owner-email> \
+  --org-id=<org-id>
+```
+
+Production execution requires both `--execute` and the explicit
+`AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_ALLOW=1` environment gate. Start with a bounded
+`--max-batches` budget and increase concurrency only after checking database
+health between runs. Before starting, pause or disable the shipped durable
+backfill worker so it cannot claim the same migration job while this local
+worker is copying rows:
+
+```bash
+AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_ALLOW=1 pnpm backfill:first-party-bigquery \
+  --execute \
+  --owner-email=<owner-email> \
+  --org-id=<org-id> \
+  --batch-size=1000 \
+  --concurrency=2 \
+  --max-batches=100
+```
+
+The checkpoint file contains cursors and counts, not event payloads or
+credentials. Once both checkpoint branches are complete, use the separate
+`--finalize` command with its own approval environment gate to reconcile the
+completion into the durable job. The normal migration action's approval gate
+still controls cutover. Do not delete a lock file until the owning process has
+been verified stopped.
+
 ## TypeScript Everywhere
 
 All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).

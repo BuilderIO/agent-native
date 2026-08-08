@@ -75,6 +75,16 @@ const FIRST_PARTY_QUERY_TABLES = [
 const BACKEND_CONFIG_CACHE_TTL_MS = 30_000;
 const MAX_BACKFILL_BATCH_SIZE = 750;
 const MAX_INSERT_BATCH_SIZE = 200;
+const MAX_DEDICATED_INSERT_BATCH_SIZE = 500;
+const MAX_DEDICATED_INSERT_CONCURRENCY = 4;
+const MAX_INSERT_REQUEST_BYTES = 8 * 1024 * 1024;
+
+export interface FirstPartyAnalyticsInsertOptions {
+  /** Maximum rows in one BigQuery insertAll request. */
+  maxRowsPerRequest?: number;
+  /** Maximum insertAll requests in flight for a dedicated backfill worker. */
+  maxConcurrentRequests?: number;
+}
 
 const backendConfigCache = new Map<
   string,
@@ -224,7 +234,7 @@ const FIRST_PARTY_ANALYTICS_RAW_SCHEMA = [
   ["org_id", "STRING"],
 ] as const;
 
-const FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS = [
+export const FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS = [
   "id",
   "public_key_id",
   "event_name",
@@ -352,9 +362,114 @@ async function insertBatch(
   }
 }
 
+function boundedInsertOption(
+  value: number | undefined,
+  fallback: number,
+  maximum: number,
+  name: string,
+): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return Math.min(value, maximum);
+}
+
+async function insertPayloadRows(
+  table: BigQueryTableRef,
+  token: string,
+  payloadRows: Record<string, unknown>[],
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<void> {
+  const maxRowsPerRequest = boundedInsertOption(
+    options.maxRowsPerRequest,
+    MAX_INSERT_BATCH_SIZE,
+    MAX_DEDICATED_INSERT_BATCH_SIZE,
+    "maxRowsPerRequest",
+  );
+  const maxConcurrentRequests = boundedInsertOption(
+    options.maxConcurrentRequests,
+    1,
+    MAX_DEDICATED_INSERT_CONCURRENCY,
+    "maxConcurrentRequests",
+  );
+  const batches: Record<string, unknown>[][] = [];
+  const encoder = new TextEncoder();
+  let currentBatch: Record<string, unknown>[] = [];
+  let currentBytes = 2;
+  for (const row of payloadRows) {
+    const rowBytes = encoder.encode(
+      JSON.stringify({
+        insertId: typeof row.id === "string" ? row.id : undefined,
+        json: row,
+      }),
+    ).byteLength;
+    if (rowBytes + 2 > MAX_INSERT_REQUEST_BYTES) {
+      throw new Error(
+        "A first-party Analytics row exceeds the BigQuery request limit",
+      );
+    }
+    if (
+      currentBatch.length > 0 &&
+      (currentBatch.length >= maxRowsPerRequest ||
+        currentBytes + rowBytes + 1 > MAX_INSERT_REQUEST_BYTES)
+    ) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentBytes = 2;
+    }
+    currentBatch.push(row);
+    currentBytes += rowBytes + 1;
+  }
+  if (currentBatch.length > 0) batches.push(currentBatch);
+
+  let nextBatch = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const batchIndex = nextBatch;
+      nextBatch += 1;
+      const batch = batches[batchIndex];
+      if (!batch) return;
+      await insertBatch(table, token, batch);
+    }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(maxConcurrentRequests, batches.length) },
+      () => worker(),
+    ),
+  );
+}
+
+/**
+ * Create a long-lived inserter for a dedicated backfill process. The table is
+ * resolved once, while the token is refreshed through the existing scoped
+ * resolver for every page so a multi-hour run does not use an expired token.
+ */
+export async function createFirstPartyAnalyticsInserter(
+  configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
+): Promise<
+  (
+    rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
+  ) => Promise<number>
+> {
+  requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  const table = await getFirstPartyAnalyticsTable(configuredTable);
+  return async (rows) => {
+    if (!rows.length) return 0;
+    const token = await getAccessToken();
+    const payloadRows = rows.map(firstPartyEventRowToBigQuery);
+    await insertPayloadRows(table, token, payloadRows, options);
+    return payloadRows.length;
+  };
+}
+
 export async function insertFirstPartyAnalyticsRows(
   rows: Array<FirstPartyAnalyticsEventRow | Record<string, unknown>>,
   configuredTable?: string | null,
+  options: FirstPartyAnalyticsInsertOptions = {},
 ): Promise<number> {
   if (!rows.length) return 0;
   requireRequestCredentialContext("GOOGLE_APPLICATION_CREDENTIALS_JSON");
@@ -363,17 +478,7 @@ export async function insertFirstPartyAnalyticsRows(
     getAccessToken(),
   ]);
   const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-  for (
-    let offset = 0;
-    offset < payloadRows.length;
-    offset += MAX_INSERT_BATCH_SIZE
-  ) {
-    await insertBatch(
-      table,
-      token,
-      payloadRows.slice(offset, offset + MAX_INSERT_BATCH_SIZE),
-    );
-  }
+  await insertPayloadRows(table, token, payloadRows, options);
   return payloadRows.length;
 }
 
