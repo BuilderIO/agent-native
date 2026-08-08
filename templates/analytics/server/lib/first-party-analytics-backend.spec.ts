@@ -113,7 +113,7 @@ describe("first-party BigQuery backend", () => {
     });
   });
 
-  it("uses one bounded query for both scoped backfill branches", async () => {
+  it("uses separate indexed tenant branches for the backfill cursor", async () => {
     execute.mockResolvedValue({ rows: [] });
 
     await expect(
@@ -125,19 +125,17 @@ describe("first-party BigQuery backend", () => {
       ),
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
-    expect(execute).toHaveBeenCalledTimes(1);
-    const [query] = execute.mock.calls[0] ?? [];
-    expect(query.sql).toContain("WITH backfill_branch_0 AS");
-    expect(query.sql).toContain("UNION ALL");
-    expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
-    expect(query.sql).not.toContain("SELECT *");
-    expect(query.args).toEqual([
-      "org_builder",
-      25,
-      "owner@example.com",
-      25,
-      25,
-    ]);
+    expect(execute).toHaveBeenCalledTimes(2);
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    for (const query of [orgQuery, personalQuery]) {
+      expect(query.sql).toContain("SELECT id, received_at");
+      expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
+      expect(query.sql).not.toContain("SELECT *");
+      expect(query.sql).not.toContain("UNION ALL");
+    }
+    expect(orgQuery.args).toEqual(["org_builder", 25]);
+    expect(personalQuery.args).toEqual(["owner@example.com", 25]);
   });
 
   it("applies the tuple cursor after the initial backfill batch", async () => {
@@ -155,20 +153,23 @@ describe("first-party BigQuery backend", () => {
       ),
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
-    expect(execute).toHaveBeenCalledTimes(1);
-    const [query] = execute.mock.calls[0] ?? [];
-    expect(query.sql).toContain("received_at > ?");
-    expect(query.args).toEqual([
+    expect(execute).toHaveBeenCalledTimes(2);
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    expect(orgQuery.sql).toContain("received_at > ?");
+    expect(personalQuery.sql).toContain("received_at > ?");
+    expect(orgQuery.args).toEqual([
       "org_builder",
       "2026-07-25T11:01:33.023Z",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
       25,
+    ]);
+    expect(personalQuery.args).toEqual([
       "owner@example.com",
       "2026-07-25T11:01:33.023Z",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
-      25,
       25,
     ]);
   });
@@ -183,15 +184,10 @@ describe("first-party BigQuery backend", () => {
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
     );
 
-    expect(execute).toHaveBeenCalledTimes(1);
-    const [query] = execute.mock.calls[0] ?? [];
-    expect(query.args).toEqual([
-      "org_builder",
-      750,
-      "owner@example.com",
-      750,
-      750,
-    ]);
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    expect(orgQuery.args.at(-1)).toBe(750);
+    expect(personalQuery.args.at(-1)).toBe(750);
   });
 
   it("keeps BigQuery streaming requests bounded", async () => {
@@ -218,23 +214,33 @@ describe("first-party BigQuery backend", () => {
     vi.unstubAllGlobals();
   });
 
-  it("selects complete scoped event rows in the bounded query", async () => {
-    execute.mockResolvedValue({
-      rows: [
-        {
-          id: "org-event",
-          public_key_id: "pk",
-          event_name: "page_view",
-          timestamp: "2026-07-25T11:01:33.023Z",
-          event_date: "2026-07-25",
-          received_at: "2026-07-25T11:01:33.023Z",
-          properties: "{}",
-          context: "{}",
-          owner_email: "owner@example.com",
-          org_id: "org_builder",
-        },
-      ],
-    });
+  it("hydrates only the bounded indexed keys selected for a batch", async () => {
+    execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "org-event",
+            received_at: "2026-07-25T11:01:33.023Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "org-event",
+            public_key_id: "pk",
+            event_name: "page_view",
+            timestamp: "2026-07-25T11:01:33.023Z",
+            event_date: "2026-07-25",
+            received_at: "2026-07-25T11:01:33.023Z",
+            properties: "{}",
+            context: "{}",
+            owner_email: "owner@example.com",
+            org_id: "org_builder",
+          },
+        ],
+      });
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({}),
@@ -250,14 +256,15 @@ describe("first-party BigQuery backend", () => {
       ),
     ).resolves.toMatchObject({ copied: 1, complete: true });
 
-    expect(execute).toHaveBeenCalledTimes(1);
-    const [backfillQuery] = execute.mock.calls[0] ?? [];
-    expect(backfillQuery.sql).toContain("SELECT id, public_key_id, event_name");
-    expect(backfillQuery.sql).toContain("org_id = ?");
+    expect(execute).toHaveBeenCalledTimes(3);
+    const [hydrateQuery] = execute.mock.calls[2] ?? [];
+    expect(hydrateQuery.sql).toContain("SELECT id, public_key_id, event_name");
+    expect(hydrateQuery.sql).toContain("WHERE id IN (?)");
+    expect(hydrateQuery.args).toEqual(["org-event"]);
     vi.unstubAllGlobals();
   });
 
-  it("keeps the bounded selected event order", async () => {
+  it("chunks SQLite hydration keys without changing selected event order", async () => {
     const indexedRows = Array.from({ length: 901 }, (_, index) => ({
       id: `event-${index}`,
       received_at: new Date(Date.UTC(2026, 6, 25, 0, 0, index)).toISOString(),
@@ -273,7 +280,18 @@ describe("first-party BigQuery backend", () => {
       owner_email: "owner@example.com",
       org_id: "org_builder",
     }));
-    execute.mockResolvedValue({ rows: hydratedRows.slice(0, 750) });
+    execute.mockImplementation(
+      async (query: { sql: string; args: string[] }) => {
+        if (query.sql.includes("SELECT id, received_at")) {
+          return {
+            rows: query.sql.includes("org_id = ?") ? indexedRows : [],
+          };
+        }
+        return {
+          rows: hydratedRows.filter((row) => query.args.includes(row.id)),
+        };
+      },
+    );
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({}),
@@ -289,15 +307,9 @@ describe("first-party BigQuery backend", () => {
       ),
     ).resolves.toMatchObject({ copied: 750 });
 
-    expect(execute).toHaveBeenCalledTimes(1);
-    const [backfillQuery] = execute.mock.calls[0] ?? [];
-    expect(backfillQuery.args).toEqual([
-      "org_builder",
-      750,
-      "owner@example.com",
-      750,
-      750,
-    ]);
+    expect(execute).toHaveBeenCalledTimes(3);
+    const [firstHydration] = execute.mock.calls.slice(2);
+    expect(firstHydration?.[0].args).toHaveLength(750);
     expect(fetchMock).toHaveBeenCalledTimes(4);
     vi.unstubAllGlobals();
   });
