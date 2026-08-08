@@ -63,7 +63,12 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { localizeKnownChatErrorText } from "../error-format.js";
-import { DEFAULT_LOCALE, useOptionalLocale, useT } from "../i18n.js";
+import {
+  DEFAULT_LOCALE,
+  useFormatters,
+  useOptionalLocale,
+  useT,
+} from "../i18n.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
@@ -229,6 +234,7 @@ export function MessageTimestamp({
 
 export function SelectionAttachedPill() {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const [length, setLength] = useState<number | null>(null);
 
   useEffect(() => {
@@ -277,7 +283,7 @@ export function SelectionAttachedPill() {
         <span>
           {t("agentChat.selection.attached", {
             count: length,
-            formattedCount: length.toLocaleString(),
+            formattedCount: formatNumber(length),
           })}
         </span>
         <button

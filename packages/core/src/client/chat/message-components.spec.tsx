@@ -23,8 +23,66 @@ import {
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
+  SelectionAttachedPill,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
+
+describe("SelectionAttachedPill", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 204 })),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("formats the selected character count with the active app locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "de-DE",
+            messages: {
+              agentChat: {
+                selection: {
+                  attached: "{{formattedCount}} Zeichen der Auswahl angehängt",
+                },
+              },
+            },
+          }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <SelectionAttachedPill />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: { length: 1234 },
+        }),
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "1.234 Zeichen der Auswahl angehängt",
+    );
+  });
+});
 
 describe("ThinkingIndicator", () => {
   let container: HTMLDivElement;

@@ -13,6 +13,8 @@ function interpolate(
   options: Record<string, unknown> = {},
 ): string {
   const messages: Record<string, string> = {
+    "agentChat.errorMessages.builderAuthentication":
+      "Builder hat die verbundenen Anmeldedaten abgelehnt.",
     "agentChat.errorMessages.providerAuthentication":
       "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
     "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
@@ -214,6 +216,17 @@ describe("formatChatErrorText", () => {
 });
 
 describe("localizeKnownChatErrorText", () => {
+  it("localizes the normalized Builder authentication recovery message", () => {
+    const normalized = normalizeChatError(
+      "Builder rejected this request.",
+      "builder_auth_error",
+    );
+
+    expect(localizeKnownChatErrorText(normalized.message, interpolate)).toBe(
+      "Builder hat die verbundenen Anmeldedaten abgelehnt.",
+    );
+  });
+
   it("localizes Core-owned errors and their markdown actions", () => {
     expect(
       localizeKnownChatErrorText(

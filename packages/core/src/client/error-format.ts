@@ -21,6 +21,8 @@ export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
 const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
 const START_NEW_CHAT_LABEL = "Start new chat";
 const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
+const BUILDER_AUTHENTICATION_ERROR =
+  "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -79,7 +81,7 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.builderModelUnauthorized",
   ],
   [
-    "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+    BUILDER_AUTHENTICATION_ERROR,
     "agentChat.errorMessages.builderAuthentication",
   ],
   [
@@ -238,8 +240,7 @@ export function normalizeChatError(
 
   if (code === "builder_auth_error") {
     return {
-      message:
-        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+      message: BUILDER_AUTHENTICATION_ERROR,
       details: text,
     };
   }
