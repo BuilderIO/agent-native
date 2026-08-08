@@ -76,6 +76,7 @@ const messages = {
     zoomIn: "ज़ूम इन",
     fitSlideToScreen: "स्लाइड को स्क्रीन में फिट करें",
     fitToScreen: "स्क्रीन में फिट करें",
+    exitExcalidrawCanvas: "ड्रॉइंग कैनवास से बाहर निकलें",
     agentWorking: "एजेंट काम कर रहा है",
     openChat: "चैट खोलें",
     cloudAuthToken: "Token de autenticação",

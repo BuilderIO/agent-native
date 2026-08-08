@@ -76,6 +76,7 @@ const messages = {
     zoomIn: "تكبير",
     fitSlideToScreen: "ملاءمة الشريحة للشاشة",
     fitToScreen: "ملاءمة للشاشة",
+    exitExcalidrawCanvas: "الخروج من لوحة الرسم",
     agentWorking: "الوكيل يعمل",
     openChat: "فتح الدردشة",
     cloudAuthToken: "Token de autenticação",
