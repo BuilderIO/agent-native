@@ -65,6 +65,7 @@ jobs:
           # Presence-only signals — never expose secret VALUES to the gate.
           HAS_PLAN: ${{ secrets.PLAN_RECAP_TOKEN != '' }}
           HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_CLAUDE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
           HAS_COMPATIBLE: ${{ secrets.VISUAL_RECAP_API_KEY != '' }}
           AGENT: ${{ env.VISUAL_RECAP_AGENT }}
@@ -196,7 +197,7 @@ jobs:
             } else if (agent === 'codex') {
               if (process.env.HAS_OPENAI !== 'true') reasons.push('OPENAI_API_KEY not configured (codex backend)');
             } else if (agent === 'claude') {
-              if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
+              if (process.env.HAS_ANTHROPIC !== 'true' && process.env.HAS_CLAUDE_OAUTH !== 'true') reasons.push('neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN configured (claude backend)');
             } else {
               if (process.env.HAS_COMPATIBLE !== 'true') reasons.push('VISUAL_RECAP_API_KEY not configured (openai-compatible backend)');
               if (!(process.env.VISUAL_RECAP_MODEL || '').trim()) reasons.push('VISUAL_RECAP_MODEL is required (openai-compatible backend)');
@@ -579,8 +580,14 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
+          # A secret the repo never configured still arrives here as an empty
+          # env var. Drop those so the CLI picks the credential that is actually
+          # set instead of treating an empty one as the chosen auth path.
+          [ -n "${ANTHROPIC_API_KEY:-}" ] || unset ANTHROPIC_API_KEY
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")
@@ -746,8 +753,11 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
+          [ -n "${ANTHROPIC_API_KEY:-}" ] || unset ANTHROPIC_API_KEY
+          [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           CLAUDE_ALLOWED_TOOLS="Read,Write"
           CLAUDE_ARGS=(-p "$(cat recap-repair-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")

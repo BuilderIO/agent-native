@@ -156,6 +156,8 @@ npx @agent-native/recap-cli@latest recap doctor
 
 إذا لم يتم تعيين المتغير، يستخدم الإجراء `claude`.
 
+تصادق واجهة `claude` الخلفية باستخدام أيٍّ من بيانات الاعتماد: يحتسب `ANTHROPIC_API_KEY` تكلفة الرموز على حساب Anthropic API الخاص بك، بينما يحتسب `CLAUDE_CODE_OAUTH_TOKEN` — الذي يُنشأ محليًا بالأمر `claude setup-token` على اشتراك Claude — تكلفة التشغيل على ذلك الاشتراك. عيّن واحدًا فقط؛ فإذا ضُبط كلاهما، فسيعتمد مسار الفوترة على ما تفضّله واجهة Claude Code CLI.
+
 ## النموذج والمنطق
 
 خارج الواجهة الخلفية، يوجد متغيران في المستودع يضبطان _كيف_ يعمل الوكيل:
@@ -190,10 +192,11 @@ npx @agent-native/recap-cli@latest recap doctor
 
 ### الأسرار (مطلوب اثنان فقط)
 
-| سرية                | الغرض                                                                                                                  |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | رمز مميز قابل للإلغاء تم سكه بواسطة `npx @agent-native/core@latest connect`. يسمح بنشر خطة الملخّص وتحميل لقطة الشاشة. |
-| `ANTHROPIC_API_KEY` | مفتاح LLM للواجهة الخلفية الافتراضية لرمز Claude.                                                                      |
+| سرية                      | الغرض                                                                                                                  |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`        | رمز مميز قابل للإلغاء تم سكه بواسطة `npx @agent-native/core@latest connect`. يسمح بنشر خطة الملخّص وتحميل لقطة الشاشة. |
+| `ANTHROPIC_API_KEY`       | مفتاح LLM للواجهة الخلفية الافتراضية لرمز Claude.                                                                      |
+| `CLAUDE_CODE_OAUTH_TOKEN` | بديل عن `ANTHROPIC_API_KEY`: رمز اشتراك Claude يُنشأ بالأمر `claude setup-token`. عيّن أحدهما فقط وليس كليهما.         |
 
 **الفرق: استخدم رمزًا مميزًا لخدمة المؤسسة.** الرمز المميز الشخصي مرتبط بالشخص
 من قام بسكها - إذا تركوا المؤسسة أو أبطلوا رموزهم المميزة، فسيتم استخدام كل عملية إعادة شراء
@@ -494,6 +497,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:

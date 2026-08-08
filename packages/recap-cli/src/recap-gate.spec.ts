@@ -59,4 +59,24 @@ describe("evaluateRecapGate", () => {
     expect(decision.run).toBe(true);
     expect(decision.reasons).toEqual([]);
   });
+
+  it("runs the claude backend on a subscription OAuth token alone", () => {
+    const decision = evaluateRecapGate(
+      validGateInput({ hasAnthropic: false, hasClaudeOauth: true }),
+    );
+
+    expect(decision.run).toBe(true);
+    expect(decision.reasons).toEqual([]);
+  });
+
+  it("skips the claude backend when neither credential is configured", () => {
+    const decision = evaluateRecapGate(
+      validGateInput({ hasAnthropic: false, hasClaudeOauth: false }),
+    );
+
+    expect(decision.run).toBe(false);
+    expect(decision.reasons).toContain(
+      "neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN configured (claude backend)",
+    );
+  });
 });

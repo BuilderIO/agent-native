@@ -156,6 +156,8 @@ npx @agent-native/recap-cli@latest recap doctor
 
 변수가 설정되지 않은 경우 작업은 `claude`를 사용합니다.
 
+`claude` 백엔드는 두 자격 증명 중 하나로 인증합니다. `ANTHROPIC_API_KEY`는 Anthropic API 계정에 토큰 요금을 청구하고, Claude 구독에서 `claude setup-token`으로 로컬에서 발급한 `CLAUDE_CODE_OAUTH_TOKEN`은 해당 실행을 그 구독에 청구합니다. 둘 중 하나만 설정하세요. 둘 다 설정하면 어느 쪽으로 청구될지는 Claude Code CLI의 선택에 따릅니다.
+
 ## 모델 및 추론
 
 백엔드 외에도 두 개의 저장소 변수가 에이전트 실행 *방법*을 조정합니다.
@@ -190,10 +192,11 @@ npx @agent-native/recap-cli@latest recap doctor
 
 ### 비밀번호(2개만 필요)
 
-| 비밀                | 목적                                                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `PLAN_RECAP_TOKEN`  | `npx @agent-native/core@latest connect`가 발행한 취소 가능한 토큰입니다. 요약 계획 게시 및 스크린샷 업로드를 승인합니다. |
-| `ANTHROPIC_API_KEY` | 기본 Claude 코드 백엔드에 대한 LLM 키입니다.                                                                             |
+| 비밀                      | 목적                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `PLAN_RECAP_TOKEN`        | `npx @agent-native/core@latest connect`가 발행한 취소 가능한 토큰입니다. 요약 계획 게시 및 스크린샷 업로드를 승인합니다. |
+| `ANTHROPIC_API_KEY`       | 기본 Claude 코드 백엔드에 대한 LLM 키입니다.                                                                             |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY`의 대안: `claude setup-token`으로 발급한 Claude 구독 토큰. 둘 중 하나만 설정합니다.                   |
 
 **팀: 조직 서비스 토큰을 사용합니다.** 개인 토큰은 개인에게 귀속됩니다.
 만든 사람 - 조직을 떠나거나 토큰을 취소하면 모든 저장소는
@@ -494,6 +497,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:

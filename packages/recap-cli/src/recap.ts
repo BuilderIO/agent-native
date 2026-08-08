@@ -103,6 +103,7 @@ export const PR_VISUAL_RECAP_SETUP: string[] = [
   "  PLAN_RECAP_TOKEN   — bearer token from `npx @agent-native/core@latest connect`",
   "  ANTHROPIC_API_KEY  — the LLM key for the default Claude Code backend",
   "Optional (only if you change defaults):",
+  "  CLAUDE_CODE_OAUTH_TOKEN (secret) — instead of ANTHROPIC_API_KEY, bill the claude backend to a Claude subscription; mint it with `claude setup-token` and set exactly one of the two",
   "  OPENAI_API_KEY (secret) + VISUAL_RECAP_AGENT=codex (variable) — use Codex instead of Claude",
   "  VISUAL_RECAP_API_KEY (secret) + VISUAL_RECAP_AGENT=openai-compatible + VISUAL_RECAP_BASE_URL (variable) — use DeepSeek, Kimi, or any OpenAI-compatible API",
   "  VISUAL_RECAP_MODEL (variable, required for openai-compatible) — provider model id; optional override for Claude/Codex",
@@ -230,6 +231,7 @@ export function buildReusableCallerWorkflow(
     `    secrets:\n` +
     `      PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}\n` +
     `      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}\n` +
+    `      CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n` +
     `      OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}\n` +
     `      VISUAL_RECAP_API_KEY: \${{ secrets.VISUAL_RECAP_API_KEY }}\n` +
     `      PLAN_RECAP_APP_URL: \${{ secrets.PLAN_RECAP_APP_URL }}\n` +
@@ -321,14 +323,18 @@ export function normalizeRecapAgent(value: string | undefined): RecapAgent {
   );
 }
 
-export function recapRequiredSecrets(agent: RecapAgent): string[] {
+export function recapRequiredSecrets(
+  agent: RecapAgent,
+): RecapSecretRequirement[] {
   return [
-    "PLAN_RECAP_TOKEN",
+    { names: ["PLAN_RECAP_TOKEN"] },
     agent === "codex"
-      ? "OPENAI_API_KEY"
+      ? { names: ["OPENAI_API_KEY"] }
       : agent === "openai-compatible"
-        ? "VISUAL_RECAP_API_KEY"
-        : "ANTHROPIC_API_KEY",
+        ? { names: ["VISUAL_RECAP_API_KEY"] }
+        : // Either credential authenticates the Claude Code CLI: the API key
+          // bills tokens, the OAuth token bills a Claude subscription.
+          { names: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] },
   ];
 }
 
@@ -578,11 +584,21 @@ export interface RecapSetupPlan {
   repo?: string;
   workflowPath: string;
   workflowExists: boolean;
-  requiredSecrets: string[];
+  requiredSecrets: RecapSecretRequirement[];
   requiredVariables: readonly RecapVariableRequirement[];
   variableProblems: RecapVariableProblem[];
   variableValues: Record<string, string>;
   secretValues: Record<string, string | undefined>;
+}
+
+/**
+ * One credential the workflow needs. `names` holds interchangeable secrets in
+ * the order `recap setup` prefers them — the claude backend authenticates with
+ * either an API key or a subscription OAuth token, so demanding a specific one
+ * would report a working repo as misconfigured.
+ */
+export interface RecapSecretRequirement {
+  names: [string, ...string[]];
 }
 
 export interface RecapVariableRequirement {
@@ -777,12 +793,21 @@ export function buildRecapSetupPlan(input: {
       : [];
   const planToken =
     envValue(env, "PLAN_RECAP_TOKEN") ?? planTokenFromLocalStore(appUrl);
-  const llmSecretName =
-    agent === "codex"
-      ? "OPENAI_API_KEY"
-      : agent === "openai-compatible"
-        ? "VISUAL_RECAP_API_KEY"
-        : "ANTHROPIC_API_KEY";
+  // Take the first name each requirement has a local value for, so setup pushes
+  // one credential per requirement instead of also writing an empty alternative.
+  const secretValues: Record<string, string | undefined> = {
+    PLAN_RECAP_TOKEN: planToken,
+    PLAN_RECAP_APP_URL: appUrl === DEFAULT_RECAP_APP_URL ? undefined : appUrl,
+  };
+  for (const requirement of requiredSecrets) {
+    for (const name of requirement.names) {
+      const value = envValue(env, name);
+      if (value) {
+        secretValues[name] = value;
+        break;
+      }
+    }
+  }
   const variableValues: Record<string, string> = {};
   if (agent !== "claude") variableValues.VISUAL_RECAP_AGENT = agent;
   for (const key of [
@@ -837,11 +862,7 @@ export function buildRecapSetupPlan(input: {
     requiredVariables,
     variableProblems,
     variableValues,
-    secretValues: {
-      PLAN_RECAP_TOKEN: planToken,
-      [llmSecretName]: envValue(env, llmSecretName),
-      PLAN_RECAP_APP_URL: appUrl === DEFAULT_RECAP_APP_URL ? undefined : appUrl,
-    },
+    secretValues,
   };
 }
 
@@ -941,11 +962,16 @@ function runSetup(args: Record<string, string | boolean>): void {
   } else {
     lines.push("");
     lines.push("GitHub secrets/variables:");
-    const secretNames = [
+    const secretRequirements: RecapSecretRequirement[] = [
       ...plan.requiredSecrets,
-      ...(plan.secretValues.PLAN_RECAP_APP_URL ? ["PLAN_RECAP_APP_URL"] : []),
+      ...(plan.secretValues.PLAN_RECAP_APP_URL
+        ? [{ names: ["PLAN_RECAP_APP_URL"] as [string] }]
+        : []),
     ];
-    for (const name of secretNames) {
+    for (const requirement of secretRequirements) {
+      const name =
+        requirement.names.find((candidate) => plan.secretValues[candidate]) ??
+        requirement.names[0];
       const status = setGithubSecret(
         name,
         plan.secretValues[name],
@@ -966,6 +992,11 @@ function runSetup(args: Record<string, string | boolean>): void {
         lines.push(
           `    Or set manually: ${commandForMissingSecret(name, repo)}`,
         );
+        for (const alternative of requirement.names.slice(1)) {
+          lines.push(
+            `    Alternative: ${commandForMissingSecret(alternative, repo)}`,
+          );
+        }
       } else {
         lines.push(`  ${name}: could not set with gh.`);
         lines.push(`    Set manually: ${commandForMissingSecret(name, repo)}`);
@@ -1085,13 +1116,26 @@ function runDoctor(args: Record<string, string | boolean>): void {
     lines.push("[missing] Could not read GitHub Actions secrets with gh.");
     lines.push("  Run gh auth status, or pass --repo owner/name.");
   } else {
-    for (const name of plan.requiredSecrets) {
-      if (secretNames.has(name)) {
-        lines.push(`[ok] GitHub secret configured: ${name}.`);
-      } else {
+    for (const requirement of plan.requiredSecrets) {
+      const configured = requirement.names.filter((name) =>
+        secretNames.has(name),
+      );
+      if (configured.length === 0) {
         ok = false;
-        lines.push(`[missing] GitHub secret missing: ${name}.`);
-        lines.push(`  Set it with: ${commandForMissingSecret(name, repo)}`);
+        lines.push(
+          `[missing] GitHub secret missing: ${requirement.names.join(" or ")}.`,
+        );
+        lines.push(
+          `  Set it with: ${commandForMissingSecret(requirement.names[0], repo)}`,
+        );
+        continue;
+      }
+      lines.push(`[ok] GitHub secret configured: ${configured.join(", ")}.`);
+      if (configured.length > 1) {
+        lines.push(
+          `[warn] Interchangeable credentials both configured: ${configured.join(", ")}.`,
+        );
+        lines.push("  Remove all but one so the billing path is unambiguous.");
       }
     }
   }
@@ -1383,6 +1427,10 @@ export function sanitizeAgentFailureSummary(
       )
       .replace(/PLAN_RECAP_TOKEN=([^\s]+)/g, "PLAN_RECAP_TOKEN=[redacted]")
       .replace(/ANTHROPIC_API_KEY=([^\s]+)/g, "ANTHROPIC_API_KEY=[redacted]")
+      .replace(
+        /CLAUDE_CODE_OAUTH_TOKEN=([^\s]+)/g,
+        "CLAUDE_CODE_OAUTH_TOKEN=[redacted]",
+      )
       .replace(/OPENAI_API_KEY=([^\s]+)/g, "OPENAI_API_KEY=[redacted]");
 
   const sanitizedLines = value
@@ -4015,6 +4063,8 @@ export interface RecapGateInput {
   hasPlan: boolean;
   /** ANTHROPIC_API_KEY present. */
   hasAnthropic: boolean;
+  /** CLAUDE_CODE_OAUTH_TOKEN present — the subscription-billed claude credential. */
+  hasClaudeOauth?: boolean;
   /** OPENAI_API_KEY present. */
   hasOpenai: boolean;
   /** VISUAL_RECAP_API_KEY present for OpenAI-compatible backends. */
@@ -4165,8 +4215,10 @@ export function evaluateRecapGate(input: RecapGateInput): {
     if (!input.hasOpenai)
       reasons.push("OPENAI_API_KEY not configured (codex backend)");
   } else if (agent === "claude") {
-    if (!input.hasAnthropic)
-      reasons.push("ANTHROPIC_API_KEY not configured (claude backend)");
+    if (!input.hasAnthropic && !input.hasClaudeOauth)
+      reasons.push(
+        "neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN configured (claude backend)",
+      );
   } else {
     if (!input.hasOpenaiCompatible)
       reasons.push(
@@ -4324,6 +4376,7 @@ async function runGate(): Promise<void> {
     repositoryPrivate,
     hasPlan: process.env.HAS_PLAN === "true",
     hasAnthropic: process.env.HAS_ANTHROPIC === "true",
+    hasClaudeOauth: process.env.HAS_CLAUDE_OAUTH === "true",
     hasOpenai: process.env.HAS_OPENAI === "true",
     hasOpenaiCompatible: process.env.HAS_COMPATIBLE === "true",
     agentRaw: process.env.AGENT,

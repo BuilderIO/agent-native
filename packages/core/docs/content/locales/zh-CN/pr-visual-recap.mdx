@@ -156,6 +156,8 @@ npx @agent-native/recap-cli@latest recap doctor
 
 如果变量未设置，则操作使用 `claude`。
 
+`claude` 后端可使用其中任一凭据进行身份验证：`ANTHROPIC_API_KEY` 按令牌计入你的 Anthropic API 账户，而通过 `claude setup-token` 在 Claude 订阅上本地生成的 `CLAUDE_CODE_OAUTH_TOKEN` 则将本次运行计入该订阅。请只设置其中一个；如果两者都配置，计费方式取决于 Claude Code CLI 的选择。
+
 ## 模型和推理
 
 除了后端之外，两个存储库变量还可以调整代理的运行方式：
@@ -190,10 +192,11 @@ npx @agent-native/recap-cli@latest recap doctor
 
 ### 秘密（只需两个）
 
-| 秘密                | 目的                                                                                      |
-| ------------------- | ----------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | 由 `npx @agent-native/core@latest connect` 铸造的可撤销代币。授权发布回顾计划和截图上传。 |
-| `ANTHROPIC_API_KEY` | 默认 Claude 代码后端的 LLM 密钥。                                                         |
+| 秘密                      | 目的                                                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`        | 由 `npx @agent-native/core@latest connect` 铸造的可撤销代币。授权发布回顾计划和截图上传。                      |
+| `ANTHROPIC_API_KEY`       | 默认 Claude 代码后端的 LLM 密钥。                                                                              |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `ANTHROPIC_API_KEY` 的替代方案：通过 `claude setup-token` 生成的 Claude 订阅令牌。二者只设其一，不要同时设置。 |
 
 **团队：使用组织服务令牌。**个人令牌与人员绑定
 谁铸造了它 - 如果他们离开组织或撤销他们的代币，每个存储库都会使用
@@ -492,6 +495,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:

@@ -156,6 +156,8 @@ Wählen Sie mit der Repository-Variable `VISUAL_RECAP_AGENT` aus, welcher Codier
 
 Wenn die Variable nicht gesetzt ist, verwendet die Aktion `claude`.
 
+Das `claude`-Backend authentifiziert sich mit einem der beiden Anmeldedaten: `ANTHROPIC_API_KEY` rechnet Tokens über Ihr Anthropic-API-Konto ab, während `CLAUDE_CODE_OAUTH_TOKEN` — lokal mit `claude setup-token` auf einem Claude-Abonnement erstellt — den Lauf stattdessen über dieses Abonnement abrechnet. Setzen Sie genau eines; sind beide konfiguriert, entscheidet die Claude-Code-CLI über den Abrechnungsweg.
+
 ## Modell und Argumentation
 
 Über das Backend hinaus optimieren zwei Repository-Variablen, _wie_ der Agent ausgeführt wird:
@@ -190,10 +192,11 @@ Legen Sie diese in den **Einstellungen → Geheimnisse und Variablen → Actions
 
 ### Geheimnisse (nur zwei erforderlich)
 
-| Geheimnis           | Zweck                                                                                                                                                             |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | Widerruflicher Token, geprägt von `npx @agent-native/core@latest connect`. Autorisiert die Veröffentlichung des Zusammenfassungsplans und des Screenshot-Uploads. |
-| `ANTHROPIC_API_KEY` | Der LLM-Schlüssel für das Standard-Claude-Code-Backend.                                                                                                           |
+| Geheimnis                 | Zweck                                                                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`        | Widerruflicher Token, geprägt von `npx @agent-native/core@latest connect`. Autorisiert die Veröffentlichung des Zusammenfassungsplans und des Screenshot-Uploads. |
+| `ANTHROPIC_API_KEY`       | Der LLM-Schlüssel für das Standard-Claude-Code-Backend.                                                                                                           |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Alternative zu `ANTHROPIC_API_KEY`: ein Claude-Abonnement-Token aus `claude setup-token`. Setzen Sie das eine oder das andere, nicht beides.                      |
 
 **Teams: Verwenden Sie ein Organisationsdienst-Token.** Ein persönliches Token ist an die Person gebunden
 Wer hat es geprägt – wenn sie die Organisation verlassen oder ihre Token widerrufen, jedes Repo mit
@@ -494,6 +497,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
     with:

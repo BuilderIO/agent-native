@@ -174,13 +174,15 @@ runner.
 
 Choose which coding agent runs the skill with the `VISUAL_RECAP_AGENT` repository variable:
 
-| `VISUAL_RECAP_AGENT` | Coding agent                            | Required API key       | Required variables                            |
-| -------------------- | --------------------------------------- | ---------------------- | --------------------------------------------- |
-| `claude` _(default)_ | Claude Code CLI                         | `ANTHROPIC_API_KEY`    | —                                             |
-| `codex`              | OpenAI Codex CLI                        | `OPENAI_API_KEY`       | —                                             |
-| `openai-compatible`  | Agent-Native Code + compatible provider | `VISUAL_RECAP_API_KEY` | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL` |
+| `VISUAL_RECAP_AGENT` | Coding agent                            | Required API key                                 | Required variables                            |
+| -------------------- | --------------------------------------- | ------------------------------------------------ | --------------------------------------------- |
+| `claude` _(default)_ | Claude Code CLI                         | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` | —                                             |
+| `codex`              | OpenAI Codex CLI                        | `OPENAI_API_KEY`                                 | —                                             |
+| `openai-compatible`  | Agent-Native Code + compatible provider | `VISUAL_RECAP_API_KEY`                           | `VISUAL_RECAP_BASE_URL`, `VISUAL_RECAP_MODEL` |
 
 If the variable is unset, the action uses `claude`.
+
+The `claude` backend authenticates with either credential: `ANTHROPIC_API_KEY` bills tokens to your Anthropic API account, while `CLAUDE_CODE_OAUTH_TOKEN` — minted locally with `claude setup-token` on a Claude subscription — bills the run to that subscription instead. Set exactly one; with both configured the billing path is whichever the Claude Code CLI prefers.
 
 ## Model and reasoning
 
@@ -220,10 +222,11 @@ Set these in your repository's **Settings → Secrets and variables → Actions*
 
 ### Secrets for the default backend
 
-| Secret              | Purpose                                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `PLAN_RECAP_TOKEN`  | Revocable token minted by `npx @agent-native/core@latest connect`. Authorizes publishing the recap plan and the screenshot upload. |
-| `ANTHROPIC_API_KEY` | The LLM key for the default Claude Code backend.                                                                                   |
+| Secret                    | Purpose                                                                                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`        | Revocable token minted by `npx @agent-native/core@latest connect`. Authorizes publishing the recap plan and the screenshot upload. |
+| `ANTHROPIC_API_KEY`       | The LLM key for the default Claude Code backend.                                                                                   |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Alternative to `ANTHROPIC_API_KEY`: a Claude subscription token from `claude setup-token`. Set one or the other, not both.         |
 
 **Teams: use an org service token.** A personal token is bound to the person
 who minted it — if they leave the org or revoke their tokens, every repo using
@@ -527,6 +530,7 @@ jobs:
     secrets:
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
