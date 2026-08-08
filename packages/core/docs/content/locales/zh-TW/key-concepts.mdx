@@ -23,7 +23,7 @@ Core 是基礎。Toolkit 與 Templates 都是可選的。
 
 - **代理** — 讀取資料、寫入資料、執行 actions 並使用已設定工具的自主 AI。可使用 skills 和說明進行定制。
 - **應用** — 試劑週圍的產品表面。一開始這可能只是操作、豐富的聊天、小型控制平面或帶有儀表板、流程和視覺化的完整 React 介面。
-- **電腦** — 資料庫、瀏覽器、程式碼執行。代理直接使用 SQL 和內建工具進行工作； MCP 伺服器是可選的附加元件，而不是基礎。
+- **電腦** — 資料庫、瀏覽器、程式碼執行。代理透過應用程式的動作與資料介面工作；應用程式可以透過 MCP 公開相同的動作介面，而外部 MCP 伺服器仍是可選的附加元件，不是基礎。
 
 <Diagram id="doc-block-1apqpo9" title={"代理、應用程式和電腦"} summary={"三層在一個共用的 SQL 儲存上協同工作。代理和應用程式讀取和寫入相同的資料。"}>
 
@@ -250,10 +250,12 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 正式環境代理聊天外掛預設將原始 SQL 工具設為唯讀
-(`databaseTools: "read"`)，因此代理使用 `db-schema` / `db-query` 檢查應用程式擁有的資料，
+(`frameworkTools: { database: "read" }`)，因此代理使用 `db-schema` / `db-query` 檢查應用程式擁有的資料，
 並透過型別化應用程式 actions 執行寫入。只有在刻意的維護介面也需要公開具範圍限制的
-`db-exec` / `db-patch` 時，才設定 `databaseTools: "write"`（或 `true`）；
-設定 `databaseTools: "off"` / `false` 可要求所有資料存取都透過型別化應用程式 actions。
+`db-exec` / `db-patch` 時，才設定 `database: "write"`（或 `true`）；
+設定 `database: "off"` / `false` 可要求所有資料存取都透過型別化應用程式 actions。
+
+`frameworkTools` 以同樣的方式管理框架自帶的其餘工具：分享、審閱留言、版本歷史、feature flags、本地化、稽核、Context X-Ray、個人資料、自動化、docs、resources、web、跨應用委派、聊天與郵件。完整清單、`"minimal"` 預設，以及為什麼關閉分組仍保留其 HTTP 路由，請參見 [Production Agent Tools](/docs/deployment#production-agent-tools)。
 
 ## 代理聊天橋 {#agent-chat-bridge}
 

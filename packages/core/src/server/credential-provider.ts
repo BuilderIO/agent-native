@@ -21,8 +21,76 @@
 import { createHash } from "node:crypto";
 
 import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE } from "../agent/engine/credential-errors.js";
-import { isLocalDatabase, isTransientDatabaseError } from "../db/client.js";
+import {
+  getDbExec,
+  isLocalDatabase,
+  isTransientDatabaseError,
+} from "../db/client.js";
+import { getOrgSetting } from "../settings/org-settings.js";
 import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+
+const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
+
+type DesignatedVaultFallbackAccess =
+  | { status: "allowed" }
+  | {
+      status: "denied";
+      reason: "missing-app-id" | "no-active-grant";
+    }
+  | { status: "unavailable"; cause: unknown };
+
+/**
+ * The designated vault fallback is an all-apps compatibility path. Manual
+ * mode must use the per-app sync path instead, or a known key name would be
+ * enough to read the whole vault from an ungranted workspace app.
+ */
+async function canReadDesignatedVaultFallback(
+  vaultOrgId: string,
+  credentialKey: string,
+): Promise<DesignatedVaultFallbackAccess> {
+  const access = await getOrgSetting(
+    vaultOrgId,
+    DISPATCH_VAULT_ACCESS_SETTINGS_KEY,
+  );
+  if (access?.mode !== "manual") return { status: "allowed" };
+
+  // Manual mode is still usable across a Dispatch vault org and a separate
+  // app org, but only for this app's explicit active grant. The app identity
+  // comes from deployment configuration, never from request input.
+  const appId = [
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID,
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+    process.env.AGENT_NATIVE_APP_ID,
+    process.env.APP_NAME,
+  ]
+    .find((value) => value?.trim())
+    ?.trim();
+  if (!appId) {
+    return { status: "denied", reason: "missing-app-id" };
+  }
+
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT 1
+        FROM vault_grants AS grants
+        INNER JOIN vault_secrets AS secrets ON secrets.id = grants.secret_id
+        WHERE grants.org_id = ?
+          AND grants.app_id = ?
+          AND grants.status = 'active'
+          AND secrets.org_id = grants.org_id
+          AND secrets.credential_key = ?
+        LIMIT 1`,
+      args: [vaultOrgId, appId, credentialKey],
+    });
+    return result.rows.length > 0
+      ? { status: "allowed" }
+      : { status: "denied", reason: "no-active-grant" };
+  } catch (cause) {
+    // A missing/unreadable grant table must fail closed. The app can still
+    // resolve a locally scoped credential or retry after the store recovers.
+    return { status: "unavailable", cause };
+  }
+}
 
 /**
  * Decide which `app_secrets` scope a Builder/credential write should use.
@@ -57,7 +125,7 @@ export class FeatureNotConfiguredError extends Error {
   }) {
     super(
       opts.message ??
-        `Feature requires credential "${opts.requiredCredential}". Connect Builder or set your own key.`,
+        `Feature requires credential "${opts.requiredCredential}". Connect Builder (free tier available) or set your own key.`,
     );
     this.name = "FeatureNotConfiguredError";
     this.requiredCredential = opts.requiredCredential;
@@ -954,7 +1022,7 @@ export async function getBuilderCredentialAuthFailure(
       message:
         typeof row.message === "string" && row.message
           ? row.message
-          : "Builder rejected the connected credentials. Reconnect Builder.io.",
+          : "Builder rejected the connected credentials. Reconnect Builder.io (free tier available).",
       status: typeof row.status === "number" ? row.status : undefined,
       code: typeof row.code === "string" ? row.code : undefined,
       at,
@@ -984,7 +1052,7 @@ export async function recordBuilderCredentialAuthFailure(details?: {
       fingerprint,
       message:
         details?.message ||
-        "Builder rejected the connected credentials. Reconnect Builder.io.",
+        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available).",
       ...(typeof details?.status === "number" && { status: details.status }),
       ...(details?.code && { code: details.code }),
       at: Date.now(),
@@ -1354,9 +1422,9 @@ export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
 
 /**
  * Resolve a request-scoped secret. Reads from `app_secrets` first (current
- * user override, active org, workspace row for that org, then the solo
- * workspace row); falls back to `process.env` only when the deploy fallback
- * policy allows it.
+ * user override, active org, workspace row for that org, the solo workspace
+ * row, then the explicitly designated workspace vault organization); falls
+ * back to `process.env` only when the deploy fallback policy allows it.
  *
  * Resolving several keys in one request? Call `prefetchSecrets` first.
  */
@@ -1471,6 +1539,51 @@ export async function resolveSecretDetailed(
           );
         }
         return { value: soloWorkspaceSecret.value, lookupFailed: false };
+      }
+
+      // Dispatch's workspace vault is stored under the organization that
+      // performed the sync. AGENT_VAULT_ORG_ID is an explicit single-workspace
+      // deployment assertion; without it, never guess which other tenant owns
+      // a shared key. This fallback keeps workspace apps from requiring every
+      // builder to copy a vault key into app-local settings.
+      const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
+      if (vaultOrgId && vaultOrgId !== orgId) {
+        const designatedVaultAccess = await canReadDesignatedVaultFallback(
+          vaultOrgId,
+          key,
+        );
+        if (designatedVaultAccess.status === "unavailable") {
+          lookupFailed = true;
+          cause = designatedVaultAccess.cause;
+        }
+        if (designatedVaultAccess.status === "allowed") {
+          const [vaultOrgRead, vaultWorkspaceRead] = await Promise.allSettled([
+            readAppSecret({ key, scope: "org", scopeId: vaultOrgId }),
+            readAppSecret({ key, scope: "workspace", scopeId: vaultOrgId }),
+          ]);
+          const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
+            if (settled.status === "rejected") throw settled.reason;
+            return settled.value;
+          };
+          const vaultOrgSecret = unwrap(vaultOrgRead);
+          if (vaultOrgSecret?.value) {
+            if (traceLookup) {
+              console.log(
+                `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=org-vault hit=true`,
+              );
+            }
+            return { value: vaultOrgSecret.value, lookupFailed: false };
+          }
+          const vaultWorkspaceSecret = unwrap(vaultWorkspaceRead);
+          if (vaultWorkspaceSecret?.value) {
+            if (traceLookup) {
+              console.log(
+                `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=workspace-vault hit=true`,
+              );
+            }
+            return { value: vaultWorkspaceSecret.value, lookupFailed: false };
+          }
+        }
       }
     } catch (err) {
       if (traceLookup) {

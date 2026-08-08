@@ -464,6 +464,36 @@ export const contentDatabaseSourceExecutionClaims = table(
   },
 );
 
+export const contentDatabaseMigrationReceipts = table(
+  "content_database_migration_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    databaseId: text("database_id").notNull(),
+    databaseDocumentId: text("database_document_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    planHash: text("plan_hash").notNull(),
+    state: text("state").notNull(),
+    preDigest: text("pre_digest").notNull(),
+    postDigest: text("post_digest").notNull(),
+    rollbackJson: text("rollback_json").notNull().default("{}"),
+    resultJson: text("result_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex("content_database_migration_receipts_database_key_unique").on(
+      receipt.databaseId,
+      receipt.idempotencyKey,
+    ),
+    index("content_database_migration_receipts_owner_database_idx").on(
+      receipt.ownerEmail,
+      receipt.databaseId,
+    ),
+  ],
+);
+
 export const documentPropertyValues = table("document_property_values", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),

@@ -54,8 +54,7 @@ export function maybeRegisterSecretOnboardingStep(
             kind: "link",
             primary: true,
             label: `Open ${secret.label} settings`,
-            description:
-              "Paste the key in the sidebar's API Keys & Connections section.",
+            description: "Paste the key in Settings → Integrations → API keys.",
             payload: {
               // Fragment handled by the sidebar — expands the Secrets section
               // and focuses the matching input.

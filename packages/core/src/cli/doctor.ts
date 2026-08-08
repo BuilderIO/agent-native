@@ -26,6 +26,7 @@ import path from "node:path";
 import {
   scanDbToolScoping,
   scanDrizzlePush,
+  scanEmptyMigrations,
   scanEnvCredentials,
   scanEnvMutation,
   scanExplicitCollabAccess,
@@ -43,6 +44,7 @@ import { formatBytes, scanCleanTargets } from "./clean.js";
 
 export type GuardName =
   | "no-drizzle-push"
+  | "no-empty-migrations"
   | "no-unscoped-credentials"
   | "no-unscoped-queries"
   | "no-env-credentials"
@@ -54,6 +56,7 @@ export type GuardName =
 
 export const ALL_GUARD_NAMES: GuardName[] = [
   "no-drizzle-push",
+  "no-empty-migrations",
   "no-unscoped-credentials",
   "no-unscoped-queries",
   "no-env-credentials",
@@ -73,7 +76,7 @@ export interface DoctorConfig {
 const DEFAULT_DOCTOR_CONFIG: DoctorConfig = {
   disabledGuards: [],
   dbToolScopingDenylist: {},
-  failOnBuild: false,
+  failOnBuild: true,
 };
 
 export interface DoctorFinding {
@@ -123,10 +126,15 @@ export function readDoctorConfig(root: string): DoctorConfig {
             ),
           ) as Record<string, string>)
         : {};
-    const failOnBuild = doctor.failOnBuild === true;
+    const failOnBuild =
+      typeof doctor.failOnBuild === "boolean"
+        ? doctor.failOnBuild
+        : DEFAULT_DOCTOR_CONFIG.failOnBuild;
     return { disabledGuards, dbToolScopingDenylist, failOnBuild };
-  } catch {
-    return { ...DEFAULT_DOCTOR_CONFIG, dbToolScopingDenylist: {} };
+  } catch (error) {
+    throw new Error(
+      `Could not read Doctor configuration from ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -139,6 +147,8 @@ function runGuard(
   switch (name) {
     case "no-drizzle-push":
       return scanDrizzlePush({ root });
+    case "no-empty-migrations":
+      return scanEmptyMigrations({ root });
     case "no-unscoped-credentials":
       return scanUnscopedCredentials({ root });
     case "no-unscoped-queries":
@@ -240,6 +250,87 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
 }
 
 /**
+ * A workspace root is an orchestrator, not an app root. The portable guards
+ * intentionally inspect `actions/` and `server/` relative to one project, so
+ * a recursive scan from the workspace root would miss `apps/<name>/` queries.
+ * Run the same versioned scanner once per workspace app and shared package,
+ * prefixing findings with the project path so both humans and coding agents
+ * can fix the right file.
+ */
+interface WorkspaceDoctorRoots {
+  appRoots: string[];
+  scanRoots: string[];
+}
+
+function workspaceDoctorRoots(root: string): WorkspaceDoctorRoots | null {
+  const packagePath = path.join(root, "package.json");
+  const appsDir = path.join(root, "apps");
+  if (!fs.existsSync(packagePath) || !fs.existsSync(appsDir)) return null;
+
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+    if (typeof packageJson?.["agent-native"]?.workspaceCore !== "string") {
+      return null;
+    }
+  } catch (error) {
+    throw new Error(
+      `Could not read workspace metadata from ${packagePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const appRoots = fs
+    .readdirSync(appsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(appsDir, entry.name))
+    .filter((appRoot) => fs.existsSync(path.join(appRoot, "package.json")))
+    .sort();
+  const scanRoots = [...appRoots];
+  const sharedRoot = path.join(root, "packages", "shared");
+  if (fs.existsSync(path.join(sharedRoot, "package.json"))) {
+    scanRoots.push(sharedRoot);
+  }
+  return { appRoots, scanRoots };
+}
+
+function prefixWorkspaceFindings(
+  findings: DoctorFinding[],
+  root: string,
+  appRoot: string,
+): DoctorFinding[] {
+  const prefix = path.relative(root, appRoot).replaceAll("\\", "/");
+  return findings.map((finding) => ({
+    ...finding,
+    file: `${prefix}/${finding.file}`,
+  }));
+}
+
+function runWorkspaceDoctorScan(
+  root: string,
+  scanRoots: string[],
+  only?: string[],
+): DoctorReport {
+  const reports = scanRoots.map((scanRoot) => ({
+    scanRoot,
+    report: runDoctorScan({ root: scanRoot, only }),
+  }));
+
+  const guardsRun = Array.from(
+    new Set(reports.flatMap(({ report }) => report.guardsRun)),
+  );
+
+  return {
+    ok: reports.every(({ report }) => report.ok),
+    findings: reports.flatMap(({ scanRoot, report }) =>
+      prefixWorkspaceFindings(report.findings, root, scanRoot),
+    ),
+    warnings: reports.flatMap(({ scanRoot, report }) =>
+      prefixWorkspaceFindings(report.warnings, root, scanRoot),
+    ),
+    guardsRun,
+  };
+}
+
+/**
  * Hosted app volumes are ~4.84 GB total, so anything under this is close
  * enough to a stalled build or a failed write to be worth naming.
  */
@@ -325,8 +416,8 @@ function formatDiskLine(disk: DoctorDiskReport): string {
 
 /** Pure escalation rule shared by the CLI (`--strict`) and the `build`
  * pre-step (`--strict` / `agent-native.json` `doctor.failOnBuild`). Doctor
- * findings never fail anything on their own — only `strict` or
- * `failOnBuild` turn findings into a hard failure. */
+ * findings fail builds by default; only an explicit `failOnBuild: false`
+ * opt-out can keep a build moving, while `strict` always fails. */
 export function shouldFailBuild(
   hasFindings: boolean,
   opts: { strict?: boolean; failOnBuild?: boolean },
@@ -348,9 +439,15 @@ function formatDoctorHuman(
   report: DoctorReport,
   root: string,
   disk: DoctorDiskReport,
+  workspaceApps?: string[],
 ): string {
   const lines: string[] = [];
   lines.push(`agent-native doctor: ${root}`);
+  if (workspaceApps) {
+    lines.push(
+      `Workspace apps scanned: ${workspaceApps.join(", ") || "(none)"}`,
+    );
+  }
   lines.push(`Guards run: ${report.guardsRun.join(", ") || "(none)"}`);
   lines.push(formatDiskLine(disk));
   if (report.findings.length === 0) {
@@ -424,7 +521,7 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
       "  agent-native doctor                        Scan app source for security-critical guard violations",
       "  agent-native doctor --json                 Machine-readable report: { ok, findings, warnings, guardsRun, disk, strict }",
       "  agent-native doctor --only <guard,guard>   Run only the named guard(s)",
-      "  agent-native doctor --strict                Escalate findings to a hard failure when used by `agent-native build --strict`",
+      "  agent-native doctor --strict                Keep the build gate explicit when invoked by `agent-native build`",
       "  agent-native doctor --cwd <dir>             Run against a project root other than the current directory",
       "  agent-native doctor --disk                  Also measure what `agent-native clean` would reclaim (scans every build cache)",
       "  agent-native doctor --fix                   Not implemented in this version",
@@ -438,9 +535,10 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
       "`--disk` adds how much of it `agent-native clean` could give back. Disk",
       "is advisory — it never changes the exit code.",
       "",
-      "`agent-native build` runs doctor as a warn-only pre-step by default — it",
-      "never fails the build unless `agent-native build --strict` is passed or",
-      'agent-native.json sets { "doctor": { "failOnBuild": true } }.',
+      "`agent-native build` runs doctor before the build and fails on findings",
+      'by default. Set `agent-native.json` to `{ "doctor": {',
+      '\"failOnBuild\": false } }` only with a reviewed reason; `--strict`',
+      "always keeps the gate enabled.",
       "",
       "For dependency-pin health (framework overrides/patches, stale",
       "@agent-native/* pins), run `agent-native upgrade check` instead.",
@@ -489,7 +587,11 @@ export async function runDoctor(
     }
   }
 
-  const report = runDoctorScan({ root, only: opts.only });
+  const workspaceRoots = workspaceDoctorRoots(root);
+  const report =
+    workspaceRoots === null
+      ? runDoctorScan({ root, only: opts.only })
+      : runWorkspaceDoctorScan(root, workspaceRoots.scanRoots, opts.only);
   const disk = checkDisk(root, { measureReclaimable: Boolean(opts.disk) });
 
   if (opts.json) {
@@ -500,13 +602,33 @@ export async function runDoctor(
     // stderr — those are diagnostics for exit code 2, not the report.
     io.log(
       JSON.stringify(
-        { ...report, disk, strict: Boolean(opts.strict) },
+        {
+          ...report,
+          ...(workspaceRoots === null
+            ? {}
+            : {
+                workspaceApps: workspaceRoots.appRoots.map((appRoot) =>
+                  path.relative(root, appRoot).replaceAll("\\", "/"),
+                ),
+              }),
+          disk,
+          strict: Boolean(opts.strict),
+        },
         null,
         2,
       ),
     );
   } else {
-    io.log(formatDoctorHuman(report, root, disk));
+    io.log(
+      formatDoctorHuman(
+        report,
+        root,
+        disk,
+        workspaceRoots?.appRoots.map((appRoot) =>
+          path.relative(root, appRoot).replaceAll("\\", "/"),
+        ),
+      ),
+    );
     if (!report.ok) {
       io.err("");
       io.err(
@@ -525,20 +647,17 @@ export interface DoctorBuildHookOptions {
 }
 
 export interface DoctorBuildHookResult {
-  /** False only when findings are present AND (`strict` was requested OR
-   * `agent-native.json`'s `doctor.failOnBuild` is true). */
+  /** False when findings are present and the project has not explicitly
+   * opted out of the build gate. */
   ok: boolean;
   report: DoctorReport;
 }
 
 /**
  * `agent-native build`'s doctor pre-step. Always runs every enabled guard
- * and always prints findings (as warnings) to `io.err` — never silent.
- * Never causes the build to fail unless `strict` was passed or
- * `agent-native.json` sets `doctor.failOnBuild: true` (see report 005,
- * "Where it runs" — the v1 doctor has zero field mileage against arbitrary
- * app layouts, so shipping fail-by-default would risk breaking a first
- * deploy on a false positive).
+ * and always prints findings to `io.err` — never silent. Findings fail the
+ * build by default; only an explicit `doctor.failOnBuild: false` opt-out can
+ * keep a build moving, while `--strict` overrides that opt-out.
  */
 export async function runDoctorBuildHook(
   options: DoctorBuildHookOptions,
@@ -546,11 +665,15 @@ export async function runDoctorBuildHook(
 ): Promise<DoctorBuildHookResult> {
   const root = path.resolve(options.cwd);
   const config = readDoctorConfig(root);
-  const report = runDoctorScan({ root });
+  const workspaceRoots = workspaceDoctorRoots(root);
+  const report =
+    workspaceRoots === null
+      ? runDoctorScan({ root })
+      : runWorkspaceDoctorScan(root, workspaceRoots.scanRoots);
 
   if (report.findings.length > 0) {
     io.err(
-      `\n[doctor] ${report.findings.length} finding(s) from \`agent-native doctor\` — run it directly for details. This does not fail the build unless --strict was passed or agent-native.json's doctor.failOnBuild is true.`,
+      `\n[doctor] ${report.findings.length} finding(s) from \`agent-native doctor\` — fix them before the build can continue.`,
     );
     for (const f of report.findings) {
       io.err(`  [${f.guard}] ${f.file}:${f.line} — ${f.message}`);
@@ -573,7 +696,7 @@ export async function runDoctorBuildHook(
   });
   if (fail) {
     io.err(
-      `\n[doctor] Failing build: ${options.strict ? "--strict was passed" : "agent-native.json's doctor.failOnBuild is true"}.`,
+      `\n[doctor] Failing build: ${options.strict ? "--strict was passed" : "the doctor.failOnBuild gate is enabled (default: true)"}.`,
     );
   }
 

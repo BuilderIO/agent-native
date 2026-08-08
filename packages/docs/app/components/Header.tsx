@@ -189,7 +189,7 @@ export default function Header() {
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <Link
-                data-an-prefetch="render"
+                data-an-prefetch="viewport"
                 to={localizedPath("/")}
                 aria-label="Agent-Native"
                 className="flex min-w-0 shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
@@ -265,7 +265,7 @@ export default function Header() {
           {/* Desktop nav links */}
           <div className="hidden lg:flex items-center gap-5 text-sm">
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -274,7 +274,7 @@ export default function Header() {
               {t("header.docs")}
             </NavLink>
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -376,7 +376,7 @@ export default function Header() {
               <ThemeToggle />
             </div>
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -386,7 +386,7 @@ export default function Header() {
               {t("header.docs")}
             </NavLink>
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"

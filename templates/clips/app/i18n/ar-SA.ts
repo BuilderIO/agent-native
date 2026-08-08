@@ -456,6 +456,9 @@ const messages = {
     agentLinkUnavailable: "تعذر إنشاء رابط الوكيل.",
     retryAgentLink: "إعادة المحاولة",
     gifPreview: "معاينة GIF",
+    copyEmailPreview: "نسخ معاينة البريد الإلكتروني",
+    emailPreviewCopied: "تم نسخ معاينة البريد الإلكتروني",
+    emailPreviewCopyFailed: "تعذر نسخ معاينة البريد الإلكتروني",
     openPlayer: "مشغل مفتوح",
     chooseFile: "اختيار ملف",
     remove: "إزالة",
@@ -1113,6 +1116,19 @@ const messages = {
     spaceCreated: "تم إنشاء المساحة",
     createFailed: "تعذر إنشاء المساحة",
   },
+  spaceDialog: {
+    deleteSpace: "حذف المساحة",
+    renameSpace: "إعادة تسمية المساحة",
+    deleteTitle: 'حذف "{{name}}"؟',
+    deleteDescription:
+      "سيؤدي ذلك إلى حذف المساحة وإزالتها من جميع التسجيلات. لا يمكن التراجع عن هذا الإجراء.",
+    renamed: "تمت إعادة تسمية المساحة",
+    deleted: 'تم حذف "{{name}}"',
+    renameFailed: "فشلت إعادة تسمية المساحة",
+    deleteFailed: "فشل حذف المساحة",
+    renaming: "جارٍ إعادة التسمية...",
+    deleting: "جارٍ الحذف...",
+  },
   signInPrompt: {
     title: "سجّل الدخول من أجل {{intent}}",
     description:
@@ -1275,6 +1291,10 @@ const messages = {
     cameraOff: "Camera off (مترجم)",
     includeCameraAria: "Include camera in this recording (مترجم)",
     startRecording: "Start recording (مترجم)",
+    micOffConfirmTitle: "Record without a microphone? (مترجم)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (مترجم)",
+    startWithoutMic: "Start anyway (مترجم)",
     uploadVideo: "Upload video (مترجم)",
     importLoom: "Import Loom (مترجم)",
     importing: "Importing... (مترجم)",

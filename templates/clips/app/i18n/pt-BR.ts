@@ -463,6 +463,9 @@ const messages = {
     agentLinkUnavailable: "Não foi possível criar o link para agentes.",
     retryAgentLink: "Tentar novamente",
     gifPreview: "visualização de GIF",
+    copyEmailPreview: "Copiar visualização do e-mail",
+    emailPreviewCopied: "Visualização do e-mail copiada",
+    emailPreviewCopyFailed: "Não foi possível copiar a visualização do e-mail",
     openPlayer: "Jogador aberto",
     chooseFile: "Escolher arquivo",
     remove: "Remover",
@@ -1126,6 +1129,19 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     spaceCreated: "Espaço criado",
     createFailed: "Não foi possível criar o espaço",
   },
+  spaceDialog: {
+    deleteSpace: "Excluir espaço",
+    renameSpace: "Renomear espaço",
+    deleteTitle: 'Excluir "{{name}}"?',
+    deleteDescription:
+      "Isso excluirá o espaço e o removerá de todas as gravações. Esta ação não pode ser desfeita.",
+    renamed: "Espaço renomeado",
+    deleted: '"{{name}}" excluído',
+    renameFailed: "Falha ao renomear o espaço",
+    deleteFailed: "Falha ao excluir o espaço",
+    renaming: "Renomeando...",
+    deleting: "Excluindo...",
+  },
   signInPrompt: {
     title: "Entre para {{intent}}",
     description:
@@ -1288,6 +1304,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     cameraOff: "Camera off (Localizado)",
     includeCameraAria: "Include camera in this recording (Localizado)",
     startRecording: "Start recording (Localizado)",
+    micOffConfirmTitle: "Record without a microphone? (Localizado)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Localizado)",
+    startWithoutMic: "Start anyway (Localizado)",
     uploadVideo: "Upload video (Localizado)",
     importLoom: "Import Loom (Localizado)",
     importing: "Importing... (Localizado)",

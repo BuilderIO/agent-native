@@ -13,6 +13,7 @@ import path from "node:path";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
+import { magicLink } from "better-auth/plugins/magic-link";
 import {
   pgTable,
   text as pgText,
@@ -36,13 +37,16 @@ import {
   isPgliteUrl,
   loadPgliteDrizzle,
   pgPoolOptions,
-  neonPoolMax,
-  attachNeonPoolErrorLogger,
+  neonPoolOptions,
+  guardNeonPool,
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
 } from "../db/client.js";
-import { ensureTableExists } from "../db/ddl-guard.js";
+import {
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+} from "../email-catalog/system-emails.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
@@ -50,6 +54,14 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
+import {
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+} from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -59,11 +71,19 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { sendEmail, isEmailConfigured } from "./email.js";
+import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+
+export {
+  getAuthLoginMode,
+  resolveAuthLoginMode,
+  resolveAuthLoginModeFromReadiness,
+  type AuthLoginMode,
+} from "./auth-login-mode.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -172,19 +192,16 @@ function resolveAuthSecret(): string {
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices.
   if (process.env.NODE_ENV === "production") {
-    const sample = crypto.randomBytes(32).toString("hex");
-    throw new Error(
-      "[agent-native] BETTER_AUTH_SECRET is not set. This is required in production " +
-        "so signed session cookies stay valid across deploys. Set it as a deploy " +
-        "environment variable (any 32-byte hex string), e.g.:\n\n" +
-        `  BETTER_AUTH_SECRET=${sample}\n\n` +
-        "Generate your own with `openssl rand -hex 32`. If you already have a " +
-        "running deploy and need to preserve existing sessions, set it to your " +
-        "previously-deployed BETTER_AUTH_SECRET value first, then rotate to a " +
-        "fresh one. Hosted workspace deploys may also " +
-        "set A2A_SECRET; agent-native derives a per-purpose Better Auth secret " +
-        "from that workspace root secret.",
+    const report = getRuntimeConfigReport(
+      process.env,
+      { authEnabled: true, databaseRequired: false },
+      {
+        environment: "production",
+        phase: "runtime",
+        appName: process.env.APP_NAME,
+      },
     );
+    throw new Error(formatRuntimeConfigReport(report));
   }
 
   // SECURITY (audit 09 LOW-2): the previous fallback chain
@@ -386,6 +403,28 @@ export interface BetterAuthInstance {
     signInEmail: (opts: {
       body: { email: string; password: string };
     }) => Promise<{ token?: string; user?: any } | null>;
+    signInMagicLink: (opts: {
+      body: {
+        email: string;
+        name?: string;
+        callbackURL?: string;
+        newUserCallbackURL?: string;
+        errorCallbackURL?: string;
+        metadata?: Record<string, unknown>;
+      };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    listUserAccounts: (opts: {
+      headers: Headers;
+    }) => Promise<Array<{ providerId: string }>>;
+    setPassword: (opts: {
+      body: { newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    changePassword: (opts: {
+      body: { currentPassword: string; newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
     signUpEmail: (opts: {
       body: {
         email: string;
@@ -395,7 +434,10 @@ export interface BetterAuthInstance {
       };
       headers?: Headers;
     }) => Promise<any>;
-    signOut: (opts: { headers: Headers }) => Promise<any>;
+    signOut: (opts: {
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
   };
 }
 
@@ -686,66 +728,6 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
   await saveOAuthTokens("google", email, tokens, email);
 }
 
-async function ensureBetterAuthTables(): Promise<void> {
-  const db = getDbExec();
-
-  // PG guard: probe information_schema first (no lock) for each table; run
-  // DDL only when missing, bounded by a transaction-scoped lock_timeout.
-  // Probe names are UNQUOTED (what information_schema.tables.table_name stores);
-  // createSql keeps the QUOTED "user"/"session"/… form required by Postgres.
-  if (isPostgres()) {
-    const pgTables: Array<[name: string, createSql: string]> = [
-      [
-        "user",
-        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "session",
-        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-      ],
-      [
-        "account",
-        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "verification",
-        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "organization",
-        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "member",
-        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "invitation",
-        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "jwks",
-        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
-      ],
-    ];
-    for (const [name, sql] of pgTables) await ensureTableExists(name, sql);
-    return;
-  }
-
-  // SQLite (local dev): no lock problem — keep the original behaviour.
-  const sqliteStatements = [
-    `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-    `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
-  ];
-  for (const sql of sqliteStatements) await db.execute(sql);
-}
-
 /**
  * Get or create the Better Auth instance.
  * Lazily initialized on first call — the database must be reachable by then.
@@ -800,6 +782,10 @@ export interface BetterAuthInternalAdapter {
     name: string;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
+  createSession: (
+    userId: string,
+    dontRememberMe?: boolean,
+  ) => Promise<{ token: string }>;
   createOAuthUser?: (
     user: { email: string; name: string; emailVerified?: boolean },
     account: { providerId: string; accountId: string },
@@ -953,6 +939,7 @@ export async function getBetterAuthInternalAdapter(
       typeof ia.findUserByEmail === "function" &&
       typeof ia.linkAccount === "function" &&
       typeof ia.createUser === "function" &&
+      typeof ia.createSession === "function" &&
       typeof ia.findAccountByProviderId === "function"
     ) {
       return {
@@ -966,6 +953,25 @@ export async function getBetterAuthInternalAdapter(
   return undefined;
 }
 
+/** Create a real Better Auth session for an existing user without credentials. */
+export async function createBetterAuthSessionForEmail(
+  email: string,
+  config?: BetterAuthConfig,
+): Promise<{ email: string; token: string; userId: string } | null> {
+  const adapter = await getBetterAuthInternalAdapter(config);
+  if (!adapter) return null;
+  const existing = await adapter.findUserByEmail(email, {
+    includeAccounts: false,
+  });
+  if (!existing) return null;
+  const session = await adapter.createSession(existing.user.id);
+  return {
+    email: existing.user.email,
+    token: session.token,
+    userId: existing.user.id,
+  };
+}
+
 export interface GoogleAuthIdentity {
   email: string;
   accountId: string;
@@ -976,21 +982,22 @@ export interface GoogleAuthIdentity {
  * Ensure a verified Google identity has a canonical Better Auth user/account
  * before the legacy email-keyed session is issued. This prevents a later
  * password signup from becoming the first canonical identity for that email.
+ * Returns whether this call created the canonical user.
  */
 export async function ensureGoogleAuthIdentity(
   identity: GoogleAuthIdentity,
-): Promise<void> {
+): Promise<boolean> {
   const adapter = await getBetterAuthInternalAdapter();
   if (!adapter) {
     throw new Error("Better Auth internal adapter is unavailable");
   }
-  await ensureGoogleAuthIdentityWithAdapter(adapter, identity);
+  return ensureGoogleAuthIdentityWithAdapter(adapter, identity);
 }
 
 export async function ensureGoogleAuthIdentityWithAdapter(
   adapter: BetterAuthInternalAdapter,
   identity: GoogleAuthIdentity,
-): Promise<void> {
+): Promise<boolean> {
   const email = identity.email.trim().toLowerCase();
   const accountId = identity.accountId.trim();
   if (!email || !accountId) {
@@ -1010,7 +1017,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
     }
-    return;
+    return false;
   }
 
   if (!existing) {
@@ -1020,7 +1027,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           { email, name, emailVerified: true },
           { providerId: "google", accountId },
         );
-        return;
+        return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
         // continue if the canonical row now exists; otherwise preserve the
@@ -1039,7 +1046,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           if (linkedAccount.userId !== existing.user.id) {
             throw new Error("Google account is already linked to another user");
           }
-          return;
+          return false;
         }
       }
     } else {
@@ -1053,7 +1060,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
         providerId: "google",
         accountId,
       });
-      return;
+      return true;
     }
   }
 
@@ -1064,7 +1071,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     (account) =>
       account.providerId === "google" && account.accountId === accountId,
   );
-  if (alreadyLinked) return;
+  if (alreadyLinked) return false;
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
@@ -1088,13 +1095,14 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
-    return;
+    return false;
   }
   await adapter.linkAccount({
     userId: existing.user.id,
     providerId: "google",
     accountId,
   });
+  return false;
 }
 
 /** Reset for testing */
@@ -1140,7 +1148,6 @@ async function createBetterAuthInstance(
 ): Promise<BetterAuthInstance> {
   const dialect = getDialect();
   const basePath = config?.basePath ?? "/_agent-native/auth/ba";
-  await ensureBetterAuthTables();
 
   // Build social providers from env vars
   const socialProviders: BetterAuthOptions["socialProviders"] = {
@@ -1194,8 +1201,9 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
+  const emailReadiness = await getEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
-    resolveEmailPasswordAuthPolicy(await isEmailConfigured());
+    resolveEmailPasswordAuthPolicy(emailReadiness.status === "ready");
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -1208,7 +1216,8 @@ async function createBetterAuthInstance(
     emailAndPassword: {
       enabled: true,
       disableSignUp,
-      minPasswordLength: 8,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+      maxPasswordLength: PASSWORD_MAX_LENGTH,
       // Hosted deployments always require a working email provider before
       // password signup can create a session. Local dev/test retain the fast
       // path; hosted deployments without a provider disable password signup.
@@ -1226,7 +1235,14 @@ async function createBetterAuthInstance(
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+        });
       },
     },
     emailVerification: {
@@ -1252,7 +1268,14 @@ async function createBetterAuthInstance(
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
+        });
       },
     },
     socialProviders,
@@ -1451,6 +1474,27 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
+      magicLink({
+        expiresIn: 60 * 5,
+        storeToken: "hashed",
+        rateLimit: { window: 60, max: 5 },
+        disableSignUp,
+        sendMagicLink: async ({ email, url }) => {
+          const appBasePath = (
+            process.env.VITE_APP_BASE_PATH ||
+            process.env.APP_BASE_PATH ||
+            ""
+          ).replace(/\/$/, "");
+          const magicLinkUrl = appBasePath
+            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
+            : url;
+          const { subject, html, text, appSender } = renderMagicLinkEmail({
+            email,
+            magicLinkUrl,
+          });
+          await sendEmail({ to: email, subject, html, text, appSender });
+        },
+      }),
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {
@@ -1514,9 +1558,9 @@ async function buildDatabaseConfig(
       _neonAuthPool = sharedDbPool(
         "neon",
         url,
-        () => new Pool({ connectionString: url, max: neonPoolMax() }),
+        () => new Pool({ connectionString: url, ...neonPoolOptions() }),
       );
-      attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
+      guardNeonPool(_neonAuthPool, url, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
       const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
         schema: pgAuthSchema,

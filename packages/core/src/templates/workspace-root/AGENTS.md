@@ -50,11 +50,36 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
   work, including hidden `context` and `submit: false` prefill/review flows.
+  Keep actions deterministic and focused. If a workflow is framed as research,
+  analysis, generation, recommendation, or synthesis, use
+  `sendToAgentChat({ openSidebar: true })` to open the AgentSidebar and let the
+  agent orchestrate its provider/data actions. Keep follow-ups in the same
+  thread, not a second freeform textbox.
   Only use `useAgentChatContext`, `setAgentChatContextItem`,
   `listAgentChatContext`, `removeAgentChatContextItem`, and
   `clearAgentChatContext` when UI needs two-way sync with staged context chips.
   Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md` before
   building agent-driven UI or "AI" features.
+
+## Agent Surface
+
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right `AgentSidebar` for contextual AI and open it when a
+  domain button hands work to the agent.
+- Keep the first viewport focused: one primary action, progressive disclosure,
+  concise copy, and domain-specific navigation. Never use sparkle, wand,
+  magic, or robot icons as AI affordances.
+- Page and section data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
+- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
+  type for content previews. Give the AgentSidebar a subtle surface/divider
+  boundary, and stack original/generated review vertically by default.
+- Every AI-labeled button must call `sendToAgentChat()` with
+  `openSidebar: true`; label deterministic local actions as local or preview.
+- Before visual work, read `frontend-design` and `DESIGN.md`. Shared workspace
+  chrome stays semantic and neutral; each app chooses a named visual direction
+  and palette family rather than inheriting the last app's accent.
 
 ## Workspace Resources
 
@@ -113,6 +138,13 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 - Dispatch vault access is workspace-wide by default: every saved vault key is
   available to every workspace app. Only create or request per-app vault grants
   when Dispatch's vault access setting is switched to manual mode.
+- When an app needs a provider credential, read it through the framework's
+  scoped secret or workspace-connection resolver so the Dispatch vault remains
+  the source of truth. Framework apps should use `resolveSecret` from
+  `@agent-native/core/server`; workspace repos with a connector helper should
+  use that helper. Do not ask a non-admin builder to add a key to local project
+  settings or `.env`; request a missing key through Dispatch's vault workflow
+  instead.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/chat` or another existing app unless the user explicitly asks to
   modify that existing app.

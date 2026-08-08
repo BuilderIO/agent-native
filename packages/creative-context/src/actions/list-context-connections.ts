@@ -44,7 +44,7 @@ export default defineAction({
         connections.length === 1 ? connections[0]!.connectionId : null,
       needsPicker: connections.length > 1,
       needsSetup: connections.length === 0,
-      connectionsPath: "/settings/connections",
+      connectionsPath: "/settings/integrations",
       connectPath: creativeContextConnectionPath({ provider, appId }),
     };
   },

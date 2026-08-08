@@ -23,7 +23,7 @@ Bei jeder agentennativen App arbeiten drei Dinge zusammen:
 
 - **Agent** – Autonome KI, die Daten liest, Daten schreibt, actions ausführt und konfigurierte Tools nutzt. Anpassbar mit skills und Anleitung.
 - **Anwendung** – Die Produktoberfläche um den Agenten. Dabei kann es sich zunächst um einen reinen Aktionsmodus, einen umfassenden Chat, eine kleine Steuerungsebene oder um eine vollständige React-UI mit Dashboards, Abläufen und Visualisierungen handeln.
-- **Computer** – Datenbank, Browser, Codeausführung. Agenten arbeiten direkt mit SQL und integrierten Tools; MCP-Server sind optionale Add-Ons, nicht die Grundlage.
+- **Computer** – Datenbank, Browser, Codeausführung. Agenten arbeiten über die Aktions- und Datenoberfläche der App; die App kann dieselbe Aktionsoberfläche über MCP bereitstellen. Externe MCP-Server sind optionale Add-ons und nicht die Grundlage.
 
 <Diagram id="doc-block-1lep3dk" title="Agent, Anwendung und Computer" summary={"Drei Ebenen arbeiten über einen gemeinsamen SQL-Speicher zusammen. Der Agent und die Anwendung lesen und schreiben dieselben Daten."}>
 
@@ -253,12 +253,14 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 Das Produktions-Agent-Chat-Plugin setzt rohe SQL-Werkzeuge standardmäßig auf read-only
-(`databaseTools: "read"`). Agenten prüfen App-Daten mit `db-schema` /
+(`frameworkTools: { database: "read" }`). Agenten prüfen App-Daten mit `db-schema` /
 `db-query` und schreiben über typisierte App-Actions. Setze
-`databaseTools: "write"` (oder `true`) nur für bewusste Wartungsflächen, die
-auch scoped `db-exec` / `db-patch` anbieten sollen; `databaseTools: "off"` /
+`database: "write"` (oder `true`) nur für bewusste Wartungsflächen, die
+auch scoped `db-exec` / `db-patch` anbieten sollen; `database: "off"` /
 `false` erfordert typisierte App-Actions für alle Daten
 Zugriff.
+
+`frameworkTools` steuert die übrigen framework-eigenen Tools genauso: Sharing, Review-Kommentare, Versionshistorie, Feature-Flags, Lokalisierung, Audit, Context X-Ray, Profil, Automatisierungen, Docs, Resources, Web, App-übergreifende Delegation, Chat und E-Mail. Siehe [Production Agent Tools](/docs/deployment#production-agent-tools) für die vollständige Liste, das `"minimal"`-Preset und warum eine abgeschaltete Gruppe ihre HTTP-Routen behält.
 
 ## Agent-Chat-Brücke {#agent-chat-bridge}
 

@@ -469,6 +469,9 @@ const messages = {
     agentLinkUnavailable: "Agent-Link konnte nicht erstellt werden.",
     retryAgentLink: "Erneut versuchen",
     gifPreview: "GIF-Vorschau",
+    copyEmailPreview: "E-Mail-Vorschau kopieren",
+    emailPreviewCopied: "E-Mail-Vorschau kopiert",
+    emailPreviewCopyFailed: "E-Mail-Vorschau konnte nicht kopiert werden",
     openPlayer: "Spieler öffnen",
     chooseFile: "Datei auswählen",
     remove: "Entfernen",
@@ -1136,6 +1139,19 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     spaceCreated: "Bereich erstellt",
     createFailed: "Bereich konnte nicht erstellt werden",
   },
+  spaceDialog: {
+    deleteSpace: "Bereich löschen",
+    renameSpace: "Bereich umbenennen",
+    deleteTitle: "„{{name}}“ löschen?",
+    deleteDescription:
+      "Dadurch wird der Bereich gelöscht und aus allen Aufnahmen entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
+    renamed: "Bereich umbenannt",
+    deleted: "„{{name}}“ gelöscht",
+    renameFailed: "Bereich konnte nicht umbenannt werden",
+    deleteFailed: "Bereich konnte nicht gelöscht werden",
+    renaming: "Wird umbenannt...",
+    deleting: "Wird gelöscht...",
+  },
   signInPrompt: {
     title: "Anmelden, um {{intent}}",
     description:
@@ -1298,6 +1314,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     cameraOff: "Camera off (Lokalisiert)",
     includeCameraAria: "Include camera in this recording (Lokalisiert)",
     startRecording: "Start recording (Lokalisiert)",
+    micOffConfirmTitle: "Record without a microphone? (Lokalisiert)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Lokalisiert)",
+    startWithoutMic: "Start anyway (Lokalisiert)",
     uploadVideo: "Upload video (Lokalisiert)",
     importLoom: "Import Loom (Lokalisiert)",
     importing: "Importing... (Lokalisiert)",

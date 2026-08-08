@@ -23,7 +23,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import type { Deck } from "@/context/DeckContext";
-import { getAspectRatioDims } from "@/lib/aspect-ratios";
+import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 
 import SlideRenderer from "./SlideRenderer";
 
@@ -52,13 +52,14 @@ export default function DeckCard({
 }: DeckCardProps) {
   const t = useT();
   const firstSlide = deck.slides?.[0];
-  const previewDims = getAspectRatioDims(deck.aspectRatio);
+  const previewFrameStyle = getDeckListingPreviewFrameStyle(deck.aspectRatio);
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
   const [contextOpen, setContextOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
+  const pendingDeleteRef = useRef(false);
   const pendingWorkspaceDefaultRef = useRef(false);
 
   useEffect(() => {
@@ -106,18 +107,15 @@ export default function DeckCard({
         }}
       >
         {/* Slide Preview */}
-        <div
-          className="relative overflow-hidden bg-muted/30"
-          style={{
-            aspectRatio: `${previewDims.width} / ${previewDims.height}`,
-          }}
-        >
+        <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-muted/30">
           {firstSlide && (
-            <SlideRenderer
-              slide={firstSlide}
-              className="rounded-none"
-              aspectRatio={deck.aspectRatio}
-            />
+            <div className="relative overflow-hidden" style={previewFrameStyle}>
+              <SlideRenderer
+                slide={firstSlide}
+                className="rounded-none"
+                aspectRatio={deck.aspectRatio}
+              />
+            </div>
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
         </div>
@@ -190,7 +188,7 @@ export default function DeckCard({
             {deck.starred ? (
               <IconStarFilled className="h-3.5 w-3.5 text-[#F5C451]" />
             ) : (
-              <IconStar className="h-3.5 w-3.5 text-foreground/70" />
+              <IconStar className="h-3.5 w-3.5 text-white/70" />
             )}
           </button>
         )}
@@ -208,7 +206,7 @@ export default function DeckCard({
               }`}
               aria-label={t("raw.deckOptions")}
             >
-              <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+              <IconDots className="w-3.5 h-3.5 text-white/70" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -229,6 +227,11 @@ export default function DeckCard({
                 e.preventDefault();
                 pendingWorkspaceDefaultRef.current = false;
                 onSetWorkspaceDefault?.(deck.id, !isWorkspaceDefault);
+              }
+              if (pendingDeleteRef.current) {
+                e.preventDefault();
+                pendingDeleteRef.current = false;
+                setTimeout(() => onDelete(deck.id), 0);
               }
             }}
           >
@@ -271,8 +274,10 @@ export default function DeckCard({
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onSelect={() => {
-                onDelete(deck.id);
+              onSelect={(event) => {
+                event.preventDefault();
+                pendingDeleteRef.current = true;
+                setMenuOpen(false);
               }}
               className="text-red-400 focus:text-red-400"
             >

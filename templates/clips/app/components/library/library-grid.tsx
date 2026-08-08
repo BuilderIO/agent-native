@@ -7,14 +7,12 @@ import {
   IconAlertTriangle,
   IconChevronLeft,
   IconChevronRight,
-  IconPlayerRecord,
-  IconUpload,
-  IconLink,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router";
 import { toast } from "sonner";
 
+import { ImportMenu } from "@/components/import-menu";
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
@@ -95,28 +93,16 @@ function NewRecordingTile({
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
-      <Button className="w-full max-w-[180px] gap-1.5" size="sm" asChild>
-        <NavLink to={recordHref}>
-          <IconPlayerRecord className="h-4 w-4" />
-          {t("navigation.newRecording")}
-        </NavLink>
+      <Button className="w-full max-w-[180px]" size="sm" asChild>
+        <NavLink to={recordHref}>{t("navigation.newRecording")}</NavLink>
       </Button>
-      <div className="flex items-center gap-3">
-        <NavLink
-          to={uploadHref}
-          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          <IconUpload className="h-3.5 w-3.5" />
-          {t("preRecord.uploadVideo")}
-        </NavLink>
-        <NavLink
-          to={importHref}
-          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          <IconLink className="h-3.5 w-3.5" />
-          {t("preRecord.importLoom")}
-        </NavLink>
-      </div>
+      <ImportMenu
+        uploadHref={uploadHref}
+        importLoomHref={importHref}
+        size="sm"
+        variant="ghost"
+        className="h-auto px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+      />
     </div>
   );
 }

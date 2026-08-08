@@ -21,7 +21,7 @@ interface DocMeta {
   description: string;
 }
 
-interface DocFull extends DocMeta {
+export interface DocFull extends DocMeta {
   body: string;
 }
 
@@ -170,12 +170,13 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
         body: bundle.workspaceAgentsMd,
       });
     }
-    if (bundle.agentsMd?.trim()) {
+    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+    if (runtimeAgentsMd?.trim()) {
       docs.push({
         slug: "agents-template",
         title: "Template AGENTS.md",
         description: "Full bundled template/app agent instructions.",
-        body: bundle.agentsMd,
+        body: runtimeAgentsMd,
       });
     }
     // Only runtime-visible skills are searchable/readable here — `scope: dev`
@@ -207,7 +208,7 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
   }
 }
 
-async function loadAllDocs(): Promise<DocFull[]> {
+export async function loadAllDocs(): Promise<DocFull[]> {
   return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs())];
 }
 

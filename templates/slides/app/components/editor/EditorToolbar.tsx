@@ -27,14 +27,14 @@ import {
   IconAdjustments,
   IconPencilPlus,
   IconPin,
-  IconLetterT,
   IconTool,
   IconDownload,
   IconSun,
   IconMoon,
   IconDotsVertical,
-  IconPalette,
   IconLoader2,
+  IconArrowBackUp,
+  IconArrowForwardUp,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useState, useRef, useEffect } from "react";
@@ -57,15 +57,23 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
+import {
+  defaultSlideContent,
+  useDecks,
+  useSaveState,
+} from "@/context/DeckContext";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
+import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
+import { shortcutLabel } from "@/lib/utils";
 
+import { commitActiveEditThenRun } from "./commit-active-edit";
+import { EditorActionCluster } from "./EditorActionCluster";
 import { ExportMenu } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
@@ -88,7 +96,10 @@ interface EditorToolbarProps {
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
   currentSlide?: Slide;
-  onUpdateSlide?: (updates: Partial<Omit<Slide, "id">>) => void;
+  onUpdateSlide?: (
+    updates: Partial<Omit<Slide, "id">>,
+    slideIdOverride?: string,
+  ) => void;
   /** Active users on the current slide (from collab awareness) */
   activeUsers?: CollabUser[];
   /** Whether the agent has a durable presence entry on this slide */
@@ -99,10 +110,6 @@ interface EditorToolbarProps {
   commentsOpen?: boolean;
   /** Toggle the comments panel */
   onToggleComments?: () => void;
-  /** Whether the style panel is open */
-  styleOpen?: boolean;
-  /** Toggle the style panel */
-  onToggleStyle?: () => void;
   /** Number of unresolved comments on the current slide */
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
@@ -139,6 +146,16 @@ interface EditorToolbarProps {
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
   onSetAspectRatio?: (ratio: AspectRatio) => void;
+  /** Insert a blank slide after the current one */
+  onAddEmptySlide?: () => void;
+  /** Duplicate the current slide */
+  onDuplicateCurrentSlide?: () => void;
+  /** Id of the current slide, so an agent add-slide lands in the right place */
+  currentSlideId?: string;
+  /** True while an agent add-slide request is in flight */
+  addSlideGenerating?: boolean;
+  /** Called when an agent add-slide request is submitted */
+  onAddSlideGeneratingChange?: (generating: boolean) => void;
 }
 
 const slideLayoutOptions: { value: SlideLayout; labelKey: string }[] = [
@@ -249,8 +266,6 @@ export default function EditorToolbar({
   agentActive,
   commentsOpen,
   onToggleComments,
-  styleOpen,
-  onToggleStyle,
   unresolvedCommentCount = 0,
   currentUserEmail,
   animationsOpen,
@@ -269,13 +284,17 @@ export default function EditorToolbar({
   onExportGoogleSlides,
   aspectRatio,
   onSetAspectRatio,
+  onAddEmptySlide,
+  onDuplicateCurrentSlide,
+  currentSlideId,
+  addSlideGenerating = false,
+  onAddSlideGeneratingChange,
   canEdit = true,
 }: EditorToolbarProps) {
   const t = useT();
-  // Mirror Google Slides: the share dialog exposes both the editor URL
-  // (primary) and the presentation URL (secondary). Access is enforced on
-  // the deck, not the URL shape — anyone with at least viewer access can
-  // open either link.
+  // Public decks default to the read-only presentation URL so recipients do
+  // not get sent through the editor's auth gate. Restricted decks keep the
+  // editor URL primary, where auth resolves viewer access.
   const editorUrl =
     typeof window === "undefined"
       ? `/deck/${deckId}`
@@ -284,6 +303,21 @@ export default function EditorToolbar({
     typeof window === "undefined"
       ? `/p/${deckId}`
       : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
+  const shareLinks = {
+    editor: {
+      url: editorUrl,
+      label: t("editorToolbar.editorLink"),
+      description: t("editorToolbar.editorLinkDescription"),
+    },
+    presentation: {
+      url: presentationUrl,
+      label: t("editorToolbar.presentationLink"),
+      description: t("editorToolbar.presentationLinkDescription"),
+    },
+  };
+  const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
+  const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const secondaryShareLink = shareLinks[shareLinkOrder.secondary];
 
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
@@ -317,6 +351,11 @@ export default function EditorToolbar({
     setLayoutOpen(false);
   };
   const [toolsOpen, setToolsOpen] = useState(false);
+  // The contextual toolbar hosts the action cluster whenever it is on screen.
+  // That row rides on SlideEditor, which only mounts for a real slide, so an
+  // empty deck must keep this fallback or it has no way to add one.
+  const contextToolbarVisible = canEdit && Boolean(currentSlide);
+  const { undo, redo, canUndo, canRedo, getDeck } = useDecks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
@@ -442,6 +481,26 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
+      {/* Add slide and the text-box tool live at the head of the contextual
+       * toolbar below. That row is desktop-only and needs a slide to mount on,
+       * so keep a fallback here for narrow screens and empty decks. */}
+      {canEdit && (
+        <EditorActionCluster
+          className={contextToolbarVisible ? "lg:hidden" : undefined}
+          deckId={deckId}
+          deckTitle={deckTitle}
+          currentSlideId={currentSlideId}
+          slideCount={slideCount}
+          currentSlideIndex={currentSlideIndex}
+          addSlideGenerating={addSlideGenerating}
+          onAddSlideGeneratingChange={onAddSlideGeneratingChange}
+          onAddEmptySlide={onAddEmptySlide}
+          onDuplicateCurrentSlide={onDuplicateCurrentSlide}
+          textBoxMode={textBoxMode}
+          onToggleTextBoxMode={onToggleTextBoxMode}
+        />
+      )}
+
       {/* Deck title */}
       <input
         type="text"
@@ -497,7 +556,7 @@ export default function EditorToolbar({
           >
             <div className="py-1.5">
               {/* Layout section */}
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.layout")}
               </div>
               {slideLayoutOptions.map((opt) => (
@@ -517,7 +576,7 @@ export default function EditorToolbar({
 
               {/* Background section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.background")}
               </div>
               <div className="px-3 pb-2">
@@ -563,7 +622,7 @@ export default function EditorToolbar({
 
               {/* Image & Assets section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.media")}
               </div>
               <button
@@ -591,27 +650,46 @@ export default function EditorToolbar({
 
               {/* Diagrams section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.diagrams")}
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!onUpdateSlide || !currentSlide) return;
-                  const mermaidTemplate = `<div class="fmd-slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:60px 80px;font-family:'Poppins',sans-serif;">
-<div class="mermaid">
-graph TD
+                  // Pin the slide this insert targets before the async
+                  // import/parse below, so navigating to another slide in the
+                  // meantime can't redirect where the diagram lands.
+                  const targetSlideId = currentSlide.id;
+                  const defaultMermaidDefinition = `graph TD
     A[Start] --> B{Decision}
     B -->|Yes| C[Action A]
     B -->|No| D[Action B]
     C --> E[End]
-    D --> E
-</div>
-</div>`;
-                  onUpdateSlide({
-                    content: mermaidTemplate,
-                    layout: "blank",
-                  });
-                  setLayoutOpen(false);
+    D --> E`;
+                  try {
+                    const { convertMermaidToExcalidraw } =
+                      await import("./MermaidToExcalidrawPanel");
+                    const data = await convertMermaidToExcalidraw(
+                      defaultMermaidDefinition,
+                    );
+                    // The target slide may have been deleted while the import/
+                    // parse above was in flight — patch-deck rejects the whole
+                    // batch for a missing slide id, so re-check with the live
+                    // deck (not the stale `currentSlide` this closure captured)
+                    // and drop the result instead of enqueueing a dead op.
+                    const stillExists = getDeck(deckId)?.slides.some(
+                      (s) => s.id === targetSlideId,
+                    );
+                    if (!stillExists) return;
+                    onUpdateSlide({ excalidrawData: data }, targetSlideId);
+                    setLayoutOpen(false);
+                  } catch (err) {
+                    console.error("Insert Mermaid diagram failed:", err);
+                    toast.error(t("editorToolbar.insertMermaidFailed"), {
+                      description:
+                        err instanceof Error ? err.message : undefined,
+                    });
+                  }
                 }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
@@ -640,6 +718,8 @@ graph TD
                   <button
                     onClick={async () => {
                       if (!onUpdateSlide || !currentSlide) return;
+                      // Same pinning as the insert handler above.
+                      const targetSlideId = currentSlide.id;
                       try {
                         const match = currentSlide.content.match(
                           /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
@@ -650,13 +730,22 @@ graph TD
                         const data = await convertMermaidToExcalidraw(
                           match[1].trim(),
                         );
-                        onUpdateSlide({ excalidrawData: data });
+                        // Same stale-target guard as the insert handler above.
+                        const stillExists = getDeck(deckId)?.slides.some(
+                          (s) => s.id === targetSlideId,
+                        );
+                        if (!stillExists) return;
+                        onUpdateSlide({ excalidrawData: data }, targetSlideId);
                         setLayoutOpen(false);
-                      } catch (err: any) {
+                      } catch (err) {
                         console.error("Mermaid to Excalidraw failed:", err);
+                        toast.error(t("editorToolbar.convertMermaidFailed"), {
+                          description:
+                            err instanceof Error ? err.message : undefined,
+                        });
                       }
                     }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))]/80 hover:text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
                   >
                     <IconTransform className="w-3 h-3" />
                     {t("editorToolbar.convertMermaidToExcalidraw")}
@@ -678,7 +767,7 @@ graph TD
 
               {/* Transitions section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.transition")}
               </div>
               <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -711,7 +800,7 @@ graph TD
               {onSetAspectRatio && (
                 <>
                   <div className="mx-2 my-1.5 border-t border-border" />
-                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                     {t("editorToolbar.aspectRatio")}
                   </div>
                   <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -743,29 +832,6 @@ graph TD
             </div>
           </ToolbarPopover>
         </>
-      )}
-
-      {canEdit && onToggleTextBoxMode && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onToggleTextBoxMode}
-              data-toolbar-textbox-button
-              aria-label={t("editorToolbar.addTextBox")}
-              aria-pressed={textBoxMode}
-              aria-keyshortcuts="T"
-              className={`${TOOLBAR_ICON_BUTTON_CLASS} ${
-                textBoxMode
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
-              }`}
-            >
-              <IconLetterT className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.addTextBox")} (T)</TooltipContent>
-        </Tooltip>
       )}
 
       {/* Slide tools palette — animations, tweaks, draw, comment-pin all live
@@ -879,27 +945,6 @@ graph TD
         className="flex-shrink-0 mr-0.5"
       />
 
-      {/* Style toggle */}
-      {canEdit && currentSlide && onToggleStyle && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onToggleStyle}
-              data-slide-style-trigger="true"
-              className={`${TOOLBAR_ICON_BUTTON_CLASS} relative ${
-                styleOpen
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
-              }`}
-              aria-label={t("styleInspector.title")}
-            >
-              <IconPalette className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("styleInspector.title")}</TooltipContent>
-        </Tooltip>
-      )}
-
       {/* Comments toggle */}
       {onToggleComments && (
         <Tooltip>
@@ -943,14 +988,12 @@ graph TD
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
-          shareUrl={editorUrl}
-          shareUrlLabel={t("editorToolbar.editorLink")}
-          shareUrlDescription={t("editorToolbar.editorLinkDescription")}
-          secondaryShareUrl={presentationUrl}
-          secondaryShareUrlLabel={t("editorToolbar.presentationLink")}
-          secondaryShareUrlDescription={t(
-            "editorToolbar.presentationLinkDescription",
-          )}
+          shareUrl={primaryShareLink.url}
+          shareUrlLabel={primaryShareLink.label}
+          shareUrlDescription={primaryShareLink.description}
+          secondaryShareUrl={secondaryShareLink.url}
+          secondaryShareUrlLabel={secondaryShareLink.label}
+          secondaryShareUrlDescription={secondaryShareLink.description}
           shareTabs={{
             tabs: [
               {
@@ -1008,6 +1051,29 @@ graph TD
           <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-48">
+          {canEdit && (
+            <>
+              <DropdownMenuItem
+                disabled={!canUndo}
+                onSelect={() => commitActiveEditThenRun(undo)}
+              >
+                <IconArrowBackUp className="w-4 h-4 mr-2" />
+                {t("editorToolbar.undoWithShortcut", {
+                  shortcut: shortcutLabel("Cmd+Z"),
+                })}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!canRedo}
+                onSelect={() => commitActiveEditThenRun(redo)}
+              >
+                <IconArrowForwardUp className="w-4 h-4 mr-2" />
+                {t("editorToolbar.redoWithShortcut", {
+                  shortcut: shortcutLabel("Cmd+Shift+Z"),
+                })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem
             disabled={importing}
             onSelect={() => fileInputRef.current?.click()}

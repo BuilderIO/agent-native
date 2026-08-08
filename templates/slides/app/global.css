@@ -14,6 +14,12 @@
 
 @source "./**/*.{ts,tsx}";
 
+/* Keep the editable agent prompt readable even if the generated text utility
+   is missing or loses a cascade tie during the hosted build. */
+.agent-composer-root [data-agent-composer-slot="editor-input"] {
+  color: hsl(var(--foreground));
+}
+
 /* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
    toolbar serves this purpose instead, so we don't want a redundant bar. */
 button[title="Open agent sidebar"] {
@@ -109,9 +115,10 @@ button[title="Open agent sidebar"] {
   --accent-cyan: 193 82% 31%;
 }
 
-/* Slides keeps the shared visual inspector behavior, but the dock needs the
+/* Slides keeps the shared visual inspector behavior, but the dock and context toolbar need the
    flatter, filled-control treatment used by the slide editor. */
-.slide-style-inspector {
+.slide-style-inspector,
+.slide-context-toolbar {
   --slides-inspector-control-background: hsl(var(--muted) / 0.82);
   --slides-inspector-divider: hsl(var(--border) / 0.7);
   --design-editor-control-bg: var(--slides-inspector-control-background);
@@ -161,11 +168,21 @@ button[title="Open agent sidebar"] {
   box-shadow: none;
 }
 
+/* The toolbar sits on a muted surface, so its inputs need the opposite
+   treatment to stay readable: a light box rather than a darker fill. */
+.slide-context-toolbar input {
+  border: 1px solid var(--slides-inspector-divider);
+  border-radius: 0.25rem;
+  background: hsl(var(--background));
+  box-shadow: none;
+}
+
 .slide-style-inspector input:focus {
   border: 0;
 }
 
-.slide-style-inspector .slides-inspector-segment {
+.slide-style-inspector .slides-inspector-segment,
+.slide-context-toolbar .slides-inspector-segment {
   min-height: 1.5rem;
   border: 0;
   border-radius: 0.125rem;

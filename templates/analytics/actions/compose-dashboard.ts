@@ -1,16 +1,12 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
-import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
@@ -26,27 +22,6 @@ import {
   type MetricWindow,
   usesFirstPartyDashboardFilters,
 } from "../server/lib/first-party-metric-catalog";
-
-/**
- * Push the saved config through the collab layer so open dashboard editors get
- * the change in real time (mirrors update-dashboard / install-dashboard-template).
- */
-async function syncToCollab(
-  dashboardId: string,
-  config: Record<string, unknown>,
-): Promise<void> {
-  const docId = `dash-${dashboardId}`;
-  const configStr = JSON.stringify(config);
-  try {
-    if (await hasCollabState(docId)) {
-      await applyText(docId, configStr, "content", "agent");
-    } else {
-      await seedFromText(docId, configStr);
-    }
-  } catch {
-    // Collab sync is best-effort — the SQL write is the source of truth.
-  }
-}
 
 const WINDOWS = new Set<MetricWindow>(["30d", "90d", "all"]);
 
@@ -329,7 +304,7 @@ export default defineAction({
       ? (finalConfig.panels as unknown[]).length
       : 0;
 
-    await syncToCollab(args.dashboardId, finalConfig);
+    queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
 
     const parts: string[] = [];
     if (existing && !args.overwrite) {

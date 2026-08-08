@@ -1,0 +1,194 @@
+---
+title: "Routes"
+description: "File-based Nitro server routes, the SSR catch-all, naming conventions, and scoping custom routes to the authenticated user."
+---
+
+# Routes
+
+Server routing in an agent-native app is split across two surfaces.
+
+**Framework routes** at `/_agent-native/*` are managed by the framework. They expose the agent chat loop, sync polling, action endpoints, and other core capabilities. You do not create or modify these routes.
+
+**Custom file routes** in `server/routes/` are where you add your own endpoints. Nitro picks them up automatically based on where they sit in the directory tree — no registration or config needed. The filename sets the HTTP method, the directory path becomes the URL path, and each file exports a single handler.
+
+## Framework-Mounted Routes {#framework-routes}
+
+The framework reserves the `/_agent-native/` namespace for its own endpoints. Never put custom routes here. This table is representative, not exhaustive.
+
+| Route prefix                     | Purpose                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Action HTTP endpoints                                                           |
+| `/_agent-native/agent-chat`      | Agent chat loop                                                                 |
+| `/_agent-native/poll`            | SQL-backed UI sync                                                              |
+| `/_agent-native/runs`            | Progress primitive. The `RunsTray` polls this; see [Progress](/docs/progress)   |
+| `/_agent-native/resources/*`     | Workspace resources                                                             |
+| `/_agent-native/extensions/*`    | Runtime extensions and extension proxy (legacy alias: `/_agent-native/tools/*`) |
+| `/_agent-native/integrations/*`  | Messaging/webhook integrations                                                  |
+| `/_agent-native/a2a`             | Agent-to-agent JSON-RPC                                                         |
+| `/mcp`                           | MCP endpoint                                                                    |
+| `/_agent-native/onboarding/*`    | Setup checklist                                                                 |
+| `/_agent-native/observability/*` | Traces, feedback, evals, experiments                                            |
+| `/_agent-native/file-upload`     | File upload provider endpoint                                                   |
+
+Custom app routes go in `/api/*` or another path that doesn't collide with `/_agent-native/`.
+
+## When to Use a Custom Route {#when-custom-routes}
+
+Actions cover the vast majority of app operations. Reach for a file route in `server/routes/` only when you need something an action can't express.
+
+<Comparison>
+
+### Use a custom route {#use-custom-route}
+
+- File uploads or multipart form data
+- Streaming responses or server-sent events (SSE)
+- Inbound webhooks that need raw body verification
+- OAuth callbacks
+- Public unauthenticated pages
+- External REST contracts that require a specific URL path or response shape
+
+### Use an action instead {#use-action-instead}
+
+- Operations the UI and agent both need
+- Reading or writing app data
+- HTTP-shaped endpoints (use the `http` option in [Actions](/docs/actions))
+- Anything that should be an agent tool, MCP tool, or CLI command
+- Standard JSON request/response APIs
+
+</Comparison>
+
+### Example: Inbound webhook {#example-webhook}
+
+Webhooks are a clear case for a custom route. External services send a raw HTTP body that must be read as bytes before parsing, so you can verify the request signature. Actions receive pre-parsed JSON and cannot access the raw body, which makes signature verification impossible inside one.
+
+The route below handles an inbound webhook at `POST /api/webhooks/events`. It reads the raw body, verifies an HMAC signature, then processes the payload.
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro maps this file to `POST /api/webhooks/events` automatically. The `WEBHOOK_SECRET` environment variable should be set to the signing secret provided by the external service.
+
+## File-Based Routes {#file-based-routes}
+
+The directory path becomes the URL path, and the filename suffix sets the HTTP method. A file at `server/routes/api/items/[id].get.ts` maps to `GET /api/items/:id` — `items/` comes from the directory, `[id]` becomes the `:id` param, and `.get` sets the method.
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR catch-all for public pages
+```
+
+`defineEventHandler` is the H3 primitive for writing a route. It wraps your handler function and gives it access to the `event` object, which carries the request, response, router params, query string, headers, and body. Returning a value from the handler sends it as the response — a plain object becomes JSON automatically. Throwing a `createError` sends the appropriate HTTP error status.
+
+Router params like `[id]` are read from `event` with `getRouterParam`:
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### Naming conventions {#naming-conventions}
+
+| File path (relative to `server/routes/`) | HTTP method | URL path         |
+| ---------------------------------------- | ----------- | ---------------- |
+| `api/items/index.get.ts`                 | GET         | `/api/items`     |
+| `api/items/index.post.ts`                | POST        | `/api/items`     |
+| `api/items/[id].get.ts`                  | GET         | `/api/items/:id` |
+| `api/items/[id].patch.ts`                | PATCH       | `/api/items/:id` |
+| `api/items/[id].delete.ts`               | DELETE      | `/api/items/:id` |
+| `api/items/[...slug].get.ts`             | GET         | `/api/items/*`   |
+
+## Request Context and Access {#request-context}
+
+Actions mounted by the framework automatically run with request context. Custom routes do not. If a custom route reads or writes ownable resources, load the session and wrap the work:
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="Scoping a custom route to the request user"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "Custom routes have no auto-context",
+      note: "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user.",
+    },
+    {
+      lines: "13",
+      label: "Establish request context",
+      note: "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work.",
+    },
+    {
+      lines: "17-20",
+      label: "Scope ownable reads",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
+
+`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`, so custom routes import it from the template path (`../../db/index.js`), not from `@agent-native/core/db`. See [Database](/docs/server-database#db-client).
+
+<Callout tone="warning">
+  Do not run unscoped `db.select().from(ownableTable)` in custom routes. Always
+  establish request context with `runWithRequestContext` before querying ownable
+  data.
+</Callout>
+
+## SSR Catch-All {#ssr-catch-all}
+
+The `[...page].get.ts` route at the root of `server/routes/` handles server-side rendering for public-facing pages. It uses `createH3SSRHandler` to hand off to the React Router build:
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+Every SSR response is an impersonal, public shell cached at the CDN. Never read cookies, session state, or auth branches in this handler. Personalization happens client-side after hydration.
+
+## What's next {#whats-next}
+
+- [**Actions**](/docs/actions): the preferred surface for app operations; reach for a route only when it doesn't fit
+- [**Plugins**](/docs/server-plugins): startup plugins that run before routes are served
+- [**Middleware**](/docs/server-middleware): auth guards that protect all routes including `/api/*`
+- [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess` and the full data-scoping model

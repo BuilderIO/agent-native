@@ -23,7 +23,7 @@ Core 是基础。Toolkit 和 Templates 都是可选的。
 
 - **代理** — 读取数据、写入数据、运行 actions 并使用已配置工具的自主 AI。可使用 skills 和说明进行定制。
 - **应用** — 试剂周围的产品表面。一开始这可能只是操作、丰富的聊天、小型控制平面或带有仪表板、流程和可视化的完整 React 界面。
-- **计算机** — 数据库、浏览器、代码执行。代理直接使用SQL和内置工具进行工作； MCP 服务器是可选的附加组件，而不是基础。
+- **计算机** — 数据库、浏览器、代码执行。代理通过应用的操作和数据表面工作；应用可以通过 MCP 暴露同一个操作表面，而外部 MCP 服务器仍是可选附加组件，不是基础。
 
 <Diagram id="doc-block-sight" title={"代理、应用程序和计算机"} summary={"三层在一个共享的 SQL 存储上协同工作。代理和应用程序读取和写入相同的数据。"}>
 
@@ -250,10 +250,12 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 生产代理聊天插件默认将原始 SQL 工具设为只读
-(`databaseTools: "read"`)，因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，
+(`frameworkTools: { database: "read" }`)，因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，
 并通过类型化应用 actions 执行写入。只有在刻意的维护界面也需要公开带范围限制的
-`db-exec` / `db-patch` 时，才设置 `databaseTools: "write"`（或 `true`）；
-设置 `databaseTools: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
+`db-exec` / `db-patch` 时，才设置 `database: "write"`（或 `true`）；
+设置 `database: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
+
+`frameworkTools` 以同样的方式管理框架自带的其余工具：分享、审阅评论、版本历史、feature flags、本地化、审计、Context X-Ray、个人资料、自动化、docs、resources、web、跨应用委派、聊天和邮件。完整列表、`"minimal"` 预设，以及为什么关闭分组仍保留其 HTTP 路由，请参见 [Production Agent Tools](/docs/deployment#production-agent-tools)。
 
 ## 代理聊天桥 {#agent-chat-bridge}
 

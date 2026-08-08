@@ -11,7 +11,7 @@ Os aplicativos nativos do agente usam [Better Auth](https://better-auth.com) par
 
 A autenticação é configurada automaticamente via `autoMountAuth(app)` no plugin do servidor de autenticação. Existem três modos:
 
-- **Padrão:** Melhor autenticação com e-mail/senha + provedores sociais. Página de integração exibida na primeira visita.
+- **Padrão:** Magic link como fluxo principal do Better Auth quando o e-mail de saída está pronto, com e-mail/senha como fallback e provedores sociais. Defina `AUTH_MAGIC_LINK=0` para forçar o fallback.
 - **MCP remoto OAuth:** OAuth 2.1 padrão para hosts MCP, como código Claude e conectores ChatGPT.
 - **Personalizado:** Traga sua própria autenticação por meio do retorno de chamada `getSession`.
 
@@ -102,11 +102,19 @@ Algumas bandeiras ajustam isso; detalhes completos estão na tabela [Environment
 
 </Callout>
 
+## Login no desenvolvimento local {#local-development-sign-in}
+
+Em um servidor de desenvolvimento com endereço de loopback, a página compartilhada de login mostra primeiro **Continue as local dev**. Ela cria ou reutiliza a conta e a sessão de desenvolvimento reais do Better Auth, usando o mesmo fluxo autenticado que existe no restante do aplicativo.
+
+Escolha **Show full sign in options** para mostrar as opções normais de cadastro, senha, magic link e provedores sociais. Se a sessão local não puder ser criada, a página mostrará essas opções automaticamente para que você possa continuar com a autenticação padrão.
+
+Essa conveniência está disponível apenas quando o navegador se conecta por `localhost`, `127.0.0.0/8` ou `::1` em desenvolvimento ou teste. Ela fica desativada em visualizações de implantação e na produção hospedada. Isso não é um desvio de autenticação. Defina `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` para desativá-la e mostrar a página normal de login no desenvolvimento local.
+
 ## Melhor autenticação (padrão) {#better-auth}
 
 Por padrão, o Better Auth possibilita a autenticação. Ele fornece:
 
-- Registro e login de e-mail/senha
+- Registro e login por magic link, com e-mail/senha como fallback
 - Provedores sociais (Google, GitHub e mais de 35 outros)
 - Organizações com funções e convites
 - Tokens JWT para acesso API e A2A
@@ -115,6 +123,7 @@ Por padrão, o Better Auth possibilita a autenticação. Ele fornece:
 Rotas Better Auth são montadas em `/_agent-native/auth/ba/*`. A estrutura também fornece endpoints compatíveis com versões anteriores:
 
 - `GET /_agent-native/auth/session` — obtém a sessão atual
+- `POST /_agent-native/auth/magic-link` — solicitar um e-mail com magic link
 - `POST /_agent-native/auth/login` — login por e-mail/senha
 - `POST /_agent-native/auth/register` — criar conta
 - `POST /_agent-native/auth/logout` — sair
@@ -379,7 +388,7 @@ function MyComponent() {
 Modelos com **páginas públicas** (compartilhar links, incorporações, páginas de marketing) geralmente precisam de um CTA na página que peça aos visualizadores anônimos que façam login e os traga de volta à página em que estavam. A estrutura fornece um único ponto de entrada para isso:
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 Quando um visualizador anônimo acessa este URL, a página de login do framework é exibida. Após um login bem-sucedido (qualquer fluxo – token, e-mail/senha ou Google OAuth), o navegador retorna a `return`.
@@ -394,8 +403,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -403,13 +411,13 @@ function SignInCta() {
 
 ### Caminhos privados marcados
 
-As páginas normais do aplicativo usam um único shell SSR impessoal e armazenável em cache público para todos os visitantes. O `AppProviders` verifica a sessão no cliente; em um caminho privado como `/dashboard`, ele redireciona o visitante anônimo para `/_agent-native/sign-in?return=%2Fdashboard` antes de montar a interface privada. Após o login, o visitante retorna a `/dashboard`. Use `isPublicPath` para rotas públicas/SEO ou `sessionBypass` para uma superfície autenticada por outro mecanismo limitado, como um token de incorporação MCP.
+As páginas normais do aplicativo usam um único shell SSR impessoal e armazenável em cache público para todos os visitantes. O `AppProviders` verifica a sessão no cliente; em um caminho privado como `/dashboard`, ele redireciona o visitante anônimo para `/sign-in?return=%2Fdashboard` antes de montar a interface privada. Após o login, o visitante retorna a `/dashboard`. Use `isPublicPath` para rotas públicas/SEO ou `sessionBypass` para uma superfície autenticada por outro mecanismo limitado, como um token de incorporação MCP.
 
 Por quanto tempo esse shell é armazenado em cache é uma configuração de toda a implantação — consulte [SSR Caching](/docs/deployment#ssr-caching) para `AGENT_NATIVE_SSR_CACHE`. Encurtar ou desativar o cache altera apenas a duração; o SSR continua renderizando o branch anônimo com os cookies removidos.
 
 ### Nos bastidores: Google OAuth
 
-Ambos os fluxos (o ponto de entrada `/_agent-native/sign-in` explícito e o caso do caminho marcado) encadeiam o retorno URL através do estado OAuth. O estado é assinado por HMAC, portanto não pode ser falsificado em trânsito. No retorno de chamada, o retorno URL é revalidado como de mesma origem antes do redirecionamento. Portanto, uma chave de assinatura vazada ainda não pode ser transformada em um oráculo de redirecionamento aberto.
+Ambos os fluxos (o ponto de entrada `/sign-in` explícito e o caso do caminho marcado) encadeiam o retorno URL através do estado OAuth. O estado é assinado por HMAC, portanto não pode ser falsificado em trânsito. No retorno de chamada, o retorno URL é revalidado como de mesma origem antes do redirecionamento. Portanto, uma chave de assinatura vazada ainda não pode ser transformada em um oráculo de redirecionamento aberto.
 
 Se o seu modelo agrupa `/_agent-native/google/auth-url` diretamente (por exemplo, modelos de e-mail e calendário fazem isso para ampliar os escopos), aceite uma consulta `?return=<path>` e encaminhe-a por meio do formato de objeto de opções de `encodeOAuthState`:
 

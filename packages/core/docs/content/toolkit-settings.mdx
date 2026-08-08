@@ -27,14 +27,14 @@ free the moment an app adopts the shared page.
 
 ## Pieces {#pieces}
 
-| Piece                    | Purpose                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| `<SettingsTabsPage>`     | Standard tabbed settings route surface with a built-in settings search box.           |
-| `useAgentSettingsTabs()` | Framework-provided agent, model, key, automation, and voice tabs that apps can mount. |
-| `SettingsSearchEntry`    | A deep-link target (label, keywords, tab, and hash) that makes a control findable.    |
-| `<LanguagePicker>`       | Standard language selector for app settings.                                          |
-| `openAgentSettings()`    | Compatibility escape hatch for opening the sidebar settings tab when needed.          |
-| Hash deep links          | Stable links such as `/settings#secrets:OPENAI_API_KEY` and `/settings#connections`.  |
+| Piece                    | Purpose                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| `<SettingsTabsPage>`     | Standard tabbed settings route surface with a built-in settings search box.                        |
+| `useAgentSettingsTabs()` | Framework-provided agent, model, key, automation, and voice tabs that apps can mount.              |
+| `SettingsSearchEntry`    | A deep-link target (label, keywords, tab, and hash) that makes a control findable.                 |
+| `<LanguagePicker>`       | Standard language selector for app settings.                                                       |
+| `openAgentSettings()`    | Compatibility escape hatch for opening the sidebar settings tab when needed.                       |
+| Deep links               | Stable links such as `/settings/integrations/secrets/OPENAI_API_KEY` and `/settings/integrations`. |
 
 ## Page Contract {#page-contract}
 
@@ -105,7 +105,7 @@ on so settings stay findable everywhere.
 
 ## UX Standard {#ux-standard}
 
-- Keep model keys, OAuth connections, Builder connect, language, team, and app
+- Keep model keys, OAuth connections, Builder connect (free tier available), language, team, and app
   preferences in one route.
 - Keep search on and register a `SettingsSearchEntry` for every meaningful
   control so users can find settings by name instead of scanning tabs.

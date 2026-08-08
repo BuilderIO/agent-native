@@ -18,37 +18,30 @@ import {
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconActivity,
-  IconArrowUpRight,
   IconApps,
-  IconBrain,
-  IconChartBar,
+  IconBrandSlack,
   IconBrandTelegram,
-  IconKey,
-  IconChevronDown,
-  IconLayersSubtract,
   IconMessageQuestion,
-  IconMessages,
-  IconPlugConnected,
   IconBroadcast,
-  IconFingerprint,
-  IconHistory,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconPuzzle,
   IconSettings,
-  IconSettingsAutomation,
-  IconShieldCheck,
+  IconShield,
   IconSearch,
+  IconWorld,
+  IconDeviceDesktop,
 } from "@tabler/icons-react";
 import {
+  createContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  useContext,
   type ComponentType,
   type ReactNode,
 } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import { cn } from "../../lib/utils";
 import {
@@ -62,6 +55,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+import { WorkspaceAppsRail } from "./workspace-apps-rail";
 
 export type DispatchNavSection = "primary" | "operations";
 
@@ -77,10 +71,12 @@ export interface DispatchNavItem {
   to: string;
   label: string;
   icon?: DispatchNavIcon;
-  /** Defaults to "operations", which is where local management tools usually fit. */
+  /** Defaults to "operations", which renders under the Admin control plane. */
   section?: DispatchNavSection;
   /** Override active matching for nested or multi-route tools. */
   match?: (pathname: string) => boolean;
+  /** Canonical path inside the Admin shell for management tabs. */
+  adminTo?: string;
 }
 
 export interface DispatchExtensionConfig {
@@ -114,73 +110,13 @@ const PRIMARY_NAV_ITEMS = [
   },
 ] as const satisfies readonly DispatchNavItem[];
 
-const OPERATIONS_NAV_ITEMS = [
-  {
-    id: "operations",
-    to: "/operations",
-    label: "Operations",
-    icon: IconActivity,
-    section: "operations",
-  },
-  {
-    id: "metrics",
-    to: "/metrics",
-    label: "Metrics",
-    icon: IconChartBar,
-    section: "operations",
-  },
-  {
-    id: "automations",
-    to: "/automations",
-    label: "Automations",
-    icon: IconSettingsAutomation,
-    section: "operations",
-  },
-  {
-    id: "approvals",
-    to: "/approvals",
-    label: "Approvals",
-    icon: IconShieldCheck,
-    section: "operations",
-  },
-  {
-    id: "destinations",
-    to: "/destinations",
-    label: "Destinations",
-    icon: IconArrowUpRight,
-    section: "operations",
-  },
-  {
-    id: "integrations",
-    to: "/integrations",
-    label: "Integrations",
-    icon: IconPuzzle,
-    section: "operations",
-  },
-  {
-    id: "vault",
-    to: "/vault",
-    label: "Vault",
-    icon: IconKey,
-    section: "operations",
-  },
-  {
-    id: "agents",
-    to: "/agents",
-    label: "Agents",
-    icon: IconPlugConnected,
-    section: "operations",
-  },
-  {
-    id: "workspace",
-    to: "/workspace",
-    label: "Resources",
-    icon: IconLayersSubtract,
-    section: "operations",
-  },
-] as const satisfies readonly DispatchNavItem[];
-
 const BOTTOM_NAV_ITEMS = [
+  {
+    id: "admin",
+    to: "/admin",
+    label: "Admin",
+    icon: IconShield,
+  },
   {
     id: "settings",
     to: "/settings",
@@ -189,48 +125,20 @@ const BOTTOM_NAV_ITEMS = [
   },
 ] as const satisfies readonly DispatchNavItem[];
 
-const ADVANCED_NAV_ITEMS = [
-  {
-    id: "messaging",
-    to: "/messaging",
-    label: "Messaging",
-    icon: IconBrandTelegram,
-    section: "operations",
-  },
-  {
-    id: "identities",
-    to: "/identities",
-    label: "Identities",
-    icon: IconFingerprint,
-    section: "operations",
-  },
-  {
-    id: "audit",
-    to: "/audit",
-    label: "Audit",
-    icon: IconHistory,
-    section: "operations",
-  },
-  {
-    id: "dreams",
-    to: "/dreams",
-    label: "Dreams",
-    icon: IconBrain,
-    section: "operations",
-  },
-  {
-    id: "thread-debug",
-    to: "/thread-debug",
-    label: "Thread Debug",
-    icon: IconMessages,
-    section: "operations",
-  },
-] as const satisfies readonly DispatchNavItem[];
-
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
+const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
+const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
+
+const DispatchExtensionsContext = createContext<
+  DispatchExtensionConfig | undefined
+>(undefined);
+
+export function useDispatchExtensions(): DispatchExtensionConfig | undefined {
+  return useContext(DispatchExtensionsContext);
+}
 
 // Routes whose page renders its own toolbar.
 // Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
@@ -239,6 +147,7 @@ function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
+  if (pathname.startsWith("/apps/")) return true;
   return false;
 }
 
@@ -322,6 +231,28 @@ function threadTitle(thread: ChatThreadSummary, fallback: string) {
   return thread.title || thread.preview || fallback;
 }
 
+function readChatHistoryIncludesExternal(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(CHAT_HISTORY_SOURCE_KEY) === "all";
+  } catch {
+    // coercion-ok: localStorage is optional browser persistence.
+    return false;
+  }
+}
+
+function threadSourceIcon(platform: string | undefined): ReactNode {
+  const normalized = platform?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "slack") {
+    return <IconBrandSlack size={13} aria-hidden="true" />;
+  }
+  if (normalized === "telegram") {
+    return <IconBrandTelegram size={13} aria-hidden="true" />;
+  }
+  return <IconWorld size={13} aria-hidden="true" />;
+}
+
 function threadUpdatedAt(thread: ChatThreadSummary) {
   return Number.isFinite(thread.updatedAt)
     ? thread.updatedAt
@@ -334,6 +265,9 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const [includeExternal, setIncludeExternal] = useState(false);
+  const [historyPreferenceReady, setHistoryPreferenceReady] = useState(false);
+  const historyModeRef = useRef(includeExternal);
   const {
     threads,
     activeThreadId,
@@ -342,7 +276,10 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     switchThread,
     renameThread,
     refreshThreads,
-  } = useChatThreads(undefined, "dispatch", undefined, { autoCreate: false });
+  } = useChatThreads(undefined, "dispatch", undefined, {
+    autoCreate: false,
+    includeExternal,
+  });
 
   const visibleThreads = useMemo(
     () =>
@@ -360,9 +297,29 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     (localPathname === "/chat" ? null : activeThreadId);
   const chatItems: ChatHistoryItem[] = visibleThreads.map((thread) => {
     const title = threadTitle(thread, t("dispatch.sidebar.newChat"));
+    const sourceIcon = threadSourceIcon(thread.source?.platform);
+    const sourceLabel = thread.source?.platform
+      ? thread.source.platform[0].toUpperCase() +
+        thread.source.platform.slice(1)
+      : null;
     return {
       id: thread.id,
-      title: <span title={title}>{title}</span>,
+      title: (
+        <span
+          className="flex min-w-0 items-center gap-1"
+          title={sourceLabel ? `${sourceLabel}: ${title}` : title}
+        >
+          {sourceIcon ? (
+            <span
+              className="shrink-0 text-sidebar-foreground/55"
+              aria-label={sourceLabel ?? "Connected source"}
+            >
+              {sourceIcon}
+            </span>
+          ) : null}
+          <span className="truncate">{title}</span>
+        </span>
+      ),
       titleText: title,
       timestamp:
         thread.id === displayedActiveThreadId
@@ -370,6 +327,25 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
           : formatThreadAge(threadUpdatedAt(thread)),
     };
   });
+
+  useEffect(() => {
+    setIncludeExternal(readChatHistoryIncludesExternal());
+    setHistoryPreferenceReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!historyPreferenceReady) return;
+    try {
+      localStorage.setItem(
+        CHAT_HISTORY_SOURCE_KEY,
+        includeExternal ? "all" : "local",
+      );
+    } catch {} // coercion-ok: localStorage is optional browser persistence.
+    if (historyModeRef.current !== includeExternal) {
+      historyModeRef.current = includeExternal;
+      refreshThreads();
+    }
+  }, [historyPreferenceReady, includeExternal, refreshThreads]);
 
   useEffect(() => {
     const refresh = () => refreshThreads();
@@ -415,6 +391,43 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="ms-4 min-w-0 space-y-0.5">
+      <div className="flex justify-end px-2 pt-0.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              data-dispatch-chat-source-toggle
+              aria-pressed={includeExternal}
+              aria-label={
+                includeExternal
+                  ? t("dispatch.sidebar.showLocalChats", {
+                      defaultValue: "Show local chats",
+                    })
+                  : t("dispatch.sidebar.showAllChats", {
+                      defaultValue: "Show all chats",
+                    })
+              }
+              onClick={() => setIncludeExternal((current) => !current)}
+              className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              {includeExternal ? (
+                <IconWorld size={14} aria-hidden="true" />
+              ) : (
+                <IconDeviceDesktop size={14} aria-hidden="true" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {includeExternal
+              ? t("dispatch.sidebar.showLocalChats", {
+                  defaultValue: "Show local chats",
+                })
+              : t("dispatch.sidebar.showAllChats", {
+                  defaultValue: "Show all chats",
+                })}
+          </TooltipContent>
+        </Tooltip>
+      </div>
       {chatsLoading &&
         visibleThreads.length === 0 &&
         Array.from({ length: 3 }).map((_, index) => (
@@ -476,14 +489,7 @@ export function NavContent({
     ...PRIMARY_NAV_ITEMS,
     ...navItemsForSection(extensionNavItems, "primary"),
   ];
-  const operationsNavItems = [
-    ...OPERATIONS_NAV_ITEMS,
-    ...navItemsForSection(extensionNavItems, "operations"),
-  ];
   const localPathname = localDispatchPath(location.pathname);
-  const advancedOpen = ADVANCED_NAV_ITEMS.some((item) =>
-    navItemMatchesPath(item, localPathname),
-  );
   const navLabel = (item: DispatchNavItem) => {
     const key =
       item.id === "thread-debug"
@@ -551,7 +557,7 @@ export function NavContent({
         {collapsed ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <NavLink
+              <Link
                 to={dispatchNavLinkTarget(item.to)}
                 onClick={(event) => {
                   if (
@@ -573,27 +579,24 @@ export function NavContent({
                   onNavigate?.();
                 }}
                 aria-label={label}
-                className={({ isActive }) => {
-                  const active = isActive || itemMatchesLocalPath;
-                  return cn(
-                    "flex h-8 w-8 items-center justify-center rounded-md text-sm",
-                    active
-                      ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  );
-                }}
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-md text-sm",
+                  itemMatchesLocalPath
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                )}
               >
                 {Icon ? (
                   <Icon size={16} className="shrink-0" />
                 ) : (
                   <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                 )}
-              </NavLink>
+              </Link>
             </TooltipTrigger>
             <TooltipContent side="right">{label}</TooltipContent>
           </Tooltip>
         ) : (
-          <NavLink
+          <Link
             to={dispatchNavLinkTarget(item.to)}
             onClick={(event) => {
               if (
@@ -614,15 +617,12 @@ export function NavContent({
               }
               onNavigate?.();
             }}
-            className={({ isActive }) => {
-              const active = isActive || itemMatchesLocalPath;
-              return cn(
-                "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-                active
-                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              );
-            }}
+            className={cn(
+              "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+              itemMatchesLocalPath
+                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            )}
           >
             {Icon ? (
               <Icon size={16} className="shrink-0" />
@@ -630,7 +630,7 @@ export function NavContent({
               <span className="h-4 w-4 shrink-0" aria-hidden="true" />
             )}
             <span className="truncate">{label}</span>
-          </NavLink>
+          </Link>
         )}
         {!collapsed && item.id === "chat" && itemMatchesLocalPath ? (
           <DispatchChatsSection onNavigate={onNavigate} />
@@ -641,43 +641,55 @@ export function NavContent({
 
   return (
     <>
-      <div className={cn("border-b py-3", collapsed ? "px-1" : "px-4")}>
+      <div
+        className={cn(
+          "flex h-12 shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "justify-center px-0" : "px-4",
+        )}
+      >
         <div
           className={cn(
             "flex items-center",
             collapsed ? "justify-center" : "gap-2",
           )}
         >
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt=""
+            aria-hidden="true"
+            width={35}
+            height={20}
+            className={cn(
+              "block shrink-0 object-contain object-center dark:hidden",
+              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
+            )}
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt=""
+            aria-hidden="true"
+            width={35}
+            height={20}
+            className={cn(
+              "hidden shrink-0 object-contain object-center dark:block",
+              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
+            )}
+          />
           {!collapsed && (
-            <>
-              <img
-                src={appPath("/agent-native-icon-light.svg")}
-                alt=""
-                aria-hidden="true"
-                width={35}
-                height={20}
-                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
-              />
-              <img
-                src={appPath("/agent-native-icon-dark.svg")}
-                alt=""
-                aria-hidden="true"
-                width={35}
-                height={20}
-                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-lg font-bold tracking-tight text-foreground">
-                  Dispatch
-                </div>
+            <div className="min-w-0 flex-1">
+              <div
+                data-dispatch-sidebar-label
+                className="truncate text-lg font-bold tracking-tight text-foreground"
+              >
+                {DISPATCH_SIDEBAR_LABEL}
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <nav className={cn("py-3", collapsed ? "px-1" : "px-2")}>
+        <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
           <ul
             className={cn(
               collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
@@ -686,44 +698,11 @@ export function NavContent({
             {primaryNavItems.map(renderNavItem)}
           </ul>
 
-          {collapsed ? (
-            <>
-              <ul className="mt-5 flex flex-col items-center gap-1">
-                {operationsNavItems.map(renderNavItem)}
-              </ul>
-              <ul className="mt-3 flex flex-col items-center gap-1">
-                {ADVANCED_NAV_ITEMS.map(renderNavItem)}
-              </ul>
-            </>
-          ) : (
-            <div className="mt-5">
-              <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/45">
-                {t("dispatch.nav.operate", { defaultValue: "Operate" })}
-              </p>
-              <ul className="space-y-0.5">
-                {operationsNavItems.map(renderNavItem)}
-              </ul>
-
-              <details className="group mt-3" open={advancedOpen}>
-                <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
-                  <span>
-                    {t("dispatch.nav.advanced", { defaultValue: "Advanced" })}
-                  </span>
-                  <IconChevronDown
-                    size={14}
-                    className="transition-transform group-open:rotate-180"
-                  />
-                </summary>
-                <ul className="mt-1 space-y-0.5">
-                  {ADVANCED_NAV_ITEMS.map(renderNavItem)}
-                </ul>
-              </details>
-            </div>
-          )}
+          <WorkspaceAppsRail collapsed={collapsed} onNavigate={onNavigate} />
         </nav>
 
         <div className="mt-auto shrink-0">
-          <nav className={cn("py-1", collapsed ? "px-1" : "px-2")}>
+          <nav className={cn("py-1", collapsed ? "px-1.5" : "px-2")}>
             <ul
               className={cn(
                 collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
@@ -776,6 +755,9 @@ export function Layout({
   const localPathname = localDispatchPath(location.pathname);
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
+  const isWorkspaceAppHostRoute = localPathname.startsWith("/apps/");
+  const sidebarBeforeAppRef = useRef<boolean | null>(null);
+  const sidebarAutoCollapsedRef = useRef(false);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "dispatch",
     activePath: localPathname,
@@ -790,7 +772,29 @@ export function Layout({
   useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (isWorkspaceAppHostRoute) {
+      if (!sidebarAutoCollapsedRef.current) {
+        sidebarAutoCollapsedRef.current = true;
+        sidebarBeforeAppRef.current = sidebarCollapsed;
+      }
+      if (!sidebarCollapsed) setSidebarCollapsed(true);
+      return;
+    }
+
+    if (!sidebarAutoCollapsedRef.current) return;
+    sidebarAutoCollapsedRef.current = false;
+    const previousSidebarState = sidebarBeforeAppRef.current;
+    sidebarBeforeAppRef.current = null;
+    if (
+      previousSidebarState !== null &&
+      previousSidebarState !== sidebarCollapsed
+    ) {
+      setSidebarCollapsed(previousSidebarState);
+    }
+  }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isWorkspaceAppHostRoute) return;
     try {
       window.localStorage.setItem(
         SIDEBAR_COLLAPSE_KEY,
@@ -799,7 +803,7 @@ export function Layout({
     } catch {
       // Ignore storage failures; the in-memory preference still works.
     }
-  }, [sidebarCollapsed]);
+  }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
@@ -825,7 +829,9 @@ export function Layout({
       <main
         className={cn(
           "flex-1",
-          isChatRoute ? "min-h-0 overflow-hidden" : "overflow-y-auto",
+          isChatRoute || isWorkspaceAppHostRoute
+            ? "min-h-0 overflow-hidden"
+            : "overflow-y-auto",
         )}
       >
         {showHeader ? (
@@ -859,46 +865,48 @@ export function Layout({
   );
 
   return (
-    <HeaderActionsProvider>
-      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-        <aside
-          data-collapsed={sidebarCollapsed ? "true" : "false"}
-          className={cn(
-            "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-            sidebarCollapsed ? "w-14" : "w-56",
-          )}
-        >
-          <NavContent
-            extensions={extensions}
-            collapsed={sidebarCollapsed}
-            collapsible
-            onCollapsedChange={setSidebarCollapsed}
-          />
-        </aside>
-
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent
-            side="left"
-            className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
+    <DispatchExtensionsContext.Provider value={extensions}>
+      <HeaderActionsProvider>
+        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
+          <aside
+            data-collapsed={sidebarCollapsed ? "true" : "false"}
+            className={cn(
+              "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+              sidebarCollapsed ? "w-14" : "w-56",
+            )}
           >
-            <SheetTitle className="sr-only">
-              {t("dispatch.nav.navigation")}
-            </SheetTitle>
-            <SheetDescription className="sr-only">
-              {t("dispatch.nav.navigationDescription")}
-            </SheetDescription>
-            <div className="flex h-full w-full flex-col">
-              <NavContent
-                extensions={extensions}
-                collapsed={false}
-                onNavigate={() => setMobileOpen(false)}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
+            <NavContent
+              extensions={extensions}
+              collapsed={sidebarCollapsed}
+              collapsible
+              onCollapsedChange={setSidebarCollapsed}
+            />
+          </aside>
 
-        {content}
-      </div>
-    </HeaderActionsProvider>
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <SheetContent
+              side="left"
+              className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
+            >
+              <SheetTitle className="sr-only">
+                {t("dispatch.nav.navigation")}
+              </SheetTitle>
+              <SheetDescription className="sr-only">
+                {t("dispatch.nav.navigationDescription")}
+              </SheetDescription>
+              <div className="flex h-full w-full flex-col">
+                <NavContent
+                  extensions={extensions}
+                  collapsed={false}
+                  onNavigate={() => setMobileOpen(false)}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {content}
+        </div>
+      </HeaderActionsProvider>
+    </DispatchExtensionsContext.Provider>
   );
 }

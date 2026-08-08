@@ -1,5 +1,5 @@
 import type { H3Event } from "h3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BUILDER_CONNECT_PARAM,
@@ -23,6 +23,7 @@ import {
   getFrameworkRouteRequestUrl,
   getFrameworkEnvKeys,
   readLegacyCoreRouteInitSettings,
+  shouldRunCoreRouteBootDatabaseWork,
 } from "./core-routes-plugin.js";
 
 describe("readLegacyCoreRouteInitSettings", () => {
@@ -47,6 +48,33 @@ describe("readLegacyCoreRouteInitSettings", () => {
       persistedEnvVars: { OTHER_KEY: "value" },
       builderDisconnected: null,
     });
+  });
+});
+
+describe("shouldRunCoreRouteBootDatabaseWork", () => {
+  it("skips request-time database warmups in production serverless runtimes", () => {
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps boot database work for local production and development", () => {
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        NETLIFY_LOCAL: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "development",
+        NETLIFY: "true",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -681,6 +709,29 @@ describe("runDbHealthProbe", () => {
     expect(result.ms).toBeGreaterThanOrEqual(0);
   });
 
+  it("answers within a deadline when the query HANGS, and says so distinctly", async () => {
+    // The docs site's health route hung 20-40s on an unbounded `SELECT 1`
+    // until the CDN 502'd. Its keep-warm cron then failed every minute, the
+    // function stayed permanently cold, and every cache miss paid a ~10x cold
+    // start. The contract says "always resolves"; this pins it.
+    vi.useFakeTimers();
+    try {
+      const probe = runDbHealthProbe(() => ({
+        execute: () => new Promise<never>(() => {}), // never settles
+      }));
+      await vi.advanceTimersByTimeAsync(6_000);
+      const result = await probe;
+      expect(result.ok).toBe(true);
+      expect(result.db).toBe(false);
+      // A hang is NOT the same as "no database" — folding them together is the
+      // coercion this repo bans, and it is why nobody could tell the docs site
+      // apart from an app that simply has no DB.
+      expect(result.dbTimedOut).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stays live with db:false when the query throws (no DB / unreachable)", async () => {
     const result = await runDbHealthProbe(() => ({
       execute: async () => {
@@ -689,5 +740,57 @@ describe("runDbHealthProbe", () => {
     }));
     expect(result.ok).toBe(true);
     expect(result.db).toBe(false);
+  });
+
+  it("omits pressure unless asked, so the warm cron pays nothing for it", async () => {
+    const ran: string[] = [];
+    const result = await runDbHealthProbe(() => ({
+      execute: async (sql: string) => {
+        ran.push(sql);
+        return { rows: [], rowsAffected: 0 };
+      },
+    }));
+    expect(ran).toEqual(["SELECT 1"]);
+    expect(result.pressure).toBeUndefined();
+  });
+
+  // This suite's dialect is sqlite, which has no pg_stat_activity. The probe
+  // must report that as unmeasured rather than running the query anyway — and
+  // the monitor must not read unmeasured as healthy. The measured path is
+  // covered in db-pressure.spec.ts.
+  it("reports pressure as unmeasured on a dialect that cannot answer", async () => {
+    const ran: string[] = [];
+    const result = await runDbHealthProbe(
+      () => ({
+        execute: async (sql: string) => {
+          ran.push(sql);
+          return { rows: [], rowsAffected: 0 };
+        },
+      }),
+      { pressure: true },
+    );
+    expect(ran).toEqual(["SELECT 1"]);
+    expect(result.pressure).toEqual({
+      measured: false,
+      reason: "dialect sqlite has no pg_stat_activity",
+    });
+    // Pressure never moves `ready`. Folding it in would page every uptime
+    // monitor on a warning and teach everyone to mute the route.
+    expect(result.ready).toBe(true);
+  });
+
+  it("says pressure is unmeasured when the database is unreachable", async () => {
+    const result = await runDbHealthProbe(
+      () => ({
+        execute: async () => {
+          throw new Error("connection refused");
+        },
+      }),
+      { pressure: true },
+    );
+    expect(result.pressure).toEqual({
+      measured: false,
+      reason: "database unreachable",
+    });
   });
 });

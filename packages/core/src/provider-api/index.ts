@@ -66,6 +66,7 @@ export const PROVIDER_API_IDS = [
   "gcloud",
   "github",
   "figma",
+  "fullstory",
   "gmail",
   "gong",
   "google_calendar",
@@ -134,6 +135,8 @@ export interface ProviderApiRequestArgs {
   body?: unknown;
   auth?: "default" | "none";
   timeoutMs?: number;
+  /** Internal cancellation signal for trusted server-side callers. */
+  signal?: AbortSignal;
   maxBytes?: number;
   connectionId?: string | null;
   accountId?: string | null;
@@ -931,6 +934,40 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       "Personal access tokens should include current_user:read for validation and file_content:read for file/node imports. Add library_content:read for file libraries, team_library_content:read for team libraries, or library_assets:read for individual published assets only when needed.",
       "Enterprise Variables endpoints require file_variables:read; writes additionally require file_variables:write, a Full seat, and edit access.",
       "The REST API cannot create arbitrary canvas frames or layers. Use Figma's official OAuth MCP write tools when connected, or export a Design selection as Figma-compatible SVG for visual handoff.",
+    ],
+  },
+  fullstory: {
+    id: "fullstory",
+    label: "FullStory Server API",
+    defaultBaseUrl: "https://api.fullstory.com",
+    auth: {
+      type: "basic-raw",
+      key: "FULLSTORY_API_KEY",
+    },
+    credentialKeys: ["FULLSTORY_API_KEY"],
+    docsUrls: [
+      "https://developer.fullstory.com/server/authentication/",
+      "https://developer.fullstory.com/server/sessions/introduction/",
+      "https://developer.fullstory.com/server/sessions/get-session-events/",
+    ],
+    allowedHostSuffixes: ["fullstory.com"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "List sessions for a user",
+        method: "GET",
+        path: "/sessions/v2",
+        query: { email: "<user-email>", limit: 20 },
+      },
+      {
+        label: "Get session events",
+        method: "GET",
+        path: "/v2/sessions/{sessionId}/events",
+      },
+    ],
+    notes: [
+      "FullStory Server API uses Basic <API_KEY> authentication. Architect access is required for user-data reads and exports.",
+      "Use the connected FullStory MCP for natural-language metrics, session replay, screenshots, and accessibility trees; this API fallback is for structured reads and event payloads.",
     ],
   },
   gmail: {
@@ -1915,6 +1952,7 @@ export async function executeProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
+        signal: args.signal,
         secretValues: auth.secretValues,
         quota: {
           identity: quotaIdentity,
@@ -1973,6 +2011,7 @@ export async function executeProviderApiRequest(
     body,
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
+    signal: args.signal,
     secretValues: auth.secretValues,
     quota: {
       identity: quotaIdentity,
@@ -2886,6 +2925,7 @@ async function executeCustomProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
+        signal: args.signal,
         secretValues: auth.secretValues,
         quota: {
           identity: quotaIdentity,
@@ -2940,6 +2980,7 @@ async function executeCustomProviderApiRequest(
     body,
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
+    signal: args.signal,
     secretValues: auth.secretValues,
     quota: {
       identity: quotaIdentity,
@@ -5107,6 +5148,7 @@ async function fetchWithTimeout(
     headers?: Record<string, string>;
     body?: BodyInit;
     timeoutMs?: number;
+    signal?: AbortSignal;
     maxBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
@@ -5124,7 +5166,9 @@ async function fetchWithTimeout(
         method,
         headers: options.headers,
         body: options.body,
-        signal: controller.signal,
+        signal: options.signal
+          ? AbortSignal.any([options.signal, controller.signal])
+          : controller.signal,
         redirect: "manual",
       };
       if (dispatcher) fetchOptions.dispatcher = dispatcher;

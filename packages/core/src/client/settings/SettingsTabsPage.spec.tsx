@@ -129,6 +129,26 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(teamTab);
   });
 
+  it("opens general settings by default when the route has no hash", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "integrations",
+              label: "Integrations",
+              content: <div>Integration content</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("General content");
+    expect(container.textContent).not.toContain("Integration content");
+  });
+
   it("opens the team tab from the hash and avoids rendering a settings title", () => {
     window.history.replaceState(null, "", "/settings#team");
 
@@ -147,7 +167,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Settings");
   });
 
-  it("updates the hash when switching tabs", () => {
+  it("updates the semantic route when switching tabs", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -167,7 +187,8 @@ describe("SettingsTabsPage", () => {
       whatsNewTab!.click();
     });
 
-    expect(window.location.hash).toBe("#whats-new");
+    expect(window.location.pathname).toBe("/settings/whats-new");
+    expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Recent updates");
     expect(container.textContent).not.toContain("General content");
   });
@@ -212,8 +233,8 @@ describe("SettingsTabsPage", () => {
               content: <div>Agent settings</div>,
             },
             {
-              id: "connections",
-              label: "Connections",
+              id: "integrations",
+              label: "Integrations",
               group: "agent",
               content: <div>Connection settings</div>,
             },
@@ -246,17 +267,17 @@ describe("SettingsTabsPage", () => {
             whatsNew={<div>Recent updates</div>}
             extraTabs={[
               {
-                id: "connections",
-                label: "Connections",
+                id: "integrations",
+                label: "Integrations",
                 group: "workspace",
                 content: <div>Connection settings</div>,
               },
               {
-                id: "agent",
-                label: "Manage agent",
-                group: "manage-agent",
-                href: "/agent#settings",
-                content: <div>Agent settings</div>,
+                id: "workspace",
+                label: "Workspace",
+                group: "workspace",
+                href: "/settings/workspace",
+                content: <div>Workspace settings</div>,
               },
             ]}
           />
@@ -268,15 +289,15 @@ describe("SettingsTabsPage", () => {
       Array.from(container.querySelectorAll('[role="tab"]'), (tab) =>
         tab.textContent?.trim(),
       ),
-    ).toEqual(["General", "Connections", "Team", "What's new", "Manage agent"]);
+    ).toEqual(["General", "Integrations", "Team", "What's new", "Workspace"]);
 
-    const manageAgentLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/agent#settings"]',
+    const workspaceLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/workspace"]',
     );
-    expect(manageAgentLink).not.toBeNull();
-    expect(manageAgentLink?.querySelector("svg")).not.toBeNull();
+    expect(workspaceLink).not.toBeNull();
+    expect(workspaceLink?.querySelector("svg")).not.toBeNull();
     expect(
-      manageAgentLink?.closest('[data-settings-tab-group="manage-agent"]'),
+      workspaceLink?.closest('[data-settings-tab-group="workspace"]'),
     ).not.toBeNull();
   });
 
@@ -394,6 +415,35 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("Agent voice settings");
     expect(container.textContent).not.toContain("General content");
+  });
+
+  it("selects the deepest matching tab for nested agent deep links", () => {
+    window.history.replaceState(null, "", "/settings#agent:resources:files");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "agent",
+              label: "Overview",
+              group: "agent",
+              content: <div>Agent overview</div>,
+            },
+            {
+              id: "agent:resources",
+              label: "Resources",
+              group: "agent",
+              content: <div>Agent files</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent files");
+    expect(container.textContent).not.toContain("Agent overview");
   });
 
   it("opens an extra workspace tab from the workspace hash", () => {

@@ -1,8 +1,11 @@
 import {
+  callAction,
+  useSession,
   useActionMutation,
-  useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { dashboardCacheScope } from "@/lib/prefetch-keys";
 
 export interface DashboardRevision {
   id: string;
@@ -14,18 +17,29 @@ export interface DashboardRevision {
 }
 
 export function useDashboardRevisions(dashboardId: string | null) {
-  return useActionQuery<DashboardRevision[]>(
-    "list-dashboard-revisions",
-    dashboardId ? { dashboardId } : undefined,
-    {
-      enabled: !!dashboardId,
-      select: (data: any) => {
-        const revisions = data?.revisions ?? data;
-        return Array.isArray(revisions) ? revisions : [];
-      },
-      placeholderData: (prev: any) => prev,
-    } as any,
-  );
+  const { session } = useSession();
+  const scope = dashboardCacheScope(session);
+  return useQuery({
+    queryKey: ["dashboard-revisions", dashboardId, scope],
+    enabled: !!dashboardId,
+    queryFn: async () => {
+      if (!dashboardId) return [];
+      const data = await callAction(
+        "list-dashboard-revisions",
+        { dashboardId },
+        { method: "GET" },
+      );
+      const revisions =
+        data &&
+        typeof data === "object" &&
+        !Array.isArray(data) &&
+        "revisions" in data
+          ? (data as { revisions?: unknown }).revisions
+          : undefined;
+      const rows = revisions ?? data;
+      return (Array.isArray(rows) ? rows : []) as DashboardRevision[];
+    },
+  });
 }
 
 export function useRestoreDashboardRevision(dashboardId: string) {
@@ -45,7 +59,7 @@ export function useRestoreDashboardRevision(dashboardId: string) {
   >("restore-dashboard-revision", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-dashboard-revisions", { dashboardId }],
+        queryKey: ["dashboard-revisions", dashboardId],
       });
       queryClient.invalidateQueries({
         queryKey: ["dashboard", dashboardId],

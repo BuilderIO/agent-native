@@ -253,6 +253,7 @@ function fakeFilterInitialEngineTools(
   if (!initialToolNames) return tools;
   const defaultNames = new Set([
     "resources",
+    "framework-search",
     "docs-search",
     "get-framework-context",
     "read-attachment",

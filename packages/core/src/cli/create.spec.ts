@@ -18,6 +18,7 @@ import {
   _parseCommunityTemplateSelection,
   _resolveCommunityTemplateSource,
   _discoverCommunityWorkspaceApps,
+  _ensureGuardedScaffold,
   _normalizeCommunityWorkspaceAppDependencies,
   _standaloneTemplatePromptOptions,
   _startShapePromptOptions,
@@ -47,6 +48,42 @@ afterEach(() => {
 });
 
 describe("createApp", { timeout: 30000 }, () => {
+  it("adds the guard contract to a community-style build without overwriting its doctor", () => {
+    const root = path.join(tmpDir, "community-app");
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        name: "community-app",
+        scripts: {
+          build: "vite build",
+          doctor: "custom doctor",
+          "agent-native:doctor": "custom doctor",
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(root, "AGENTS.md"), "# Community app\n");
+
+    _ensureGuardedScaffold(root);
+
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf-8"),
+    );
+    expect(pkg.scripts.doctor).toBe("custom doctor");
+    expect(pkg.scripts["agent-native:doctor"]).toBe(
+      "custom doctor && agent-native doctor",
+    );
+    expect(pkg.scripts.prebuild).toBe("agent-native doctor --strict");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(root, "agent-native.json"), "utf-8"),
+      ),
+    ).toMatchObject({ doctor: { failOnBuild: true } });
+    expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8")).toContain(
+      "Guarded verification",
+    );
+  });
+
   it("makes Chat the first and default create option", () => {
     const prompt = _startShapePromptOptions();
 
@@ -184,6 +221,17 @@ describe("createApp", { timeout: 30000 }, () => {
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     );
     const deps = allDeps(pkg);
+
+    expect(pkg.scripts.doctor).toBe("agent-native doctor");
+    expect(pkg.scripts["agent-native:doctor"]).toBe("agent-native doctor");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(root, "agent-native.json"), "utf-8"),
+      ),
+    ).toMatchObject({ doctor: { failOnBuild: true } });
+    expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8")).toContain(
+      "Guarded verification",
+    );
 
     expect(fs.existsSync(path.join(root, "app"))).toBe(false);
     expect(fs.existsSync(path.join(root, "vite.config.ts"))).toBe(false);

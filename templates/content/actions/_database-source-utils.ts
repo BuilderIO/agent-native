@@ -86,6 +86,7 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import {
   organizationContentSpaceId,
@@ -7018,7 +7019,90 @@ export async function replaceSourceMetadata(args: {
       })
       .where(eq(schema.contentDatabaseSources.id, args.source.id));
   } else {
-    await db.insert(schema.contentDatabaseSources).values({
+    await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        args.database.id,
+      );
+      const [existing] = await tx
+        .select({ id: schema.contentDatabaseSources.id })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
+        .limit(1);
+      if (existing) {
+        throw new Error(
+          "Database source state changed before attachment completed.",
+        );
+      }
+      await tx.insert(schema.contentDatabaseSources).values({
+        id: sourceId,
+        ownerEmail: args.database.ownerEmail,
+        orgId: args.database.orgId,
+        databaseId: args.database.id,
+        sourceType: args.sourceType,
+        sourceName: args.sourceName,
+        sourceTable: args.sourceTable,
+        syncState: "linked",
+        freshness: "fresh",
+        capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+        metadataJson: serializeSourceMetadataRecord({
+          sourceType: args.sourceType,
+          sourceTable: args.sourceTable,
+        }),
+        lastRefreshedAt: args.now,
+        lastSourceUpdatedAt: args.now,
+        lastError: null,
+        createdAt: args.now,
+        updatedAt: args.now,
+      });
+    });
+  }
+
+  return sourceId;
+}
+
+/**
+ * Insert an ADDITIONAL source without touching existing sources — the primary
+ * keeps its fields and rows. Used to federate a read-only second source.
+ */
+export async function insertSecondarySource(args: {
+  database: ContentDatabaseRow;
+  expectedPrimarySourceId: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceName: string;
+  sourceTable: string;
+  now: string;
+}): Promise<string> {
+  const db = getDb();
+  const sourceId = crypto.randomUUID();
+  await db.transaction(async (tx) => {
+    await lockContentDatabaseMutation(
+      tx as unknown as ReturnType<typeof getDb>,
+      args.database.id,
+    );
+    const sources = await tx
+      .select({
+        id: schema.contentDatabaseSources.id,
+        sourceType: schema.contentDatabaseSources.sourceType,
+        sourceTable: schema.contentDatabaseSources.sourceTable,
+      })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, args.database.id));
+    if (!sources.some((source) => source.id === args.expectedPrimarySourceId)) {
+      throw new Error(
+        "Database source state changed before attachment completed.",
+      );
+    }
+    if (
+      sources.some(
+        (source) =>
+          source.sourceType === args.sourceType &&
+          source.sourceTable === args.sourceTable,
+      )
+    ) {
+      throw new Error(`"${args.sourceTable}" is already attached as a source.`);
+    }
+    await tx.insert(schema.contentDatabaseSources).values({
       id: sourceId,
       ownerEmail: args.database.ownerEmail,
       orgId: args.database.orgId,
@@ -7039,44 +7123,6 @@ export async function replaceSourceMetadata(args: {
       createdAt: args.now,
       updatedAt: args.now,
     });
-  }
-
-  return sourceId;
-}
-
-/**
- * Insert an ADDITIONAL source without touching existing sources — the primary
- * keeps its fields and rows. Used to federate a read-only second source.
- */
-export async function insertSecondarySource(args: {
-  database: ContentDatabaseRow;
-  sourceType: ContentDatabaseSourceType;
-  sourceName: string;
-  sourceTable: string;
-  now: string;
-}): Promise<string> {
-  const db = getDb();
-  const sourceId = crypto.randomUUID();
-  await db.insert(schema.contentDatabaseSources).values({
-    id: sourceId,
-    ownerEmail: args.database.ownerEmail,
-    orgId: args.database.orgId,
-    databaseId: args.database.id,
-    sourceType: args.sourceType,
-    sourceName: args.sourceName,
-    sourceTable: args.sourceTable,
-    syncState: "linked",
-    freshness: "fresh",
-    capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
-    metadataJson: serializeSourceMetadataRecord({
-      sourceType: args.sourceType,
-      sourceTable: args.sourceTable,
-    }),
-    lastRefreshedAt: args.now,
-    lastSourceUpdatedAt: args.now,
-    lastError: null,
-    createdAt: args.now,
-    updatedAt: args.now,
   });
   return sourceId;
 }

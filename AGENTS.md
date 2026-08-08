@@ -43,6 +43,8 @@ read the relevant skill before changing that area.
   meaning changes. If translations cannot be updated in the same change, call
   out the specific locales that need follow-up; reviewers should flag docs
   changes that only update one language.
+- Docs-only commits start with `docs: ` in the present tense, e.g.
+  `docs: fix broken link in provider API guide`, not `docs: fixed broken link`.
 
 ## Final Status Block
 
@@ -234,6 +236,10 @@ instructions, and application state.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.
+- Page and section data loads use layout-matching `Skeleton` geometry, preferably
+  the shared toolkit/design-system primitive. Never show a generic "Loading..."
+  label for content; reserve `Spinner` for brief mutations, uploads, and
+  progress actions.
 - Keep template UX clean and progressively disclosed. Do not solve feedback by
   adding always-visible controls unless that is clearly the main workflow.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,

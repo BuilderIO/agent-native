@@ -2,6 +2,7 @@ import {
   getAgentSettingsSearchTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 
 interface SettingsCommandItem {
   id: string;
@@ -12,6 +13,20 @@ interface SettingsCommandItem {
 
 type Translate = (key: string) => string;
 
+function buildSettingsEntryRoute(tabId: string, section?: string): string {
+  const normalizedSection = section?.replace(/^#/, "").trim();
+  if (!normalizedSection || normalizedSection === tabId) {
+    return buildSettingsRoute(tabId);
+  }
+  if (normalizedSection.startsWith("agent:")) {
+    return buildSettingsRoute(normalizedSection);
+  }
+  if (normalizedSection.startsWith(`${tabId}:`)) {
+    return buildSettingsRoute(normalizedSection);
+  }
+  return buildSettingsRoute(`${tabId}:${normalizedSection}`);
+}
+
 export function buildAnalyticsGeneralSettingsSearchEntries(
   t: Translate,
   replayStorageConfigured: boolean,
@@ -21,6 +36,7 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       id: "analytics-account",
       label: t("settings.account"),
       keywords: "profile photo avatar email signed in identity",
+      tabId: "account",
       hash: "account",
     },
     {
@@ -28,12 +44,6 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       label: t("settings.credentials"),
       keywords: "data sources api keys manage credentials",
       hash: "credentials",
-    },
-    {
-      id: "analytics-dashboard-templates",
-      label: t("settings.dashboardTemplates"),
-      keywords: "templates catalog dashboards",
-      hash: "dashboard-templates",
     },
     ...(replayStorageConfigured
       ? [
@@ -56,12 +66,6 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       label: t("settings.errorEmailNotifications"),
       keywords: "email notifications errors alerts javascript monitoring",
       hash: "error-email-notifications",
-    },
-    {
-      id: "analytics-about",
-      label: t("settings.about"),
-      keywords: "about version info usage",
-      hash: "about",
     },
   ];
 }
@@ -112,18 +116,23 @@ export function buildAnalyticsSettingsCommandItems(
   };
 
   for (const tab of tabs) {
+    const entryHref = (entry: SettingsSearchEntry, tabId: string) => {
+      const hash = entry.hash?.replace(/^#/, "");
+      return buildSettingsEntryRoute(tabId, hash);
+    };
     add({
       id: `tab:${tab.id}`,
       label: tab.label,
       keywords: `${tab.keywords} settings`,
-      href: `/settings#${tab.id}`,
+      href: buildSettingsRoute(tab.id),
     });
     for (const entry of tab.searchEntries ?? []) {
+      const tabId = entry.tabId ?? tab.id;
       add({
         id: entry.id,
         label: entry.label,
         keywords: `${entry.keywords ?? ""} ${entry.description ?? ""} ${tab.label} settings`,
-        href: `/settings#${entry.hash ?? entry.tabId ?? tab.id}`,
+        href: entryHref(entry, tabId),
       });
     }
   }

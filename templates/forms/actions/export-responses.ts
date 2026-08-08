@@ -92,7 +92,7 @@ export default defineAction({
     if (!uploaded) {
       throw new Error(
         "Export was generated but not saved because file storage is not configured. " +
-          "Connect or reconnect Builder.io in Settings → File uploads, or register a custom provider.",
+          "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
       );
     }
 

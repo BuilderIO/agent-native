@@ -23,7 +23,7 @@ Core가 기반입니다. Toolkit과 Templates는 선택 사항입니다.
 
 - **에이전트** — 데이터를 읽고, 쓰고, actions를 실행하고, 구성된 도구를 사용하는 자율 AI입니다. skills 및 지침으로 사용자 정의할 수 있습니다.
 - **적용** — 에이전트 주변의 제품 표면. 처음에는 작업만 수행할 수도 있고, 풍부한 채팅, 작은 제어 영역 또는 대시보드, 흐름, 시각화가 포함된 전체 React UI 화면일 수도 있습니다.
-- **컴퓨터** — 데이터베이스, 브라우저, 코드 실행. 에이전트는 SQL 및 내장 도구를 사용하여 직접 작업합니다. MCP 서버는 기본이 아닌 선택적인 추가 기능입니다.
+- **컴퓨터** — 데이터베이스, 브라우저, 코드 실행. 에이전트는 앱의 액션 및 데이터 표면을 통해 작업하며, 앱은 동일한 액션 표면을 MCP로 노출할 수 있습니다. 외부 MCP 서버는 선택적 추가 기능이며 기반이 아닙니다.
 
 <Diagram id="doc-block-nxqkcw" title={"에이전트, 애플리케이션 및 컴퓨터"} summary={"하나의 공유 SQL 저장소에서 세 개의 레이어가 함께 작동합니다. 에이전트와 애플리케이션은 모두 동일한 데이터를 읽고 씁니다."}>
 
@@ -252,12 +252,14 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 프로덕션 에이전트 채팅 플러그인은 raw SQL 도구를 기본적으로 읽기 전용으로 둡니다
-(`databaseTools: "read"`). 에이전트는 `db-schema` / `db-query`로 앱 소유
+(`frameworkTools: { database: "read" }`). 에이전트는 `db-schema` / `db-query`로 앱 소유
 데이터를 검사하고, 쓰기는 typed app actions를 통해 수행합니다.
 스코프가 적용된 `db-exec` / `db-patch`도 노출해야 하는 의도적인
-유지 관리 화면에서만 `databaseTools: "write"`(또는 `true`)를 설정합니다.
-모든 데이터 접근에 typed app actions를 요구하려면 `databaseTools: "off"` /
+유지 관리 화면에서만 `database: "write"`(또는 `true`)를 설정합니다.
+모든 데이터 접근에 typed app actions를 요구하려면 `database: "off"` /
 `false`를 설정합니다.
+
+`frameworkTools`는 프레임워크 자체의 나머지 도구도 같은 방식으로 관리합니다: 공유, 리뷰 코멘트, 버전 이력, feature flags, 로컬라이제이션, 감사, Context X-Ray, 프로필, 자동화, docs, resources, web, 앱 간 위임, 채팅, 이메일. 전체 목록과 `"minimal"` 프리셋, 그룹을 꺼도 HTTP 라우트가 유지되는 이유는 [Production Agent Tools](/docs/deployment#production-agent-tools)를 참고하세요.
 
 ## 에이전트 채팅 브리지 {#agent-chat-bridge}
 

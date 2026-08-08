@@ -17,7 +17,7 @@ import {
 } from "../request-context.js";
 
 // ---------------------------------------------------------------------------
-// CLI-script-backed action entries: db-*, docs-search/source-search,
+// CLI-script-backed action entries: db-*, framework-search/docs-search/source-search,
 // resources/save-memory/delete-memory, chat-history, manage-agent-engine,
 // manage-agent-loop-settings, and call-agent. Each wraps a core CLI script
 // (that writes to console.log) as an ActionEntry via `wrapCliScript`.
@@ -235,6 +235,60 @@ export async function createDocsScriptEntries(): Promise<
   const entries: Record<string, ActionEntry> = {};
 
   try {
+    const mod = await import("../../scripts/docs/framework-search.js");
+    entries["framework-search"] = wrapCliScript(
+      {
+        description:
+          "Search the version-matched Agent Native docs and readable Core, Toolkit, and first-party template source in one bounded read-only call. Use this first when a docs answer may require implementation evidence.",
+        parameters: {
+          type: "object",
+          properties: {
+            pattern: {
+              type: "string",
+              description:
+                "Text pattern to search across docs and source. Use normal text by default, or use glob (* and ?) / SQL-like (% and _) / regex mode for broader or more precise matching.",
+            },
+            scope: {
+              type: "string",
+              description:
+                "Search corpus: all, docs, or source (default: all).",
+              enum: ["all", "docs", "source"],
+            },
+            mode: {
+              type: "string",
+              description:
+                "Match mode: substring, glob, sql-like, or safe regex (default: substring).",
+              enum: ["substring", "glob", "sql-like", "regex"],
+            },
+            path: {
+              type: "string",
+              description:
+                "Optional glob path filter such as templates/*/actions/*.ts or core/src/server/*.",
+            },
+            limit: {
+              type: "string",
+              description: "Maximum matching files to return, from 1 to 50.",
+            },
+            list: {
+              type: "string",
+              description:
+                'Set to "true" to list searchable docs and source roots.',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      mod.default,
+      { readOnly: true },
+    );
+  } catch (error) {
+    console.warn(
+      "[agent-chat] framework-search unavailable; keeping the older lookup tools:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  try {
     const mod = await import("../../scripts/docs/search.js");
     entries["docs-search"] = wrapCliScript(
       {
@@ -276,7 +330,7 @@ export async function createDocsScriptEntries(): Promise<
     entries["source-search"] = wrapCliScript(
       {
         description:
-          "Search and read the packaged Agent Native first-party template corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search template source, and --path to read a file.",
+          "Search and read readable version-matched Core, Toolkit, and first-party template source. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
         parameters: {
           type: "object",
           properties: {
@@ -763,7 +817,19 @@ export async function createAgentEngineScriptEntries(
       "manage-agent-engine": {
         tool: mod.tool,
         planMode: {
-          effect: (args) => (args.action === "list" ? "read" : "write"),
+          // Reads, per the tool's own enum: only set/set-app-default/
+          // reset-app-default mutate. Misclassifying a read here makes every
+          // call announce a change and bump the global `action` change
+          // version, which is how the model-picker's catalog read ended up
+          // recorded as a write for 1,127 identities.
+          // `allowedValues` stays narrower on purpose — it governs what plan
+          // mode may run, and `test` spends a live model call.
+          effect: (args) =>
+            args.action === "list" ||
+            args.action === "test" ||
+            args.action === "get-app-default"
+              ? "read"
+              : "write",
           allowedValues: { action: ["list"] },
           description: "Plan mode allows listing available agent engines.",
         },

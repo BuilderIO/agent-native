@@ -677,10 +677,9 @@ switch (command) {
     // continuation only runs on success.
     (async () => {
       // Doctor pre-step: scans app source for the security-critical guard
-      // invariants (see `agent-native doctor --help`). Warn-only by
-      // default — prints findings to stderr and always continues. Only
-      // fails the build when `agent-native build --strict` was passed or
-      // `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+      // invariants (see `agent-native doctor --help`). Findings fail by
+      // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
+      // a build moving, while `agent-native build --strict` always fails.
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
         const hook = await runDoctorBuildHook({
@@ -694,9 +693,10 @@ switch (command) {
           process.exit(1);
         }
       } catch (err) {
-        console.warn(
-          `[doctor] pre-build scan failed to run (continuing): ${err instanceof Error ? err.message : String(err)}`,
+        console.error(
+          `[doctor] pre-build scan failed, so the build is blocked: ${err instanceof Error ? err.message : String(err)}`,
         );
+        process.exit(1);
       }
 
       if (isReactRouterFramework()) {
@@ -1001,6 +1001,18 @@ switch (command) {
     break;
   }
 
+  case "plugin": {
+    // Import a standard Agent Plugin's Skills and remote MCP entries into the
+    // current Agent-Native workspace.
+    import("./agent-plugin.js")
+      .then((m) => m.runAgentPlugin(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "skills": {
     // Friendly skill install surface. Wraps open skills installation plus MCP.
     import("./skills.js")
@@ -1238,6 +1250,7 @@ Usage:
                                 Call another agent-native app over A2A
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
+  agent-native doctor           Scan app/workspace source for guard violations
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold, or choose Community
@@ -1259,6 +1272,8 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
+  agent-native plugin import <path> [--into <workspace>] [--yes] [--force]
+                                Import standard Agent Plugin Skills and remote MCP servers.
   agent-native skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.

@@ -74,7 +74,7 @@ export function buildImageDropAgentPayload(args: {
   if (!args.dataUrl) {
     throw new Error(
       args.upload.error ||
-        "Image upload failed. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+        "Image upload failed. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
     );
   }
 

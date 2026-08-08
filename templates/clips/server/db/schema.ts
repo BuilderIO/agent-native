@@ -246,6 +246,13 @@ export const recordingTranscripts = table("recording_transcripts", {
     .notNull()
     .default("pending"),
   failureReason: text("failure_reason"),
+  // The MACHINE-READABLE reason, and the one that decides retryability — see
+  // shared/transcript-failure.ts. `failureReason` above is prose rendered from
+  // this and is for humans only; production accumulated 39 distinct strings
+  // for what turned out to be a handful of conditions, and retryability was
+  // being re-derived by regex over that prose. Nullable for rows written
+  // before this column existed.
+  failureCode: text("failure_code"),
   // Count of automatic retries already attempted after a transient failure
   // (ffmpeg timeout, transient provider/network error). Bounds the
   // fire-and-forget auto-retry pass in request-transcript.ts so a repeatedly
@@ -403,6 +410,24 @@ export const recordingViews = table("recording_views", {
   viewerName: text("viewer_name"),
   viewedAt: text("viewed_at").notNull().default(now()),
 });
+
+export const recordingPlaybackPositions = table(
+  "recording_playback_positions",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    viewerKey: text("viewer_key").notNull(),
+    viewerEmail: text("viewer_email"),
+    positionMs: integer("position_ms").notNull().default(0),
+    updatedAt: text("updated_at").notNull().default(now()),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (position) => ({
+    recordingPlaybackPositionUnique: uniqueIndex(
+      "recording_playback_positions_recording_viewer_key_unique_idx",
+    ).on(position.recordingId, position.viewerKey),
+  }),
+);
 
 // Agent views — one row per (clip, agent, time bucket). Deliberately separate
 // from `recording_viewers` / `recording_views` so no human-view count can ever

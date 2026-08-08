@@ -101,6 +101,23 @@ describe("runDoctorScan", () => {
     );
   });
 
+  it("reports empty migration plugins before they reach a generated app build", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/db.ts":
+        'export default runMigrations([], { table: "app_migrations" });\n',
+    });
+    const report = runDoctorScan({ root });
+
+    expect(report.ok).toBe(false);
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        guard: "no-empty-migrations",
+        file: "server/plugins/db.ts",
+      }),
+    ]);
+  });
+
   it("respects disabledGuards from agent-native.json", () => {
     const root = makeTempAppRoot({
       ...VIOLATION_FILES,
@@ -264,6 +281,98 @@ describe("runDoctor (CLI)", () => {
     expect(out.join("\n")).toMatch(/no-drizzle-push/);
   });
 
+  it("scans every app from a workspace root and prefixes findings with its app path", async () => {
+    const root = makeTempAppRoot({
+      "package.json": JSON.stringify({
+        name: "workspace",
+        "agent-native": { workspaceCore: "@workspace/shared" },
+      }),
+      "apps/clean/package.json": JSON.stringify({ name: "clean" }),
+      "apps/bad/package.json": JSON.stringify({
+        name: "bad",
+        scripts: { build: "drizzle-kit push" },
+      }),
+    });
+    const { io, out } = captureIo();
+
+    const code = await runDoctor(["--cwd", root], io);
+
+    expect(code).toBe(1);
+    expect(out.join("\n")).toContain(
+      "Workspace apps scanned: apps/bad, apps/clean",
+    );
+    expect(out.join("\n")).toContain("apps/bad/package.json");
+    expect(out.join("\n")).toContain("no-drizzle-push");
+  });
+
+  it("scans the empty migration guard across workspace apps", async () => {
+    const root = makeTempAppRoot({
+      "package.json": JSON.stringify({
+        name: "workspace",
+        "agent-native": { workspaceCore: "@workspace/shared" },
+      }),
+      "apps/docs/package.json": JSON.stringify({ name: "docs" }),
+      "apps/docs/server/plugins/db.ts":
+        'export default runMigrations([], { table: "docs_migrations" });\n',
+    });
+    const { io, out } = captureIo();
+
+    const code = await runDoctor(["--cwd", root], io);
+
+    expect(code).toBe(1);
+    expect(out.join("\n")).toContain("apps/docs/server/plugins/db.ts");
+    expect(out.join("\n")).toContain("no-empty-migrations");
+  });
+
+  it("reports workspace app findings in machine-readable output", async () => {
+    const root = makeTempAppRoot({
+      "package.json": JSON.stringify({
+        name: "workspace",
+        "agent-native": { workspaceCore: "@workspace/shared" },
+      }),
+      "apps/bad/package.json": JSON.stringify({
+        name: "bad",
+        scripts: { build: "drizzle-kit push" },
+      }),
+    });
+    const { io, out } = captureIo();
+
+    const code = await runDoctor(["--cwd", root, "--json"], io);
+
+    expect(code).toBe(1);
+    const report = JSON.parse(out.join(""));
+    expect(report.workspaceApps).toEqual(["apps/bad"]);
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        file: "apps/bad/package.json",
+        guard: "no-drizzle-push",
+      }),
+    ]);
+  });
+
+  it("does not treat unreadable workspace metadata as a clean standalone app", async () => {
+    const root = makeTempAppRoot({
+      "package.json": "{",
+      "apps/bad/package.json": JSON.stringify({ name: "bad" }),
+    });
+    const { io } = captureIo();
+
+    await expect(runDoctor(["--cwd", root], io)).rejects.toThrow(
+      "Could not read workspace metadata",
+    );
+  });
+
+  it("does not treat an unreadable Doctor manifest as a clean scan", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "agent-native.json": "{",
+    });
+
+    expect(() => runDoctorScan({ root })).toThrow(
+      "Could not read Doctor configuration",
+    );
+  });
+
   it("--json emits { ok, findings, warnings, guardsRun, strict } shape", async () => {
     const root = makeTempAppRoot(VIOLATION_FILES);
     const { io, out } = captureIo();
@@ -334,13 +443,13 @@ describe("--strict escalation (shouldFailBuild / runDoctorBuildHook)", () => {
     expect(shouldFailBuild(false, { failOnBuild: true })).toBe(false);
   });
 
-  it("build hook is ok:true (warn-only) by default even with findings", async () => {
+  it("build hook fails by default when findings exist", async () => {
     const root = makeTempAppRoot(VIOLATION_FILES);
     const { io, err } = captureIo();
     const result = await runDoctorBuildHook({ cwd: root }, io);
     expect(result.report.ok).toBe(false);
-    expect(result.ok).toBe(true);
-    expect(err.join("\n")).toMatch(/does not fail the build/);
+    expect(result.ok).toBe(false);
+    expect(err.join("\n")).toMatch(/fix them before the build can continue/);
   });
 
   it("build hook fails when --strict (build) is passed and findings exist", async () => {
@@ -360,11 +469,58 @@ describe("--strict escalation (shouldFailBuild / runDoctorBuildHook)", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("build hook scans workspace apps instead of missing nested queries", async () => {
+    const root = makeTempAppRoot({
+      "package.json": JSON.stringify({
+        name: "workspace",
+        "agent-native": { workspaceCore: "@workspace/shared" },
+      }),
+      "apps/bad/package.json": JSON.stringify({ name: "bad" }),
+      "packages/shared/package.json": JSON.stringify({
+        name: "@workspace/shared",
+        scripts: { build: "drizzle-kit push" },
+      }),
+      "apps/bad/server/db/schema.ts":
+        'export const todos = sqliteTable("todos", {});\n',
+    });
+    const { io } = captureIo();
+
+    const result = await runDoctorBuildHook({ cwd: root }, io);
+
+    expect(result.ok).toBe(false);
+    expect(result.report.findings).toEqual([
+      expect.objectContaining({
+        file: "apps/bad/server/db/schema.ts",
+        guard: "db-tool-scoping",
+      }),
+      expect.objectContaining({
+        file: "packages/shared/package.json",
+        guard: "no-drizzle-push",
+      }),
+    ]);
+  });
+
   it("build hook stays ok on a clean app root even with --strict", async () => {
     const root = makeTempAppRoot(CLEAN_FILES);
     const { io } = captureIo();
     const result = await runDoctorBuildHook({ cwd: root, strict: true }, io);
     expect(result.ok).toBe(true);
+  });
+
+  it("allows an explicit non-strict opt-out while preserving --strict", async () => {
+    const root = makeTempAppRoot({
+      ...VIOLATION_FILES,
+      "agent-native.json": JSON.stringify({
+        doctor: { failOnBuild: false },
+      }),
+    });
+    const { io } = captureIo();
+
+    const warnOnly = await runDoctorBuildHook({ cwd: root }, io);
+    const strict = await runDoctorBuildHook({ cwd: root, strict: true }, io);
+
+    expect(warnOnly.ok).toBe(true);
+    expect(strict.ok).toBe(false);
   });
 });
 

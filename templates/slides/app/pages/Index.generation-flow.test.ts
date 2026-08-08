@@ -14,14 +14,16 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("persists and opens the empty editor before asking questions", () => {
+  it("persists and opens the empty editor before the agent asks dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
     const openEditorIndex = flow.indexOf("navigate(`/deck/${deck.id}`");
-    const askQuestionIndex = flow.indexOf("await askUserQuestion");
+    const askQuestionIndex = flow.indexOf("use the `ask-question` tool");
 
     expect(persistIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeGreaterThan(persistIndex);
     expect(askQuestionIndex).toBeGreaterThan(openEditorIndex);
+    expect(flow).not.toContain("await askUserQuestion");
+    expect(flow).toContain("prompt-specific question");
   });
 
   it("marks generation intent before submitting the agent run", () => {
@@ -52,5 +54,38 @@ describe("new deck generation flow", () => {
     expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
     expect(sparseTitleInstructionIndex).toBeGreaterThan(titlePatchIndex);
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
+  });
+
+  it("keeps presentation generation multi-slide and persisted", () => {
+    expect(flow).toContain(
+      "infer a coherent multi-slide outline from the scope",
+    );
+    expect(flow).toContain("Do not call the legacy generate-slides-ai action");
+    expect(flow).toContain(
+      "Treat each successful add-slide result as confirmation",
+    );
+  });
+
+  it("turns an imported PPTX into a reusable reference deck", () => {
+    expect(flow).toContain('callAction("import-pptx"');
+    expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
+    expect(flow).toContain("const generationFiles = uploaded.filter");
+    expect(flow).toContain("referenceSelection = {");
+    expect(flow).toContain("referenceDeckId: imported.id");
+  });
+
+  it("imports an uploaded PDF into a reusable reference deck", () => {
+    expect(flow).toContain('callAction("import-file"');
+    expect(flow).toContain('format: "pdf"');
+    expect(flow).toContain("importIntoDeck: true");
+    expect(flow).toContain("The PDF reference deck could not be imported.");
+  });
+
+  it("supports direct imports from the new-deck prompt", () => {
+    expect(flow).toContain("const handleDirectImport");
+    expect(flow).toContain("presentationUrl: selection.url");
+    expect(flow).toContain('callAction("import-pptx"');
+    expect(flow).toContain('callAction("import-file"');
+    expect(source).toContain('importFromLabel={t("home.importFrom")}');
   });
 });

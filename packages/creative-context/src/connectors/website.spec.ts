@@ -155,84 +155,40 @@ describe("website context connector", () => {
     ).rejects.toThrow(/SSRF blocked/i);
   });
 
-  it("aborts private-network browser subresources, not only document navigations", async () => {
-    isBlockedExtensionUrlWithDns.mockImplementation(async (url: string) =>
-      url.includes("10.0.0.7"),
+  it("falls back explicitly when the browser capability is unavailable", async () => {
+    const staticFetch = vi.fn(async (url: string) =>
+      response(
+        url,
+        "<html><head><title>Public page</title></head><body>Static content</body></html>",
+        "text/html",
+      ),
     );
-    const abort = vi.fn(async () => {});
-    const continueRoute = vi.fn(async () => {});
-    let routeHandler: ((route: unknown) => Promise<void>) | undefined;
-    const page = {
-      async route(
-        _pattern: string,
-        handler: (route: unknown) => Promise<void>,
-      ) {
-        routeHandler = handler;
-      },
-      async goto() {
-        await routeHandler?.({
-          request: () => ({
-            url: () => "http://10.0.0.7/secret.png",
-            isNavigationRequest: () => false,
-            resourceType: () => "image",
-          }),
-          abort,
-          continue: continueRoute,
-        });
-      },
-      async title() {
-        return "Public page";
-      },
-      url() {
-        return "https://example.com/";
-      },
-      locator() {
-        return { innerText: async () => "Public content" };
-      },
-      async setViewportSize() {},
-      async screenshot() {
-        return new Uint8Array([1, 2, 3]);
-      },
-      async evaluate() {
-        return {
-          title: "Public page",
-          text: "Public content",
-          assets: [],
-          internalLinks: [],
-          designTokens: {
-            colors: [],
-            typography: [],
-            spacing: [],
-            radii: [],
-            cssVariables: {},
-          },
-        };
-      },
-    };
-    const browser = {
-      contexts: () => [{ pages: () => [page], newPage: async () => page }],
-      newContext: async () => ({
-        pages: () => [page],
-        newPage: async () => page,
-      }),
-      close: async () => {},
-    };
+    const loadPlaywright = vi.fn(async () => {
+      throw new Error("Chromium must not be loaded for arbitrary URLs");
+    });
     const renderer = new LayeredRenderedPageProvider({
-      loadPlaywright: async () =>
-        ({
-          chromium: {
-            connectOverCDP: async () => browser,
-            launch: async () => browser,
-          },
-        }) as never,
+      loadPlaywright,
+      staticFetch: staticFetch as never,
     });
 
-    await renderer.render({
+    const result = await renderer.render({
       url: "https://example.com/",
       preferHosted: false,
     });
-    expect(abort).toHaveBeenCalledWith("blockedbyclient");
-    expect(continueRoute).not.toHaveBeenCalled();
+
+    expect(loadPlaywright).toHaveBeenCalledTimes(1);
+    expect(staticFetch).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      method: "static-html",
+      rendered: false,
+      text: "Public page Static content",
+    });
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Playwright unavailable"),
+        expect.stringContaining("SSRF-safe static HTML fallback"),
+      ]),
+    );
   });
 
   it("persists rendered desktop/mobile evidence and extracted design signals privately", async () => {

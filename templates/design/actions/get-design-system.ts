@@ -156,7 +156,9 @@ export default defineAction({
   run: async ({ id }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {
-      throw new Error("Design system not found");
+      throw Object.assign(new Error("Design system not found"), {
+        statusCode: 404,
+      });
     }
 
     const row = access.resource;

@@ -32,7 +32,7 @@ export function AutomationsSection() {
         </span>
       </div>
       <Button asChild variant="outline" size="sm">
-        <Link to="/agent#jobs">
+        <Link to="/settings/agent/automations">
           {t("jobs.openAutomations", {
             defaultValue: "Open Automations",
           })}

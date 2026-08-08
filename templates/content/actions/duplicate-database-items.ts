@@ -2,9 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import {
@@ -41,31 +45,7 @@ export default defineAction({
     );
     const sourceItemIds = rows.map((row) => row.item.id);
     const now = new Date().toISOString();
-    const insertionPosition =
-      Math.max(...rows.map((row) => row.item.position)) + 1;
     const currentUserEmail = getRequestUserEmail() ?? database.ownerEmail;
-
-    const values =
-      sourceDocumentIds.length > 0
-        ? await db
-            .select()
-            .from(schema.documentPropertyValues)
-            .where(
-              inArray(
-                schema.documentPropertyValues.documentId,
-                sourceDocumentIds,
-              ),
-            )
-        : [];
-    const valuesByDocumentId = new Map<
-      string,
-      Array<typeof schema.documentPropertyValues.$inferSelect>
-    >();
-    for (const value of values) {
-      const list = valuesByDocumentId.get(value.documentId) ?? [];
-      list.push(value);
-      valuesByDocumentId.set(value.documentId, list);
-    }
 
     const inheritedShares = await db
       .select({
@@ -76,28 +56,63 @@ export default defineAction({
       .from(schema.documentShares)
       .where(eq(schema.documentShares.resourceId, database.documentId));
 
-    const duplicates = rows.map((row, index) => ({
+    const duplicates = rows.map((row) => ({
       sourceItemId: row.item.id,
       sourceDocumentId: row.document.id,
       duplicatedItemId: nanoid(),
       duplicatedDocumentId: nanoid(),
-      position: insertionPosition + index,
-      row,
     }));
 
     await db.transaction(async (tx) => {
-      const [lockedDatabase] = await tx
-        .update(schema.contentDatabases)
-        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
+      await touchContentDatabase(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+        now,
+      );
+      const lockedRows = await tx
+        .select({
+          item: schema.contentDatabaseItems,
+          document: schema.documents,
+        })
+        .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.documents,
+          eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+        )
         .where(
           and(
-            eq(schema.contentDatabases.id, database.id),
-            eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
-            isNull(schema.contentDatabases.deletedAt),
+            eq(schema.contentDatabaseItems.databaseId, database.id),
+            inArray(schema.contentDatabaseItems.id, sourceItemIds),
+            isNull(schema.documents.trashedAt),
           ),
         )
-        .returning({ id: schema.contentDatabases.id });
-      if (!lockedDatabase) throw new Error("Database is no longer active.");
+        .orderBy(asc(schema.contentDatabaseItems.position));
+      const lockedRowsByItemId = new Map(
+        lockedRows.map((lockedRow) => [lockedRow.item.id, lockedRow]),
+      );
+      if (
+        lockedRows.length !== rows.length ||
+        rows.some(
+          (row) =>
+            lockedRowsByItemId.get(row.item.id)?.document.id !==
+            row.document.id,
+        )
+      ) {
+        throw new Error("Database rows changed while duplication was waiting.");
+      }
+      if (
+        lockedRows.some(
+          (lockedRow) => lockedRow.document.spaceId !== database.spaceId,
+        )
+      ) {
+        throw new Error(
+          "Cannot duplicate database rows across Content spaces.",
+        );
+      }
       const [claimedSource] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)
@@ -116,10 +131,38 @@ export default defineAction({
           "Rows with active stable-key claims cannot be duplicated.",
         );
       }
+      const insertionPosition =
+        Math.max(...lockedRows.map((lockedRow) => lockedRow.item.position)) + 1;
+      const lockedDuplicates = duplicates.map((duplicate, index) => ({
+        ...duplicate,
+        position: insertionPosition + index,
+        row: lockedRowsByItemId.get(duplicate.sourceItemId)!,
+      }));
+      const values =
+        sourceDocumentIds.length > 0
+          ? await tx
+              .select()
+              .from(schema.documentPropertyValues)
+              .where(
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  sourceDocumentIds,
+                ),
+              )
+          : [];
+      const valuesByDocumentId = new Map<
+        string,
+        Array<typeof schema.documentPropertyValues.$inferSelect>
+      >();
+      for (const value of values) {
+        const list = valuesByDocumentId.get(value.documentId) ?? [];
+        list.push(value);
+        valuesByDocumentId.set(value.documentId, list);
+      }
       await tx
         .update(schema.contentDatabaseItems)
         .set({
-          position: sql`${schema.contentDatabaseItems.position} + ${duplicates.length}`,
+          position: sql`${schema.contentDatabaseItems.position} + ${lockedDuplicates.length}`,
           updatedAt: now,
         })
         .where(
@@ -132,7 +175,7 @@ export default defineAction({
       await tx
         .update(schema.documents)
         .set({
-          position: sql`${schema.documents.position} + ${duplicates.length}`,
+          position: sql`${schema.documents.position} + ${lockedDuplicates.length}`,
           updatedAt: now,
         })
         .where(
@@ -144,7 +187,7 @@ export default defineAction({
         );
 
       await tx.insert(schema.documents).values(
-        duplicates.map((duplicate) => ({
+        lockedDuplicates.map((duplicate) => ({
           id: duplicate.duplicatedDocumentId,
           spaceId: database.spaceId,
           ownerEmail: duplicate.row.document.ownerEmail,
@@ -163,7 +206,7 @@ export default defineAction({
       );
 
       await tx.insert(schema.contentDatabaseItems).values(
-        duplicates.map((duplicate) => ({
+        lockedDuplicates.map((duplicate) => ({
           id: duplicate.duplicatedItemId,
           ownerEmail: duplicate.row.item.ownerEmail,
           orgId: duplicate.row.item.orgId,
@@ -175,7 +218,7 @@ export default defineAction({
         })),
       );
 
-      const duplicatedValues = duplicates.flatMap((duplicate) =>
+      const duplicatedValues = lockedDuplicates.flatMap((duplicate) =>
         (valuesByDocumentId.get(duplicate.sourceDocumentId) ?? []).map(
           (value) => ({
             id: nanoid(),
@@ -194,7 +237,7 @@ export default defineAction({
 
       if (inheritedShares.length > 0) {
         await tx.insert(schema.documentShares).values(
-          duplicates.flatMap((duplicate) =>
+          lockedDuplicates.flatMap((duplicate) =>
             inheritedShares.map((share) => ({
               id: nanoid(),
               resourceId: duplicate.duplicatedDocumentId,
@@ -209,7 +252,7 @@ export default defineAction({
       }
       await ensureDocumentsFilesMembership(
         tx,
-        duplicates.map((duplicate) => duplicate.duplicatedDocumentId),
+        lockedDuplicates.map((duplicate) => duplicate.duplicatedDocumentId),
         now,
       );
     });

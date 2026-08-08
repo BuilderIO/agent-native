@@ -60,6 +60,26 @@ function actionChangeTarget(
   };
 }
 
+function recordActionChange(
+  options: NotifyActionChangeOptions,
+): NotifyActionChangeOptions {
+  const target = actionChangeTarget(options);
+  recordChange({
+    source: "action",
+    type: "change",
+    key: target.actionName,
+    ...(target.owner ? { owner: target.owner } : {}),
+    ...(target.orgId ? { orgId: target.orgId } : {}),
+    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+  });
+  return {
+    actionName: options.actionName,
+    ...(target.owner ? { owner: target.owner } : {}),
+    ...(target.orgId ? { orgId: target.orgId } : {}),
+    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+  };
+}
+
 export async function writeActionChangeMarker(
   options: NotifyActionChangeOptions,
 ): Promise<void> {
@@ -80,20 +100,22 @@ export async function writeActionChangeMarker(
 export async function notifyActionChange(
   options: NotifyActionChangeOptions,
 ): Promise<void> {
-  const target = actionChangeTarget(options);
-  recordChange({
-    source: "action",
-    type: "change",
-    key: options.actionName,
-    ...(target.owner ? { owner: target.owner } : {}),
-    ...(target.orgId ? { orgId: target.orgId } : {}),
-    ...(options.requestSource ? { requestSource: options.requestSource } : {}),
-  });
+  await writeActionChangeMarker(recordActionChange(options));
+}
 
-  await writeActionChangeMarker({
-    actionName: options.actionName,
-    ...(target.owner ? { owner: target.owner } : {}),
-    ...(target.orgId ? { orgId: target.orgId } : {}),
-    ...(options.requestSource ? { requestSource: options.requestSource } : {}),
+/**
+ * Publish the fast in-memory invalidation without holding a user-visible run
+ * on the durable marker write. The marker remains scheduled for other
+ * processes and its failure is logged instead of becoming an invisible gap.
+ */
+export function notifyActionChangeInBackground(
+  options: NotifyActionChangeOptions,
+): void {
+  const normalizedOptions = recordActionChange(options);
+  void writeActionChangeMarker(normalizedOptions).catch((error: unknown) => {
+    console.warn(
+      "[action-change] durable marker write failed:",
+      error instanceof Error ? error.message : String(error),
+    );
   });
 }

@@ -8,10 +8,13 @@ import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
+  completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
   InlineRunErrorNotice,
+  isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
+  isMissingFinalResponseWarningText,
   latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
@@ -282,6 +285,18 @@ describe("assistantMessageHasCompletedCustomUi", () => {
       ]),
     ).toBe(false);
   });
+
+  it("recognizes a completed Builder handoff as interactive UI", () => {
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("assistantMessageHasCustomUi", () => {
@@ -309,6 +324,48 @@ describe("assistantMessageHasCustomUi", () => {
       ]),
     ).toBe(false);
   });
+
+  it("keeps pending needsApproval affordances expanded", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "start-prospect-run",
+          result: "Awaiting human approval — did NOT execute.",
+          approval: { approvalKey: "start-prospect-run:{}" },
+        },
+        {
+          type: "text",
+          text: "Waiting for your approval to run start-prospect-run.",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "start-prospect-run",
+          result: "Awaiting human approval — did NOT execute.",
+          approval: {
+            approvalKey: "start-prospect-run:{}",
+            dismissed: true,
+          },
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("keeps the Builder handoff treated as interactive UI", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("messageTextFromContent", () => {
@@ -329,6 +386,43 @@ describe("messageTextFromContent", () => {
         },
       ]),
     ).toBe("Stopped because manage-progress failed 3 times.");
+  });
+});
+
+describe("assistant completion notices", () => {
+  it("recognizes terminal missing-response warnings separately from final text", () => {
+    expect(
+      isMissingFinalResponseWarningText(
+        "The agent completed the view screen action, but stopped before sending a final message.",
+      ),
+    ).toBe(true);
+    expect(isMissingFinalResponseWarningText("The work is complete.")).toBe(
+      false,
+    );
+  });
+
+  it("lists completed tools after the latest assistant text in arrival order", () => {
+    expect(
+      completedAssistantToolNamesAfterLastText([
+        { type: "text", text: "I will inspect the workspace." },
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "view-screen",
+          argsText: "{}",
+          args: {},
+          result: "{}",
+        },
+        {
+          type: "tool-call",
+          toolCallId: "call-2",
+          toolName: "workspace-read",
+          argsText: "{}",
+          args: {},
+          result: "{}",
+        },
+      ]),
+    ).toEqual(["view screen", "workspace read"]);
   });
 });
 
@@ -559,12 +653,12 @@ describe("InlineRunErrorNotice", () => {
 
 describe("isCollapsibleAssistantWorkPart", () => {
   it("keeps the Builder handoff card outside collapsed work", () => {
-    expect(
-      isCollapsibleAssistantWorkPart({
-        type: "tool-call",
-        toolName: "connect-builder",
-      }),
-    ).toBe(false);
+    const builderHandoff = {
+      type: "tool-call",
+      toolName: "connect-builder",
+    };
+    expect(isAlwaysVisibleAssistantTool(builderHandoff)).toBe(true);
+    expect(isCollapsibleAssistantWorkPart(builderHandoff)).toBe(false);
   });
 
   it("still groups ordinary work and reasoning", () => {
@@ -585,6 +679,26 @@ describe("isCollapsibleAssistantWorkPart", () => {
         chatUI: { renderer: "todo-demo.todo-list-inline" },
       }),
     ).toBe(false);
+  });
+
+  it("keeps pending needsApproval tools outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "start-prospect-run",
+        approval: { approvalKey: "start-prospect-run:{}" },
+      }),
+    ).toBe(false);
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "start-prospect-run",
+        approval: {
+          approvalKey: "start-prospect-run:{}",
+          dismissed: true,
+        },
+      }),
+    ).toBe(true);
   });
 });
 

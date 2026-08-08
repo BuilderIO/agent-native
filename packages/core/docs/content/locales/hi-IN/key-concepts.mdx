@@ -23,7 +23,7 @@ Core foundation है। Toolkit और Templates वैकल्पिक ह�
 
 - **एजेंट** - स्वायत्त एआई जो डेटा पढ़ता है, डेटा लिखता है, actions चलाता है और configured tools का उपयोग करता है। skills और निर्देशों के साथ अनुकूलन योग्य।
 - **अनुप्रयोग** - एजेंट के चारों ओर उत्पाद की सतह। यह पहली बार में केवल एक्शन, रिच चैट, एक छोटा नियंत्रण विमान, या डैशबोर्ड, प्रवाह और विज़ुअलाइज़ेशन के साथ एक पूर्ण React इंटरफेस हो सकता है।
-- **कंप्यूटर** — डेटाबेस, ब्राउज़र, कोड निष्पादन। एजेंट सीधे SQL और अंतर्निर्मित टूल के साथ काम करते हैं; MCP सर्वर वैकल्पिक ऐड-ऑन हैं, फाउंडेशन नहीं।
+- **कंप्यूटर** — डेटाबेस, ब्राउज़र, कोड निष्पादन। एजेंट ऐप की एक्शन और डेटा सतह के माध्यम से काम करते हैं; ऐप उसी एक्शन सतह को MCP के ज़रिए उपलब्ध करा सकता है। बाहरी MCP सर्वर वैकल्पिक ऐड-ऑन हैं, फाउंडेशन नहीं।
 
 <Diagram id="doc-block-1dvva76" title={"एजेंट, एप्लिकेशन और कंप्यूटर"} summary={"एक साझा SQL स्टोर पर तीन परतें एक साथ काम कर रही हैं। एजेंट और एप्लिकेशन दोनों समान डेटा पढ़ते और लिखते हैं।"}>
 
@@ -253,12 +253,14 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 production agent chat plugin raw SQL tools को default रूप से read-only रखता है
-(`databaseTools: "read"`), इसलिए agent app data को `db-schema` / `db-query`
-से inspect करते हैं और writes typed app actions से करते हैं। `databaseTools: "write"`
+(`frameworkTools: { database: "read" }`), इसलिए agent app data को `db-schema` / `db-query`
+से inspect करते हैं और writes typed app actions से करते हैं। `database: "write"`
 (या `true`) केवल उन maintenance surfaces के लिए सेट करें जिन्हें scoped
 `db-exec` / `db-patch` भी चाहिए; सभी data access के लिए typed app actions
-require करने हेतु `databaseTools: "off"` / `false` सेट करें
+require करने हेतु `database: "off"` / `false` सेट करें
 पहुँच.
+
+`frameworkTools` फ़्रेमवर्क के बाकी अपने टूल को भी इसी तरह नियंत्रित करता है: sharing, रिव्यू कमेंट, वर्शन इतिहास, feature flags, लोकलाइज़ेशन, ऑडिट, Context X-Ray, प्रोफ़ाइल, ऑटोमेशन, docs, resources, web, ऐप-दर-ऐप डेलिगेशन, चैट और ईमेल। पूरी सूची, `"minimal"` preset, और किसी समूह को बंद करने पर उसके HTTP रूट क्यों माउंट रहते हैं — देखें [Production Agent Tools](/docs/deployment#production-agent-tools)।
 
 ## एजेंट चैट ब्रिज {#agent-chat-bridge}
 

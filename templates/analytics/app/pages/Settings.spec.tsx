@@ -65,16 +65,29 @@ vi.mock("@agent-native/core/client/settings", () => ({
   SettingsTabsPage: ({
     account,
     general,
+    extraTabs,
   }: {
     account: React.ReactNode;
     general: React.ReactNode;
+    extraTabs?: Array<{ content: React.ReactNode }>;
   }) => (
     <main>
       {account}
       {general}
+      {extraTabs?.map((tab) => tab.content)}
     </main>
   ),
-  useAgentSettingsTabs: () => [],
+  useAgentSettingsTabs: ({
+    agentAdditionalContent,
+  }: {
+    agentAdditionalContent?: React.ReactNode;
+  } = {}) => [
+    {
+      id: "agent",
+      label: "Agent",
+      content: agentAdditionalContent ?? null,
+    },
+  ],
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({ TeamPage: () => null }));
@@ -143,6 +156,14 @@ describe("Analytics Settings", () => {
     expect(container.textContent).not.toContain("settings.replayStorage");
   });
 
+  it("does not render an About section", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(container.querySelector("#about")).toBeNull();
+  });
+
   it("keeps new error alert emails disabled by default", async () => {
     await act(async () => {
       root.render(<Settings />);
@@ -151,6 +172,15 @@ describe("Analytics Settings", () => {
     const toggle = container.querySelector(
       '[aria-label="settings.errorEmailNotifications"]',
     );
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("keeps the completion bell disabled by default", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    const toggle = container.querySelector('[aria-label="settings.bellSound"]');
     expect(toggle?.getAttribute("aria-pressed")).toBe("false");
   });
 });

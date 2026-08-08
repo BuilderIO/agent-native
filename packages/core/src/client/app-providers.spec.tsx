@@ -25,6 +25,7 @@ import { AppProviders } from "./app-providers.js";
 let container: HTMLDivElement;
 let root: Root;
 let originalLocation: Location;
+let originalFetch: typeof window.fetch;
 let replaceMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -32,6 +33,13 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   replaceMock = vi.fn();
+  originalFetch = window.fetch;
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: vi
+      .fn()
+      .mockRejectedValue(new Error("configuration probe unavailable")),
+  });
   originalLocation = window.location;
   Object.defineProperty(window, "location", {
     configurable: true,
@@ -52,6 +60,10 @@ afterEach(() => {
   Object.defineProperty(window, "location", {
     configurable: true,
     value: originalLocation,
+  });
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: originalFetch,
   });
   vi.clearAllMocks();
 });
@@ -74,9 +86,18 @@ function renderProviders(props: {
   });
 }
 
+// `RequireSession` branches on `useSession().status`, not just `isLoading` —
+// every mock here must supply a status or the gate can neither redirect nor
+// hold the fallback consistently with the real hook.
+const SIGNED_OUT_SESSION = {
+  session: null,
+  isLoading: false,
+  status: "unauthenticated" as const,
+};
+
 describe("AppProviders session gate", () => {
   it("uses Toolkit's theme-aware toaster by default", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     act(() => {
       root.render(
@@ -92,7 +113,7 @@ describe("AppProviders session gate", () => {
   });
 
   it("renders public paths directly without resolving or redirecting a session", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ isPublicPath: true });
 
@@ -104,19 +125,19 @@ describe("AppProviders session gate", () => {
   });
 
   it("gates private paths and redirects signed-out visitors after hydration", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({});
 
     expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
     expect(useSessionMock).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
-      `/_agent-native/sign-in?c=${encodeContinuation("/inbox")}`,
+      `/sign-in?c=${encodeContinuation("/inbox")}`,
     );
   });
 
   it("allows token-authenticated private surfaces to bypass the session gate", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ sessionBypass: true });
 

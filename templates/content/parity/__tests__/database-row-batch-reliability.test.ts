@@ -60,6 +60,9 @@ describe("database row batch reliability", () => {
       "Use this for two or more selected/named rows instead of looping duplicate-database-item",
     );
     expect(removeBatchActionSource).toContain("without deleting the pages");
+    expect(removeBatchActionSource).toContain(
+      "await lockContentDatabaseMutation(",
+    );
     expect(singularDuplicateActionSource).toContain(
       "For two or more rows, use duplicate-database-items once instead of looping this action",
     );

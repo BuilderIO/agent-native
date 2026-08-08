@@ -12,13 +12,16 @@ import {
 describe("navigation kit helpers", () => {
   it("builds standard app and settings routes", () => {
     expect(buildStandardAppRoute("home")).toBe("/");
-    expect(buildStandardAppRoute("settings")).toBe("/settings");
+    expect(buildStandardAppRoute("settings")).toBe("/settings/general");
     expect(buildStandardAppRoute("settings", { settingsTab: "secrets" })).toBe(
-      "/settings#secrets",
+      "/settings/secrets",
     );
-    expect(buildSettingsRoute("what's new")).toBe("/settings#whats-new");
+    expect(buildSettingsRoute("what's new")).toBe("/settings/whats-new");
     expect(buildStandardAppRoute("team", { teamInSettings: true })).toBe(
-      "/settings#organization",
+      "/settings/organization",
+    );
+    expect(buildSettingsRoute("agent:resources:files")).toBe(
+      "/settings/agent/resources/files",
     );
   });
 

@@ -105,7 +105,7 @@ export default function MobileDocsNav() {
                           </p>
                         ) : (
                           <Link
-                            data-an-prefetch="render"
+                            data-an-prefetch="viewport"
                             to={item.to!}
                             className={`mobile-docs-nav-link ${isActive ? "is-active" : ""}`}
                             onClick={() => setOpen(false)}
@@ -122,7 +122,7 @@ export default function MobileDocsNav() {
                               return (
                                 <li key={child.to ?? child.label}>
                                   <Link
-                                    data-an-prefetch="render"
+                                    data-an-prefetch="viewport"
                                     to={child.to!}
                                     className={`mobile-docs-nav-link mobile-docs-nav-sublink ${childActive ? "is-active" : ""}`}
                                     onClick={() => setOpen(false)}

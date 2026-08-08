@@ -5,7 +5,11 @@ import {
 } from "react-router";
 
 import DocContent from "../components/DocContent";
-import { loadDoc, type DocEntry } from "../components/docs-content";
+import DocDraftBanner from "../components/DocDraftBanner";
+import {
+  loadDocRespectingDraftVisibility,
+  type DocEntry,
+} from "../components/docs-content";
 import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
@@ -20,7 +24,10 @@ function routeLocale(params: LoaderFunctionArgs["params"]) {
 export async function loader({
   params,
 }: LoaderFunctionArgs): Promise<DocEntry> {
-  const doc = await loadDoc(GETTING_STARTED_SLUG, routeLocale(params));
+  const doc = await loadDocRespectingDraftVisibility(
+    GETTING_STARTED_SLUG,
+    routeLocale(params),
+  );
   if (!doc) throw new Response("Not Found", { status: 404 });
   return doc;
 }
@@ -61,6 +68,7 @@ export default function DocsIndex() {
       toc={toc}
       markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
     >
+      {currentDoc.draft && <DocDraftBanner />}
       <DocContent markdown={currentDoc.body} />
     </DocsLayout>
   );

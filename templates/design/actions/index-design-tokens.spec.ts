@@ -136,6 +136,36 @@ describe("index-design-tokens design-system access boundary", () => {
     expect(colorToken?.value).toBe("#ff0000");
   });
 
+  it("classifies text-size dimensions as typography rather than color", async () => {
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({}),
+      designSystemId: null,
+    };
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: fakeDesign,
+    });
+    mockFrom.mockReturnValue({
+      where: () =>
+        Promise.resolve([
+          {
+            filename: "tokens.css",
+            content: ":root { --text-body-size-medium: 1rem; }",
+          },
+        ]),
+    });
+
+    const result = await action.run({ designId: "design_1" });
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({
+        cssVar: "--text-body-size-medium",
+        type: "typography",
+      }),
+    ]);
+  });
+
   it("skips malformed design-system token values without failing valid tokens", async () => {
     const dsData = JSON.stringify({
       colors: {

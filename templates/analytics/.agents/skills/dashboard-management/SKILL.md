@@ -2,7 +2,8 @@
 name: dashboard-management
 description: >-
   How analytics dashboards are stored, created, and modified. Covers SQL dashboard tables,
-  legacy settings migration, valid panel sources, layout shape, and safe update patterns.
+  legacy settings migration, folders, valid panel sources, layout shape, and safe update
+  patterns. Use when creating, organizing, sharing, or modifying Analytics dashboards.
 ---
 
 # Dashboard Management
@@ -16,14 +17,29 @@ Current storage:
 | Table              | Purpose                                      |
 | ------------------ | -------------------------------------------- |
 | `dashboards`       | Explorer and SQL dashboard records           |
+| `dashboard_folders` | Personal and shared SQL dashboard folders  |
 | `dashboard_views`  | Saved filter presets per dashboard           |
 | `dashboard_shares` | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants          |
 | `dashboard_revisions` | Bounded dashboard history snapshots       |
 | `analyses`         | Saved ad-hoc analysis records                |
 | `analysis_revisions` | Bounded analysis history snapshots        |
 | `analysis_shares`  | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
+
+## Dashboard folders
+
+Dashboard folders are SQL-backed, access-scoped containers for organizing SQL
+dashboards from `/dashboards`:
+
+- `personal` folders are private to their owner.
+- `shared` folders are organization-visible and require an active organization.
+- Use `list-dashboard-folders`, `create-dashboard-folder`, and
+  `set-dashboard-folder` for folder reads and membership changes.
+- A folder never expands dashboard access. A personal folder can contain only
+  an owned private dashboard; a shared folder can contain only an org-visible
+  dashboard. Use the normal dashboard sharing actions separately.
 
 For organization-wide consolidation, use `migrate-analytics-artifacts` first
 with `dryRun: true`. The write requires an organization owner/admin and the
@@ -715,15 +731,9 @@ state or tracker context, but docs traffic is not app usage and should not appea
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
 
-## Template Catalog And Demo Dashboards
+## Demo Dashboards
 
-`list-dashboard-templates` / `install-dashboard-template` install shipped
-dashboard templates (Node Exporter, the canonical Agent Native observability
-dashboard, etc.), and `ensure-demo-dashboards` auto-installs a per-user demo
-on first app open. See
-`references/template-catalog-and-demo.md` for the canonical-dashboard panel
-rule, Node Exporter template specifics, and the full demo-dashboard lifecycle
-(source routing, env var overrides, tombstoning, reset).
+`ensure-demo-dashboards` auto-installs a per-user demo on first app open.
 
 ## Building Large First-Party Dashboards (compose-dashboard)
 
@@ -758,21 +768,16 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
   - To make nested config edits, use
     `setConfigPath("yAxis.format", "percent")` instead of resending/clobbering
     the whole nested object.
-- **To add a shipped template's panels, prefer `install-dashboard-template` with `mergePanels: true`** and the existing `dashboardId`. It appends only the template panels whose id is not already present (preserving existing panels and order) in one atomic save — you don't author each panel yourself.
 - **Always verify the returned proof-of-done and report it.**
   `mutate-dashboard` returns `panelCount`, `appliedOps`, `panelOrder`,
   `firstPanelIds`, `changedPanelIds`, `commandLog`, and a `summary` string.
-  `install-dashboard-template --mergePanels` returns `addedPanelIds`,
-  `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel
-  count instead of assuming success.
+  Tell the user the resulting panel count instead of assuming success.
 
 ```bash
 # Add or edit several panels in ONE atomic call (never one call per panel)
 pnpm action mutate-dashboard --dashboardId weekly-metrics \
   --code 'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);'
 
-# Append a template's panels to an existing dashboard in one call
-pnpm action install-dashboard-template --templateId skills-cli-funnel --dashboardId weekly-metrics --mergePanels true
 ```
 
 ## Archiving vs deleting

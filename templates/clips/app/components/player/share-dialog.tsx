@@ -1,4 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
@@ -19,6 +20,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import {
   CopyField,
@@ -44,6 +46,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
+import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
 
@@ -58,6 +61,7 @@ export interface ShareRecordingPopoverProps {
   initialVisibility?: Visibility | null;
   initialRole?: "owner" | "admin" | "editor" | "viewer";
   videoUrl?: string | null;
+  thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
   hasPassword?: boolean;
@@ -88,8 +92,10 @@ export function ShareRecordingPopover({
   initialVisibility,
   initialRole,
   videoUrl,
+  thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
+  hasPassword,
   children,
   open,
   onOpenChange,
@@ -108,8 +114,10 @@ export function ShareRecordingPopover({
           initialVisibility={initialVisibility}
           initialRole={initialRole}
           videoUrl={videoUrl}
+          thumbnailUrl={thumbnailUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
+          hasPassword={hasPassword}
         />
       </PopoverContent>
     </Popover>
@@ -127,10 +135,12 @@ export function ShareRecordingDialog({
   initialVisibility,
   initialRole,
   videoUrl,
+  thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
   open,
   onOpenChange,
+  hasPassword,
 }: ShareRecordingDialogProps) {
   const t = useT();
   return (
@@ -147,8 +157,10 @@ export function ShareRecordingDialog({
           initialVisibility={initialVisibility}
           initialRole={initialRole}
           videoUrl={videoUrl}
+          thumbnailUrl={thumbnailUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
+          hasPassword={hasPassword}
           reserveCloseButton
         />
       </DialogContent>
@@ -162,18 +174,22 @@ function ShareRecordingContent({
   initialVisibility,
   initialRole,
   videoUrl,
+  thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
   reserveCloseButton = false,
+  hasPassword,
 }: {
   recordingId: string;
   recordingTitle?: string;
   initialVisibility?: Visibility | null;
   initialRole?: "owner" | "admin" | "editor" | "viewer";
   videoUrl?: string | null;
+  thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
   reserveCloseButton?: boolean;
+  hasPassword?: boolean;
 }) {
   const t = useT();
   const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
@@ -236,13 +252,16 @@ function ShareRecordingContent({
         <TabsContent value="link" className="mt-3">
           <LinkTab
             recordingId={recordingId}
+            recordingTitle={recordingTitle}
             shareUrl={shareUrl}
             sharesQuery={sharesQuery}
             visibility={visibility}
             canManage={canManage}
             videoUrl={videoUrl}
+            thumbnailUrl={thumbnailUrl}
             animatedThumbnailUrl={animatedThumbnailUrl}
             isLoomRecording={isLoomRecording}
+            hasPassword={hasPassword}
           />
         </TabsContent>
 
@@ -276,22 +295,28 @@ function ShareRecordingContent({
 
 function LinkTab({
   recordingId,
+  recordingTitle,
   shareUrl,
   sharesQuery,
   visibility,
   canManage,
   videoUrl,
+  thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording: isLoomRecordingProp,
+  hasPassword,
 }: {
   recordingId: string;
+  recordingTitle?: string;
   shareUrl: string;
   sharesQuery: SharesQuery;
   visibility: Visibility | null;
   canManage: boolean;
   videoUrl?: string | null;
+  thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
+  hasPassword?: boolean;
 }) {
   const t = useT();
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
@@ -303,6 +328,44 @@ function LinkTab({
   const sharesLoaded = visibility !== null;
   const visibilityPending = isPending || sharesQuery.isLoading;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
+  const emailPreviewThumbnailUrl = useMemo(() => {
+    if (!isPublic || hasPassword !== false || !sharesLoaded) return null;
+    const candidate = animatedThumbnailUrl || thumbnailUrl;
+    if (!candidate) return null;
+
+    const query = animatedThumbnailUrl ? "?animated=1" : "";
+    return absoluteAppUrl(
+      `/api/thumbnail/${encodeURIComponent(recordingId)}${query}`,
+    );
+  }, [
+    animatedThumbnailUrl,
+    hasPassword,
+    isPublic,
+    recordingId,
+    sharesLoaded,
+    thumbnailUrl,
+  ]);
+  const copyEmailPreview = useCallback(async () => {
+    if (!emailPreviewThumbnailUrl || !shareUrl) return;
+
+    try {
+      const markup = buildEmailPreviewMarkup({
+        title: recordingTitle?.trim() || t("recordingPage.untitledClip"),
+        shareUrl,
+        thumbnailUrl: emailPreviewThumbnailUrl,
+      });
+      const copied = await writeClipboardText(markup.plainText, {
+        html: markup.html,
+      });
+      if (copied) {
+        toast.success(t("shareDialog.emailPreviewCopied"));
+      } else {
+        toast.error(t("shareDialog.emailPreviewCopyFailed"));
+      }
+    } catch {
+      toast.error(t("shareDialog.emailPreviewCopyFailed"));
+    }
+  }, [emailPreviewThumbnailUrl, recordingTitle, shareUrl, t]);
   const createAgentLink = useActionMutation(
     "create-recording-agent-link" as any,
   );
@@ -439,8 +502,17 @@ function LinkTab({
         />
       ) : null}
 
-      {videoUrl || animatedThumbnailUrl ? (
+      {emailPreviewThumbnailUrl || videoUrl || animatedThumbnailUrl ? (
         <div className="flex flex-wrap gap-2">
+          {emailPreviewThumbnailUrl ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void copyEmailPreview()}
+            >
+              {t("shareDialog.copyEmailPreview")}
+            </Button>
+          ) : null}
           {animatedThumbnailUrl ? (
             <Button
               variant="outline"

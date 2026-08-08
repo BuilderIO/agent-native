@@ -85,6 +85,11 @@ export function useCreateMcpServer() {
   });
 }
 
+export interface ReconnectMcpServerArgs {
+  id: string;
+  scope: McpServerScope;
+}
+
 export function useDeleteMcpServer() {
   const qc = useQueryClient();
   return useMutation({
@@ -109,6 +114,50 @@ export function useDeleteMcpServer() {
   });
 }
 
+async function readMcpMutationBody(res: Response): Promise<{
+  ok?: unknown;
+  error?: unknown;
+} | null> {
+  const text = (await res.text()).trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as { ok?: unknown; error?: unknown };
+  } catch (cause) {
+    throw new Error(
+      `Reconnect response was not valid JSON (HTTP ${res.status}).`,
+      { cause },
+    );
+  }
+}
+
+function reconnectMcpServerUrl(args: ReconnectMcpServerArgs): string {
+  return `${ENDPOINT}/${encodeURIComponent(args.id)}/reconnect?scope=${args.scope}`;
+}
+
+export function useReconnectMcpServer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: ReconnectMcpServerArgs) => {
+      const res = await fetch(reconnectMcpServerUrl(args), {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await readMcpMutationBody(res);
+      const error =
+        typeof body?.error === "string" && body.error.trim()
+          ? body.error.trim()
+          : undefined;
+      if (!res.ok) {
+        throw new Error(error || `Reconnect failed (${res.status})`);
+      }
+      if (body?.ok !== true) {
+        throw new Error(error || "Reconnect failed");
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+}
+
 export interface TestMcpUrlResult {
   ok: boolean;
   error?: string;
@@ -118,7 +167,7 @@ export interface TestMcpUrlResult {
 
 export function getMcpUrlValidationError(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
-  if (!trimmed) return "Enter the Streamable HTTP MCP server URL.";
+  if (!trimmed) return "Enter the Streamable HTTP agent integration URL.";
   let url: URL;
   try {
     url = new URL(trimmed);
@@ -126,13 +175,13 @@ export function getMcpUrlValidationError(rawUrl: string): string | null {
     return "Enter a full URL, including https://.";
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    return "MCP server URLs must start with https://.";
+    return "Agent integration URLs must start with https://.";
   }
   if (
     url.protocol === "http:" &&
     !["localhost", "127.0.0.1"].includes(url.hostname)
   ) {
-    return "Use https:// for remote MCP servers. Plain http:// is only allowed for localhost.";
+    return "Use https:// for remote agent integrations. Plain http:// is only allowed for localhost.";
   }
   return null;
 }
@@ -145,7 +194,7 @@ export function formatMcpServerError(error: unknown): string {
         ? error.message
         : String(error ?? "");
   const text = raw.trim();
-  if (!text) return "Could not connect to that MCP server.";
+  if (!text) return "Could not connect to that agent integration.";
   if (
     /<!doctype|<html[\s>]|<\/html>|unexpected token '<'|is not valid json/i.test(
       text,
@@ -164,10 +213,10 @@ export function formatMcpServerError(error: unknown): string {
       text,
     )
   ) {
-    return "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.";
+    return "Could not reach that agent integration. Check the URL and make sure it is publicly reachable from this app.";
   }
   if (/401|403|unauthorized|forbidden/i.test(text)) {
-    return "The MCP server rejected the request. Add or update the required Authorization header.";
+    return "The agent integration rejected the request. Add or update the required Authorization header.";
   }
   if (/404|not found|405|method not allowed/i.test(text)) {
     return "That URL is reachable, but it does not look like the MCP endpoint. Check the server's Streamable HTTP path.";

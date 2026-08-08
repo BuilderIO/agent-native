@@ -16,6 +16,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
+import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/onboarding";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,6 +34,7 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { FirstDeckOnboardingFlow } from "@/components/onboarding/FirstDeckOnboardingFlow";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -42,6 +44,12 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+
+registerFirstRunOnboardingExtension({
+  id: "slides-first-deck",
+  component: FirstDeckOnboardingFlow,
+});
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -89,7 +97,11 @@ function useExitSelectionOnOutsideClick() {
       const target = e.target as HTMLElement;
       if (
         target.closest(".slide-content") ||
-        target.closest(".slide-image-clickable")
+        target.closest(".slide-image-clickable") ||
+        target.closest("[data-slide-context-toolbar]") ||
+        target.closest(
+          '[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-radix-menu-content]',
+        )
       ) {
         return;
       }

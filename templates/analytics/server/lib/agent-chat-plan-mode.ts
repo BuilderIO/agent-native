@@ -18,13 +18,11 @@ export const INITIAL_TOOL_NAMES = [
   // while the agent lazily discovers the next mutating action.
   "get-sql-dashboard",
   "list-sql-dashboards",
-  "list-dashboard-templates",
   "list-extensions",
   "get-extension",
   "update-dashboard",
   "mutate-dashboard",
   "compose-dashboard",
-  "install-dashboard-template",
   "create-extension",
   "update-extension",
   "extension-data-set",
@@ -39,6 +37,7 @@ export const INITIAL_TOOL_NAMES = [
   // tool-search round trip (~15 KB of results) before it can even start — or worse,
   // enumerates the cohort page by page through whatever it can already see.
   "provider-api-request",
+  "provider-corpus-job",
   "query-staged-dataset",
   "hubspot-records",
   "navigate",

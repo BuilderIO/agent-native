@@ -11,6 +11,7 @@ import {
   composerModelCostTier,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
+  getComposerSendTooltipKey,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
   getComposerReasoningEffortOptions,
@@ -137,6 +138,11 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe("send");
   });
 
+  it("uses the queue tooltip when the submit will wait", () => {
+    expect(getComposerSendTooltipKey(true)).toBe("composer.queueMessage");
+    expect(getComposerSendTooltipKey(false)).toBe("composer.sendMessage");
+  });
+
   it("selects and removes context chips one Backspace at a time", () => {
     let contextItemKeys = ["dashboard", "panel"];
     let selectedKey: string | null = null;
@@ -209,7 +215,7 @@ describe("createTiptapComposerExtensions", () => {
           file,
         },
       ]),
-    ).toContain('"large.pdf" is 4.0 MB — PDFs are capped at 4 MB');
+    ).toContain('"large.pdf" is 4.0 MB. PDFs are capped at 4 MB');
     expect(
       getOversizedDocumentAttachmentError([
         {
@@ -219,6 +225,31 @@ describe("createTiptapComposerExtensions", () => {
           file,
         },
       ]),
+    ).toBeNull();
+  });
+
+  it("allows hosts to use a larger multipart document cap", () => {
+    const file = new File(
+      [new Uint8Array(4 * 1024 * 1024 + 1)],
+      "reference.pdf",
+      { type: "application/pdf" },
+    );
+
+    expect(
+      getOversizedDocumentAttachmentError(
+        [
+          {
+            type: "document",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            file,
+          },
+        ],
+        {
+          maxBytes: 50 * 1024 * 1024,
+          label: "Slides reference files",
+        },
+      ),
     ).toBeNull();
   });
 

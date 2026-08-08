@@ -24,7 +24,7 @@ import {
 } from "./mcp-access-store.js";
 
 const DISPATCH_APP_ID = "dispatch";
-const DISPATCH_NAME = "Agent-Native Dispatch";
+const DISPATCH_NAME = "Dispatch";
 const DISPATCH_DESCRIPTION =
   "Workspace control plane for extensions, agents, vault, integrations, approvals, and app routing.";
 const DISPATCH_COLOR = "#14B8A6";

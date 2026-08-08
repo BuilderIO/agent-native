@@ -1,5 +1,48 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const executeProviderApiRequest = vi.hoisted(() =>
+  vi.fn(
+    async (args: {
+      method: string;
+      path: string;
+      query?: Record<string, string>;
+      body?: unknown;
+      signal?: AbortSignal;
+    }) => {
+      const url = new URL(`https://api.gong.io/v2${args.path}`);
+      for (const [key, value] of Object.entries(args.query ?? {})) {
+        url.searchParams.set(key, value);
+      }
+      const response = await fetch(url.toString(), {
+        method: args.method,
+        ...(args.body === undefined ? {} : { body: JSON.stringify(args.body) }),
+        ...(args.signal ? { signal: args.signal } : {}),
+      });
+      const text = await response.text();
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = undefined;
+      }
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      return {
+        response: {
+          ok: response.ok,
+          status: response.status,
+          headers,
+          ...(json === undefined ? { text } : { json }),
+        },
+      };
+    },
+  ),
+);
+
+vi.mock("./provider-api", () => ({ executeProviderApiRequest }));
+
 vi.mock("./credentials", () => ({
   resolveCredential: vi.fn(async () => null),
 }));
@@ -21,6 +64,9 @@ vi.mock("./provider-credentials", () => ({
 
 import {
   buildGongSearchResult,
+  getAllCalls,
+  getCallDetails,
+  getCalls,
   gongSearchVariants,
   matchesGongCallQuery,
   searchCallsForQueries,
@@ -40,6 +86,7 @@ function call(id: string, started: string): GongCallLike {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
+  executeProviderApiRequest.mockClear();
 });
 
 describe("Gong call limits", () => {
@@ -74,6 +121,236 @@ describe("Gong call limits", () => {
 });
 
 describe("Gong call search matching", () => {
+  it("follows the cursor for exhaustive unfiltered call lists", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        const hasCursor = url.includes("cursor=next-page");
+        return new Response(
+          JSON.stringify(
+            hasCursor
+              ? {
+                  records: {},
+                  calls: [
+                    {
+                      id: "c2",
+                      title: "Quarterly planning",
+                      started: "2026-05-04T10:00:00Z",
+                    },
+                  ],
+                }
+              : {
+                  records: { cursor: "next-page", totalRecords: 2 },
+                  calls: [
+                    {
+                      id: "c1",
+                      title: "Edmunds discovery",
+                      started: "2026-05-03T10:00:00Z",
+                    },
+                  ],
+                },
+          ),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const result = await getAllCalls({
+      fromDateTime: "2026-04-18T00:00:00.000Z",
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toContain(
+      "/calls?fromDateTime=2026-04-18T00%3A00%3A00.000Z",
+    );
+    expect(requests[1]).toContain("cursor=next-page");
+    expect(result.calls.map((item) => item.id)).toEqual(["c1", "c2"]);
+    expect(result.pages).toBe(2);
+    expect(result.cursor).toBeUndefined();
+    expect(result.totalRecords).toBe(2);
+  });
+
+  it("rejects oversized exhaustive unfiltered lists before paging the cohort", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        return new Response(
+          JSON.stringify({
+            records: { totalRecords: 501, cursor: "next-page" },
+            calls: [],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      getAllCalls({ fromDateTime: "2026-04-19T00:00:00.000Z" }),
+    ).rejects.toThrow("Use provider-api-request with stageAs and pagination");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("rejects a 500-record exhaustive list before returning it to the agent", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        return new Response(
+          JSON.stringify({
+            records: { totalRecords: 500, cursor: "next-page" },
+            calls: [],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      getAllCalls({ fromDateTime: "2026-04-20T00:00:00.000Z" }),
+    ).rejects.toThrow("500 records");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("rejects when the provider omits totalRecords but the page reaches the cap", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        return new Response(
+          JSON.stringify({
+            records: {},
+            calls: Array.from({ length: 500 }, (_, index) => ({
+              id: `call-${index}`,
+              started: "2026-05-03T10:00:00Z",
+            })),
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      getAllCalls({ fromDateTime: "2026-04-21T00:00:00.000Z" }),
+    ).rejects.toThrow("reached 500 records");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("batches detailed call reads into one extensive request", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({
+            calls: [
+              {
+                metaData: {
+                  id: "c1",
+                  title: "Discovery",
+                  url: "https://gong.example/c1",
+                  started: "2026-05-03T10:00:00Z",
+                  duration: 1800,
+                },
+                parties: [{ name: "Buyer", affiliation: "External" }],
+                content: {
+                  brief: "A useful brief.",
+                  keyPoints: [{ text: "A key point." }],
+                  outline: [{ section: "Next steps" }],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(getCallDetails(["c1", "c2"])).resolves.toEqual([
+      expect.objectContaining({
+        id: "c1",
+        brief: "A useful brief.",
+        keyPoints: ["A key point."],
+        outline: ["Next steps"],
+      }),
+    ]);
+    expect(requests).toEqual([
+      {
+        filter: { callIds: ["c1", "c2"] },
+        contentSelector: {
+          exposedFields: {
+            parties: true,
+            content: { brief: true, keyPoints: true, outline: true },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("stops before fetching when an exhaustive deadline has already expired", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getAllCalls(
+        { fromDateTime: "2026-04-22T00:00:00.000Z" },
+        { deadlineAt: Date.now() - 1 },
+      ),
+    ).rejects.toThrow("60-second runtime budget");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("propagates caller cancellation into an in-flight Gong request", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(
+      async (_url: string, init?: RequestInit): Promise<Response> =>
+        new Promise((_, reject) => {
+          if (init?.signal?.aborted) {
+            reject(new Error("request aborted"));
+            return;
+          }
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("request aborted")),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = getAllCalls(
+      { fromDateTime: "2026-04-23T00:00:00.000Z" },
+      { signal: controller.signal },
+    );
+    controller.abort();
+
+    await expect(pending).rejects.toThrow("request aborted");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves Gong request ids and retry hints on provider errors", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ message: "quota exceeded" }), {
+          status: 429,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": "3600",
+            "x-request-id": "gong-request-123",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getCalls()).rejects.toThrow(
+      "Gong API error 429 (requestId gong-request-123, retry-after 3600)",
+    );
+  });
+
   it("generates Fusion-style account variants from deal names and domains", () => {
     expect(gongSearchVariants("The Knot Worldwide - New Deal")).toEqual(
       expect.arrayContaining(["the knot worldwide", "the knot", "@the."]),
@@ -201,7 +478,7 @@ describe("Gong call search matching", () => {
     await expect(
       searchCallsForQueries(["Edmunds"], 90, 8, { exhaustive: true }),
     ).rejects.toThrow(
-      "Use provider-corpus-job with staged call IDs for searches larger than 500 records",
+      "Use provider-corpus-job with staged call IDs for searches with 500 or more records",
     );
     expect(requests).toHaveLength(1);
   });

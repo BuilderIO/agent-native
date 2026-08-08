@@ -9,12 +9,13 @@ import {
   renderDesignSystemThemeCss,
   type DesignSystemTheme,
 } from "@agent-native/toolkit/design-system/theme";
-import type {
-  ConfigEnv,
-  HotUpdateOptions,
-  NormalizedHotChannel,
-  Plugin,
-  UserConfig,
+import {
+  loadEnv,
+  type ConfigEnv,
+  type HotUpdateOptions,
+  type NormalizedHotChannel,
+  type Plugin,
+  type UserConfig,
 } from "vite";
 
 import {
@@ -22,6 +23,13 @@ import {
   parsePendingEntry,
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import {
+  mergeAgentNativeConfigs,
+  resolveAgentNativeConfig,
+  type AgentNativeConfig,
+  type AgentNativeConfigContext,
+  type AgentNativeConfigInput,
+} from "../config.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
@@ -45,12 +53,22 @@ import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
+import {
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+} from "../shared/runtime-config.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
+import {
+  createAgentNativeConfigContext,
+  loadAgentNativeConfigFile,
+  readAgentNativeJsonConfig,
+} from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let nitroFsWatchGuardInstalled = false;
+const emittedRuntimeConfigDiagnostics = new Set<string>();
 
 type FsWatchArgs = [fs.PathLike, ...any[]];
 
@@ -615,6 +633,7 @@ function findLocalWorkspacePackageDeps(
 
     return packages;
   } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -783,6 +802,13 @@ function getClientDedupe(cwd: string): string[] {
     "react",
     "react-dom",
     "react-dom/client",
+    // AgentSidebar and the shared composers exchange context through these
+    // packages. Keep the source graph and published toolkit graph on one
+    // assistant-ui store when core is linked into a consumer app.
+    "@assistant-ui/react",
+    "@assistant-ui/core",
+    "@assistant-ui/store",
+    "@assistant-ui/tap",
     // Framework routers must share one react-router instance so
     // FrameworkContext (Meta/Links/Scripts) matches ServerRouter/HydratedRouter.
     ...(hasDep("react-router", cwd)
@@ -951,6 +977,55 @@ function getReactRouterAliases(
       { find: /^react-router$/, replacement: req.resolve("react-router") },
     ];
   } catch {
+    return [];
+  }
+}
+
+/**
+ * Core's source graph can resolve assistant-stream from the framework
+ * checkout while the consuming app's assistant-ui package resolves a newer
+ * copy. Pin both public entry points to the consumer's installed peer graph.
+ */
+function getAssistantUiAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const assistantUiEntry = appRequire.resolve("@assistant-ui/react");
+    const assistantUiRequire = createRequire(assistantUiEntry);
+    return [
+      // A linked framework checkout can otherwise resolve the assistant-ui
+      // imports in core's source graph from the checkout's React 19.2.7 peer
+      // tree while Vite prebundles the app's React 19.2.8 tree. Dedupe does
+      // not rewrite those /@fs source imports, so pin the singleton packages
+      // to the consuming app's installed peer graph explicitly.
+      {
+        find: /^@assistant-ui\/react$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/react"),
+      },
+      {
+        find: /^@assistant-ui\/core$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/core"),
+      },
+      {
+        find: /^@assistant-ui\/store$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/store"),
+      },
+      {
+        find: /^@assistant-ui\/tap$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/tap"),
+      },
+      {
+        find: /^assistant-stream$/,
+        replacement: assistantUiRequire.resolve("assistant-stream"),
+      },
+      {
+        find: /^assistant-stream\/utils$/,
+        replacement: assistantUiRequire.resolve("assistant-stream/utils"),
+      },
+    ];
+  } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -1577,13 +1652,21 @@ export interface ClientConfigOptions {
   /** Additional Vite define constants. */
   define?: UserConfig["define"];
   /**
+   * Public app behavior from `agent-native.json` or an optional typed
+   * `agent-native.config.ts` file. Explicit Vite options win over the JSON
+   * file, while the typed file remains the default project-level source of
+   * truth. `agent-native.ts`, `.mts`, and `agent-native.config.mts` remain
+   * compatibility aliases.
+   */
+  agentNativeConfig?: AgentNativeConfigInput;
+  /**
    * Browser/server compatibility epoch for app changes that cannot safely run
    * across a cached client and a newer action backend. Bump only for an
    * incompatible protocol or data-model transition, not for every deploy.
    */
   clientCompatibilityVersion?: string;
   /**
-   * Framework route warmup behavior mounted by AgentSidebar.
+   * Framework route warmup behavior mounted by AppProviders.
    *
    * React Router's native prefetch warms both `.data` and JS, but its `.data`
    * request uses browser link prefetch. Chrome sends `Sec-Purpose: prefetch`
@@ -2969,9 +3052,19 @@ function createNitroDevPlugin(
   options: Pick<ClientConfigOptions, "nitro">,
   appBasePath: string,
 ) {
+  const nitroOptions = options.nitro ?? {};
   return nitroVitePlugin({
     serverDir: "./server",
-    ...(options.nitro ?? {}),
+    ...nitroOptions,
+    replace: {
+      ...(nitroOptions as { replace?: Record<string, string> }).replace,
+      // Netlify's netlify.toml environment is available to the build but not
+      // injected into deployed Functions. Nitro is a separate server build,
+      // so it needs the release ownership decision in its own replacement map.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+    },
     // Never auto-load test files as server handlers/plugins/middleware.
     // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
     // *.spec.ts would otherwise be loaded at runtime and crash the server
@@ -3164,7 +3257,7 @@ function createAgentNativePlugins(
     ...userPlugins,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
-    agentsBundlePlugin(),
+    agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
@@ -3211,12 +3304,66 @@ function resolveAgentNativeTemplate(cwd: string): string {
   );
 }
 
+function reportRuntimeConfigDiagnostics(
+  appConfig: AgentNativeConfig,
+  context: AgentNativeConfigContext,
+  mode: string,
+  env: Record<string, string | undefined> = process.env,
+): void {
+  const production =
+    mode === "production" || process.env.NODE_ENV === "production";
+  if (!production) return;
+
+  const report = getRuntimeConfigReport(
+    env,
+    {
+      authEnabled: appConfig.runtime?.auth?.enabled,
+      databaseRequired: appConfig.runtime?.database?.required,
+      requiredEnv: appConfig.runtime?.environment?.required,
+    },
+    {
+      environment: "production",
+      phase: context.isBuild ? "build" : "runtime",
+      appName: process.env.APP_NAME,
+    },
+  );
+  if (report.issues.length === 0) return;
+
+  const key = [
+    process.cwd(),
+    context.command,
+    mode,
+    report.issues.map((issue) => `${issue.code}:${issue.severity}`).join(","),
+  ].join("|");
+  if (emittedRuntimeConfigDiagnostics.has(key)) return;
+  emittedRuntimeConfigDiagnostics.add(key);
+
+  const message = formatRuntimeConfigReport(report);
+  if (context.isBuild && appConfig.diagnostics?.failOnBuild === true) {
+    throw new Error(message);
+  }
+  console.warn(message);
+}
+
 function createAgentNativeConfig(
   options: ClientConfigOptions | AgentNativeVitePluginOptions = {},
   command?: AgentNativeViteCommand,
   userConfig: UserConfig = {},
+  mode = process.env.NODE_ENV === "production" ? "production" : "development",
+  projectConfig?: AgentNativeConfigInput,
 ): UserConfig {
   const cwd = process.cwd();
+  const configContext = createAgentNativeConfigContext(command, mode);
+  const projectConfigInput = projectConfig ?? options.agentNativeConfig;
+  const appConfig = resolveAgentNativeConfig(
+    mergeAgentNativeConfigs(
+      readAgentNativeJsonConfig(cwd),
+      projectConfigInput
+        ? resolveAgentNativeConfig(projectConfigInput, configContext)
+        : {},
+    ),
+    configContext,
+  );
   const buildId =
     process.env.DEPLOY_ID?.trim() ||
     process.env.COMMIT_REF?.trim() ||
@@ -3246,6 +3393,15 @@ function createAgentNativeConfig(
       });
     } catch {}
   }
+
+  const runtimeEnv = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
+  reportRuntimeConfigDiagnostics(appConfig, configContext, mode, runtimeEnv);
 
   const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
@@ -3312,11 +3468,18 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
+      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      // The release migration owner is configured at build time. Netlify's
+      // netlify.toml environment is available to the build but not injected
+      // into deployed Functions, so embed the decision in the server bundle.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
       __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
         process.env.GTM_CONTAINER_ID?.trim() || "",
@@ -3520,6 +3683,7 @@ function createAgentNativeConfig(
       alias: [
         // Published npm installs: one react-router instance for app + core.
         ...getReactRouterAliases(cwd),
+        ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
@@ -3534,6 +3698,28 @@ function createAgentNativeConfig(
         })),
         ...aliasArrayFrom((userConfig.resolve as { alias?: unknown })?.alias),
       ],
+    },
+  };
+}
+
+function createAgentNativeConfigPlugin(
+  options: ClientConfigOptions | AgentNativeVitePluginOptions,
+): Plugin {
+  return {
+    name: "agent-native-config",
+    enforce: "pre",
+    async config(config: UserConfig, env: ConfigEnv) {
+      const projectConfig =
+        options.agentNativeConfig === undefined
+          ? await loadAgentNativeConfigFile(process.cwd())
+          : undefined;
+      return createAgentNativeConfig(
+        options,
+        env.command,
+        config,
+        env.mode,
+        projectConfig,
+      );
     },
   };
 }
@@ -3558,13 +3744,7 @@ export function agentNative(
   options: AgentNativeVitePluginOptions = {},
 ): Plugin[] {
   return [
-    {
-      name: "agent-native-config",
-      enforce: "pre",
-      config(config: UserConfig, env: ConfigEnv) {
-        return createAgentNativeConfig(options, env.command, config);
-      },
-    },
+    createAgentNativeConfigPlugin(options),
     ...createAgentNativePlugins(options, {
       includeReactTransform: options.legacySpa === true,
       useServeOnlyNitroPlugin: true,
@@ -3583,10 +3763,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     !hasReactRouterPlugin(options.plugins) && !options.reactRouter;
   return {
     ...createAgentNativeConfig(options),
-    plugins: createAgentNativePlugins(options, {
-      includeReactTransform,
-      userPlugins: options.plugins,
-    }),
+    plugins: [
+      createAgentNativeConfigPlugin(options),
+      ...createAgentNativePlugins(options, {
+        includeReactTransform,
+        userPlugins: options.plugins,
+      }),
+    ],
   };
 }
 

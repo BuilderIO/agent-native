@@ -168,6 +168,32 @@ describe("/api/thumbnail/:recordingId route", () => {
     );
   });
 
+  it("can proxy the animated preview when requested", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({
+          animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+        }),
+      ),
+    );
+    mockGetQuery.mockReturnValue({ animated: "1" });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("preview", {
+        status: 200,
+        headers: { "content-type": "image/gif" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).headers.get("content-type")).toBe("image/gif");
+    expect(fetch).toHaveBeenCalledWith(
+      "https://cdn.example.com/preview.gif",
+      expect.objectContaining({ redirect: "manual" }),
+    );
+  });
+
   it("serves local data-url thumbnails without a provider fetch", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(

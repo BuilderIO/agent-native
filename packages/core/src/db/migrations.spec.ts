@@ -28,7 +28,11 @@ import {
   getCloudflareD1Binding,
   getMigrationDatabaseUrl,
 } from "./client.js";
-import { runMigrations } from "./migrations.js";
+import {
+  deferMigration,
+  runMigrations,
+  withMigrationRuntime,
+} from "./migrations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,6 +127,145 @@ describe("runMigrations – SQLite steady-state (no pending migrations)", () => 
   });
 });
 
+describe("runMigrations – serverless request runtime", () => {
+  // Analytics guarded its OWN migration runner in #2708, but org,
+  // context-xray, and observational-memory kept calling runMigrations
+  // unguarded — so the cold-start probe storm survived the fix meant to end
+  // it and took production down again. The guard belongs here, once, where
+  // every caller passes through.
+  const ENV_KEYS = [
+    "NETLIFY",
+    "NETLIFY_FUNCTION_NAME",
+    "AWS_LAMBDA_FUNCTION_NAME",
+    "LAMBDA_TASK_ROOT",
+    "VERCEL",
+  ];
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_MIGRATION_RUNTIME__;
+    // These tests assert on call COUNTS elsewhere in the file; leaving our own
+    // invocations on the shared mocks makes a later "was never called" fail.
+    vi.clearAllMocks();
+  });
+
+  const migrations = [
+    { version: 1, sql: "CREATE TABLE t1 (id INTEGER PRIMARY KEY)" },
+  ];
+
+  for (const key of ENV_KEYS) {
+    it(`does not touch the database when ${key} marks a serverless request`, async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv(key, key === "NETLIFY" ? "true" : "1");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+
+      const plugin = runMigrations(migrations, { table: "guard_migrations" });
+      await plugin(null);
+
+      expect(getDbExec).not.toHaveBeenCalled();
+      expect(createDbExec).not.toHaveBeenCalled();
+    });
+  }
+
+  it("still migrates on the request path for an app with no release step", async () => {
+    // 16 of 17 templates have no release migration entrypoint. For them,
+    // skipping here would not defer the work — it would delete it: a newly
+    // added migration silently never applies and a fresh deploy comes up with
+    // missing tables, with nothing failing to say so. The skip is opt-in, so
+    // an app that has not claimed release ownership keeps the old behavior.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    // AGENT_NATIVE_RELEASE_MIGRATIONS deliberately unset.
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+
+  it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
+    // The Netlify BUILD environment sets NETLIFY=true, so the release
+    // migration step looks exactly like a serverless request to the guard
+    // above — it succeeds only because the entrypoint claims migration duty.
+    // Exercise the real API, not the global: an entrypoint that forgets the
+    // wrapper silently no-ops at build time and the tables never appear, which
+    // is invisible until the first read fails in production.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await withMigrationRuntime(async () => {
+      await plugin(null);
+    });
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+
+  it("still migrates when a caller explicitly opts in", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, {
+      table: "guard_migrations",
+      runInServerlessRequest: true,
+    });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+
+  it("migrates normally outside production", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+});
+
+describe("runMigrations – empty migration list", () => {
+  it("does not touch the database when a plugin has no migrations", async () => {
+    const plugin = runMigrations([], { table: "empty_migrations" });
+
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(getCloudflareD1Binding).not.toHaveBeenCalled();
+  });
+});
+
+describe("withMigrationRuntime", () => {
+  it("restores the authorization marker after success and failure", async () => {
+    const runtime = globalThis as Record<string, unknown>;
+
+    await withMigrationRuntime(async () => {
+      expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBe(true);
+    });
+    expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBeUndefined();
+
+    await expect(
+      withMigrationRuntime(async () => {
+        expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBe(true);
+        throw new Error("migration failed");
+      }),
+    ).rejects.toThrow("migration failed");
+    expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBeUndefined();
+  });
+});
+
 describe("runMigrations – run-only entries", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -172,6 +315,17 @@ describe("runMigrations – run-only entries", () => {
     vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeNamedExec({ version: 0, appliedNames: [] });
     const directExec = makeNamedExec({ version: 0, appliedNames: [] });
+    pooledExec.execute.mockImplementation(
+      async (sql: string | { sql: string; args?: unknown[] }) => {
+        const statement = typeof sql === "string" ? sql : sql.sql;
+        if (/SELECT name FROM/i.test(statement)) {
+          throw new Error(
+            'relation "pg_run_only_migrations_named" does not exist',
+          );
+        }
+        return { rows: [{ v: 0 }], rowsAffected: 0 };
+      },
+    );
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(createDbExec).mockResolvedValue(directExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
@@ -187,6 +341,23 @@ describe("runMigrations – run-only entries", () => {
     expect(directExec.insertedNames).toEqual(["repair-counts"]);
     expect(directExec.insertedVersions).toEqual([1]);
     expect(directExec.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a deferred run-only migration unrecorded", async () => {
+    vi.mocked(isPostgres).mockReturnValue(false);
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    const run = vi.fn(async () => deferMigration());
+
+    const plugin = runMigrations(
+      [{ version: 1, name: "serialized-backfill", sql: {}, run }],
+      { table: "deferred_run_only_migrations" },
+    );
+    await plugin(null);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(exec.insertedNames).toEqual([]);
+    expect(exec.insertedVersions).toEqual([]);
   });
 
   it("records D1 run-only bookkeeping in one atomic batch", async () => {
@@ -327,6 +498,31 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(calls.some((s) => /ALTER TABLE t1/i.test(s))).toBe(true);
     // Version 1 and 2 must NOT be applied (already at v2)
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
+  });
+
+  it("uses the pooled exec for a pending run-only migration", async () => {
+    vi.mocked(isPostgres).mockReturnValue(true);
+    const pooledExec = makeNamedExec({ version: 131, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+
+    const run = vi.fn(async () => {});
+    const migrations = [
+      {
+        version: 132,
+        name: "run-only-backfill",
+        sql: {},
+        run,
+      },
+    ];
+
+    const plugin = runMigrations(migrations, {
+      table: "run_only_migrations",
+    });
+    await plugin(null);
+
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(pooledExec.insertedNames).toContain("run-only-backfill");
   });
 
   it("closes the direct exec after migrations complete", async () => {

@@ -1,5 +1,5 @@
 import { Button } from "@agent-native/toolkit/ui/button";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
 import {
@@ -17,6 +17,7 @@ export interface AgentAskPopoverProps {
   placeholder?: string;
   context?: string;
   className?: string;
+  icon?: ReactNode;
 }
 
 /** A low-emphasis entry point for asking the agent without losing the current surface. */
@@ -27,6 +28,7 @@ export function AgentAskPopover({
   placeholder,
   context,
   className,
+  icon,
 }: AgentAskPopoverProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -54,6 +56,7 @@ export function AgentAskPopover({
           size="sm"
           className={className ?? "cursor-pointer"}
         >
+          {icon}
           {label ?? t("agentPanel.askAgent", { defaultValue: "Ask the agent" })}
         </Button>
       </PopoverTrigger>

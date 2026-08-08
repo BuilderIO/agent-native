@@ -140,6 +140,7 @@ function makeHarness(overrides?: {
     updateRunStatusIfRunning: vi.fn(async () => true),
     markRunAborted: vi.fn(async () => {}),
     setRunTerminalReason: vi.fn(async () => {}),
+    setRunError: vi.fn(async () => {}),
     recordRunDiagnostic: vi.fn(async () => {}),
     markBackgroundContinuationChunkTerminal: vi.fn(async () => {
       callOrder.push("markTerminal");
@@ -398,6 +399,17 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       "run-chunk0",
       RUN_DIAG_STAGE.workerThrew,
       expect.stringContaining("chain_dispatch_failed"),
+    );
+    // The cause has to land on the row, not only inside diag_stage's JSON.
+    // Without this the run goes terminal with error_code and error_detail both
+    // NULL, and every query reads it as a failure with no known cause.
+    // The cause has to land on the row, not only inside diag_stage's JSON.
+    // Without this the run goes terminal with error_code and error_detail both
+    // NULL, so every query reads it as a failure with no known cause.
+    expect(h.deps.setRunError).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_failed",
+      "dispatch down",
     );
   });
 

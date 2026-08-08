@@ -10,6 +10,19 @@ export interface DemoResponse {
 
 export const DEFAULT_STYLE_REFERENCE_URLS: string[] = [];
 
+export function normalizeReferenceUrls(
+  urls: readonly string[] | null | undefined,
+): string[] {
+  const normalized: string[] = [];
+  for (const url of urls ?? []) {
+    if (typeof url !== "string") continue;
+    const trimmed = url.trim();
+    if (!trimmed || normalized.includes(trimmed)) continue;
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
 // --- Image Generation ---
 
 export type ImageGenModel = "gemini" | "openai" | "auto";
@@ -69,6 +82,8 @@ export interface SharedDeckResponse {
   title: string;
   slides: SharedDeckSlide[];
   aspectRatio?: import("./aspect-ratios").AspectRatio;
+  /** Resolved at share creation so public links keep the deck's styling. */
+  designSystem?: DesignSystemData;
 }
 
 export type SharedSlideTransition =
@@ -155,7 +170,7 @@ function normalizeSlideAnimation(
     : "slide-up";
 
   // When an explicit `elementIndex` is present, trust it. Otherwise derive
-  // from the last segment of `elementPath` — keeps the index correlated
+  // from the last segment of `elementPath` - keeps the index correlated
   // with the path's actual leaf so consumers that fall back to
   // `elementIndex` target the right element instead of silently defaulting
   // to slide-element 0 (which created an ambiguity between 'animation

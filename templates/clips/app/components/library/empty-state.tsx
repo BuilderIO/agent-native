@@ -5,7 +5,6 @@ import {
   IconUsersGroup,
   IconArchive,
   IconTrash,
-  IconPlayerRecord,
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router";
 
@@ -76,10 +75,9 @@ export function EmptyState({
       {hasCta && (
         <Button
           onClick={handleCta}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+          className="bg-primary text-primary-foreground hover:bg-primary/90"
           size="sm"
         >
-          <IconPlayerRecord className="h-4 w-4" />
           {t(`empty.${kind}.cta`)}
         </Button>
       )}

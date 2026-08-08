@@ -38,10 +38,16 @@ import {
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
 } from "../integrations/integration-durable-dispatch-config.js";
+import { isValidCron } from "../jobs/cron.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
@@ -53,6 +59,10 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
 import { cloneServerBundleForFunction, copyDir } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
@@ -869,6 +879,7 @@ export function generateWorkerEntry(
   // The worker ships as a static bundle with no access to runtime env, so the
   // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
+  const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1219,9 +1230,8 @@ function injectHeadScript(html, script) {
 }
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
-const SSR_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cache-control"])};
-const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cdn-cache-control"])};
-const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["netlify-cdn-cache-control"])};
+const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
+const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1319,13 +1329,12 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     else headers.delete("vary");
   }
 
-  headers.set("cache-control", SSR_CACHE_CONTROL);
-  headers.set("cdn-cache-control", SSR_CDN_CACHE_CONTROL);
-  // Netlify function responses are dynamic by default and can otherwise show
-  // Cache-Status fwd=bypass even with Cache-Control: public. Keep this
-  // Netlify-specific header so SSR HTML/.data are served from the shared
-  // durable CDN cache instead of stampeding origin — for every visitor.
-  headers.set("netlify-cdn-cache-control", SSR_NETLIFY_CDN_CACHE_CONTROL);
+  for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
+    headers.set(name, value);
+  }
+  for (const [name, value] of Object.entries(SSR_CACHE_KEY_HEADERS)) {
+    headers.set(name, value);
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -1755,7 +1764,8 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><p class="an-stall-hint">Still loading. If this does not finish, reload the page — the browser console may show what failed.</p><style>@keyframes an-spin { to { transform: rotate(360deg) } } @keyframes an-stall-in { to { opacity: 0.6 } } .an-stall-hint { opacity: 0; margin: 0; max-width: 32rem; padding: 0 1.5rem; text-align: center; font-size: 0.875rem; line-height: 1.5; font-family: ui-sans-serif, system-ui, sans-serif; animation: an-stall-in 0.4s ease-out 10s forwards } @media (prefers-reduced-motion: reduce) { .an-stall-hint { animation-duration: 0s } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  // guard:allow-raw-color - static shell loads before app theme tokens exist
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -2371,6 +2381,10 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
+const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
+  "@sparticuz/chromium",
+  "playwright-core",
+] as const;
 
 // Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
 // and 32-bit-arm prebuilds of these native packages are ~100MB that can never
@@ -2442,6 +2456,148 @@ function nodeModulesAncestors(startDir: string): string[] {
     current = parent;
   }
   return dirs;
+}
+
+function readPackageManifest(
+  packageDir: string,
+): Record<string, unknown> | null {
+  const packageJsonPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) return null;
+  const manifest: unknown = JSON.parse(
+    fs.readFileSync(packageJsonPath, "utf8"),
+  );
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return null;
+  }
+  return manifest as Record<string, unknown>;
+}
+
+function packageRootFromResolvedPath(
+  packageName: string,
+  resolvedPath: string,
+): string | null {
+  let current = path.dirname(resolvedPath);
+  while (true) {
+    const manifest = readPackageManifest(current);
+    if (manifest?.name === packageName) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+export function findInstalledPackageRoot(
+  packageName: string,
+  nodeModulesRoots: string[],
+  fromPackageDir?: string,
+): string | null {
+  if (fromPackageDir) {
+    try {
+      const requireFromPackage = createRequire(
+        path.join(fromPackageDir, "package.json"),
+      );
+      const resolvedPath = requireFromPackage.resolve(packageName);
+      const resolvedRoot = packageRootFromResolvedPath(
+        packageName,
+        resolvedPath,
+      );
+      if (resolvedRoot) return resolvedRoot;
+      // coercion-ok: resolution failure means this optional store lookup is absent.
+    } catch {
+      // The dependency may be available only through the workspace pnpm store.
+    }
+  }
+
+  const packagePath = packageName.split("/");
+  const pnpmPrefix = `${packageName.replace("/", "+")}@`;
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, ...packagePath);
+    if (readPackageManifest(direct)?.name === packageName) return direct;
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(pnpmRoot, entry, "node_modules", ...packagePath);
+      if (readPackageManifest(nested)?.name === packageName) return nested;
+    }
+  }
+  return null;
+}
+
+function copyRuntimePackageTree(
+  packageName: string,
+  packageDir: string,
+  serverDir: string,
+  nodeModulesRoots: string[],
+  copiedPackages: Set<string>,
+): number {
+  if (copiedPackages.has(packageName)) return 0;
+  copiedPackages.add(packageName);
+
+  const destination = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  copyDir(packageDir, destination);
+
+  const manifest = readPackageManifest(packageDir);
+  const dependencies = manifest?.dependencies;
+  if (!dependencies || typeof dependencies !== "object") return 1;
+
+  let copiedCount = 1;
+  for (const dependencyName of Object.keys(
+    dependencies as Record<string, unknown>,
+  )) {
+    const dependencyDir = findInstalledPackageRoot(
+      dependencyName,
+      nodeModulesRoots,
+      packageDir,
+    );
+    if (!dependencyDir) {
+      throw new Error(
+        `[deploy] Could not resolve ${dependencyName}, required by ${packageName}, for the serverless browser runtime.`,
+      );
+    }
+    copiedCount += copyRuntimePackageTree(
+      dependencyName,
+      dependencyDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+  return copiedCount;
+}
+
+export function copyInstalledBrowserRuntimePackages(
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): number {
+  if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  const nodeModulesRoots = nodeModulesAncestors(projectCwd);
+  const copiedPackages = new Set<string>();
+  let copiedCount = 0;
+  for (const packageName of SERVERLESS_BROWSER_RUNTIME_PACKAGES) {
+    const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
+    if (!packageDir) continue;
+    copiedCount += copyRuntimePackageTree(
+      packageName,
+      packageDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+
+  if (copiedCount > 0) {
+    console.log(
+      `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle.`,
+    );
+  }
+  return copiedCount;
 }
 
 function findInstalledLibsqlNativePackage(
@@ -2592,7 +2748,8 @@ export function isDurableBackgroundDeployEnabled(): boolean {
 function isDurableBackgroundEmitRequired(): boolean {
   return (
     isDurableBackgroundDeployEnabled() ||
-    isIntegrationDurableDispatchDeployEnabled()
+    isIntegrationDurableDispatchDeployEnabled() ||
+    isRecurringJobsDeployEnabled()
   );
 }
 
@@ -2604,16 +2761,99 @@ export function isIntegrationDurableDispatchDeployEnabled(): boolean {
 }
 
 const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
+export const NETLIFY_RECURRING_JOBS_FUNCTION_NAME =
+  "agent-native-recurring-jobs";
+
+/** Shared shape for the `AGENT_NATIVE_DISABLE_*` build kill switches. */
+function isDisabledByEnv(name: string): boolean {
+  const value = process.env[name]?.trim();
+  return !!value && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+export function isRecurringJobsDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS");
+}
+
+/**
+ * Keep-warm is ON by default, and on a provisioned database that is the right
+ * default. It is the wrong default on a metered scale-to-zero tier: a
+ * once-a-minute wake means autosuspend NEVER fires, so the endpoint bills (and
+ * quota-limits) as if it were awake 100% of the time with zero users online. On
+ * a free-tier Neon that exhausts the compute quota and the database then
+ * hard-blocks every read mid-session — the symptom is a dead app, not a slow one.
+ */
+export function isKeepWarmDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM");
+}
+
+/**
+ * The background warm is a separate, much more expensive knob than the server
+ * warm and gets its own switch. Warming `server` is one health request; warming
+ * the `-background` Lambda is a *fresh container*, so every ping pays the full
+ * on-demand `ensureTable()` schema-probe fan-out (hundreds of
+ * `information_schema` round trips) before it does anything. At the default
+ * cadence that is ~1,440 manufactured cold starts a day that no user asked for.
+ * Turn this off to keep dispatch-latency protection for the server function
+ * while dropping the probe storm.
+ */
+export function isKeepWarmBackgroundDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND");
+}
+
+const DEFAULT_KEEP_WARM_SCHEDULE = "* * * * *";
+
+/**
+ * Cadence for the keep-warm schedule, overridable with
+ * `AGENT_NATIVE_KEEP_WARM_SCHEDULE` (standard 5-field cron).
+ *
+ * An unparseable value THROWS rather than falling back to the default. Falling
+ * back would leave an operator who set this specifically to stop burning
+ * database quota still burning it at the original once-a-minute cadence, with a
+ * successful build and nothing in the log to say the value was ignored.
+ */
+export function resolveKeepWarmSchedule(): string {
+  const raw = process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE?.trim();
+  if (!raw) return DEFAULT_KEEP_WARM_SCHEDULE;
+  const fields = raw.split(/\s+/);
+  // The field count is checked separately from the field values because
+  // `isValidCron` also accepts 6-field (seconds) and `@daily` forms that
+  // Netlify's scheduler does not; "5 fields" is the narrower contract.
+  if (fields.length !== 5 || !isValidCron(raw)) {
+    throw new Error(
+      `AGENT_NATIVE_KEEP_WARM_SCHEDULE must be a 5-field cron expression ` +
+        `(minute hour day month weekday); got "${raw}" (${fields.length} field(s)). ` +
+        `Example: "*/5 * * * *" for every five minutes.`,
+    );
+  }
+  return raw;
+}
 
 /**
  * Emit a site-local Netlify Scheduled Function that wakes the public server
  * function and its database every minute. GitHub Actions schedules can be
  * delayed by tens of minutes, which is longer than a scale-to-zero database's
  * autosuspend window and leaves the next visitor to pay the cold-start cost.
+ *
+ * Both halves are opt-out and the cadence is configurable — see
+ * `isKeepWarmDeployEnabled`, `isKeepWarmBackgroundDeployEnabled`, and
+ * `resolveKeepWarmSchedule`. The tradeoff this function encodes is next-visitor
+ * latency against database awake-time, and only the deployment knows which of
+ * those it is paying for.
  */
 export function emitSingleTemplateNetlifyKeepWarmFunction(
   projectCwd: string,
 ): void {
+  if (!isKeepWarmDeployEnabled()) {
+    console.log(
+      "[build] Keep-warm emit skipped: AGENT_NATIVE_DISABLE_KEEP_WARM is set. " +
+        "The database is free to autosuspend; the next visitor after an idle " +
+        "period pays its cold start.",
+    );
+    return;
+  }
+  // Resolved before anything is removed or written, so a bad cron fails the
+  // build rather than leaving a wiped/half-emitted function directory behind.
+  const keepWarmSchedule = resolveKeepWarmSchedule();
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverBundle = path.join(internalDir, "server", "main.mjs");
   if (!fs.existsSync(serverBundle)) {
@@ -2639,7 +2879,9 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
     `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
   );
   const backgroundWarmPath =
-    isDurableBackgroundEmitRequired() && fs.existsSync(backgroundEntryPath)
+    isKeepWarmBackgroundDeployEnabled() &&
+    isDurableBackgroundEmitRequired() &&
+    fs.existsSync(backgroundEntryPath)
       ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
       : "null";
   const entry = `const HEALTH_PATH = "/_agent-native/health";
@@ -2647,8 +2889,6 @@ const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
 
 function siteOrigin(request) {
-  const configured = process.env.URL || process.env.DEPLOY_URL;
-  if (configured) return configured;
   return new URL(request.url).origin;
 }
 
@@ -2689,7 +2929,7 @@ export default async function handler(request) {
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    const body = await response.text();
     throw new Error(
       "[agent-native-keep-warm] Health request failed with " +
         response.status +
@@ -2706,7 +2946,7 @@ export default async function handler(request) {
 export const config = {
   name: "agent-native server keep warm",
   generator: "agent-native build",
-  schedule: "* * * * *",
+  schedule: ${JSON.stringify(keepWarmSchedule)},
   nodeBundler: "none",
 };
 `;
@@ -2716,7 +2956,96 @@ export const config = {
     entry,
   );
   console.log(
-    `[build] Emitted Netlify scheduled keep-warm function "${NETLIFY_KEEP_WARM_FUNCTION_NAME}".`,
+    `[build] Emitted Netlify scheduled keep-warm function ` +
+      `"${NETLIFY_KEEP_WARM_FUNCTION_NAME}" (schedule "${keepWarmSchedule}", ` +
+      `background warm ${backgroundWarmPath === "null" ? "off" : "on"}).`,
+  );
+}
+
+/**
+ * Emit the durable recurring-job trigger. Netlify's scheduled function only
+ * hands off work; the existing `-background` function owns the long sweep so
+ * a model run is not constrained by the synchronous scheduled-function wall.
+ */
+export function emitSingleTemplateNetlifyRecurringJobsFunction(
+  projectCwd: string,
+): void {
+  if (!isRecurringJobsDeployEnabled()) return;
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const backgroundEntry = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  if (!fs.existsSync(backgroundEntry)) {
+    throw new Error(
+      "[build] Recurring-job trigger cannot be emitted without the durable background function.",
+    );
+  }
+
+  const functionName = NETLIFY_RECURRING_JOBS_FUNCTION_NAME;
+  const dest = path.join(internalDir, functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+  const entry = `import { createHmac } from "node:crypto";
+
+const BACKGROUND_PATH = ${JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)};
+const SWEEP_PATH = ${JSON.stringify(RECURRING_JOBS_SWEEP_PATH)};
+const TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+const PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+
+function siteOrigin(request) {
+  return new URL(request.url).origin;
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`\${TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+export default async function handler(request) {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const url = new URL(BACKGROUND_PATH, siteOrigin(request));
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+      "user-agent": "agent-native-recurring-jobs",
+    },
+    body: JSON.stringify({
+      [PROCESSOR_FIELD]: PROCESSOR_ROUTE,
+      [PROCESSOR_ROUTE_FIELD]: SWEEP_PATH,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      \`[recurring-jobs] Durable sweep handoff failed (\${response.status}): \${body.slice(0, 500)}\`,
+    );
+  }
+  console.log("[recurring-jobs] Durable sweep handed off", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: "agent-native recurring jobs",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+  console.log(
+    `[build] Emitted Netlify scheduled recurring-job function "${functionName}".`,
   );
 }
 
@@ -2829,6 +3158,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   const backgroundProcessorRouteField = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   );
+  const recurringJobsSweepPath = JSON.stringify(RECURRING_JOBS_SWEEP_PATH);
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
@@ -2847,6 +3177,7 @@ const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${backgroundProcessorIntegration};
 const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
+const RECURRING_JOBS_SWEEP_PATH = ${recurringJobsSweepPath};
 
 function processorPathFromBody(body) {
   if (!body) return null;
@@ -2866,7 +3197,8 @@ function processorPathFromBody(body) {
       parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
       typeof route === "string" &&
       route.startsWith("/") &&
-      route.includes("/api/_agent-native-background/") &&
+      (route === RECURRING_JOBS_SWEEP_PATH ||
+        route.includes("/api/_agent-native-background/")) &&
       !route.includes("?") &&
       !route.includes("#")
     ) {
@@ -3988,6 +4320,35 @@ function createBrowserOnlyServerStubPlugin() {
   };
 }
 
+export function resolveNitroBuildReplacements(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  return {
+    // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
+    // function so preview OAuth relays can target this immutable deployment
+    // even though the value is unavailable in the function runtime.
+    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
+      env.DEPLOY_ID?.trim() || env.AGENT_NATIVE_BUILD_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
+      env.GA_MEASUREMENT_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
+      env.GTM_CONTAINER_ID?.trim() || "",
+    ),
+    // Netlify's netlify.toml environment is available while this deploy
+    // build runs, but is not injected into the deployed Function. Nitro is
+    // a separate server build, so embed release migration ownership here as
+    // well as in the Vite server bundle.
+    "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+      env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
+      env.CONTEXT?.trim() || "",
+    ),
+  };
+}
+
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
@@ -4028,6 +4389,13 @@ async function buildWithNitro() {
   // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
   // from `server/agents-bundle.ts` to guarantee identical content.
   const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
+  const nitroAgentConfig = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext(
+      "build",
+      process.env.NODE_ENV === "development" ? "development" : "production",
+    ),
+  );
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.
   const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
@@ -4039,7 +4407,9 @@ async function buildWithNitro() {
       }
     : null;
   const agentsBundleModuleSource = () => {
-    const bundle = readAgentsBundleFromFs(cwd, nitroWorkspaceSource);
+    const bundle = readAgentsBundleFromFs(cwd, nitroWorkspaceSource, {
+      instructions: nitroAgentConfig.instructions,
+    });
     return `// AUTO-GENERATED by @agent-native/core deploy build (Nitro virtual)
 // Contains the inlined AGENTS.md + .agents/skills/ content from the template,
 // merged with the workspace core's AGENTS.md + skills/ when present.
@@ -4079,25 +4449,7 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
-    replace: {
-      // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
-      // function so preview OAuth relays can target this immutable deployment
-      // even though the value is unavailable in the function runtime.
-      "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
-        process.env.DEPLOY_ID?.trim() ||
-          process.env.AGENT_NATIVE_BUILD_ID?.trim() ||
-          "",
-      ),
-      "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
-        process.env.GA_MEASUREMENT_ID?.trim() || "",
-      ),
-      "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
-        process.env.GTM_CONTAINER_ID?.trim() || "",
-      ),
-      "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
-        process.env.CONTEXT?.trim() || "",
-      ),
-    },
+    replace: resolveNitroBuildReplacements(),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render
@@ -4148,6 +4500,7 @@ export default bundle;
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
+    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
@@ -4169,6 +4522,8 @@ export default bundle;
     if (isDurableBackgroundEmitRequired()) {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
+
+    emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
 
     // Emit keep-warm after the background artifact so it only pings a function
     // that this build actually produced.

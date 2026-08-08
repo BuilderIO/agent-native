@@ -1,4 +1,4 @@
-name: Neon Preview Branches
+name: Neon Preview Branch Cleanup
 
 on:
   pull_request:
@@ -12,24 +12,18 @@ concurrency:
   group: neon-preview-branches-pr-${{ github.event.pull_request.number || github.event.number }}
   cancel-in-progress: true
 
-# Map each Netlify site to its Neon project. When a PR opens, we create a Neon
-# branch per project and set the site's DATABASE_URL(_UNPOOLED) as a
-# BRANCH-scoped value for the PR's head branch (context: branch). Netlify uses a
-# branch-specific value for that branch's deploy previews and it takes
-# precedence over the shared deploy-preview context value, so concurrent PRs on
-# different branches never clobber each other. The framework reads
-# DATABASE_URL directly; the branch value is available to the function at
-# runtime.
-#
-# On PR close we delete only this branch's value (not the whole variable, which
-# other branches and production still use) and this PR's Neon branch.
+# Preview database isolation is intentionally disabled. Preview deploys use the
+# shared Netlify database configuration; this workflow only cleans up branch
+# resources left by the former isolation flow when a PR closes.
 
 env:
   NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
 
 jobs:
   create-branches:
-    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    # Keep the old job definition available for cleanup history, but never
+    # create new Neon branches or Netlify database overrides.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

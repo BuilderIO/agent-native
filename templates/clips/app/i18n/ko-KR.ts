@@ -454,6 +454,9 @@ const messages = {
     agentLinkUnavailable: "에이전트 링크를 만들 수 없습니다.",
     retryAgentLink: "다시 시도",
     gifPreview: "GIF 미리보기",
+    copyEmailPreview: "이메일 미리보기 복사",
+    emailPreviewCopied: "이메일 미리보기가 복사되었습니다",
+    emailPreviewCopyFailed: "이메일 미리보기를 복사할 수 없습니다",
     openPlayer: "플레이어 열기",
     chooseFile: "파일 선택",
     remove: "제거",
@@ -1102,6 +1105,19 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     spaceCreated: "공간이 생성되었습니다",
     createFailed: "공간을 만들 수 없습니다",
   },
+  spaceDialog: {
+    deleteSpace: "스페이스 삭제",
+    renameSpace: "스페이스 이름 변경",
+    deleteTitle: "“{{name}}”을(를) 삭제할까요?",
+    deleteDescription:
+      "스페이스가 삭제되고 모든 녹화에서 제거됩니다. 이 작업은 취소할 수 없습니다.",
+    renamed: "스페이스 이름이 변경됨",
+    deleted: "“{{name}}” 삭제됨",
+    renameFailed: "스페이스 이름 변경 실패",
+    deleteFailed: "스페이스 삭제 실패",
+    renaming: "이름 변경 중...",
+    deleting: "삭제 중...",
+  },
   signInPrompt: {
     title: "{{intent}}하려면 로그인",
     description:
@@ -1264,6 +1280,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     cameraOff: "Camera off (현지화됨)",
     includeCameraAria: "Include camera in this recording (현지화됨)",
     startRecording: "Start recording (현지화됨)",
+    micOffConfirmTitle: "Record without a microphone? (현지화됨)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (현지화됨)",
+    startWithoutMic: "Start anyway (현지화됨)",
     uploadVideo: "Upload video (현지화됨)",
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",

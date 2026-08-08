@@ -1,25 +1,50 @@
+import { readFileSync } from "node:fs";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
+const rollupMocks = vi.hoisted(() => ({
+  upsert: vi.fn(),
+}));
+const healthMocks = vi.hoisted(() => ({
+  classify: vi.fn(() => "other"),
+  outcome: vi.fn(() => "error"),
+  record: vi.fn(),
+}));
+const backendMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  table: vi.fn(),
+  insert: vi.fn(),
+  query: vi.fn(),
+}));
+const exceptionMocks = vi.hoisted(() => ({
+  ingest: vi.fn(),
+}));
 const analyticsDbMocks = vi.hoisted(() => {
+  const getDb = vi.fn();
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
   const updateWhere = vi.fn();
+  const db: Record<string, any> = {};
+  db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
+    callback(db),
+  );
+  db.select = vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({ limit: selectLimit })),
+    })),
+  }));
+  db.insert = vi.fn(() => ({ values: insertValues }));
+  db.update = vi.fn(() => ({
+    set: vi.fn(() => ({ where: updateWhere })),
+  }));
+  getDb.mockReturnValue(db);
   return {
+    getDb,
     selectLimit,
     insertValues,
     updateWhere,
-    db: {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({ limit: selectLimit })),
-        })),
-      })),
-      insert: vi.fn(() => ({ values: insertValues })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: updateWhere })),
-      })),
-    },
+    db,
   };
 });
 
@@ -29,7 +54,25 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
 }));
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
-  getDb: () => analyticsDbMocks.db,
+  getDb: analyticsDbMocks.getDb,
+}));
+vi.mock("./first-party-analytics-rollups.js", () => ({
+  upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
+}));
+vi.mock("./error-capture.js", () => ({
+  EXCEPTION_EVENT_NAME: "$exception",
+  ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
+}));
+vi.mock("./first-party-analytics-health.js", () => ({
+  classifyFirstPartyAnalyticsQuery: healthMocks.classify,
+  queryOutcomeFromError: healthMocks.outcome,
+  recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
+}));
+vi.mock("./first-party-analytics-backend.js", () => ({
+  getFirstPartyAnalyticsBackend: backendMocks.get,
+  getFirstPartyAnalyticsTable: backendMocks.table,
+  insertFirstPartyAnalyticsRows: backendMocks.insert,
+  queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
 import {
@@ -39,11 +82,14 @@ import {
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
+  touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
 
 beforeEach(() => {
   execute.mockReset();
+  analyticsDbMocks.getDb.mockReset();
+  analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
   analyticsDbMocks.updateWhere.mockReset();
@@ -52,6 +98,94 @@ beforeEach(() => {
   ]);
   analyticsDbMocks.insertValues.mockResolvedValue(undefined);
   analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
+  rollupMocks.upsert.mockReset();
+  rollupMocks.upsert.mockResolvedValue({
+    eventCount: 1,
+    dailyRollupCount: 1,
+    userDayCount: 1,
+  });
+  healthMocks.classify.mockClear();
+  healthMocks.outcome.mockClear();
+  healthMocks.record.mockReset();
+  healthMocks.record.mockResolvedValue(undefined);
+  backendMocks.get.mockReset();
+  backendMocks.table.mockReset();
+  backendMocks.insert.mockReset();
+  backendMocks.query.mockReset();
+  exceptionMocks.ingest.mockReset();
+  backendMocks.get.mockResolvedValue({
+    sink: "postgres",
+    table: null,
+    backfillCursor: null,
+    backfillCompleted: false,
+  });
+  backendMocks.table.mockResolvedValue({
+    projectId: "builder-3b0a2",
+    datasetId: "analytics",
+    tableId: "first_party_analytics_events_raw",
+    fullyQualified: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+  });
+  backendMocks.insert.mockResolvedValue(1);
+  backendMocks.query.mockResolvedValue({
+    rows: [{ events: 1 }],
+    schema: [{ name: "events", type: "number" }],
+  });
+  exceptionMocks.ingest.mockResolvedValue(undefined);
+});
+
+describe("public-key last-used stamp", () => {
+  // Production outage 2026-08-07: this UPDATE ran inside the ingest
+  // transaction, so every concurrent request for one public key took an
+  // exclusive row lock on that key and held it through the rollup upsert.
+  // 36 writers stacked on three hot rows waiting 38-57s, the connection pool
+  // starved, and Analytics stopped loading for everyone.
+  const source = readFileSync(
+    new URL("./first-party-analytics.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("never writes the stamp inside a transaction", () => {
+    // Everything between `db.transaction(` and its closing `});` must be free
+    // of the stamp write, whatever else the transaction grows to do.
+    const start = source.indexOf("db.transaction(");
+    expect(start).toBeGreaterThan(0);
+    const body = source.slice(start, source.indexOf("\n  }", start));
+    expect(body).not.toContain("analyticsPublicKeys");
+    expect(body).not.toContain("lastUsedAt");
+  });
+
+  it("throttles the stamp in SQL, not in the caller", () => {
+    // A JS-side check would still let every racing request issue its own
+    // unconditional write. The predicate must be in the statement so Postgres
+    // matches — and therefore locks — zero rows for a freshly stamped key.
+    const fn = source.slice(source.indexOf("touchPublicKeyLastUsedAt("));
+    const update = fn.slice(fn.indexOf(".update(schema.analyticsPublicKeys)"));
+    const where = update.slice(0, update.indexOf("} catch"));
+    expect(where).toContain("isNull(schema.analyticsPublicKeys.lastUsedAt)");
+    expect(where).toContain("lt(schema.analyticsPublicKeys.lastUsedAt");
+    expect(where).toContain("staleBefore");
+  });
+
+  it("routes every stamp write through the throttled helper", () => {
+    // Two call sites drifted apart once already; a third unconditional write
+    // anywhere re-creates the convoy on its own.
+    // Exactly one place may set the stamp: the throttled helper. Other writes
+    // to this table (revocation) are rare admin actions and not the convoy.
+    let stampWrites = 0;
+    for (const file of ["first-party-analytics.ts", "session-replay.ts"]) {
+      const text = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+      stampWrites += (text.match(/\.set\(\{\s*lastUsedAt:/g) ?? []).length;
+    }
+    expect(stampWrites).toBe(1);
+  });
+
+  it("does not reject when acquiring the stamp database fails", async () => {
+    analyticsDbMocks.getDb.mockRejectedValueOnce(new Error("db unavailable"));
+
+    await expect(
+      touchPublicKeyLastUsedAt("apk_123", "2026-08-07T17:00:00.000Z"),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
@@ -120,6 +254,46 @@ describe("isMarketingWebsiteSessionEvent", () => {
 });
 
 describe("recordAnalyticsEvents", () => {
+  it("updates compact rollups after persisting raw events", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        userId: "user_1",
+        properties: { app: "analytics", template: "analytics" },
+      },
+    ]);
+
+    expect(rollupMocks.upsert).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          eventName: "pageview",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          userKey: "user_1",
+        }),
+      ],
+      analyticsDbMocks.db,
+    );
+    expect(
+      analyticsDbMocks.insertValues.mock.invocationCallOrder[0],
+    ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
+  });
+
+  it("does not acquire the retired historical-backfill lock during ingest", async () => {
+    await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects the ingest when a rollup update fails", async () => {
+    rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("rollup unavailable");
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalled();
+  });
+
   it("persists both sides of a signup identity bridge", async () => {
     await recordAnalyticsEvents("anpk_test", [
       {
@@ -157,6 +331,50 @@ describe("recordAnalyticsEvents", () => {
       }),
     ]);
   });
+
+  it("stops Postgres event and rollup writes after the org cuts over", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
+
+    expect(backendMocks.insert).toHaveBeenCalledWith(
+      [expect.objectContaining({ eventName: "pageview" })],
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+    expect(analyticsDbMocks.insertValues).not.toHaveBeenCalled();
+    expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps derived exception issues in SQL after the event cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "$exception",
+        properties: { error: "boom", app: "analytics" },
+      },
+    ]);
+
+    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(exceptionMocks.ingest).toHaveBeenCalledWith(
+      {
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        publicKeyId: "apk_123",
+      },
+      [expect.objectContaining({ derived: expect.any(Object) })],
+    );
+  });
 });
 
 describe("validateFirstPartyAnalyticsSql", () => {
@@ -184,6 +402,24 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).not.toThrow();
   });
 
+  it("allows compact event and user-day rollup queries", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT e.event_date FROM analytics_events e JOIN analytics_user_days u ON u.event_date = e.event_date",
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects direct replay chunk queries", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
@@ -198,6 +434,33 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "WITH session_replay_chunks AS (SELECT id FROM analytics_events) SELECT COUNT(*) FROM session_replay_chunks",
       ),
     ).toThrow("session replay chunks");
+  });
+
+  it("rejects comma-separated sources instead of leaving the extra table unscoped", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT name FROM analytics_events, sqlite_master",
+      ),
+    ).toThrow("Comma-separated table sources");
+  });
+
+  it("rejects quoted table sources that the scoping rewriter cannot replace", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        'SELECT name FROM analytics_events, "sqlite_master"',
+      ),
+    ).toThrow("Comma-separated table sources");
+    expect(() =>
+      validateFirstPartyAnalyticsSql('SELECT name FROM "analytics_events"'),
+    ).toThrow("Quoted table identifiers");
+  });
+
+  it("rejects ONLY-qualified sources before they can bypass tenant scoping", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT COUNT(*) FROM ONLY analytics_events",
+      ),
+    ).toThrow("ONLY-qualified table sources");
   });
 });
 
@@ -259,9 +522,89 @@ describe("scopedAnalyticsSql", () => {
     expect(scoped.sql).toContain("substr(started_at, 1, 10) <= ?");
     expect(scoped.args).toEqual(["alice@example.com", "2026-07-01"]);
   });
+
+  it("scopes rollups by tenant key without changing all-time lower bounds", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM (SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ? UNION ALL SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ?)",
+    );
+    expect(scoped.sql).not.toContain("event_date >= ?");
+    expect(scoped.args).toEqual([
+      "org:org_123",
+      "2026-07-01",
+      "user:alice@example.com",
+      "2026-07-01",
+    ]);
+  });
+
+  it("uses the personal tenant key for user-day rollups without an org", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = ? AND event_date <= ?)",
+    );
+    expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
+  });
 });
 
 describe("queryFirstPartyAnalytics", () => {
+  it("routes event queries to BigQuery after the org cuts over", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).resolves.toEqual({
+      rows: [{ events: 1 }],
+      schema: [{ name: "events", type: "number" }],
+    });
+
+    expect(backendMocks.table).toHaveBeenCalledWith(
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+    expect(backendMocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM analytics_events"),
+      expect.any(Array),
+      expect.objectContaining({
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      }),
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects event and session replay joins after the cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).rejects.toThrow("Cross-backend joins are not supported");
+  });
+
   it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 

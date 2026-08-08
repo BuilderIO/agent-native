@@ -1495,12 +1495,27 @@ export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
     submitLabel: z.string().trim().max(400).optional(),
   });
 
+/**
+ * Rich-text stores Markdown as runtime text. A fully escaped one-line payload
+ * ("### Heading\\n\\nBody") renders as one giant heading, so reject that shape at
+ * the shared schema instead of persisting a document that only looks valid.
+ * Escapes are still fine when they occur alongside real line breaks, such as
+ * an intentional `\\n` inside a code example.
+ */
+const planMarkdownSchema = z
+  .string()
+  .max(100_000)
+  .refine(
+    (value) => value.includes("\n") || !value.includes("\\n"),
+    "Rich-text Markdown must use actual line breaks, not a fully escaped `\\n` string.",
+  );
+
 export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   z.discriminatedUnion("type", [
     baseBlockSchema.extend({
       type: z.literal("rich-text"),
       data: z.object({
-        markdown: z.string().max(100_000),
+        markdown: planMarkdownSchema,
       }),
     }),
     baseBlockSchema.extend({
@@ -2758,7 +2773,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
     op: z.literal("update-rich-text"),
     blockId: idSchema,
     title: z.string().trim().min(1).max(180).optional(),
-    markdown: z.string().max(100_000).optional(),
+    markdown: planMarkdownSchema.optional(),
   }),
   z.object({
     op: z.literal("update-custom-html"),

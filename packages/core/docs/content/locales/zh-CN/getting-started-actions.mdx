@@ -1,0 +1,85 @@
+---
+title: "添加动作"
+description: "定义你的第一个动作，并直接在聊天中将其结果渲染为图表。"
+---
+
+# 添加动作
+
+这是 Getting Started 系列的第二部分。在[入门指南](/docs/getting-started)中，你创建了一个 Chat 应用。现在，你将定义一个有类型的文本分析器，并在聊天中渲染其结果。
+
+## 添加动作 {#add-an-action}
+
+动作是智能体和 UI 都可以调用的有类型操作。动作位于 `actions/` 目录中，是聊天、React 组件、CLI 和其他调用方共享的操作界面。
+
+创建 `actions/analyze-text.ts`：
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z.string().default("The quick brown fox jumps over the lazy dog."),
+  }),
+  outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
+    title: "Text stats",
+  },
+  readOnly: true,
+  run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
+    const points = [
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
+      {
+        label: "Sentences",
+        value: summary.sentences,
+      },
+      {
+        label: "Paragraphs",
+        value: summary.paragraphs,
+      },
+    ];
+
+    return createDataChartWidgetResult({
+      title: "Text statistics",
+      summary,
+      chartSeries: {
+        type: "bar",
+        xKey: "label",
+        series: [{ key: "value", label: "Count" }],
+        data: points,
+      },
+    });
+  },
+});
+```
+
+从终端运行：
+
+```bash
+pnpm action analyze-text --text "Hello world. How are you today?"
+```
+
+或者在聊天中询问智能体：
+
+> Run the analyze-text action on "Hello world. How are you today?"
+
+内置的 `data-chart` 渲染器会将结构化结果转换为对话记录中的图表。无需添加渲染器文件或 `app/root.tsx` import。若要创建自定义原生组件，请参阅 [Native Chat UI](/docs/native-chat-ui)。
+
+## 继续
+
+继续阅读[添加页面](/docs/getting-started-pages)，在对话记录之外使用相同的动作。

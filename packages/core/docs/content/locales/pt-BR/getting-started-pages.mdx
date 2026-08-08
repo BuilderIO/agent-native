@@ -1,0 +1,75 @@
+---
+title: "Adicionar uma página"
+description: "Crie uma rota React que chame sua ação e exiba o resultado."
+---
+
+# Adicionar uma página
+
+Esta é a terceira parte da série Primeiros passos. Em [Adicionar uma ação](/docs/getting-started-actions)
+você criou `analyze-text`. Aqui, você chamará essa mesma ação a partir de uma rota.
+Ainda não é preciso usar um banco de dados: o Chat já inclui o runtime de SQL para
+quando você precisar persistir dados do domínio.
+
+## Crie a rota {#add-a-page}
+
+Os arquivos de rota em `app/routes/` são detectados automaticamente. Crie
+`app/routes/text-analyses.tsx`; ela estará disponível em
+`http://localhost:8080/text-analyses`.
+
+```tsx filename="app/routes/text-analyses.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
+};
+
+export default function TextAnalysesRoute() {
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
+  );
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">The same action, on a page.</p>
+      </header>
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery` chama a mesma ação somente leitura usada pelo agente. A página não
+precisa de uma rota de API personalizada, uma segunda camada de dados ou SQL ainda.
+
+Abra `http://localhost:8080/text-analyses` ou peça ao agente:
+
+> Navigate to `/text-analyses`.
+
+A rota é suficiente para este tutorial. Adicione uma entrada na barra lateral mais
+tarde se isso se tornar um fluxo de trabalho principal. Para conhecer os padrões
+completos de `view-screen`, `navigate` e do estado da aplicação,
+consulte [Context Awareness](/docs/context-awareness).
+
+## Continue
+
+Você criou um app de chat com uma ação e uma página que chama a mesma fonte de
+verdade. Explore [Conceitos principais](/docs/key-concepts) e [Superfícies do agente](/docs/agent-surfaces).

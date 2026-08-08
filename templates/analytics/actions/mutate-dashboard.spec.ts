@@ -91,6 +91,8 @@ vi.mock("../server/lib/bigquery", () => ({
 }));
 
 const { default: mutateDashboard } = await import("./mutate-dashboard");
+const { DASHBOARD_COLLAB_SYNC_TIMEOUT_MS } =
+  await import("../server/lib/dashboard-collab-sync");
 
 function panel(id: string, source = "first-party") {
   return {
@@ -216,6 +218,41 @@ describe("mutate-dashboard", () => {
     expect(saved.panels.map((p) => p.id)).toEqual(["b", "c", "a"]);
     expect(saved.panels[2].title).toBe("Alpha");
     expect(mocks.dryRunQuery).not.toHaveBeenCalled();
+  });
+
+  it("returns the SQL save proof when collab sync hangs", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+    mocks.hasCollabState.mockImplementationOnce(
+      () => new Promise<boolean>(() => {}),
+    );
+
+    try {
+      const result: any = await mutateDashboard.run({
+        dashboardId: "traffic",
+        code: 'dashboard.panel("a").setTitle("Alpha");',
+      });
+
+      expect(result.saved).toBe(true);
+      expect(result.changedPanelIds).toEqual(["a"]);
+      expect(result.collabSync).toEqual({
+        status: "queued",
+        timeoutMs: DASHBOARD_COLLAB_SYNC_TIMEOUT_MS,
+      });
+      expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(DASHBOARD_COLLAB_SYNC_TIMEOUT_MS);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("Dashboard collab sync timed out for traffic"),
+      );
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("advertises one unambiguous code input to the agent", () => {

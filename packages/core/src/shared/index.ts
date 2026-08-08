@@ -10,6 +10,7 @@ export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,
   SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
   decodeContinuation,
   encodeContinuation,
@@ -22,6 +23,20 @@ export {
 export { truncate } from "./truncate.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
+export {
+  buildRuntimeConfigPrompt,
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+  parseRuntimeConfigReport,
+  runtimeConfigRequirementsFromSearchParams,
+  type RuntimeConfigEnvironment,
+  type RuntimeConfigIssue,
+  type RuntimeConfigIssueCode,
+  type RuntimeConfigIssueSeverity,
+  type RuntimeConfigPhase,
+  type RuntimeConfigReport,
+  type RuntimeConfigRequirements,
+} from "./runtime-config.js";
 export {
   llmConnectionTrackingProperties,
   normalizeLlmConnection,
@@ -54,6 +69,11 @@ export {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
+export {
+  createPollEngine,
+  type PollEngineOptions,
+  type PollEngineHandle,
+} from "./poll-engine.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,

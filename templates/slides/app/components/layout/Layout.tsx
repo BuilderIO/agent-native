@@ -12,6 +12,7 @@ import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
+import { GoogleDriveConnectionCta } from "../editor/GoogleDriveConnectionCta";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
@@ -49,7 +50,9 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-  const { getDeck } = useDecks();
+  const { decks, getDeck, loading: decksLoading } = useDecks();
+  const isEmptyDecksState =
+    location.pathname === "/" && !decksLoading && decks.length === 0;
 
   // Scope new chats to the deck the user is currently editing. The route
   // is `/deck/:id`; everywhere else (list, presentation) leaves
@@ -115,7 +118,9 @@ export function Layout({ children }: LayoutProps) {
         scope={deckScope}
         browserTabId={TAB_ID}
         agentPageHref="/agent"
+        suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
         composerSlot={<CreativeContextComposerChip />}
+        threadFooterSlot={<GoogleDriveConnectionCta />}
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
           {sidebarOpen && (
@@ -124,28 +129,30 @@ export function Layout({ children }: LayoutProps) {
               onClick={() => setSidebarOpen(false)}
             />
           )}
-          <div
-            className={cn(
-              "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
-              sidebarOpen
-                ? "translate-x-0"
-                : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
-            )}
-          >
-            <Sidebar
-              collapsed={effectiveSidebarCollapsed && !sidebarOpen}
-              // In the mobile drawer the sidebar is forced expanded, so the
-              // desktop collapse toggle would be a silent no-op (worse: it'd
-              // mutate the desktop preference). Hide it while the drawer is
-              // open.
-              onToggleCollapsed={
-                sidebarOpen ? undefined : toggleSidebarCollapsed
-              }
-            />
-          </div>
+          {!isEmptyDecksState && (
+            <div
+              className={cn(
+                "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
+                sidebarOpen
+                  ? "translate-x-0"
+                  : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
+              )}
+            >
+              <Sidebar
+                collapsed={effectiveSidebarCollapsed && !sidebarOpen}
+                // In the mobile drawer the sidebar is forced expanded, so the
+                // desktop collapse toggle would be a silent no-op (worse: it'd
+                // mutate the desktop preference). Hide it while the drawer is
+                // open.
+                onToggleCollapsed={
+                  sidebarOpen ? undefined : toggleSidebarCollapsed
+                }
+              />
+            </div>
+          )}
           <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
-            {!ownToolbar && (
+            {!isEmptyDecksState && !ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
                 <button
                   onClick={() => setSidebarOpen(true)}
@@ -156,8 +163,8 @@ export function Layout({ children }: LayoutProps) {
                 </button>
               </div>
             )}
-            {!ownToolbar && <Header />}
-            <InvitationBanner />
+            {!isEmptyDecksState && !ownToolbar && <Header />}
+            {!isEmptyDecksState && <InvitationBanner />}
             <main
               className={cn(
                 "agent-native-app-main min-h-0 flex-1",

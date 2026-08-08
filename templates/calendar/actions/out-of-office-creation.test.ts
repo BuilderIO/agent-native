@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const isConnectedMock = vi.hoisted(() => vi.fn());
 const getAuthStatusMock = vi.hoisted(() => vi.fn());
 const createGoogleEventMock = vi.hoisted(() => vi.fn());
+const registerEventMock = vi.hoisted(() => vi.fn());
 const writeAppStateMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -13,7 +14,10 @@ vi.mock("@agent-native/core/application-state", () => ({
   deleteAppStateByPrefix: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/event-bus", () => ({ emit: vi.fn() }));
+vi.mock("@agent-native/core/event-bus", () => ({
+  emit: vi.fn(),
+  registerEvent: registerEventMock,
+}));
 
 vi.mock("../server/lib/google-calendar.js", () => ({
   isConnected: isConnectedMock,

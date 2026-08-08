@@ -46,6 +46,9 @@ type ChatThreadRow = {
   pinned_at?: number | null;
   archived_at?: number | null;
   share_token_hash?: string | null;
+  source_platform?: string | null;
+  source_app_id?: string | null;
+  source_url?: string | null;
   org_id?: string | null;
   visibility?: "private" | "org" | "public";
 };
@@ -545,6 +548,56 @@ describe("chat thread store", () => {
     expect(result[0].messageCount).toBe(1);
   });
 
+  it("keeps the local history view app-scoped and excludes connected chats", async () => {
+    const summaryRow = {
+      id: "thread-local",
+      title: "Local thread",
+      preview: "hello there",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 2,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+      source_platform: null,
+      source_app_id: "dispatch",
+      source_url: null,
+      pinned_at: null,
+      archived_at: null,
+    };
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [summaryRow], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const result = await listThreads("user@example.com", {
+      limit: 10,
+      includeExternal: false,
+      sourceAppId: "dispatch",
+    });
+
+    const listCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return /SELECT .* FROM chat_threads WHERE/i.test(sql);
+    });
+    expect(listCall).toBeTruthy();
+    const request = listCall![0] as { sql: string; args: unknown[] };
+    expect(request.sql).toContain("source_platform IS NULL");
+    expect(request.sql).toContain(
+      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
+    );
+    expect(request.sql).toContain(
+      "(source_app_id IS NULL OR source_app_id = ?)",
+    );
+    expect(request.args).toContain("dispatch");
+    expect(result[0]?.source).toEqual({
+      appId: "dispatch",
+    });
+  });
+
   it("excludes archived threads from list/search by default, includes them via includeArchived, and restores them on unarchive", async () => {
     const activeRow: ChatThreadRow = {
       id: "thread-active",
@@ -735,7 +788,7 @@ describe("chat thread store", () => {
         return { rows: found ? [found] : [], rowsAffected: 0 };
       }
       if (/INSERT INTO chat_threads/i.test(sql)) {
-        if (args.length === 9) {
+        if (args.length === 12) {
           rows.set(args[0], {
             id: args[0],
             owner_email: args[1],
@@ -748,7 +801,10 @@ describe("chat thread store", () => {
             scope_type: args[5],
             scope_id: args[6],
             scope_label: args[7],
-            org_id: args[8],
+            source_platform: args[8],
+            source_app_id: args[9],
+            source_url: args[10],
+            org_id: args[11],
             visibility: "private",
           });
           return { rows: [], rowsAffected: 1 };
@@ -765,7 +821,10 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
-          org_id: args[11],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
           visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
@@ -885,7 +944,10 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
-          org_id: args[11],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
           visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
@@ -966,7 +1028,10 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
-          org_id: args[11],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
           visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };

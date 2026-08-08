@@ -293,6 +293,8 @@ const CLIPS_AGENT_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
+const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
+const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 
 type ViewerPlatform = "mac" | "windows" | "linux";
 
@@ -404,6 +406,7 @@ export default function ShareRoute() {
   }, [recordingId, attribution.ref, attribution.via]);
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
+  const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
   const [password, setPassword] = useState<string | null>(() => {
     if (typeof window === "undefined" || !shareId) return null;
     try {
@@ -463,7 +466,26 @@ export default function ShareRoute() {
       // page auto-upgrades from "Processing" to the real player the moment
       // the server flips status to 'ready' and writes videoUrl. Mirrors
       // r.$recordingId.tsx's playerDataQ.refetchInterval.
-      if (rec.status !== "ready" || !rec.videoUrl) return 2000;
+      if (rec.status !== "ready" || !rec.videoUrl) {
+        readyMediaPollRef.current = null;
+        return 2000;
+      }
+      const mediaKey = [
+        rec.id,
+        rec.durationMs ?? "",
+        rec.videoSizeBytes ?? "",
+        rec.videoFormat ?? "",
+      ].join(":");
+      const now = Date.now();
+      if (readyMediaPollRef.current?.key !== mediaKey) {
+        readyMediaPollRef.current = {
+          key: mediaKey,
+          until: now + READY_MEDIA_SETTLE_POLL_MS,
+        };
+      }
+      if (now < readyMediaPollRef.current.until) {
+        return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+      }
       // Also keep polling while a transcript is pending so "Transcribing…"
       // auto-flips to the ready transcript (or to the failure card). The
       // public payload has no transcript.cleanup field (that's authenticated
@@ -507,6 +529,12 @@ export default function ShareRoute() {
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
+  useEffect(() => {
+    if (!viewerCanEdit && panel === "insights") {
+      setPanel("comments");
+    }
+  }, [panel, viewerCanEdit]);
+
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
   const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
@@ -963,6 +991,7 @@ export default function ShareRoute() {
                 initialVisibility={recording.visibility}
                 initialRole={viewerIsOwner ? "owner" : undefined}
                 videoUrl={recording.videoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
@@ -985,6 +1014,10 @@ export default function ShareRoute() {
               onVideoElementChange={setTrackedVideoEl}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              mediaVersion={[
+                recording.videoSizeBytes ?? "",
+                recording.updatedAt ?? "",
+              ].join(":")}
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
@@ -1075,7 +1108,9 @@ export default function ShareRoute() {
           onValueChange={setPanel}
           className="flex h-full flex-col"
         >
-          <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
+          <TabsList
+            className={`mx-3 mt-3 grid w-auto ${viewerCanEdit ? "grid-cols-4" : "grid-cols-3"}`}
+          >
             <TabsTrigger value="comments" className="text-xs gap-1">
               {t("recordingPage.activity")}
               {comments.length > 0 ? (
@@ -1090,9 +1125,11 @@ export default function ShareRoute() {
             <TabsTrigger value="agent" className="text-xs">
               {t("sharePage.agent")}
             </TabsTrigger>
-            <TabsTrigger value="insights" className="text-xs">
-              {t("sharePage.insights")}
-            </TabsTrigger>
+            {viewerCanEdit ? (
+              <TabsTrigger value="insights" className="text-xs">
+                {t("sharePage.insights")}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
           <TabsContent
             value="agent"
@@ -1102,6 +1139,7 @@ export default function ShareRoute() {
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
+                missingApiKeySetupLayout="sidebar"
                 suggestions={[
                   t("recordingPage.summarizeClip"),
                   t("recordingPage.findKeyMoments"),
@@ -1159,19 +1197,17 @@ export default function ShareRoute() {
               presentation="share"
             />
           </TabsContent>
-          <TabsContent
-            value="insights"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
-          >
-            {viewerCanEdit ? (
+          {viewerCanEdit ? (
+            <TabsContent
+              value="insights"
+              className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            >
               <InsightsPanel
                 recordingId={recording.id}
                 durationMs={recording.durationMs}
               />
-            ) : (
-              <PublicInsightsState />
-            )}
-          </TabsContent>
+            </TabsContent>
+          ) : null}
         </Tabs>
       </aside>
 
@@ -1284,20 +1320,6 @@ function PublicAgentEmptyState({
           </a>
         </Button>
       </div>
-    </div>
-  );
-}
-
-function PublicInsightsState() {
-  const t = useT();
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <p className="text-sm font-medium text-foreground">
-        {t("sharePage.ownerInsights")}
-      </p>
-      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        {t("sharePage.ownerInsightsDescription")}
-      </p>
     </div>
   );
 }

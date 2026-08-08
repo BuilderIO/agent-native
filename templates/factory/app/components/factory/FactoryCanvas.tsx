@@ -89,7 +89,10 @@ type DragState = {
   nodeId: string;
   offsetX: number;
   offsetY: number;
+  startPosition: { x: number; y: number };
 };
+
+const DRAG_THRESHOLD = 6;
 
 export function FactoryCanvas({
   graph,
@@ -171,6 +174,7 @@ export function FactoryCanvas({
       nodeId: node.id,
       offsetX: (event.clientX - rect.left) / scale - node.position.x,
       offsetY: (event.clientY - rect.top) / scale - node.position.y,
+      startPosition: node.position,
     });
     dragMoved.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -186,10 +190,17 @@ export function FactoryCanvas({
       (event.clientX - rect.left) / scale - dragState.offsetX,
       (event.clientY - rect.top) / scale - dragState.offsetY,
     );
-    if (Math.abs(position.x) + Math.abs(position.y) > 0) {
-      dragMoved.current = true;
-      onMoveNode(dragState.nodeId, position);
+    const movedX = Math.abs(position.x - dragState.startPosition.x);
+    const movedY = Math.abs(position.y - dragState.startPosition.y);
+    if (
+      !dragMoved.current &&
+      movedX <= DRAG_THRESHOLD &&
+      movedY <= DRAG_THRESHOLD
+    ) {
+      return;
     }
+    dragMoved.current = true;
+    onMoveNode(dragState.nodeId, position);
   }
 
   function endDrag(event: React.PointerEvent<HTMLButtonElement>) {

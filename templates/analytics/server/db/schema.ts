@@ -38,12 +38,36 @@ export const dashboards = table("dashboards", {
   /** Hidden dashboards are omitted from default navigation but remain openable. */
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
+  folderId: text("folder_id"),
   /** Last authenticated user who changed dashboard metadata/config, if tracked. */
   updatedBy: text("updated_by"),
   ...ownableColumns(),
 });
 
+/**
+ * Persistent per-name rows serialize concurrent create/rename checks. The row
+ * is deliberately independent of dashboard visibility: callers acquire the
+ * same lock before applying their access-scoped collision check.
+ */
+export const dashboardNameLocks = table("dashboard_name_locks", {
+  nameKey: text("name_key").primaryKey(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const dashboardShares = createSharesTable("dashboard_shares");
+
+export const dashboardFolders = table("dashboard_folders", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  scope: text("scope", { enum: ["personal", "shared"] }).notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const dashboardFolderShares = createSharesTable(
+  "dashboard_folder_shares",
+);
 
 /**
  * Bounded dashboard history. Each row snapshots the previous dashboard config
@@ -257,6 +281,59 @@ export const analyticsEvents = table("analytics_events", {
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
 });
+
+/**
+ * Compact daily event counts. The tenant key is non-null so the natural key
+ * remains unique for both organization-scoped and personal analytics keys.
+ */
+export const analyticsEventDailyRollups = table(
+  "analytics_event_daily_rollups",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    template: text("template").notNull().default(""),
+    eventCount: integer("event_count").notNull().default(0),
+  },
+);
+
+/** One row per identifiable visitor and normalized event day. */
+export const analyticsUserDays = table("analytics_user_days", {
+  id: text("id").primaryKey(),
+  tenantKey: text("tenant_key").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  eventDate: text("event_date").notNull(),
+  userKey: text("user_key").notNull(),
+});
+
+/**
+ * Compact pressure signals for first-party queries that are already slow or
+ * failing. Successful fast queries never write here, so the diagnostic path
+ * cannot become another hot-path event log.
+ */
+export const analyticsQueryPressureDaily = table(
+  "analytics_query_pressure_daily",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    /** UTC day bucket; lastSeenAt carries the timestamp for trailing-window reads. */
+    eventDate: text("event_date").notNull(),
+    queryClass: text("query_class").notNull(),
+    slowQueryCount: integer("slow_query_count").notNull().default(0),
+    timeoutCount: integer("timeout_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    totalDurationMs: integer("total_duration_ms").notNull().default(0),
+    maxDurationMs: integer("max_duration_ms").notNull().default(0),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+);
 
 /**
  * Generic alert rules over first-party analytics events. Rules are owned by a

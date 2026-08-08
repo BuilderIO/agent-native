@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.136.5",
+  "version": "0.146.3",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -72,6 +72,7 @@
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
     "./server/poll": "./dist/server/poll.js",
+    "./server/interval-job": "./dist/server/interval-job.js",
     "./server/sse": "./dist/server/sse.js",
     "./server/short-lived-token": "./dist/server/short-lived-token.js",
     "./integrations": "./dist/integrations/index.js",
@@ -85,6 +86,7 @@
     "./automation": "./dist/automation/index.js",
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
+    "./brand-kit/tokens": "./dist/brand-kit/tokens.js",
     "./data-widgets": "./dist/data-widgets/index.js",
     "./action": {
       "types": "./dist/action.d.ts",
@@ -97,6 +99,10 @@
     "./agent-native": {
       "types": "./dist/agent-native/index.d.ts",
       "default": "./dist/agent-native/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
     },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
@@ -244,6 +250,7 @@
     "./comments-review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./comments-review/actions/set-review-status": "./dist/review/actions/set-review-status.js",
     "./comments-review/actions/send-review-thread-to-agent": "./dist/review/actions/send-review-thread-to-agent.js",
+    "./email-catalog": "./dist/email-catalog/registry.js",
     "./sharing": "./dist/sharing/index.js",
     "./sharing/actions/share-resource": "./dist/sharing/actions/share-resource.js",
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",
@@ -263,6 +270,10 @@
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
+    },
+    "./cli/agent-plugin": {
+      "types": "./dist/cli/agent-plugin.d.ts",
+      "default": "./dist/cli/agent-plugin.js"
     },
     "./testing": {
       "types": "./dist/testing.d.ts",
@@ -316,6 +327,7 @@
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",
     "./notifications": "./dist/notifications/index.js",
+    "./jobs": "./dist/jobs/index.js",
     "./client/notifications": "./dist/client/notifications/index.js",
     "./progress": "./dist/progress/index.js",
     "./client/progress": "./dist/client/progress/index.js",
