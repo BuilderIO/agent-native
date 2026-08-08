@@ -42,7 +42,7 @@ describe("agent chat startup", () => {
     // Nothing awaits the eager hydration, so on a runtime that freezes after
     // responding its settings scan and MCP handshakes escape past the response.
     expect(source).toContain(
-      "if (!isProductionServerlessFunctionRuntime()) {\n        void ensureMcpInitialized();",
+      "if (!isProductionServerlessFunctionRuntime()) {\n        void ensureMcpInitialized().catch",
     );
     // The lazy path must actually run: never initializing would be worse than
     // the cold-start cost it removes.

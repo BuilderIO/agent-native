@@ -157,8 +157,6 @@ import {
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import {
   McpClientManager,
-  loadMcpConfig,
-  autoDetectMcpConfig,
   mcpToolsToActionEntries,
   syncMcpActionEntries,
   mountMcpServersRoutes,
@@ -613,26 +611,14 @@ export function createAgentChatPlugin(
       const mcpActionEntries: Record<string, ActionEntry> = {};
       let mcpInitializationPromise: Promise<void> | null = null;
       const initializeMcpManager = async (): Promise<void> => {
-        let mcpConfig = await buildMergedConfig().catch((err) => {
-          console.warn(
-            `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-          );
-          return null;
-        });
-        if (!mcpConfig) {
-          mcpConfig = loadMcpConfig() ?? autoDetectMcpConfig();
-          if (mcpConfig?.source) {
-            console.log(
-              `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
-            );
-          } else if (process.env.DEBUG) {
-            console.log(
-              "[mcp-client] no configured MCP servers — skipping MCP tools",
-            );
-          }
-        } else if (mcpConfig.source) {
+        const mcpConfig = await buildMergedConfig();
+        if (mcpConfig?.source) {
           console.log(
             `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
+          );
+        } else if (process.env.DEBUG) {
+          console.log(
+            "[mcp-client] no configured MCP servers — skipping MCP tools",
           );
         }
         try {
@@ -654,11 +640,14 @@ export function createAgentChatPlugin(
        * empty for the life of the container.
        */
       const ensureMcpInitialized = (): Promise<void> => {
-        mcpInitializationPromise ??= initializeMcpManager().catch((err) => {
-          console.warn(
-            `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
-          );
-        });
+        if (!mcpInitializationPromise) {
+          mcpInitializationPromise = initializeMcpManager().catch((err) => {
+            // Do not cache a settings outage as a successful empty manager;
+            // the next MCP-consuming request must retry the configuration read.
+            mcpInitializationPromise = null;
+            throw err;
+          });
+        }
         return mcpInitializationPromise;
       };
       const getJobMcpActionEntries = (
@@ -669,7 +658,11 @@ export function createAgentChatPlugin(
         // Sync by contract (SchedulerDeps.getActions), so it cannot await the
         // lazy init. Kick it off so a retried run finds the tools; this run
         // still fails loudly below rather than silently dropping them.
-        void ensureMcpInitialized();
+        void ensureMcpInitialized().catch((err) => {
+          console.warn(
+            `[mcp-client] background initialization failed: ${err?.message ?? err}`,
+          );
+        });
         const entries = mcpToolsToActionEntries(mcpManager, {
           toolNames: requested,
         });
@@ -6192,7 +6185,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // freezes after responding. There, `ensureMcpInitialized()` is driven by
       // the surfaces that consume MCP tools instead.
       if (!isProductionServerlessFunctionRuntime()) {
-        void ensureMcpInitialized();
+        void ensureMcpInitialized().catch((err) => {
+          console.warn(
+            `[mcp-client] eager initialization failed: ${err?.message ?? err}`,
+          );
+        });
       }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
