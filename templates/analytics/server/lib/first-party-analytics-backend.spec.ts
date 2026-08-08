@@ -23,6 +23,7 @@ vi.mock("./credentials-context.js", () => ({
 
 import {
   backfillFirstPartyAnalyticsBatch,
+  createFirstPartyAnalyticsInserter,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
@@ -211,6 +212,36 @@ describe("first-party BigQuery backend", () => {
     expect(
       JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).rows,
     ).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("reuses the table resolver and bounds dedicated BigQuery concurrency", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const insertRows = await createFirstPartyAnalyticsInserter(
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      { maxRowsPerRequest: 500, maxConcurrentRequests: 2 },
+    );
+    await expect(
+      insertRows(
+        Array.from({ length: 1_001 }, (_, index) => ({
+          id: `event-${index}`,
+        })),
+      ),
+    ).resolves.toBe(1_001);
+
+    expect(getBigQueryProjectId).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(maxInFlight).toBe(2);
     vi.unstubAllGlobals();
   });
 

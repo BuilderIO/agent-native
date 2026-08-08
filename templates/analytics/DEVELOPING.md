@@ -183,6 +183,65 @@ Conventions:
 - Use `fatal()` for required arg validation
 - `helpers.ts` loads `dotenv/config` so env vars are available
 
+### Dedicated first-party Analytics backfill
+
+`backfill:first-party-bigquery` is a resumable, bounded Neon-to-BigQuery worker
+for an explicitly selected organization. It is dry-run by default. It uses the
+scoped credential resolver, fixed high-water marks, separate organization and
+legacy-owner cursors, atomic local checkpoints, a local lock, and a durable
+database lease shared with the shipped worker. The tuple-paging indexes are
+installed by the additive analytics migration. It does not change the Analytics
+sink or perform cutover.
+
+```bash
+pnpm backfill:first-party-bigquery \
+  --owner-email=<owner-email> \
+  --org-id=<org-id>
+```
+
+Production execution requires both `--execute` and the explicit
+`AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_ALLOW=1` environment gate. Start with a bounded
+`--max-batches` budget and increase concurrency only after checking database
+health between runs. The dedicated worker claims the durable migration-job
+lease, so the shipped worker and another operator using a different checkpoint
+path cannot copy the same job concurrently. A crashed dedicated worker leaves
+that lease to expire before the shipped worker can resume it.
+
+```bash
+AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_ALLOW=1 pnpm backfill:first-party-bigquery \
+  --execute \
+  --owner-email=<owner-email> \
+  --org-id=<org-id> \
+  --batch-size=1000 \
+  --concurrency=2 \
+  --max-batches=100
+```
+
+The checkpoint file contains cursors and counts, not event payloads or
+credentials. A short page triggers a fresh high-water check so rows written
+while the worker is running are included. A partial BigQuery acknowledgement
+does not advance the cursor; retry it promptly, or run an insertId-deduplication
+or `MERGE` pass on the target table before finalizing.
+
+Before finalization, quiesce the source event writes and verify the final
+high-water marks. The `--owner-email` and `--org-id` values are trusted operator
+inputs, so execution is limited to the approved production operator and the
+two explicit environment gates. Then use the separate `--finalize` command
+with both gates below. The command rechecks the source high-water marks before
+marking the durable job complete; the normal migration action's approval gate
+still controls cutover:
+
+```bash
+AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_FINALIZE_ALLOW=1 \
+AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_QUIESCENT=1 \
+pnpm backfill:first-party-bigquery \
+  --finalize \
+  --owner-email=<owner-email> \
+  --org-id=<org-id>
+```
+
+Do not delete a lock file until the owning process has been verified stopped.
+
 ## TypeScript Everywhere
 
 All code in this project must be TypeScript (`.ts`). Never create `.js`, `.cjs`, or `.mjs` files. Node 22+ runs `.ts` files natively, so no compilation step is needed for scripts. Use ESM imports (`import`), not CommonJS (`require`).
