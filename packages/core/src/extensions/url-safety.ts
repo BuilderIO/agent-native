@@ -331,6 +331,7 @@ export async function ssrfSafeFetch(
   init: RequestInit = {},
   options: {
     maxRedirects?: number;
+    followRedirects?: boolean;
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
     /**
@@ -387,6 +388,7 @@ export async function ssrfSafeFetch(
 
     const response = await fetch(currentUrl, fetchOpts);
     if (response.status >= 300 && response.status < 400) {
+      if (options.followRedirects === false) return response;
       const location = response.headers.get("location");
       if (!location) return response;
       // Drain the redirect body so the hop's connection is released instead

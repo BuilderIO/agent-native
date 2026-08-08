@@ -6,6 +6,9 @@ const validateAuthorizationResponseIssuerMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
 const getOAuthTokensMock = vi.hoisted(() => vi.fn());
 const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
+const replaceOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
+const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
+const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@modelcontextprotocol/client", () => ({
   auth: authMock,
@@ -17,6 +20,29 @@ vi.mock("../oauth-tokens/store.js", () => ({
   deleteOAuthTokens: deleteOAuthTokensMock,
   getOAuthTokens: getOAuthTokensMock,
   saveOAuthTokens: saveOAuthTokensMock,
+  getOAuthTokenSnapshot: vi.fn(
+    async (provider: string, accountId: string, owner: string) => {
+      const tokens = await getOAuthTokensMock(provider, accountId, owner);
+      return tokens ? { tokens, owner, revision: 1 } : null;
+    },
+  ),
+  replaceOAuthTokensIfRevision: replaceOAuthTokensIfRevisionMock,
+  deleteOAuthTokensIfRevision: deleteOAuthTokensIfRevisionMock,
+}));
+
+vi.mock("../settings/store.js", () => ({
+  mutateSetting: vi.fn(
+    async (
+      _key: string,
+      updater: (
+        current: Record<string, unknown> | null,
+      ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+    ) => updater(null),
+  ),
+}));
+
+vi.mock("../extensions/url-safety.js", () => ({
+  ssrfSafeFetch: ssrfSafeFetchMock,
 }));
 
 import {
@@ -25,6 +51,7 @@ import {
   getMcpOAuthAccessToken,
   McpOAuthClientProvider,
   readMcpOAuthCredentials,
+  revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
   startMcpOAuthAuthorization,
   tokenExpiresAt,
@@ -60,11 +87,37 @@ const credentials = {
 };
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   authMock.mockReset();
   refreshAuthorizationMock.mockReset();
   deleteOAuthTokensMock.mockReset();
   getOAuthTokensMock.mockReset();
   saveOAuthTokensMock.mockReset();
+  replaceOAuthTokensIfRevisionMock.mockReset();
+  replaceOAuthTokensIfRevisionMock.mockImplementation(
+    async (
+      _provider: string,
+      _accountId: string,
+      _owner: string,
+      _revision: number,
+      tokens: Record<string, unknown>,
+    ) => {
+      getOAuthTokensMock.mockResolvedValue(tokens);
+      saveOAuthTokensMock(_provider, _accountId, tokens, _owner);
+      return true;
+    },
+  );
+  deleteOAuthTokensIfRevisionMock.mockReset();
+  deleteOAuthTokensIfRevisionMock.mockImplementation(
+    async (provider: string, accountId: string, owner: string) => {
+      deleteOAuthTokensMock(provider, accountId, owner);
+      getOAuthTokensMock.mockResolvedValue(null);
+      return true;
+    },
+  );
+  ssrfSafeFetchMock.mockImplementation((url: string, init?: RequestInit) =>
+    fetch(url, init),
+  );
   validateAuthorizationResponseIssuerMock.mockReset();
 });
 
@@ -142,6 +195,7 @@ describe("MCP OAuth client", () => {
     await expect(
       fetchFn!("https://127.0.0.1/.well-known/oauth-authorization-server"),
     ).rejects.toThrow(/private\/internal address/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
     const provider = new McpOAuthClientProvider({
       serverUrl: "https://mcp.example.com/mcp",
       redirectUrl: "https://app.example.com/callback",
@@ -152,6 +206,44 @@ describe("MCP OAuth client", () => {
         authorizationServerUrl: "https://10.0.0.5/oauth",
       }),
     ).toThrow(/private\/internal address/);
+  });
+
+  it("routes OAuth discovery through the DNS-aware SSRF guard", async () => {
+    let fetchFn:
+      | ((url: string | URL, init?: RequestInit) => Promise<Response>)
+      | undefined;
+    authMock.mockImplementationOnce(
+      async (
+        provider: McpOAuthClientProvider,
+        options: { fetchFn?: typeof fetchFn },
+      ) => {
+        fetchFn = options.fetchFn;
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+    ssrfSafeFetchMock.mockResolvedValueOnce(new Response("ok"));
+
+    await startMcpOAuthAuthorization({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+    await fetchFn!("https://auth.example.com/discovery");
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://auth.example.com/discovery",
+      expect.objectContaining({ redirect: "manual" }),
+      expect.objectContaining({
+        maxRedirects: 0,
+        followRedirects: false,
+        allowedPrivateOrigins: [],
+      }),
+    );
   });
 
   it("validates every OAuth redirect hop and strips credentials across origins", async () => {
@@ -215,6 +307,22 @@ describe("MCP OAuth client", () => {
     expect(new Headers(redirectedInit.headers).has("authorization")).toBe(
       false,
     );
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://other.example.com/token" },
+      }),
+    );
+    await expect(
+      fetchFn!("https://auth.example.com/token", {
+        method: "POST",
+        headers: { Authorization: "Bearer <TOKEN>" },
+        body: "code=<CODE>&code_verifier=<CODE_VERIFIER>",
+      }),
+    ).rejects.toThrow(/cannot forward a request body across origins/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("finishes the code exchange without exposing the token to the flow result", async () => {
@@ -302,7 +410,15 @@ describe("MCP OAuth client", () => {
     expect(saveOAuthTokensMock).toHaveBeenCalledWith(
       "mcp",
       "mcp_oauth:test",
-      credentials,
+      expect.objectContaining({
+        ...credentials,
+        oauthLifecycle: {
+          version: 1,
+          provider: "mcp",
+          resource: "https://mcp.example.com/mcp",
+          owner: "user:alice@example.com",
+        },
+      }),
       "user:alice@example.com",
     );
   });
@@ -312,7 +428,7 @@ describe("MCP OAuth client", () => {
       ...credentials,
       tokenExpiresAt: Date.now() - 1,
     };
-    getOAuthTokensMock.mockResolvedValueOnce(expiring);
+    getOAuthTokensMock.mockResolvedValue(expiring);
     refreshAuthorizationMock.mockResolvedValueOnce({
       access_token: "<NEW_ACCESS_TOKEN>",
       token_type: "bearer",
@@ -341,7 +457,7 @@ describe("MCP OAuth client", () => {
   });
 
   it("requires reauthorization for expiring legacy credentials without issuer binding", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce({
+    getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       clientInformation: {
         client_id: "legacy-client",
@@ -361,7 +477,7 @@ describe("MCP OAuth client", () => {
   });
 
   it("does not return an expired token when refresh fails", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce({
+    getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       tokenExpiresAt: Date.now() - 1,
     });
@@ -380,7 +496,7 @@ describe("MCP OAuth client", () => {
   });
 
   it("keeps a still-valid token when an early refresh fails", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce({
+    getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       tokenExpiresAt: Date.now() + 30_000,
     });
@@ -398,6 +514,93 @@ describe("MCP OAuth client", () => {
     ).resolves.toBe("<ACCESS_TOKEN>");
   });
 
+  it("does not return a legacy MCP token for a different resource", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://other.example.com/mcp",
+      }),
+    ).resolves.toBeNull();
+    expect(refreshAuthorizationMock).not.toHaveBeenCalled();
+  });
+
+  it("revokes the refresh token before deleting local MCP custody", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      discoveryState: {
+        ...credentials.discoveryState,
+        authorizationServerMetadata: {
+          ...credentials.discoveryState.authorizationServerMetadata,
+          revocation_endpoint: "https://auth.example.com/revoke",
+        },
+      },
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await expect(
+      revokeMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toEqual({ remote: "succeeded", local: "deleted" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://auth.example.com/revoke",
+    );
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = new URLSearchParams(String(request.body));
+    expect(body.get("token")).toBe("<REFRESH_TOKEN>");
+    expect(body.get("token_type_hint")).toBe("refresh_token");
+    expect(body.get("client_id")).toBe("mcp-client-test");
+    expect(deleteOAuthTokensIfRevisionMock).toHaveBeenCalledTimes(1);
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://auth.example.com/revoke",
+      expect.any(Object),
+      expect.objectContaining({ maxRedirects: 0, httpsOnly: true }),
+    );
+  });
+
+  it("fails closed instead of posting a token to a loopback revocation endpoint", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      discoveryState: {
+        ...credentials.discoveryState,
+        authorizationServerMetadata: {
+          ...credentials.discoveryState.authorizationServerMetadata,
+          revocation_endpoint: "http://127.0.0.1:9000/revoke",
+        },
+      },
+    });
+    ssrfSafeFetchMock.mockRejectedValueOnce(
+      new Error("SSRF blocked: refusing to fetch private/internal address"),
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      revokeMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toEqual({ remote: "failed", local: "deleted" });
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9000/revoke",
+      expect.any(Object),
+      expect.objectContaining({ maxRedirects: 0, httpsOnly: true }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed stored bundles", async () => {
     getOAuthTokensMock.mockResolvedValueOnce({ access_token: "<TOKEN>" });
 
@@ -406,13 +609,14 @@ describe("MCP OAuth client", () => {
         key: "mcp_oauth:test",
         scope: "user",
         scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
       }),
     ).resolves.toBeNull();
   });
 
-  it("binds reads and deletes to the credential owner", async () => {
-    getOAuthTokensMock.mockResolvedValueOnce(null);
-    deleteOAuthTokensMock.mockResolvedValueOnce(1);
+  it("preserves owner-bound legacy reads and deletes without a serverUrl argument", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
+    deleteOAuthTokensMock.mockResolvedValue(1);
 
     await readMcpOAuthCredentials({
       key: "mcp_oauth:test",
