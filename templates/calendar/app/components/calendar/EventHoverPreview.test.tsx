@@ -16,7 +16,19 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@/components/ui/hover-card", () => ({
-  HoverCard: ({ children }: { children: ReactNode }) => <>{children}</>,
+  HoverCard: ({
+    children,
+    openDelay,
+    closeDelay,
+  }: {
+    children: ReactNode;
+    openDelay: number;
+    closeDelay: number;
+  }) => (
+    <div data-open-delay={openDelay} data-close-delay={closeDelay}>
+      {children}
+    </div>
+  ),
   HoverCardPortal: ({ children }: { children: ReactNode }) => <>{children}</>,
   HoverCardTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   HoverCardContent: ({
@@ -88,6 +100,9 @@ describe("EventHoverPreview", () => {
     });
 
     const preview = container.querySelector('[data-testid="preview"]');
+    const hoverCard = container.querySelector("[data-open-delay]");
+    expect(hoverCard?.getAttribute("data-open-delay")).toBe("50");
+    expect(hoverCard?.getAttribute("data-close-delay")).toBe("100");
     expect(preview?.getAttribute("data-side")).toBe("right");
     expect(preview?.getAttribute("data-align")).toBe("center");
     expect(

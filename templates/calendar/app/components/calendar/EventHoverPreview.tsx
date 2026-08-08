@@ -107,8 +107,8 @@ export const EventHoverPreview = forwardRef<
       onOpenChange={(nextOpen) => {
         if (!disabled && !pointerDown) setOpen(nextOpen);
       }}
-      openDelay={150}
-      closeDelay={150}
+      openDelay={50}
+      closeDelay={100}
     >
       <HoverCardTrigger
         asChild
@@ -132,7 +132,7 @@ export const EventHoverPreview = forwardRef<
           align="center"
           sideOffset={8}
           collisionPadding={12}
-          className="w-72 space-y-3 rounded-xl p-3.5 shadow-xl motion-reduce:animate-none"
+          className="w-72 space-y-3 rounded-xl p-3.5 shadow-xl data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-out data-[state=open]:ease-out motion-reduce:animate-none"
           data-event-hover-preview={event.id}
           onClick={(clickEvent) => clickEvent.stopPropagation()}
         >
