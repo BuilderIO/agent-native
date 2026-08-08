@@ -633,10 +633,15 @@ Read the calendar.`,
       },
       run: async () => "ok",
     };
+    let releaseActions: () => void = () => {};
+    const actionsReady = new Promise<void>((resolve) => {
+      releaseActions = resolve;
+    });
     let observedRequestIdentity:
       | { userEmail?: string; orgId?: string }
       | undefined;
-    const getActions = vi.fn(() => {
+    const getActions = vi.fn(async () => {
+      await actionsReady;
       observedRequestIdentity = {
         userEmail: getRequestUserEmail(),
         orgId: getRequestOrgId(),
@@ -661,7 +666,7 @@ Read the calendar.`,
     const handler = subscribeMock.mock.calls.find(
       ([eventName]) => eventName === "event.mcp.required",
     )?.[1];
-    await handler(
+    const handlerPromise = handler(
       { ok: true },
       {
         owner: "alice+triggers@agent-native.test",
@@ -669,6 +674,10 @@ Read the calendar.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await vi.waitFor(() => expect(getActions).toHaveBeenCalled());
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    releaseActions();
+    await handlerPromise;
 
     expect(getActions).toHaveBeenCalledWith(
       expect.objectContaining({

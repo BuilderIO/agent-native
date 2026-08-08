@@ -52,7 +52,7 @@ export interface BackgroundAutomationContext {
 export interface BackgroundAutomationDeps {
   getActions: (
     automation?: BackgroundAutomationContext,
-  ) => Record<string, ActionEntry>;
+  ) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   getSystemPrompt: (owner: string) => Promise<string>;
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
@@ -357,7 +357,7 @@ async function executeBackgroundAutomation(
       orgId,
     },
     async () => {
-      const baseActions = deps.getActions(automation);
+      const baseActions = await deps.getActions(automation);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
       const configuredInitialTools = deps.getInitialToolNames?.(automation);

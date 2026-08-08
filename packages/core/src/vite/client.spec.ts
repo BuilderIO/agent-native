@@ -1139,6 +1139,33 @@ describe("agentNative Vite plugin preset", () => {
     expect(pluginNames).toContain("agent-native-port-exposer");
   });
 
+  it("does not start Nitro during React Router's build-time preview", () => {
+    const previous = process.env.IS_RR_BUILD_REQUEST;
+    const nitroPreview = flatPlugins(agentNative()).find(
+      (plugin) => plugin?.name === "nitro:preview",
+    );
+    expect(nitroPreview).toBeDefined();
+
+    try {
+      process.env.IS_RR_BUILD_REQUEST = "yes";
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: true, mode: "production" },
+        ),
+      ).toBe(false);
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: false, mode: "development" },
+        ),
+      ).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.IS_RR_BUILD_REQUEST;
+      else process.env.IS_RR_BUILD_REQUEST = previous;
+    }
+  });
+
   it("applies framework defaults without clobbering ordinary Vite config", async () => {
     const plugins = flatPlugins(
       agentNative({ routeWarmup: { strategy: "render" } }),

@@ -138,7 +138,10 @@ import {
 } from "../chat-threads/store.js";
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { isTransientDatabaseError } from "../db/client.js";
+import {
+  isProductionServerlessFunctionRuntime,
+  isTransientDatabaseError,
+} from "../db/client.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -154,8 +157,6 @@ import {
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import {
   McpClientManager,
-  loadMcpConfig,
-  autoDetectMcpConfig,
   mcpToolsToActionEntries,
   syncMcpActionEntries,
   mountMcpServersRoutes,
@@ -610,43 +611,47 @@ export function createAgentChatPlugin(
       const mcpActionEntries: Record<string, ActionEntry> = {};
       let mcpInitializationPromise: Promise<void> | null = null;
       const initializeMcpManager = async (): Promise<void> => {
-        let mcpConfig = await buildMergedConfig().catch((err) => {
-          console.warn(
-            `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-          );
-          return null;
-        });
-        if (!mcpConfig) {
-          mcpConfig = loadMcpConfig() ?? autoDetectMcpConfig();
-          if (mcpConfig?.source) {
-            console.log(
-              `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
-            );
-          } else if (process.env.DEBUG) {
-            console.log(
-              "[mcp-client] no configured MCP servers — skipping MCP tools",
-            );
-          }
-        } else if (mcpConfig.source) {
+        const mcpConfig = await buildMergedConfig();
+        if (mcpConfig?.source) {
           console.log(
             `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
           );
-        }
-        try {
-          await mcpManager.reconfigure(mcpConfig);
-        } catch (err: any) {
-          console.warn(
-            `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+        } else if (process.env.DEBUG) {
+          console.log(
+            "[mcp-client] no configured MCP servers — skipping MCP tools",
           );
-        } finally {
-          startMcpConfigRefresh(mcpManager);
         }
+        await mcpManager.reconfigure(mcpConfig);
+        startMcpConfigRefresh(mcpManager);
       };
-      const getJobMcpActionEntries = (
+      /**
+       * Start MCP initialization at most once, and return the run in flight.
+       *
+       * On a serverless function nothing kicks this off at boot (see the
+       * `isProductionServerlessFunctionRuntime` gate below), so every surface
+       * that actually consumes MCP tools must await this or the manager stays
+       * empty for the life of the container.
+       */
+      const ensureMcpInitialized = (): Promise<void> => {
+        if (!mcpInitializationPromise) {
+          mcpInitializationPromise = initializeMcpManager().catch((err) => {
+            // Do not cache a settings outage as a successful empty manager;
+            // the next MCP-consuming request must retry the configuration read.
+            mcpInitializationPromise = null;
+            throw err;
+          });
+        }
+        return mcpInitializationPromise;
+      };
+      const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
-      ): Record<string, ActionEntry> => {
+      ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
         if (requested.length === 0) return {};
+        // Background action suppliers may be async so event-triggered and
+        // scheduled runs can await lazy MCP hydration on serverless cold
+        // starts. Runs without requested MCP tools still skip this work.
+        await ensureMcpInitialized();
         const entries = mcpToolsToActionEntries(mcpManager, {
           toolNames: requested,
         });
@@ -665,7 +670,7 @@ export function createAgentChatPlugin(
       mountMcpServersRoutes(nitroApp, mcpManager, {
         // Serialize an unusually early settings mutation behind the initial
         // config snapshot so stale startup data cannot overwrite the write.
-        waitUntilReady: () => mcpInitializationPromise ?? Promise.resolve(),
+        waitUntilReady: ensureMcpInitialized,
       });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
@@ -1205,27 +1210,30 @@ export function createAgentChatPlugin(
       // background surface. Interactive-only tools stay out of it, while
       // shared capabilities such as call-agent and core-send-email cannot
       // drift independently between the two background entry points.
-      const getBackgroundActionEntries = (
+      const getBackgroundActionEntries = async (
         automation?: RecurringJobContext,
-      ): Record<string, ActionEntry> => ({
-        ...templateScripts,
-        ...resourceScripts,
-        ...docsScripts,
-        ...(lazyContext ? frameworkContextTool : {}),
-        ...urlTools,
-        ...chatScripts,
-        ...callAgentScript,
-        ...jobTools,
-        ...automationTools,
-        ...notificationTools,
-        ...progressTools,
-        ...fetchTool,
-        ...webSearchTool,
-        ...toolActions,
-        ...backgroundCoreEmailTools,
-        ...coreAttachmentTools,
-        ...getJobMcpActionEntries(automation),
-      });
+      ): Promise<Record<string, ActionEntry>> => {
+        const mcpActions = await getJobMcpActionEntries(automation);
+        return {
+          ...templateScripts,
+          ...resourceScripts,
+          ...docsScripts,
+          ...(lazyContext ? frameworkContextTool : {}),
+          ...urlTools,
+          ...chatScripts,
+          ...callAgentScript,
+          ...jobTools,
+          ...automationTools,
+          ...notificationTools,
+          ...progressTools,
+          ...fetchTool,
+          ...webSearchTool,
+          ...toolActions,
+          ...backgroundCoreEmailTools,
+          ...coreAttachmentTools,
+          ...mcpActions,
+        };
+      };
 
       // -----------------------------------------------------------------------
       // Production code-execution mode resolution.
@@ -5652,6 +5660,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // the background worker), so both go through identical context + handler
       // selection.
       const invokeAgentChatHandler = async (event: any) => {
+        // Chat is the main MCP consumer, and on serverless nothing hydrated the
+        // manager at boot. Awaiting here trades first-chat latency for tools
+        // that are actually present instead of a silently MCP-less run.
+        await ensureMcpInitialized();
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
 
@@ -6079,6 +6091,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
             try {
+              // Jobs may request MCP tools, and `getActions` is synchronous —
+              // hydrate before the sweep so a serverless container that never
+              // eagerly initialized still resolves them.
+              await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
               return { ok: true };
             } catch (error) {
@@ -6154,12 +6170,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         })();
       }
 
-      mcpInitializationPromise = initializeMcpManager().catch((err) => {
-        console.warn(
-          `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
-        );
-      });
-      void mcpInitializationPromise;
+      // Long-lived runtimes hydrate MCP once at boot. Serverless functions must
+      // not: nothing awaits this, so a settings scan plus third-party MCP
+      // handshakes run on EVERY cold start of every app — including requests
+      // that never touch MCP — and outlive the response on a runtime that
+      // freezes after responding. There, `ensureMcpInitialized()` is driven by
+      // the surfaces that consume MCP tools instead.
+      if (!isProductionServerlessFunctionRuntime()) {
+        void ensureMcpInitialized().catch((err) => {
+          console.warn(
+            `[mcp-client] eager initialization failed: ${err?.message ?? err}`,
+          );
+        });
+      }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the

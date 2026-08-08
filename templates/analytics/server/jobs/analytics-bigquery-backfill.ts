@@ -201,21 +201,13 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
   const id = jobId(scope.orgId ?? "");
   if (!scope.orgId)
     throw new Error("BigQuery backfill requires an organization");
-  const conflictClause =
-    requestedBatchSize === undefined
-      ? "ON CONFLICT (id) DO NOTHING"
-      : `ON CONFLICT (id) DO UPDATE SET batch_size = CASE
-           WHEN batch_size < excluded.batch_size
-             THEN excluded.batch_size
-           ELSE batch_size
-         END`;
   await executor().execute({
     sql: `INSERT INTO ${JOB_TABLE} (
             id, org_id, owner_email, table_ref, batch_size, backfill_cursor,
               status, copied_count, lease_token, lease_expires_at, next_run_at,
               last_error, completed_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
-            ${conflictClause}`,
+            ON CONFLICT (id) DO NOTHING`,
     args: [
       id,
       scope.orgId,
@@ -229,6 +221,18 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
     timeoutMs: 5_000,
     maxAttempts: 1,
   });
+  if (requestedBatchSize !== undefined) {
+    const batchSize = boundedBatchSize(requestedBatchSize);
+    await executor().execute({
+      sql: `UPDATE ${JOB_TABLE}
+               SET batch_size = ?
+             WHERE id = ?
+               AND batch_size < ?`,
+      args: [batchSize, id, batchSize],
+      timeoutMs: 5_000,
+      maxAttempts: 1,
+    });
+  }
   const job = await getFirstPartyAnalyticsBigQueryBackfillJob(scope);
   if (!job) throw new Error("BigQuery backfill job was not persisted");
   if (job.table !== table) {

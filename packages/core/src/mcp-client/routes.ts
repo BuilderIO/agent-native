@@ -33,6 +33,7 @@ import { getSession } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { shouldDisableInProcessSweeps } from "../server/sweep-runtime.js";
 import { getAllSettings, getSettingsEmitter } from "../settings/store.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
@@ -76,6 +77,24 @@ import { isMcpToolAllowedForRequest } from "./visibility.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
 export { formatMcpConnectError } from "./errors.js";
+
+/**
+ * The settings table backing remote/built-in MCP servers could not be read.
+ *
+ * Distinct from `buildMergedConfig()` returning `null`, which means the app is
+ * genuinely configured with zero MCP servers. Coercing an unreachable database
+ * into an empty settings map made every caller report "no MCP servers
+ * configured" while the real answer was "could not read the configuration".
+ */
+export class McpConfigUnreadableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Could not read MCP configuration from settings: ${(cause as any)?.message ?? cause}`,
+    );
+    this.name = "McpConfigUnreadableError";
+    this.cause = cause;
+  }
+}
 
 /** Redact obvious auth header values before sending to the client. */
 function redactHeaders(
@@ -211,7 +230,12 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
   const base = loadMcpConfig() ?? autoDetectMcpConfig();
   const servers: Record<string, McpServerConfig> = { ...(base?.servers ?? {}) };
 
-  const all = await getAllSettings().catch(() => ({}));
+  const all = await getAllSettings().catch((err: unknown) => {
+    console.warn(
+      `[mcp-client] settings read failed: ${(err as any)?.message ?? err}`,
+    );
+    throw new McpConfigUnreadableError(err);
+  });
   for (const [fullKey, value] of Object.entries(all)) {
     const userMatch = /^u:([^:]+):mcp-servers-remote$/.exec(fullKey);
     const orgMatch = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
@@ -324,6 +348,11 @@ export function startMcpConfigRefresh(
 ): (() => void) | null {
   const intervalMs = mcpConfigRefreshIntervalMs();
   if (intervalMs <= 0 || typeof setInterval !== "function") return null;
+  // Billed per warm container on serverless, and the first tick always runs a
+  // full settings scan because `settingsDirty` starts true. Request-driven
+  // reconfigures (`waitUntilReady` on the MCP routes, `refreshGlobalMcpManager`)
+  // already cover config changes there, and a fresh container re-reads config.
+  if (shouldDisableInProcessSweeps()) return null;
 
   let currentSignature = sortedConfigSignature(manager.getConfig());
   let refreshing = false;

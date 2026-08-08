@@ -2,6 +2,7 @@ import { CONTEXT_XRAY_MIGRATIONS } from "../agent/context-xray/migrations.js";
 import { OBSERVATIONAL_MEMORY_MIGRATIONS } from "../agent/observational-memory/migrations.js";
 import { runMigrations } from "../db/migrations.js";
 import { runAutomationRunMigrations } from "../jobs/run-history.js";
+import { runAutomationSchedulerHealthMigrations } from "../jobs/scheduler-health.js";
 import { ORG_MIGRATIONS } from "../org/migrations.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 
@@ -24,4 +25,5 @@ export async function runFrameworkReleaseMigrations(
     table: "_observational_memory_migrations",
   })(nitroApp);
   await runAutomationRunMigrations(nitroApp);
+  await runAutomationSchedulerHealthMigrations(nitroApp);
 }

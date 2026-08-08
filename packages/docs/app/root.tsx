@@ -345,13 +345,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           locale,
           preference:
             locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
-          messages: localeData.messages,
         }))
       : getLocaleInitScript({
           locale,
           preference:
             locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
-          messages: localeData.messages,
         });
 
   return (
