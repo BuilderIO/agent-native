@@ -117,7 +117,7 @@ export function Layout({ children }: LayoutProps) {
         ]}
         scope={deckScope}
         browserTabId={TAB_ID}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
         suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
         composerSlot={<CreativeContextComposerChip />}
         threadFooterSlot={<GoogleDriveConnectionCta />}

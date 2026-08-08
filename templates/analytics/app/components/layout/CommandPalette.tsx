@@ -508,7 +508,7 @@ export function CommandPalette() {
               <CommandGroup key="settings" heading={t("navigation.settings")}>
                 <CommandItem
                   value={`setting:agent-page:${t("settings.agentTitle")}`}
-                  onSelect={() => go("/agent")}
+                  onSelect={() => go("/settings/agent")}
                   keywords={commandPaletteKeywords(
                     t("settings.agentTitle"),
                     "agent",

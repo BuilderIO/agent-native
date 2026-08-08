@@ -57,6 +57,8 @@ export {
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
   useAgentSettingsTabs,
+  type AgentSettingsTabFactory,
+  type AgentSettingsTabFactoryContext,
   useBuilderConnectFlow,
   useBuilderStatus,
   withBuilderConnectTrackingParams,

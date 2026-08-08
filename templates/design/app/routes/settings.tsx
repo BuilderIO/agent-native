@@ -9,7 +9,10 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
+import {
+  CreativeContextSettingsLink,
+  createCreativeContextAgentTab,
+} from "@agent-native/creative-context/client";
 import { useMemo } from "react";
 
 import { messagesByLocale } from "@/i18n-data";
@@ -21,7 +24,9 @@ export function meta() {
 }
 
 export default function SettingsRoute() {
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+  });
   const t = useT();
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
