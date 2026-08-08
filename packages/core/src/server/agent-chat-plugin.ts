@@ -650,19 +650,15 @@ export function createAgentChatPlugin(
         }
         return mcpInitializationPromise;
       };
-      const getJobMcpActionEntries = (
+      const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
-      ): Record<string, ActionEntry> => {
+      ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
         if (requested.length === 0) return {};
-        // Sync by contract (SchedulerDeps.getActions), so it cannot await the
-        // lazy init. Kick it off so a retried run finds the tools; this run
-        // still fails loudly below rather than silently dropping them.
-        void ensureMcpInitialized().catch((err) => {
-          console.warn(
-            `[mcp-client] background initialization failed: ${err?.message ?? err}`,
-          );
-        });
+        // Background action suppliers may be async so event-triggered and
+        // scheduled runs can await lazy MCP hydration on serverless cold
+        // starts. Runs without requested MCP tools still skip this work.
+        await ensureMcpInitialized();
         const entries = mcpToolsToActionEntries(mcpManager, {
           toolNames: requested,
         });
@@ -1221,27 +1217,30 @@ export function createAgentChatPlugin(
       // background surface. Interactive-only tools stay out of it, while
       // shared capabilities such as call-agent and core-send-email cannot
       // drift independently between the two background entry points.
-      const getBackgroundActionEntries = (
+      const getBackgroundActionEntries = async (
         automation?: RecurringJobContext,
-      ): Record<string, ActionEntry> => ({
-        ...templateScripts,
-        ...resourceScripts,
-        ...docsScripts,
-        ...(lazyContext ? frameworkContextTool : {}),
-        ...urlTools,
-        ...chatScripts,
-        ...callAgentScript,
-        ...jobTools,
-        ...automationTools,
-        ...notificationTools,
-        ...progressTools,
-        ...fetchTool,
-        ...webSearchTool,
-        ...toolActions,
-        ...backgroundCoreEmailTools,
-        ...coreAttachmentTools,
-        ...getJobMcpActionEntries(automation),
-      });
+      ): Promise<Record<string, ActionEntry>> => {
+        const mcpActions = await getJobMcpActionEntries(automation);
+        return {
+          ...templateScripts,
+          ...resourceScripts,
+          ...docsScripts,
+          ...(lazyContext ? frameworkContextTool : {}),
+          ...urlTools,
+          ...chatScripts,
+          ...callAgentScript,
+          ...jobTools,
+          ...automationTools,
+          ...notificationTools,
+          ...progressTools,
+          ...fetchTool,
+          ...webSearchTool,
+          ...toolActions,
+          ...backgroundCoreEmailTools,
+          ...coreAttachmentTools,
+          ...mcpActions,
+        };
+      };
 
       // -----------------------------------------------------------------------
       // Production code-execution mode resolution.
