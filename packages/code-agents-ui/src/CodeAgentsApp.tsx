@@ -3,13 +3,18 @@ import {
   ChatHistoryList,
   buildRepositoryFromCodeAgentTranscript,
   codeAgentTranscriptHasPendingApproval,
+  closeChatFirstSessionWatch,
   createCodeAgentChatAdapter,
+  emitChatFirstSessionWatch,
   isCodeAgentRunActive,
   isCredentialGapCodeAgentEvent,
   mergeCodeAgentTranscriptEvents,
+  useChatFirstSessionWatch,
+  type ChatFirstSurfaceKind,
   type ChatHistoryItem,
   type CodeAgentChatController,
 } from "@agent-native/core/client/agent-chat";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   PromptComposer,
   readAgentPromptAttachment,
@@ -30,6 +35,7 @@ import {
   IconCopy,
   IconDeviceMobile,
   IconDeviceDesktop,
+  IconEye,
   IconFolder,
   IconFolderPlus,
   IconLink,
@@ -54,6 +60,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
@@ -68,6 +75,7 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
+import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
   CodeAgentCodePackResult,
@@ -243,9 +251,26 @@ export interface CodeAgentsAppProps {
   refreshKey?: number;
   brandIconUrl?: string;
   onOpenSettings?: () => void;
+  /** Extra first-party navigation items rendered below New chat. */
+  railNavigationSlot?: ReactNode;
+  /** App shortcuts rendered between navigation and the chat history. */
+  railWorkspaceSlot?: ReactNode;
+  /** Optional actions pinned to the bottom of the rail. */
+  railFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
   newSessionExtension?: CodeAgentsNewSessionExtension;
   openDetailRequest?: { detailId: string; nonce: number };
+  /** Active chat-first side surface; watch is rendered only when selected. */
+  activeChatFirstSurfaceKind?: ChatFirstSurfaceKind;
+  /** Keep session-watch affordances opt-in with the chat-first shell. */
+  chatFirstMode?: boolean;
+  /** Lets a host place the shared watch renderer in its side-surface slot. */
+  onWatchedRunChange?: (
+    run: CodeAgentRun | null,
+    sourceRunId?: string | null,
+  ) => void;
+  /** Exposes the already-loaded run list to a host-owned side surface. */
+  onRunsChange?: (runs: CodeAgentRun[]) => void;
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
@@ -404,15 +429,23 @@ export default function CodeAgentsApp({
   refreshKey = 0,
   brandIconUrl,
   onOpenSettings,
+  railNavigationSlot,
+  railWorkspaceSlot,
+  railFooterSlot,
   renderAppSurface,
   newSessionExtension,
   openDetailRequest,
+  activeChatFirstSurfaceKind,
+  chatFirstMode = false,
+  onWatchedRunChange,
+  onRunsChange,
 }: CodeAgentsAppProps) {
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
   const [runs, setRuns] = useState<CodeAgentRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const watchedSession = useChatFirstSessionWatch();
   const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
     string | null
   >(null);
@@ -425,11 +458,36 @@ export default function CodeAgentsApp({
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
   );
+  const watchedRun = useMemo(
+    () =>
+      runs.find((run) => run.id === watchedSession.target?.sessionId) ?? null,
+    [runs, watchedSession.target?.sessionId],
+  );
 
   useEffect(() => {
     if (activeNewSessionExtension) return;
     setSelectedExtensionDetailId(null);
   }, [activeNewSessionExtension]);
+
+  useEffect(() => {
+    if (watchedSession.target && !watchedRun) closeChatFirstSessionWatch();
+  }, [watchedRun, watchedSession.target]);
+
+  useEffect(() => {
+    onWatchedRunChange?.(
+      watchedRun,
+      watchedSession.target?.sourceSessionId ?? selectedRunId,
+    );
+  }, [
+    onWatchedRunChange,
+    selectedRunId,
+    watchedRun,
+    watchedSession.target?.sourceSessionId,
+  ]);
+
+  useEffect(() => {
+    onRunsChange?.(runs);
+  }, [onRunsChange, runs]);
 
   useEffect(() => {
     if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;
@@ -1701,6 +1759,7 @@ export default function CodeAgentsApp({
             <IconPlus size={15} strokeWidth={1.8} />
             <span>New chat</span>
           </button>
+          {railNavigationSlot}
           <button
             type="button"
             className={`code-agents-nav-link${
@@ -1727,6 +1786,8 @@ export default function CodeAgentsApp({
             />
           )}
         </div>
+
+        {railWorkspaceSlot}
 
         <div className="code-agents-run-list">
           <p className="code-agents-rail-label">Chats</p>
@@ -1764,13 +1825,81 @@ export default function CodeAgentsApp({
                 const run = runs.find((item) => item.id === id);
                 if (run) renameRun(run, nextTitle);
               }}
+              renderAdditionalRowActions={(item, closeMenu) => (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="an-chat-history-row__menu-item"
+                    onClick={() => {
+                      closeMenu();
+                      void writeClipboardText(item.id).then((copied) => {
+                        toast(
+                          copied
+                            ? "Session ID copied"
+                            : "Could not copy session ID",
+                          { duration: 1800 },
+                        );
+                      });
+                    }}
+                  >
+                    <IconCopy size={13} strokeWidth={1.8} />
+                    <span>Copy session ID</span>
+                  </button>
+                  {chatFirstMode ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="an-chat-history-row__menu-item"
+                      onClick={() => {
+                        closeMenu();
+                        const run = runs.find(
+                          (candidate) => candidate.id === item.id,
+                        );
+                        if (!run) return;
+                        emitChatFirstSessionWatch({
+                          sessionId: item.id,
+                          title: getRunTitle(run) ?? "Untitled session",
+                          kind: "code-agent",
+                          goalId: run.goalId,
+                          sourceSessionId: selectedRunId ?? undefined,
+                        });
+                      }}
+                    >
+                      <IconEye size={13} strokeWidth={1.8} />
+                      <span>
+                        {watchedSession.target?.sessionId === item.id
+                          ? "Keep watching session"
+                          : "Watch and message session"}
+                      </span>
+                    </button>
+                  ) : null}
+                </>
+              )}
               variant="rail"
             />
           )}
         </div>
+        {railFooterSlot ? (
+          <div className="code-agents-rail-footer">{railFooterSlot}</div>
+        ) : null}
       </aside>
 
       <main className="code-agents-main">
+        {chatFirstMode &&
+        !onWatchedRunChange &&
+        watchedRun &&
+        (!activeChatFirstSurfaceKind ||
+          activeChatFirstSurfaceKind === "side-chat") ? (
+          <SessionWatchPanel
+            host={host}
+            run={watchedRun}
+            sourceRunId={
+              watchedSession.target?.sourceSessionId ?? selectedRunId
+            }
+            onClose={closeChatFirstSessionWatch}
+          />
+        ) : null}
         {workbenchOpen ? (
           <div className="code-agents-workbench">
             <div className="code-agents-workbench__toolbar">
@@ -3961,6 +4090,7 @@ function createHostCodeAgentChatController(
         model: input.model,
         effort: input.reasoningEffort as CodeAgentReasoningEffort | undefined,
         attachments: normalizePromptAttachmentsForHost(input.metadata),
+        metadata: input.metadata,
       });
       return {
         ok: result.ok,

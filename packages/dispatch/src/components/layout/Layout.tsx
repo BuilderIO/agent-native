@@ -1,13 +1,42 @@
 import {
+  CHAT_FIRST_MODE_CHANGED_EVENT,
+  chatFirstSurfaceTabId,
   AgentSidebar,
+  ChatFirstSurfacePanelToggle,
+  closeChatFirstSessionWatch,
+  emitChatFirstSessionWatch,
+  getChatFirstSurfaceTabsStore,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
+  readChatFirstAppLayout,
+  readChatFirstMode,
+  resolveChatFirstBrowserTarget,
+  resolveChatFirstAppTarget,
+  subscribeChatFirstOpenBrowser,
+  subscribeChatFirstOpenApp,
+  writeChatFirstAppLayout,
+  useChatFirstSessionWatch,
+  useChatFirstSurfacePanel,
+  useChatFirstSurfaceResize,
+  useChatFirstSurfaceTabs,
+  type ChatFirstAppRegistration,
+  type ChatFirstAppLayoutPreference,
+  type ChatFirstAppResolution,
+  type ChatFirstOpenBrowserDetail,
+  type ChatFirstOpenAppDetail,
+  type ChatFirstSurfaceKind,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  readClientAppState,
+  writeClientAppState,
+} from "@agent-native/core/client/application-state";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
@@ -21,6 +50,8 @@ import {
   IconApps,
   IconBrandSlack,
   IconBrandTelegram,
+  IconCopy,
+  IconEye,
   IconMessageQuestion,
   IconBroadcast,
   IconLayoutSidebarLeftCollapse,
@@ -30,6 +61,9 @@ import {
   IconSearch,
   IconWorld,
   IconDeviceDesktop,
+  IconClock,
+  IconPlus,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import {
   createContext,
@@ -38,12 +72,15 @@ import {
   useRef,
   useState,
   useContext,
+  useCallback,
   type ComponentType,
   type ReactNode,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { cn } from "../../lib/utils";
+import type { WorkspaceAppSummary } from "../../lib/workspace-apps";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +90,19 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { ChatFirstAgentsPane } from "./chat-first-agents-pane";
+import { ChatFirstAppPane } from "./chat-first-app-pane";
+import { ChatFirstBrowserPane } from "./chat-first-browser-pane";
+import {
+  DispatchChatFirstPaneProvider,
+  type DispatchChatFirstPane,
+} from "./chat-first-context";
+import { ChatFirstSessionWatchPane } from "./chat-first-session-watch-pane";
+import {
+  ChatFirstSurfaceContent,
+  ChatFirstSurfaceTabs,
+} from "./chat-first-surface-tabs";
+import { ChatFirstWorkspaceAppsRail } from "./chat-first-workspace-apps-rail";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { WorkspaceAppsRail } from "./workspace-apps-rail";
@@ -80,6 +130,8 @@ export interface DispatchNavItem {
 }
 
 export interface DispatchExtensionConfig {
+  /** Opt into the Codex/T3-like chat-first shell for chat routes. */
+  chatFirst?: boolean;
   /** Extra sidebar tabs supplied by the generated workspace. */
   navItems?: readonly DispatchNavItem[];
   /** Extra React Query keys to invalidate when Dispatch receives DB sync events. */
@@ -131,6 +183,7 @@ const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
+const CHAT_FIRST_PANE_STATE_KEY = "chat-first-pane";
 
 const DispatchExtensionsContext = createContext<
   DispatchExtensionConfig | undefined
@@ -199,8 +252,41 @@ function dispatchNavLinkTarget(path: string): string {
   return routerHasBasename ? path : appPath(path);
 }
 
+function chatFirstResolutionMessage(
+  reason: Exclude<ChatFirstAppResolution, { status: "ready" }>["reason"],
+): string {
+  switch (reason) {
+    case "empty-detail":
+      return "The agent did not provide an app target to open.";
+    case "invalid-url":
+      return "The requested app route was not registered for this workspace app.";
+    case "unknown-app":
+      return "That app is not available in this workspace.";
+  }
+  return "The requested app could not be opened.";
+}
+
+function chatFirstBrowserResolutionMessage(
+  reason: "empty-detail" | "invalid-url",
+): string {
+  return reason === "empty-detail"
+    ? "The agent did not provide a browser URL to open."
+    : "The requested browser URL is not a safe HTTP(S) address.";
+}
+
 function chatThreadPath(threadId: string): string {
   return `/chat/${encodeURIComponent(threadId)}`;
+}
+
+function persistedChatFirstPane(value: unknown): DispatchChatFirstPane | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.appId !== "string" || !record.appId.trim()) return null;
+  return {
+    appId: record.appId,
+    ...(typeof record.path === "string" ? { path: record.path } : {}),
+    ...(typeof record.view === "string" ? { view: record.view } : {}),
+  };
 }
 
 function threadIdFromPath(pathname: string): string | null {
@@ -261,7 +347,17 @@ function threadUpdatedAt(thread: ChatThreadSummary) {
       : 0;
 }
 
-function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
+function DispatchChatsSection({
+  onNavigate,
+  showNewChat = false,
+  prelude,
+  chatFirstMode = false,
+}: {
+  onNavigate?: () => void;
+  showNewChat?: boolean;
+  prelude?: ReactNode;
+  chatFirstMode?: boolean;
+}) {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
@@ -390,7 +486,23 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   return (
-    <div className="ms-4 min-w-0 space-y-0.5">
+    <div
+      className={cn(
+        "ms-4 min-w-0 space-y-0.5",
+        showNewChat && "dispatch-chat-first-chats",
+      )}
+    >
+      {showNewChat ? (
+        <button
+          type="button"
+          className="flex h-9 w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          onClick={() => void handleNewChat()}
+        >
+          <IconPlus size={16} className="shrink-0" aria-hidden="true" />
+          <span>New chat</span>
+        </button>
+      ) : null}
+      {prelude}
       <div className="flex justify-end px-2 pt-0.5">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -462,6 +574,47 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
             }),
           rename: t("dispatch.sidebar.renameChat"),
         }}
+        renderAdditionalRowActions={(item, closeMenu) => (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              className="an-chat-history-row__menu-item"
+              onClick={() => {
+                closeMenu();
+                void writeClipboardText(item.id).then((copied) => {
+                  toast[copied ? "success" : "error"](
+                    copied
+                      ? "Session ID copied"
+                      : "Could not copy the session ID",
+                  );
+                });
+              }}
+            >
+              <IconCopy size={13} strokeWidth={1.8} />
+              <span>Copy session ID</span>
+            </button>
+            {chatFirstMode ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="an-chat-history-row__menu-item"
+                onClick={() => {
+                  closeMenu();
+                  emitChatFirstSessionWatch({
+                    sessionId: item.id,
+                    title: item.titleText,
+                    kind: "agent-chat",
+                    sourceSessionId: displayedActiveThreadId ?? undefined,
+                  });
+                }}
+              >
+                <IconEye size={13} strokeWidth={1.8} />
+                <span>Watch and message session</span>
+              </button>
+            ) : null}
+          </>
+        )}
         className="min-w-0"
       />
     </div>
@@ -471,15 +624,21 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
 export function NavContent({
   onNavigate,
   extensions,
+  chatFirstMode = false,
   collapsed = false,
   collapsible = false,
   onCollapsedChange,
+  chatFirstAppLayout,
+  onChatFirstAppLayoutChange,
 }: {
   onNavigate?: () => void;
   extensions?: DispatchExtensionConfig;
+  chatFirstMode?: boolean;
   collapsed?: boolean;
   collapsible?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
+  chatFirstAppLayout?: ChatFirstAppLayoutPreference;
+  onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
 }) {
   const t = useT();
   const location = useLocation();
@@ -633,7 +792,10 @@ export function NavContent({
           </Link>
         )}
         {!collapsed && item.id === "chat" && itemMatchesLocalPath ? (
-          <DispatchChatsSection onNavigate={onNavigate} />
+          <DispatchChatsSection
+            onNavigate={onNavigate}
+            chatFirstMode={chatFirstMode}
+          />
         ) : null}
       </li>
     );
@@ -688,7 +850,63 @@ export function NavContent({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {chatFirstMode ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {!collapsed ? (
+            <DispatchChatsSection
+              onNavigate={onNavigate}
+              showNewChat
+              chatFirstMode
+              prelude={
+                <>
+                  <nav className="px-2 py-2">
+                    <ul className="space-y-0.5">
+                      <li>
+                        <Link
+                          to={dispatchNavLinkTarget("/admin/integrations")}
+                          onClick={onNavigate}
+                          className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        >
+                          <IconPlugConnected size={16} className="shrink-0" />
+                          <span>Integrations</span>
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          to={dispatchNavLinkTarget("/admin/automations")}
+                          onClick={onNavigate}
+                          className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        >
+                          <IconClock size={16} className="shrink-0" />
+                          <span>Scheduled</span>
+                        </Link>
+                      </li>
+                    </ul>
+                  </nav>
+                  <ChatFirstWorkspaceAppsRail
+                    layout={chatFirstAppLayout}
+                    onLayoutChange={onChatFirstAppLayoutChange}
+                    onNavigate={onNavigate}
+                  />
+                </>
+              }
+            />
+          ) : (
+            <ChatFirstWorkspaceAppsRail
+              collapsed
+              layout={chatFirstAppLayout}
+              onLayoutChange={onChatFirstAppLayoutChange}
+              onNavigate={onNavigate}
+            />
+          )}
+        </div>
+      ) : null}
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col overflow-y-auto",
+          chatFirstMode && "hidden",
+        )}
+      >
         <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
           <ul
             className={cn(
@@ -727,6 +945,16 @@ export function NavContent({
           collapse={collapseButton}
         />
       </div>
+      {chatFirstMode && collapsed ? (
+        <div className="mt-auto shrink-0">
+          <SidebarFooterActions
+            collapsed
+            feedback={feedbackButton}
+            search={searchButton}
+            collapse={collapseButton}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -755,7 +983,179 @@ export function Layout({
   const localPathname = localDispatchPath(location.pathname);
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
+  const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
   const isWorkspaceAppHostRoute = localPathname.startsWith("/apps/");
+  const [chatFirstPreference, setChatFirstPreference] = useState(() =>
+    readChatFirstMode(),
+  );
+  const chatFirstMode = extensions?.chatFirst === true || chatFirstPreference;
+  const [chatFirstAppLayout, setChatFirstAppLayout] =
+    useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
+  const chatFirstAppLayoutHydratedRef = useRef(false);
+  const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false },
+    { enabled: chatFirstMode && isChatRoute },
+  );
+  const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(
+    () =>
+      (chatFirstAppsQuery.data ?? []).map((app) => ({
+        id: app.id,
+        name: app.name,
+        path: app.path,
+        url: app.url,
+        enabled: app.status !== "pending" && app.archived !== true,
+      })),
+    [chatFirstAppsQuery.data],
+  );
+  const [chatFirstPane, setChatFirstPane] =
+    useState<DispatchChatFirstPane | null>(null);
+  const [chatFirstBrowserPane, setChatFirstBrowserPane] = useState<{
+    url: string;
+    title?: string;
+  } | null>(null);
+  const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
+  const chatFirstSessionWatch = useChatFirstSessionWatch();
+  const chatFirstSurfaceTabs = useChatFirstSurfaceTabs(chatFirstSurfaceScope);
+  const chatFirstSurfaceTabsStore = getChatFirstSurfaceTabsStore(
+    chatFirstSurfaceScope,
+  );
+  const chatFirstSurfacePanel = useChatFirstSurfacePanel(chatFirstSurfaceScope);
+  const { setOpen: setChatFirstSurfacePanelOpen } = chatFirstSurfacePanel;
+  const chatFirstSurfaceResize = useChatFirstSurfaceResize(
+    chatFirstSurfaceScope,
+  );
+  const chatFirstPaneHydratedRef = useRef(false);
+  const pendingChatFirstOpenAppRef = useRef<ChatFirstOpenAppDetail | null>(
+    null,
+  );
+  const previousChatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
+  const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
+  const activeChatFirstSurfaceTab = useMemo(
+    () =>
+      chatFirstSurfaceTabs.tabs.find(
+        (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
+      ) ?? null,
+    [chatFirstSurfaceTabs],
+  );
+  const persistChatFirstPane = useCallback(
+    (pane: DispatchChatFirstPane | null) => {
+      setChatFirstPane(pane);
+      void writeClientAppState(CHAT_FIRST_PANE_STATE_KEY, pane).catch(() => {
+        setChatFirstNotice(
+          "The app pane opened locally, but its focus could not be synced.",
+        );
+      });
+    },
+    [],
+  );
+  const openChatFirstPane = useCallback(
+    (pane: DispatchChatFirstPane) => {
+      setChatFirstNotice(null);
+      setChatFirstBrowserPane(null);
+      closeChatFirstSessionWatch();
+      const app = chatFirstAppRegistrations.find(
+        (candidate) => candidate.id === pane.appId,
+      );
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId(
+          "app",
+          `${pane.appId}:${pane.path ?? pane.view ?? "/"}`,
+        ),
+        kind: "app",
+        title: app?.name ?? pane.appId,
+        appId: pane.appId,
+        ...(pane.path ? { path: pane.path } : {}),
+        ...(pane.view ? { view: pane.view } : {}),
+      });
+      persistChatFirstPane(pane);
+    },
+    [
+      chatFirstAppRegistrations,
+      chatFirstSurfaceTabsStore,
+      persistChatFirstPane,
+    ],
+  );
+  const closeChatFirstPane = useCallback(() => {
+    persistChatFirstPane(null);
+    const active =
+      chatFirstSurfaceTabs.tabs.find(
+        (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
+      ) ?? null;
+    if (active?.kind === "app") chatFirstSurfaceTabsStore.close(active.id);
+  }, [chatFirstSurfaceTabs, chatFirstSurfaceTabsStore, persistChatFirstPane]);
+  const openChatFirstSurface = useCallback(
+    (kind: ChatFirstSurfaceKind) => {
+      if (kind !== "agents") return;
+      persistChatFirstPane(null);
+      setChatFirstBrowserPane(null);
+      closeChatFirstSessionWatch();
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId("agents", "activity"),
+        kind: "agents",
+        title: "Agents",
+      });
+    },
+    [chatFirstSurfaceTabsStore, persistChatFirstPane],
+  );
+  const resolveChatFirstOpenBrowser = useCallback(
+    (detail: ChatFirstOpenBrowserDetail) => {
+      const resolution = resolveChatFirstBrowserTarget(detail);
+      if (resolution.status === "unresolved") {
+        setChatFirstNotice(
+          chatFirstBrowserResolutionMessage(resolution.reason),
+        );
+        return;
+      }
+      persistChatFirstPane(null);
+      closeChatFirstSessionWatch();
+      setChatFirstNotice(null);
+      setChatFirstBrowserPane(resolution.target);
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId("browser", resolution.target.url),
+        kind: "browser",
+        title: resolution.target.title ?? "Browser",
+        url: resolution.target.url,
+      });
+    },
+    [chatFirstSurfaceTabsStore, persistChatFirstPane],
+  );
+  const resolveChatFirstOpenApp = useCallback(
+    (detail: ChatFirstOpenAppDetail) => {
+      if (chatFirstAppsQuery.isLoading) {
+        pendingChatFirstOpenAppRef.current = detail;
+        return;
+      }
+      if (chatFirstAppsQuery.isError) {
+        pendingChatFirstOpenAppRef.current = null;
+        setChatFirstNotice(
+          "Workspace apps could not be loaded, so the requested app was not opened.",
+        );
+        return;
+      }
+
+      const resolution = resolveChatFirstAppTarget(
+        detail,
+        chatFirstAppRegistrations,
+        {
+          currentOrigin:
+            typeof window === "undefined" ? undefined : window.location.origin,
+        },
+      );
+      pendingChatFirstOpenAppRef.current = null;
+      if (resolution.status === "unresolved") {
+        setChatFirstNotice(chatFirstResolutionMessage(resolution.reason));
+        return;
+      }
+      openChatFirstPane(resolution.target);
+    },
+    [
+      chatFirstAppRegistrations,
+      chatFirstAppsQuery.isError,
+      chatFirstAppsQuery.isLoading,
+      openChatFirstPane,
+    ],
+  );
   const sidebarBeforeAppRef = useRef<boolean | null>(null);
   const sidebarAutoCollapsedRef = useRef(false);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -770,6 +1170,216 @@ export function Layout({
     requireActiveHandoff: true,
   };
   useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
+
+  useEffect(() => {
+    const handleModeChange = (event: Event) => {
+      const enabled = (event as CustomEvent<{ enabled?: unknown }>).detail
+        ?.enabled;
+      setChatFirstPreference(enabled === true);
+    };
+    window.addEventListener(CHAT_FIRST_MODE_CHANGED_EVENT, handleModeChange);
+    return () =>
+      window.removeEventListener(
+        CHAT_FIRST_MODE_CHANGED_EVENT,
+        handleModeChange,
+      );
+  }, []);
+
+  useEffect(() => {
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstAppLayoutHydratedRef.current
+    ) {
+      return;
+    }
+    chatFirstAppLayoutHydratedRef.current = true;
+    void readClientAppState<unknown>("chat-first-app-layout")
+      .then((value) => {
+        if (!value || typeof value !== "object") return;
+        const candidate = value as Partial<ChatFirstAppLayoutPreference>;
+        const ids = (input: unknown) =>
+          Array.isArray(input)
+            ? input.filter(
+                (id): id is string =>
+                  typeof id === "string" && id.trim().length > 0,
+              )
+            : [];
+        setChatFirstAppLayout({
+          pinnedIds: [...new Set(ids(candidate.pinnedIds))],
+          orderedIds: [...new Set(ids(candidate.orderedIds))],
+        });
+      })
+      .catch(() => {
+        // Device-local layout remains the fallback when workspace state is unavailable.
+      });
+  }, [chatFirstMode, isChatRoute]);
+
+  const persistChatFirstAppLayout = useCallback(
+    (layout: ChatFirstAppLayoutPreference) => {
+      setChatFirstAppLayout(layout);
+      void writeClientAppState("chat-first-app-layout", layout).catch(() => {
+        setChatFirstNotice(
+          "App order changed locally, but workspace state could not be synced.",
+        );
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!chatFirstMode || !isChatRoute) {
+      setChatFirstPane(null);
+      setChatFirstBrowserPane(null);
+      closeChatFirstSessionWatch();
+      chatFirstSurfaceTabsStore.closeAll();
+      setChatFirstNotice(null);
+      pendingChatFirstOpenAppRef.current = null;
+      chatFirstPaneHydratedRef.current = false;
+      return;
+    }
+    const unsubscribeApp = subscribeChatFirstOpenApp(resolveChatFirstOpenApp);
+    const unsubscribeBrowser = subscribeChatFirstOpenBrowser(
+      resolveChatFirstOpenBrowser,
+    );
+    return () => {
+      unsubscribeApp();
+      unsubscribeBrowser();
+    };
+  }, [
+    chatFirstMode,
+    isChatRoute,
+    chatFirstSurfaceTabsStore,
+    resolveChatFirstOpenApp,
+    resolveChatFirstOpenBrowser,
+  ]);
+
+  useEffect(() => {
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstPaneHydratedRef.current ||
+      chatFirstAppsQuery.isLoading ||
+      chatFirstAppsQuery.isError
+    ) {
+      return;
+    }
+    chatFirstPaneHydratedRef.current = true;
+    if (chatFirstPane) return;
+    let active = true;
+    void readClientAppState<unknown>(CHAT_FIRST_PANE_STATE_KEY)
+      .then((value) => {
+        if (!active) return;
+        const persisted = persistedChatFirstPane(value);
+        if (!persisted) return;
+        const resolution = resolveChatFirstAppTarget(
+          {
+            app: persisted.appId,
+            path: persisted.path,
+            view: persisted.view,
+          },
+          chatFirstAppRegistrations,
+          {
+            currentOrigin:
+              typeof window === "undefined"
+                ? undefined
+                : window.location.origin,
+          },
+        );
+        if (resolution.status === "ready") openChatFirstPane(resolution.target);
+      })
+      .catch(() => {
+        if (active) {
+          setChatFirstNotice(
+            "The last app pane could not be restored from workspace state.",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    chatFirstAppsQuery.isError,
+    chatFirstAppsQuery.isLoading,
+    chatFirstAppRegistrations,
+    chatFirstMode,
+    chatFirstPane,
+    isChatRoute,
+    openChatFirstPane,
+  ]);
+
+  useEffect(() => {
+    if (previousChatFirstSurfaceScopeRef.current === chatFirstSurfaceScope) {
+      return;
+    }
+    previousChatFirstSurfaceScopeRef.current = chatFirstSurfaceScope;
+    closeChatFirstSessionWatch();
+  }, [chatFirstSurfaceScope]);
+
+  useEffect(() => {
+    const tabCount = chatFirstSurfaceTabs.tabs.length;
+    const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
+    if (!chatFirstMode || !isChatRoute) {
+      setChatFirstSurfacePanelOpen(false);
+    } else if (
+      tabCount > 0 &&
+      (previousTabCount === null || previousTabCount === 0)
+    ) {
+      setChatFirstSurfacePanelOpen(true);
+    } else if (
+      tabCount === 0 &&
+      previousTabCount !== null &&
+      previousTabCount > 0
+    ) {
+      setChatFirstSurfacePanelOpen(false);
+    }
+    previousChatFirstSurfaceTabCountRef.current = tabCount;
+  }, [
+    chatFirstMode,
+    setChatFirstSurfacePanelOpen,
+    chatFirstSurfaceTabs.tabs.length,
+    isChatRoute,
+  ]);
+
+  useEffect(() => {
+    const activeTab = activeChatFirstSurfaceTab;
+    if (
+      activeTab?.kind === "side-chat" &&
+      activeTab.session &&
+      !chatFirstSessionWatch.target
+    ) {
+      emitChatFirstSessionWatch(activeTab.session);
+    }
+  }, [activeChatFirstSurfaceTab, chatFirstSessionWatch.target]);
+
+  useEffect(() => {
+    const pending = pendingChatFirstOpenAppRef.current;
+    if (!pending || chatFirstAppsQuery.isLoading) return;
+    resolveChatFirstOpenApp(pending);
+  }, [
+    chatFirstAppsQuery.data,
+    chatFirstAppsQuery.isError,
+    chatFirstAppsQuery.isLoading,
+    resolveChatFirstOpenApp,
+  ]);
+
+  useEffect(() => {
+    const target = chatFirstSessionWatch.target;
+    if (!target || !chatFirstMode || !isChatRoute) return;
+    setChatFirstPane(null);
+    setChatFirstBrowserPane(null);
+    chatFirstSurfaceTabsStore.open({
+      id: chatFirstSurfaceTabId("side-chat", target.sessionId),
+      kind: "side-chat",
+      title: target.title ? `Watch · ${target.title}` : "Watched session",
+      session: target,
+    });
+  }, [
+    chatFirstMode,
+    chatFirstSessionWatch.target,
+    chatFirstSurfaceTabsStore,
+    isChatRoute,
+  ]);
 
   useEffect(() => {
     if (isWorkspaceAppHostRoute) {
@@ -805,6 +1415,64 @@ export function Layout({
     }
   }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
 
+  const activateChatFirstSurfaceTab = useCallback(
+    (tab: (typeof chatFirstSurfaceTabs.tabs)[number]) => {
+      chatFirstSurfaceTabsStore.activate(tab.id);
+      if (tab.kind === "app" && tab.appId) {
+        setChatFirstBrowserPane(null);
+        closeChatFirstSessionWatch();
+        persistChatFirstPane({
+          appId: tab.appId,
+          ...(tab.path ? { path: tab.path } : {}),
+          ...(tab.view ? { view: tab.view } : {}),
+        });
+        return;
+      }
+      if (tab.kind === "browser" && tab.url) {
+        persistChatFirstPane(null);
+        closeChatFirstSessionWatch();
+        setChatFirstBrowserPane({ url: tab.url, title: tab.title });
+        return;
+      }
+      if (tab.kind === "side-chat" && tab.session) {
+        persistChatFirstPane(null);
+        setChatFirstBrowserPane(null);
+        emitChatFirstSessionWatch(tab.session);
+        return;
+      }
+      if (tab.kind === "agents") {
+        persistChatFirstPane(null);
+        setChatFirstBrowserPane(null);
+        closeChatFirstSessionWatch();
+      }
+    },
+    [
+      chatFirstSurfaceTabs.tabs,
+      chatFirstSurfaceTabsStore,
+      persistChatFirstPane,
+    ],
+  );
+
+  const closeChatFirstSurfaceTab = useCallback(
+    (tab: (typeof chatFirstSurfaceTabs.tabs)[number]) => {
+      const isActive = chatFirstSurfaceTabs.activeTabId === tab.id;
+      if (tab.kind === "app" && isActive) persistChatFirstPane(null);
+      if (tab.kind === "browser" && isActive) setChatFirstBrowserPane(null);
+      if (tab.kind === "side-chat" && isActive) {
+        closeChatFirstSessionWatch();
+      }
+      chatFirstSurfaceTabsStore.close(tab.id);
+    },
+    [chatFirstSurfaceTabs, chatFirstSurfaceTabsStore, persistChatFirstPane],
+  );
+
+  const closeAllChatFirstSurfaceTabs = useCallback(() => {
+    persistChatFirstPane(null);
+    setChatFirstBrowserPane(null);
+    closeChatFirstSessionWatch();
+    chatFirstSurfaceTabsStore.closeAll();
+  }, [chatFirstSurfaceTabsStore, persistChatFirstPane]);
+
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
   }
@@ -823,9 +1491,52 @@ export function Layout({
     t("dispatch.sidebar.suggestionGrantKey"),
   ];
   const appContent = (
-    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       {showHeader ? <Header onOpenMobile={() => setMobileOpen(true)} /> : null}
       <InvitationBanner />
+      {isChatRoute && chatFirstMode ? (
+        <ChatFirstSurfacePanelToggle
+          open={chatFirstSurfacePanel.open}
+          onToggle={chatFirstSurfacePanel.toggle}
+        />
+      ) : null}
+      {isChatRoute &&
+      chatFirstMode &&
+      chatFirstSurfacePanel.open &&
+      chatFirstSurfaceTabs.tabs.length === 0 ? (
+        <div
+          className="dispatch-chat-first-surface-launcher"
+          role="dialog"
+          aria-label="Open a side surface"
+        >
+          <ChatFirstSurfaceTabs
+            tabs={[]}
+            activeTabId={null}
+            onActivate={() => undefined}
+            onClose={() => undefined}
+            onCloseOthers={() => undefined}
+            onCloseToRight={() => undefined}
+            onCloseAll={() => undefined}
+            onOpenSurface={openChatFirstSurface}
+          />
+        </div>
+      ) : null}
+      {isChatRoute && chatFirstMode && chatFirstNotice ? (
+        <div
+          className="dispatch-chat-first-notice"
+          role="status"
+          aria-live="polite"
+        >
+          <span>{chatFirstNotice}</span>
+          <button
+            type="button"
+            onClick={() => setChatFirstNotice(null)}
+            aria-label="Dismiss app notice"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       <main
         className={cn(
           "flex-1",
@@ -845,8 +1556,77 @@ export function Layout({
     </div>
   );
   const content = isChatRoute ? (
-    <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+    <div
+      className={cn(
+        "agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden",
+        chatFirstMode && "dispatch-chat-first-surface",
+      )}
+    >
       {appContent}
+      {chatFirstMode &&
+      chatFirstSurfacePanel.open &&
+      chatFirstSurfaceTabs.tabs.length > 0 ? (
+        <aside
+          data-dispatch-chat-first-surface
+          className="dispatch-chat-first-panel relative flex min-w-[320px] min-h-0 shrink-0 flex-col border-s border-border bg-background"
+          style={{ width: `${chatFirstSurfaceResize.width}px` }}
+        >
+          <div
+            className="dispatch-chat-first-resize-handle"
+            role="separator"
+            aria-label="Resize side surface"
+            aria-orientation="vertical"
+            onPointerDown={chatFirstSurfaceResize.onPointerDown}
+          />
+          <ChatFirstSurfaceTabs
+            tabs={chatFirstSurfaceTabs.tabs}
+            activeTabId={chatFirstSurfaceTabs.activeTabId}
+            onActivate={activateChatFirstSurfaceTab}
+            onClose={closeChatFirstSurfaceTab}
+            onCloseOthers={(tab) => {
+              activateChatFirstSurfaceTab(tab);
+              chatFirstSurfaceTabsStore.closeOthers(tab.id);
+            }}
+            onCloseToRight={(tab) => {
+              const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                (candidate) => candidate.id === tab.id,
+              );
+              const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                (candidate) =>
+                  candidate.id === chatFirstSurfaceTabs.activeTabId,
+              );
+              if (activeIndex > targetIndex) activateChatFirstSurfaceTab(tab);
+              chatFirstSurfaceTabsStore.closeToRight(tab.id);
+            }}
+            onCloseAll={closeAllChatFirstSurfaceTabs}
+            onOpenSurface={openChatFirstSurface}
+          />
+          <ChatFirstSurfaceContent>
+            {activeChatFirstSurfaceTab?.kind === "app" ? (
+              <ChatFirstAppPane embedded />
+            ) : activeChatFirstSurfaceTab?.kind === "browser" &&
+              activeChatFirstSurfaceTab.url ? (
+              <ChatFirstBrowserPane
+                embedded
+                url={activeChatFirstSurfaceTab.url}
+                title={activeChatFirstSurfaceTab.title}
+                onClose={() =>
+                  closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+                }
+              />
+            ) : activeChatFirstSurfaceTab?.kind === "side-chat" ? (
+              <ChatFirstSessionWatchPane
+                embedded
+                onClose={() =>
+                  closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+                }
+              />
+            ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
+              <ChatFirstAgentsPane />
+            ) : null}
+          </ChatFirstSurfaceContent>
+        </aside>
+      ) : null}
     </div>
   ) : (
     <AgentSidebar
@@ -866,47 +1646,61 @@ export function Layout({
 
   return (
     <DispatchExtensionsContext.Provider value={extensions}>
-      <HeaderActionsProvider>
-        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-          <aside
-            data-collapsed={sidebarCollapsed ? "true" : "false"}
-            className={cn(
-              "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-              sidebarCollapsed ? "w-14" : "w-56",
-            )}
-          >
-            <NavContent
-              extensions={extensions}
-              collapsed={sidebarCollapsed}
-              collapsible
-              onCollapsedChange={setSidebarCollapsed}
-            />
-          </aside>
-
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetContent
-              side="left"
-              className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
+      <DispatchChatFirstPaneProvider
+        value={{
+          pane: chatFirstPane,
+          openPane: openChatFirstPane,
+          closePane: closeChatFirstPane,
+        }}
+      >
+        <HeaderActionsProvider>
+          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
+            <aside
+              data-collapsed={sidebarCollapsed ? "true" : "false"}
+              className={cn(
+                "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+                sidebarCollapsed ? "w-14" : "w-56",
+              )}
             >
-              <SheetTitle className="sr-only">
-                {t("dispatch.nav.navigation")}
-              </SheetTitle>
-              <SheetDescription className="sr-only">
-                {t("dispatch.nav.navigationDescription")}
-              </SheetDescription>
-              <div className="flex h-full w-full flex-col">
-                <NavContent
-                  extensions={extensions}
-                  collapsed={false}
-                  onNavigate={() => setMobileOpen(false)}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
+              <NavContent
+                extensions={extensions}
+                chatFirstMode={chatFirstMode}
+                collapsed={sidebarCollapsed}
+                chatFirstAppLayout={chatFirstAppLayout}
+                onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                collapsible
+                onCollapsedChange={setSidebarCollapsed}
+              />
+            </aside>
 
-          {content}
-        </div>
-      </HeaderActionsProvider>
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetContent
+                side="left"
+                className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
+              >
+                <SheetTitle className="sr-only">
+                  {t("dispatch.nav.navigation")}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {t("dispatch.nav.navigationDescription")}
+                </SheetDescription>
+                <div className="flex h-full w-full flex-col">
+                  <NavContent
+                    extensions={extensions}
+                    chatFirstMode={chatFirstMode}
+                    collapsed={false}
+                    chatFirstAppLayout={chatFirstAppLayout}
+                    onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                    onNavigate={() => setMobileOpen(false)}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            {content}
+          </div>
+        </HeaderActionsProvider>
+      </DispatchChatFirstPaneProvider>
     </DispatchExtensionsContext.Provider>
   );
 }

@@ -1,3 +1,4 @@
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import {
   generateAppId,
@@ -666,6 +667,18 @@ export default function AppSettings({
     [onFrameSettingsChanged],
   );
 
+  const handleChatFirstToggle = useCallback(
+    async (chatFirstMode: boolean) => {
+      if (!window.electronAPI?.frame) return;
+      const updated = await window.electronAPI.frame.update({
+        chatFirstMode,
+      });
+      setFrameSettings(updated);
+      onFrameSettingsChanged?.(updated);
+    },
+    [onFrameSettingsChanged],
+  );
+
   const handleRemoteToggle = useCallback(async (enabled: boolean) => {
     const api = window.electronAPI?.codeAgents;
     if (!api?.setRemoteConnectorEnabled) return;
@@ -915,6 +928,31 @@ export default function AppSettings({
                 />
                 <span className="settings-toggle-track" />
               </label>
+            </div>
+          )}
+
+          {frameSettings && (
+            <div className="settings-code-tab-card settings-chat-first-card">
+              <div className="settings-code-tab-copy">
+                <span className="settings-mode-card-title">
+                  Chat-first workbench
+                </span>
+                <span className="settings-mode-card-status">
+                  Codex-style chats with contextual apps beside the agent.
+                  Existing app tabs stay available when this is off.
+                </span>
+              </div>
+              <Switch
+                checked={frameSettings.chatFirstMode}
+                onCheckedChange={(checked) =>
+                  void handleChatFirstToggle(checked)
+                }
+                aria-label={
+                  frameSettings.chatFirstMode
+                    ? "Use the standard desktop shell"
+                    : "Use the chat-first desktop shell"
+                }
+              />
             </div>
           )}
 

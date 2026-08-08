@@ -447,6 +447,162 @@
   background: hsl(var(--background));
 }
 
+.code-agents-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.code-agents-session-watch {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(340px, 38vh);
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.72);
+}
+
+.code-agents-session-watch__header,
+.code-agents-session-watch__title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.code-agents-session-watch__header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.code-agents-session-watch__title {
+  gap: 8px;
+  color: hsl(var(--foreground));
+}
+
+.code-agents-session-watch__title > svg {
+  flex: 0 0 auto;
+  color: hsl(var(--primary));
+}
+
+.code-agents-session-watch__title div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.code-agents-session-watch__title strong,
+.code-agents-session-watch__title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agents-session-watch__title strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.code-agents-session-watch__title span {
+  color: hsl(var(--muted-foreground));
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 10px;
+}
+
+.code-agents-session-watch__close {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+
+.code-agents-session-watch__close:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.code-agents-session-watch__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 12px;
+  min-height: 0;
+}
+
+.code-agents-session-watch__events {
+  min-width: 0;
+  max-height: 226px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.code-agents-session-watch__event {
+  display: grid;
+  gap: 2px;
+  padding: 5px 7px;
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+}
+
+.code-agents-session-watch__event span {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.code-agents-session-watch__event p {
+  margin: 0;
+  overflow: hidden;
+  color: hsl(var(--foreground) / 0.82);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agents-session-watch__state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 60px;
+  padding: 10px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.code-agents-session-watch__state--error {
+  color: hsl(var(--destructive));
+}
+
+.code-agents-session-watch__composer {
+  align-self: end;
+  width: 100% !important;
+}
+
+.code-agents-main > .code-agents-overview,
+.code-agents-main > .code-agents-workbench {
+  flex: 1 1 auto;
+  height: auto;
+}
+
+@media (max-width: 760px) {
+  .code-agents-session-watch__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code-agents-session-watch {
+    max-height: min(480px, 58vh);
+  }
+
+  .code-agents-session-watch__events {
+    max-height: 150px;
+  }
+}
+
 .code-agents-overview {
   height: 100%;
   overflow-y: auto;
