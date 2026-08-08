@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     example: null;
   }>,
   openAgentSettings: vi.fn(),
+  org: { orgId: null as string | null, orgName: null as string | null },
 }));
 
 vi.mock("./use-jobs.js", () => ({
@@ -20,6 +21,11 @@ vi.mock("./use-jobs.js", () => ({
     error: null,
     isLoading: false,
   }),
+  useAutomationAccountSearch: () => ({ data: [], isFetching: false }),
+}));
+
+vi.mock("../org/hooks.js", () => ({
+  useOrg: () => ({ data: mocks.org }),
 }));
 
 vi.mock("../CommandMenu.js", () => ({
@@ -109,9 +115,11 @@ function click(text: string) {
 function explicitAutomation(patch: Partial<Automation> = {}): Automation {
   return {
     id: "automation-1",
+    resourceId: "automation-1",
     name: "customer-digest",
     path: "jobs/customer-digest.md",
     scope: "personal",
+    classification: "automation",
     triggerType: "schedule",
     event: null,
     schedule: "  */15 * * * *  ",
@@ -134,6 +142,20 @@ function explicitAutomation(patch: Partial<Automation> = {}): Automation {
     deliveryThreadRef: null,
     deliveryTenantId: null,
     canUpdate: true,
+    effectiveRole: "owner",
+    capabilities: {
+      canEdit: true,
+      canOperate: true,
+      canDelete: true,
+      canManageSharing: true,
+    },
+    sharing: {
+      source: "explicit",
+      visibility: "private",
+      organizationId: null,
+      grantCount: 0,
+    },
+    creator: { email: "owner@example.com", label: "owner@example.com" },
     ...patch,
   };
 }
@@ -170,6 +192,8 @@ describe("AutomationEditorDialog", () => {
       },
     ];
     mocks.openAgentSettings.mockReset();
+    mocks.org.orgId = null;
+    mocks.org.orgName = null;
     onSave.mockReset();
     onCancel.mockReset();
     container = document.createElement("div");
@@ -209,7 +233,7 @@ describe("AutomationEditorDialog", () => {
   }
 
   it.each(["personal", "organization"] as const)(
-    "fixes create payloads to the %s opener scope",
+    "fixes create payloads to the %s opener scope and defaults sharing to Personal",
     (scope) => {
       render({ scope });
       fillRequired();
@@ -222,6 +246,7 @@ describe("AutomationEditorDialog", () => {
         scope,
         triggerType: "manual",
         body: "Summarize customer updates.",
+        sharing: { kind: "personal" },
       });
       expect(document.body.textContent).toContain(
         `fixed to the ${scope} scope`,
@@ -244,13 +269,20 @@ describe("AutomationEditorDialog", () => {
 
     expect(onSave).toHaveBeenCalledWith({
       operation: "update",
-      name: "customer-digest",
-      scope: "personal",
+      resourceId: "automation-1",
       triggerType: "manual",
       body: "Summarize customer updates.",
+      sharing: { kind: "personal" },
     });
     const payload = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
-    for (const field of ["event", "schedule", "timezone", "condition"]) {
+    for (const field of [
+      "event",
+      "schedule",
+      "timezone",
+      "condition",
+      "name",
+      "scope",
+    ]) {
       expect(Object.hasOwn(payload, field)).toBe(false);
     }
   });
@@ -272,10 +304,10 @@ describe("AutomationEditorDialog", () => {
     const payload = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(payload).toEqual({
       operation: "update",
-      name: "customer-digest",
-      scope: "personal",
+      resourceId: "automation-1",
       triggerType: "manual",
       body: "Summarize customer updates.",
+      sharing: { kind: "personal" },
     });
     for (const field of ["event", "schedule", "timezone", "condition"]) {
       expect(Object.hasOwn(payload, field)).toBe(false);
@@ -406,8 +438,7 @@ describe("AutomationEditorDialog", () => {
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "update",
-        name: "customer-digest",
-        scope: "personal",
+        resourceId: "automation-1",
         triggerType: "schedule",
         schedule: "  */15 * * * *  ",
         body: "Create a concise customer summary.",
@@ -431,5 +462,53 @@ describe("AutomationEditorDialog", () => {
     expect(input("automation-email-condition").value).toBe(
       "Only unread messages",
     );
+  });
+
+  it("submits Organization sharing with the current organization id", () => {
+    mocks.org.orgId = "org-1";
+    mocks.org.orgName = "Acme";
+    render();
+    fillRequired();
+    click("On demand");
+    const organizationRadio = document.querySelector<HTMLButtonElement>(
+      '[role="radio"][value="organization"]',
+    );
+    if (!organizationRadio) throw new Error("No Organization sharing radio");
+    act(() => organizationRadio.click());
+    click("Create automation");
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sharing: { kind: "organization", organizationId: "org-1" },
+      }),
+    );
+  });
+
+  it("shows a read-only sharing summary for a collaborator without sharing controls", () => {
+    render({
+      automation: explicitAutomation({
+        effectiveRole: "collaborate",
+        capabilities: {
+          canEdit: true,
+          canOperate: true,
+          canDelete: false,
+          canManageSharing: false,
+        },
+        sharing: {
+          source: "explicit",
+          visibility: "shared",
+          organizationId: null,
+          grantCount: 2,
+        },
+      }),
+    });
+
+    expect(document.body.textContent).toContain(
+      "Only the owner can change sharing.",
+    );
+    click("Save changes");
+
+    const payload = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.hasOwn(payload, "sharing")).toBe(false);
   });
 });

@@ -140,6 +140,28 @@ describe("AgentJobsTab unified automations list", () => {
     expect(container.textContent).not.toContain("Personal automations");
   });
 
+  it("labels manual automations as on demand", () => {
+    jobMocks.useAutomations.mockReturnValue(
+      queryResult([
+        ownerAutomation({
+          triggerType: "manual",
+          event: null,
+          schedule: null,
+          timezone: null,
+        }),
+      ]),
+    );
+
+    act(() => {
+      root.render(<AgentJobsTab />);
+    });
+
+    expect(container.textContent).toContain("On demand");
+    expect(container.textContent).toContain(
+      "Runs only when started on demand.",
+    );
+  });
+
   it("routes pause/resume through the resourceId-first mutation", () => {
     act(() => {
       root.render(<AgentJobsTab />);

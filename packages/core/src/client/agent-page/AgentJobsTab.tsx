@@ -8,13 +8,14 @@ import {
   IconChevronDown,
   IconEye,
   IconLoader2,
+  IconMail,
   IconPencil,
+  IconPlus,
   IconPlayerPlay,
   IconTrash,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { AgentAskPopover } from "../AgentAskPopover.js";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +30,6 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useFormatters, useT } from "../i18n.js";
-import { automationCreationContext } from "../settings/AutomationsSection.js";
 import { AgentEmptyState } from "./AgentEmptyState.js";
 import { AgentTabFrame } from "./AgentTabFrame.js";
 import {
@@ -50,10 +50,12 @@ import {
 type Translate = ReturnType<typeof useT>;
 
 function describeTrigger(automation: Automation, t: Translate): string {
-  if (
-    automation.classification === "automation" &&
-    automation.triggerType === "event"
-  ) {
+  if (automation.triggerType === "manual") {
+    return t("jobs.automationManualDetails", {
+      defaultValue: "Runs only when started on demand.",
+    });
+  }
+  if (automation.triggerType === "event") {
     return t("jobs.automationEventDetails", {
       defaultValue: "Runs when {{event}}.",
       event: automation.event ?? "an event fires",
@@ -82,10 +84,11 @@ function detailsFields(
     {
       label: t("jobs.trigger", { defaultValue: "Trigger" }),
       value:
-        automation.classification === "automation" &&
-        automation.triggerType === "event"
-          ? t("jobs.eventTrigger", { defaultValue: "Event-triggered" })
-          : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" }),
+        automation.triggerType === "manual"
+          ? t("jobs.manualTrigger", { defaultValue: "On demand" })
+          : automation.triggerType === "event"
+            ? t("jobs.eventTrigger", { defaultValue: "Event-triggered" })
+            : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" }),
     },
   ];
 
@@ -279,16 +282,14 @@ export function AgentJobsTab({
     runAutomationMutation.error;
 
   const newAutomationButton = (
-    <AgentAskPopover
-      context={automationCreationContext()}
-      prompt={t("jobs.automationPrompt", {
-        defaultValue: "Create an automation that does this: ",
-      })}
-      title={t("jobs.automationsCreateTitle", {
-        defaultValue: "Create an automation",
-      })}
-      label={t("jobs.newAutomation", { defaultValue: "New automation" })}
-    />
+    <Button
+      type="button"
+      className="cursor-pointer gap-1.5"
+      onClick={() => openEditor(null)}
+    >
+      <IconPlus className="size-4" />
+      {t("jobs.newAutomation", { defaultValue: "New automation" })}
+    </Button>
   );
 
   return (
@@ -331,17 +332,7 @@ export function AgentJobsTab({
             description={t("jobs.automationsEmptyDescription", {
               defaultValue: "Describe what should happen and when.",
             })}
-            action={
-              <AgentAskPopover
-                context={automationCreationContext()}
-                prompt={t("jobs.automationPrompt", {
-                  defaultValue: "Create an automation that does this: ",
-                })}
-                title={t("jobs.automationsCreateTitle", {
-                  defaultValue: "Create an automation",
-                })}
-              />
-            }
+            action={newAutomationButton}
             variant="card"
           />
         ) : (
@@ -349,17 +340,23 @@ export function AgentJobsTab({
             <div className="divide-y divide-border/60 px-4">
               {automations.map((automation) => {
                 const lastCheck = formatDateTime(automation.lastCheck);
-                const isEventTrigger =
-                  automation.classification === "automation" &&
-                  automation.triggerType === "event";
-                const triggerDescription = isEventTrigger
-                  ? t("jobs.automationEventTrigger", {
-                      defaultValue: "On {{event}}",
-                      event: automation.event ?? "event",
+                const isEventTrigger = automation.triggerType === "event";
+                const isEmailTrigger =
+                  isEventTrigger &&
+                  automation.event === "mail.message.received";
+                const isManualTrigger = automation.triggerType === "manual";
+                const triggerDescription = isManualTrigger
+                  ? t("jobs.automationManualDetails", {
+                      defaultValue: "Runs only when started on demand.",
                     })
-                  : automation.scheduleDescription ||
-                    automation.schedule ||
-                    t("jobs.scheduledTrigger", { defaultValue: "Scheduled" });
+                  : isEventTrigger
+                    ? t("jobs.automationEventTrigger", {
+                        defaultValue: "On {{event}}",
+                        event: automation.event ?? "event",
+                      })
+                    : automation.scheduleDescription ||
+                      automation.schedule ||
+                      t("jobs.scheduledTrigger", { defaultValue: "Scheduled" });
 
                 return (
                   <article
@@ -368,7 +365,11 @@ export function AgentJobsTab({
                   >
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5 text-muted-foreground">
-                        {isEventTrigger ? (
+                        {isManualTrigger ? (
+                          <IconPlayerPlay className="size-4" />
+                        ) : isEmailTrigger ? (
+                          <IconMail className="size-4" />
+                        ) : isEventTrigger ? (
                           <IconBolt className="size-4" />
                         ) : (
                           <IconClock className="size-4" />
@@ -380,13 +381,21 @@ export function AgentJobsTab({
                             {automation.name.replace(/-/g, " ")}
                           </h3>
                           <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {isEventTrigger
-                              ? t("jobs.eventTrigger", {
-                                  defaultValue: "Event-triggered",
+                            {isManualTrigger
+                              ? t("jobs.manualTrigger", {
+                                  defaultValue: "On demand",
                                 })
-                              : t("jobs.scheduledTrigger", {
-                                  defaultValue: "Scheduled",
-                                })}
+                              : isEmailTrigger
+                                ? t("jobs.emailTrigger", {
+                                    defaultValue: "Email received",
+                                  })
+                                : isEventTrigger
+                                  ? t("jobs.eventTrigger", {
+                                      defaultValue: "Event-triggered",
+                                    })
+                                  : t("jobs.scheduledTrigger", {
+                                      defaultValue: "Scheduled",
+                                    })}
                           </span>
                           <span
                             className={
