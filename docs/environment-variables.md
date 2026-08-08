@@ -220,19 +220,19 @@ authority for defaults and accepted values.
 These are useful for maintainers and automation, not required for a normal
 production deployment:
 
-| Pattern                                                                                                                        | Scope                                                                                       |
-| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `E2E_*` / `PLAYWRIGHT_*` / `*_SMOKE_*` / `SIGN_IN_MATRIX_*`                                                                    | Browser, end-to-end, and smoke-test configuration.                                          |
-| `CHAT_FIRST_SCREENSHOT_DIR` / `CHAT_FIRST_ELECTRON` / `CHAT_FIRST_ELECTRON_EXECUTABLE`                                         | Chat-first workbench QA output plus optional Electron lane and binary override.             |
-| `HEADLESS_ONRAMP_*` / `STANDALONE_CHAT_DEV_*`                                                                                  | CLI and standalone-chat QA harnesses.                                                       |
-| `DEV_*` / `DEBUG_*` / `*_DEBUG` / `CHOKIDAR_*`                                                                                 | Local development and diagnostics.                                                          |
-| `AUTH_SKIP_EMAIL_VERIFICATION`                                                                                                 | Local/test auth convenience; never use to weaken production auth.                           |
-| `VITEST_*` / `VITEST`                                                                                                          | Test-runner behavior and worker configuration.                                              |
-| `UPDATE_I18N_*`                                                                                                                | Maintainer-only i18n baseline updates.                                                      |
-| `CODESPACES` / `GITPOD_*` / `CODEX_HOME` / `XDG_CONFIG_HOME` / `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                           | Tool-host or development-environment detection.                                             |
-| `DEV` / `MODE` / `SSR`                                                                                                         | Vite-provided build-mode flags exposed through `import.meta.env`.                           |
-| `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*`                       | Explicitly opt-in local or maintainer controls. Read the owning source before setting them. |
-| `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES` / `FORCE_COLOR` / `LC_ALL` / `LC_CTYPE` / `NO_COLOR` / `PNPM_HOME` | Local coding-agent, shell, package-manager, and test-lane tooling.                          |
+| Pattern                                                                                                                        | Scope                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `E2E_*` / `PLAYWRIGHT_*` / `*_SMOKE_*` / `SIGN_IN_MATRIX_*`                                                                    | Browser, end-to-end, and smoke-test configuration.                                                       |
+| `CHAT_FIRST_SCREENSHOT_DIR` / `CHAT_FIRST_ELECTRON` / `CHAT_FIRST_ELECTRON_EXECUTABLE`                                         | Chat-first workbench QA output, optional Electron lane toggle, and an optional Electron binary override. |
+| `HEADLESS_ONRAMP_*` / `STANDALONE_CHAT_DEV_*`                                                                                  | CLI and standalone-chat QA harnesses.                                                                    |
+| `DEV_*` / `DEBUG_*` / `*_DEBUG` / `CHOKIDAR_*`                                                                                 | Local development and diagnostics.                                                                       |
+| `AUTH_SKIP_EMAIL_VERIFICATION`                                                                                                 | Local/test auth convenience; never use to weaken production auth.                                        |
+| `VITEST_*` / `VITEST`                                                                                                          | Test-runner behavior and worker configuration.                                                           |
+| `UPDATE_I18N_*`                                                                                                                | Maintainer-only i18n baseline updates.                                                                   |
+| `CODESPACES` / `GITPOD_*` / `CODEX_HOME` / `XDG_CONFIG_HOME` / `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                           | Tool-host or development-environment detection.                                                          |
+| `DEV` / `MODE` / `SSR`                                                                                                         | Vite-provided build-mode flags exposed through `import.meta.env`.                                        |
+| `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*`                       | Explicitly opt-in local or maintainer controls. Read the owning source before setting them.              |
+| `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES` / `FORCE_COLOR` / `LC_ALL` / `LC_CTYPE` / `NO_COLOR` / `PNPM_HOME` | Local coding-agent, shell, package-manager, and test-lane tooling.                                       |
 
 ## CI-only variables
 

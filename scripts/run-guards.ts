@@ -50,6 +50,7 @@ const guards = [
   "guard:no-boot-data-work",
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
+  "guard:serverless-function-payload",
 ] as const;
 
 type GuardName = (typeof guards)[number];

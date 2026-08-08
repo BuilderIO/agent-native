@@ -39,17 +39,23 @@
  *     1. how long the `await import(...)` itself took, and
  *     2. how many bytes the deployed function directory is.
  *   Both are hard budgets. There is no warn-and-pass tier, and a template we
- *   could not measure (missing artifact, unresolved import, no budget entry)
+ *   could not measure (missing artifact, unresolved import, unreadable manifest)
  *   reports NOT MEASURED and exits non-zero — an unmeasured template that reads
  *   like a clean run is exactly how this check would rot.
  *
  * Usage (after `NITRO_PRESET=<preset> pnpm --filter <template> build`):
- *   node scripts/ssr-boot-smoke.mjs [--preset <netlify|vercel|aws-lambda>] <template> [<template> ...]
+ *   node scripts/ssr-boot-smoke.mjs [--preset <netlify|vercel|aws-lambda>]
+ *     [--report-uncovered] <template> [<template> ...]
  *
  * A target containing `/` is treated as a repo-relative app directory
  * (e.g. `packages/docs`) instead of `templates/<name>`.
+ *
+ * `--report-uncovered` additionally names every `templates/*` app this run did
+ * not build. Building all of them per PR is too slow, so the honest alternative
+ * is to say out loud which ones nobody measured rather than let the summary
+ * imply the whole fleet is green.
  */
-import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -68,38 +74,89 @@ const HANDLER_REL_BY_PRESET = {
 // enough that a dependency which does real work at module scope fails here.
 const IMPORT_BUDGET_MS = 3_000;
 
-// Function-directory byte budgets, in MB, keyed `<preset>/<target>`. These are
-// per-target on purpose: healthy artifacts span 33-157MB, so no single global
-// cap can both pass a healthy 157MB bundle and fail a 78MB regression landing
-// on a 33MB one. Each entry is ~1.25x its measured size — headroom for normal
-// dependency drift, far below the size of a leaked browser/binary payload.
-const SIZE_BUDGET_MB = {
-  "netlify/plan": 180, // measured 142MB
-  "netlify/clips": 75, // measured 57MB
-  "aws-lambda/plan": 130, // measured 102MB
-  // No local vercel build to measure; seeded from the netlify plan bundle,
-  // which traces the same module graph. Re-seed from a real measurement.
-  "vercel/plan": 180,
-};
+// Function-directory byte budgets, in MB. Derived rather than hand-maintained:
+// the one thing that moves a page function between size classes is whether the
+// app declares the serverless browser runtime (~78MB of @sparticuz/chromium +
+// playwright-core), so that question picks the budget and a template nobody has
+// thought about is still budgeted.
+//
+// 80MB — a page function that does not ship the browser runtime. The one real
+// post-fix artifact, packages/docs, measures 59.8MB; 80 absorbs normal
+// dependency drift and still fails the moment a browser/binary payload lands.
+// 180MB — an app that legitimately ships it, i.e. ~100MB of headroom on top.
+const PAGE_FUNCTION_BUDGET_MB = 80;
+const BROWSER_RUNTIME_FUNCTION_BUDGET_MB = 180;
+
+// Escape hatch for a genuine outlier, keyed `<preset>/<target>`. An entry here
+// is a permanent exemption from the derived budget, so prefer shrinking the
+// bundle. Empty is the correct steady state.
+const SIZE_BUDGET_OVERRIDES_MB = {};
+
+// Mirrors `findServerlessBrowserRuntimeConsumer` in
+// packages/core/src/deploy/build.ts, which decides whether the deploy build
+// copies the browser runtime into the emitted function — same question, same
+// two signals: the app's OWN manifest and its OWN node_modules. Deliberately
+// not the ancestor/pnpm-store walk that used to answer "yes" for every app in
+// the workspace; that walk is the regression these budgets exist to catch.
+const BROWSER_RUNTIME_MARKERS = [
+  "@sparticuz/chromium",
+  "playwright-core",
+  "@agent-native/creative-context",
+];
+const DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+  "devDependencies",
+  "peerDependencies",
+];
 
 const MB = 1024 * 1024;
 
-let args = process.argv.slice(2);
 let preset = "netlify";
-if (args[0] === "--preset") {
-  preset = args[1] ?? "";
-  args = args.slice(2);
+let reportUncovered = false;
+const targets = [];
+for (let i = 2; i < process.argv.length; i += 1) {
+  const arg = process.argv[i];
+  if (arg === "--preset") {
+    preset = process.argv[++i] ?? "";
+  } else if (arg === "--report-uncovered") {
+    reportUncovered = true;
+  } else {
+    targets.push(arg);
+  }
 }
 const handlerRel = HANDLER_REL_BY_PRESET[preset];
 
-if (!handlerRel || args.length === 0) {
+if (!handlerRel || targets.length === 0) {
   console.error(
-    "[ssr-smoke] Usage: node scripts/ssr-boot-smoke.mjs [--preset <netlify|vercel|aws-lambda>] <template> [<template> ...]",
+    "[ssr-smoke] Usage: node scripts/ssr-boot-smoke.mjs [--preset <netlify|vercel|aws-lambda>] [--report-uncovered] <template> [<template> ...]",
   );
   process.exit(2);
 }
 
-const targets = args;
+/**
+ * Throws when the manifest cannot be read or parsed. "This app has no browser
+ * runtime" and "we could not tell" choose different budgets, so they must not
+ * collapse into the same answer.
+ */
+function declaresBrowserRuntime(appDir) {
+  const manifest = JSON.parse(
+    readFileSync(path.join(appDir, "package.json"), "utf8"),
+  );
+  return BROWSER_RUNTIME_MARKERS.some(
+    (name) =>
+      DEPENDENCY_FIELDS.some(
+        (field) => manifest[field]?.[name] !== undefined,
+      ) || existsSync(path.join(appDir, "node_modules", ...name.split("/"))),
+  );
+}
+
+// A GitHub annotation puts an uncovered or failing template in the PR checks UI
+// instead of 400 lines down a job log.
+function annotate(level, message) {
+  if (!process.env.GITHUB_ACTIONS) return;
+  console.log(`::${level}::${message.replaceAll("\n", "%0A")}`);
+}
 
 /**
  * Bytes under `dir`, attributed to the directory that owns them: a top-level
@@ -166,8 +223,6 @@ for (const target of targets) {
     : path.resolve("templates", target);
   const entry = path.join(appDir, handlerRel);
   const serverDir = path.dirname(entry);
-  const budgetKey = `${preset}/${target}`;
-  const budgetMb = SIZE_BUDGET_MB[budgetKey];
 
   if (!existsSync(entry)) {
     results.push({
@@ -177,6 +232,30 @@ for (const target of targets) {
       hint: `Run \`NITRO_PRESET=${preset} pnpm --filter ${target} build\` first.`,
     });
     continue;
+  }
+
+  const override = SIZE_BUDGET_OVERRIDES_MB[`${preset}/${target}`];
+  let budgetMb = override;
+  let budgetWhy = "per-target override";
+  if (budgetMb === undefined) {
+    let shipsBrowser;
+    try {
+      shipsBrowser = declaresBrowserRuntime(appDir);
+    } catch (err) {
+      results.push({
+        target,
+        status: "not-measured",
+        reason: `cannot read ${target}/package.json, so the size budget is unknown: ${String(err?.message ?? err)}`,
+        hint: "Fix the manifest — an unreadable one is not the same as an app with no browser runtime.",
+      });
+      continue;
+    }
+    budgetMb = shipsBrowser
+      ? BROWSER_RUNTIME_FUNCTION_BUDGET_MB
+      : PAGE_FUNCTION_BUDGET_MB;
+    budgetWhy = shipsBrowser
+      ? "declares the serverless browser runtime"
+      : "no browser runtime";
   }
 
   const startedAt = performance.now();
@@ -219,20 +298,9 @@ for (const target of targets) {
 
   const { total, byPackage } = measureDir(serverDir);
   const totalMb = total / MB;
-  const measurement = `import ${importMs}ms, ${totalMb.toFixed(0)}MB function dir`;
-
-  if (budgetMb === undefined) {
-    results.push({
-      target,
-      status: "not-measured",
-      reason: `${measurement}, but no size budget is configured for \`${budgetKey}\``,
-      hint:
-        `Add \`"${budgetKey}": ${Math.ceil((totalMb * 1.25) / 5) * 5},\` to SIZE_BUDGET_MB in this ` +
-        `script once you have confirmed ${totalMb.toFixed(0)}MB is a healthy baseline.`,
-      breakdown: formatBreakdown(byPackage),
-    });
-    continue;
-  }
+  const measurement =
+    `import ${importMs}ms, ${totalMb.toFixed(0)}MB function dir ` +
+    `(budget ${budgetMb}MB — ${budgetWhy})`;
 
   const overBudget = [];
   if (importMs > IMPORT_BUDGET_MS) {
@@ -240,7 +308,7 @@ for (const target of targets) {
   }
   if (totalMb > budgetMb) {
     overBudget.push(
-      `function dir is ${totalMb.toFixed(0)}MB (budget ${budgetMb}MB)`,
+      `function dir is ${totalMb.toFixed(0)}MB (budget ${budgetMb}MB — ${budgetWhy})`,
     );
   }
 
@@ -262,6 +330,12 @@ for (const result of results) {
   }[result.status];
   const log = result.status === "passed" ? console.log : console.error;
   log(`[ssr-smoke] ${result.target}: ${label} — ${result.reason}`);
+  if (result.status !== "passed") {
+    annotate(
+      result.status === "failed" ? "error" : "warning",
+      `[ssr-smoke] ${result.target}: ${label} — ${result.reason}`,
+    );
+  }
   if (result.breakdown) {
     log(`            largest: ${result.breakdown}`);
   }
@@ -288,6 +362,31 @@ const passedCount = results.filter((r) => r.status === "passed").length;
 console.error(
   `\n[ssr-smoke] ${passedCount} passed, ${failedCount} failed, ${unmeasuredCount} not measured (of ${results.length}).`,
 );
+
+if (reportUncovered) {
+  const templatesDir = path.resolve("templates");
+  const allTemplates = readdirSync(templatesDir, { withFileTypes: true })
+    .filter(
+      (dirent) =>
+        dirent.isDirectory() &&
+        existsSync(path.join(templatesDir, dirent.name, "package.json")),
+    )
+    .map((dirent) => dirent.name)
+    .sort();
+  const uncovered = allTemplates.filter((name) => !targets.includes(name));
+
+  if (uncovered.length > 0) {
+    const headline =
+      `[ssr-smoke] NOT COVERED — ${uncovered.length} of ${allTemplates.length} templates were never built ` +
+      `in this run, so no boot or size budget was applied to them: ${uncovered.join(", ")}`;
+    console.error(`\n${headline}`);
+    console.error(
+      "            Not a pass. Add one to the build set above when it starts\n" +
+        "            carrying real SSR risk; its budget is derived, not configured.",
+    );
+    annotate("warning", headline);
+  }
+}
 
 if (failedCount > 0) {
   console.error(
