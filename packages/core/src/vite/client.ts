@@ -3209,7 +3209,12 @@ const DEFAULT_VITE_WATCH_IGNORES = [
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
-  return { ...pluginOrPreset, apply: "serve" };
+  return {
+    ...pluginOrPreset,
+    apply: (_config: UserConfig, configEnv: ConfigEnv) =>
+      configEnv.command === "serve" &&
+      !(configEnv.isPreview && process.env.IS_RR_BUILD_REQUEST === "yes"),
+  };
 }
 
 function nitroPresetMarkerPlugin(
