@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.146.7
+
+### Patch Changes
+
+- 718ba9e: Allow the signed recurring-job sweep to reach its internal HMAC verifier instead of being rejected by the browser-session auth guard.
+
 ## 0.146.6
 
 ### Patch Changes
