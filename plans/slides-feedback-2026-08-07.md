@@ -42,7 +42,7 @@ choice or an explicit Good/Better/Best tier.
 
 **Proposed (needs approval — this is UX, and the picker is already dense).**
 Set a slides app default through the existing `app-model-defaults` store rather
-than building new machinery, and attach the "why" to the *existing* selected-row
+than building new machinery, and attach the "why" to the _existing_ selected-row
 affordance instead of adding a visible info bubble. Tradeoff: an app-level
 default silently overrides the framework default for everyone in the org, so it
 needs to be visible somewhere in settings.
@@ -66,7 +66,7 @@ on Notion produced no visible response.
 
 The only silent paths are the early return when the card is already connected or
 busy (`:204-209`, with the button disabled in that state at `:893-895`). What
-the code *cannot* rule out is the failure the screenshot is consistent with:
+the code _cannot_ rule out is the failure the screenshot is consistent with:
 `navigateToMcpOAuthStart` gives no spinner, no toast, and no error, so if the
 OAuth start URL 4xxs or the navigation is blocked, the click is
 indistinguishable from a no-op. **That absence of feedback is the defect worth
@@ -94,7 +94,7 @@ user already found busy.
 - The reference-deck select is deck-backed (starred decks, then other decks,
   then recents, `NewDeckReferenceStep.tsx:298-383`). There is **no explicit
   "none" item.**
-- "None" *is* reachable, just not labelled: **Skip** passes explicit nulls
+- "None" _is_ reachable, just not labelled: **Skip** passes explicit nulls
   (`FirstDeckOnboardingFlow.tsx:252-257` →
   `startGeneration(promptFiles, { designSystemId: null, referenceDeckId: null })`),
   and the defaults only kick in when the field is `undefined`
@@ -128,7 +128,7 @@ above) and the tray's `progress_runs` row, which the agent opens with
 budget exhaustion never reaches its `complete` call, so the `progress_runs` row
 stays `running`.
 
-There *is* a server-side stale sweep — `cancelStaleRunsForOwner`
+There _is_ a server-side stale sweep — `cancelStaleRunsForOwner`
 (`packages/core/src/progress/store.ts:240-273`) cancels rows untouched for 5
 minutes — but it only runs inside `listRuns`
 (`packages/core/src/progress/store.ts:308-339`). Slides mounts the tray with
@@ -171,7 +171,7 @@ The Drive path is real and is wired up:
 `mimeType: "application/vnd.google-apps.presentation"` and returns a
 `webViewLink`.
 
-The defect was the reporting. On *any* non-OK response the client downloads the
+The defect was the reporting. On _any_ non-OK response the client downloads the
 PPTX and returns `{ url: null, downloaded: true, reason }`
 (`export-google-slides-client.ts:59-66`) — and `ExportMenu.tsx:126-131` then
 logged the reason to the console and raised a **success** toast, "Downloaded for
@@ -210,7 +210,7 @@ Skeptical read of the two halves of this report:
   (`SlideRenderer.tsx:247-320`). Normal flow cannot self-overlap. The likely
   source is the generated slide HTML itself (absolute positioning or negative
   margins the agent emitted), which cannot be confirmed without the deck.
-- **Exported overlap: a real, provable bug exists** in the *server* export
+- **Exported overlap: a real, provable bug exists** in the _server_ export
   action, `templates/slides/actions/export-pptx.ts:335-369`:
   `const lineCount = Math.max(1, text.split("\n").length)` counts only explicit
   newlines, never soft wraps. A long title that visually wraps to two lines is
@@ -218,7 +218,7 @@ Skeptical read of the two halves of this report:
   placed on top of the second line. The centered-layout pre-pass has the same
   assumption (`:265-284`, `totalHeight += fontSize * 1.3 + marginBottom`).
 
-**Why it is not fixed here.** The user's Google Slides export does *not* go
+**Why it is not fixed here.** The user's Google Slides export does _not_ go
 through `export-pptx.ts` — it goes through the browser path
 (`app/lib/export-pptx-client.ts`), which serializes measured DOM. So patching
 the server estimator would not address the reported case and would be a fix
@@ -240,20 +240,20 @@ PDF) at the start and optimize the build accordingly?" — cites Claude picking
 This is an instruction change, not a code change: it belongs in
 `templates/slides/.agents/skills/create-deck/` and the export guidance in
 `AGENTS.md`, which currently documents the Google Slides path as a PPTX import
-workflow. Worth noting that item 6 is the concrete cost of *not* knowing the
+workflow. Worth noting that item 6 is the concrete cost of _not_ knowing the
 target: geometry that survives one renderer and breaks in another.
 
 ---
 
 ## Summary
 
-| # | Item | Status |
-|---|------|--------|
-| 1 | Model default / task-aware selection | Product decision — per-app override exists, unused |
-| 2 | Notion Connect no-op | Not reproducible; no-feedback path is the real gap |
-| 3 | Reference deck variety / "none" | Confirmed — "none" reachable via Skip, unlabelled |
-| 4a | `run_budget_exhausted` | Working as designed |
-| 4b | Spinner stuck for an hour | **Fixed** (+ regression tests) |
-| 5 | Google Slides export downloaded PPTX | **Fixed** (silent success → real reason) |
-| 6 | Title/subtitle overlap | Confirmed in server export only; needs the deck |
-| 7 | Ask for output format up front | Product decision |
+| #   | Item                                 | Status                                             |
+| --- | ------------------------------------ | -------------------------------------------------- |
+| 1   | Model default / task-aware selection | Product decision — per-app override exists, unused |
+| 2   | Notion Connect no-op                 | Not reproducible; no-feedback path is the real gap |
+| 3   | Reference deck variety / "none"      | Confirmed — "none" reachable via Skip, unlabelled  |
+| 4a  | `run_budget_exhausted`               | Working as designed                                |
+| 4b  | Spinner stuck for an hour            | **Fixed** (+ regression tests)                     |
+| 5   | Google Slides export downloaded PPTX | **Fixed** (silent success → real reason)           |
+| 6   | Title/subtitle overlap               | Confirmed in server export only; needs the deck    |
+| 7   | Ask for output format up front       | Product decision                                   |
