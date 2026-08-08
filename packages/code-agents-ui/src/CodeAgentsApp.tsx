@@ -264,6 +264,12 @@ export interface CodeAgentsAppProps {
   activeChatFirstSurfaceKind?: ChatFirstSurfaceKind;
   /** Keep session-watch affordances opt-in with the chat-first shell. */
   chatFirstMode?: boolean;
+  /** Selected primary chat kind in the opt-in chat-first shell. */
+  chatFirstMainKind?: "agent" | "code";
+  /** Select the primary chat kind in the opt-in chat-first shell. */
+  onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
+  /** Host-rendered shared Agent-Native chat surface for chat-first mode. */
+  renderChatFirstMainSurface?: ReactNode;
   /** Lets a host place the shared watch renderer in its side-surface slot. */
   onWatchedRunChange?: (
     run: CodeAgentRun | null,
@@ -437,6 +443,9 @@ export default function CodeAgentsApp({
   openDetailRequest,
   activeChatFirstSurfaceKind,
   chatFirstMode = false,
+  chatFirstMainKind = "code",
+  onChatFirstMainKindChange,
+  renderChatFirstMainSurface,
   onWatchedRunChange,
   onRunsChange,
 }: CodeAgentsAppProps) {
@@ -969,6 +978,7 @@ export default function CodeAgentsApp({
 
   useEffect(() => {
     if (!openRequest) return;
+    onChatFirstMainKindChange?.("code");
     const nextGoal = getCodeAgentGoal(openRequest.goalId);
     if (nextGoal) setSelectedGoalId(nextGoal.id);
     setSelectedExtensionDetailId(null);
@@ -977,7 +987,7 @@ export default function CodeAgentsApp({
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
     void loadRuns(true);
-  }, [loadRuns, openRequest]);
+  }, [loadRuns, onChatFirstMainKindChange, openRequest]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
@@ -1300,12 +1310,14 @@ export default function CodeAgentsApp({
   }
 
   function openSearchPanel() {
+    onChatFirstMainKindChange?.("code");
     setSearchPanelOpen(true);
     setMobilePanelOpen(false);
     setWorkbenchOpen(false);
   }
 
   function openSearchResult(run: CodeAgentRun) {
+    onChatFirstMainKindChange?.("code");
     const goal = getCodeAgentGoal(run.goalId) ?? getDefaultCodeAgentGoal();
     setSelectedGoalId(goal.id);
     setRuns((current) =>
@@ -1319,6 +1331,7 @@ export default function CodeAgentsApp({
   }
 
   function openMobilePanel() {
+    onChatFirstMainKindChange?.("code");
     setSearchPanelOpen(false);
     setMobilePanelOpen(true);
     setWorkbenchOpen(false);
@@ -1409,6 +1422,7 @@ export default function CodeAgentsApp({
   }
 
   function openSelectedGoal() {
+    onChatFirstMainKindChange?.("code");
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
     setSelectedRunId(null);
@@ -1747,13 +1761,19 @@ export default function CodeAgentsApp({
           <button
             type="button"
             className={`code-agents-nav-link${
-              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
+              !searchPanelOpen &&
+              !mobilePanelOpen &&
+              !selectedRunId &&
+              (!chatFirstMode || chatFirstMainKind === "code")
                 ? " code-agents-nav-link--active"
                 : ""
             }`}
             onClick={openSelectedGoal}
             aria-pressed={
-              !searchPanelOpen && !mobilePanelOpen && !selectedRunId
+              !searchPanelOpen &&
+              !mobilePanelOpen &&
+              !selectedRunId &&
+              (!chatFirstMode || chatFirstMainKind === "code")
             }
           >
             <IconPlus size={15} strokeWidth={1.8} />
@@ -1771,7 +1791,7 @@ export default function CodeAgentsApp({
             <IconSearch size={15} strokeWidth={1.8} />
             <span>Search</span>
           </button>
-          {host.getRemoteConnectorStatus && (
+          {!chatFirstMode && host.getRemoteConnectorStatus && (
             <MobileRailItem
               status={remoteConnectorStatus}
               error={remoteConnectorError}
@@ -1779,7 +1799,7 @@ export default function CodeAgentsApp({
               onOpen={openMobilePanel}
             />
           )}
-          {hostMetadata?.computerControl && (
+          {!chatFirstMode && hostMetadata?.computerControl && (
             <ComputerAccessRailItem
               metadata={hostMetadata}
               onOpen={() => setComputerSetupOpen(true)}
@@ -1803,6 +1823,7 @@ export default function CodeAgentsApp({
               items={railItems}
               activeId={selectedRunId}
               onSelect={(id) => {
+                onChatFirstMainKindChange?.("code");
                 markRunsViewed([id]);
                 setSelectedExtensionDetailId(null);
                 setSelectedRunId(id);
@@ -1810,6 +1831,7 @@ export default function CodeAgentsApp({
                 setMobilePanelOpen(false);
               }}
               onOpen={(id) => {
+                onChatFirstMainKindChange?.("code");
                 markRunsViewed([id]);
                 setSelectedExtensionDetailId(null);
                 setSelectedRunId(id);
@@ -1887,245 +1909,263 @@ export default function CodeAgentsApp({
 
       <main className="code-agents-main">
         {chatFirstMode &&
-        !onWatchedRunChange &&
-        watchedRun &&
-        (!activeChatFirstSurfaceKind ||
-          activeChatFirstSurfaceKind === "side-chat") ? (
-          <SessionWatchPanel
-            host={host}
-            run={watchedRun}
-            sourceRunId={
-              watchedSession.target?.sourceSessionId ?? selectedRunId
-            }
-            onClose={closeChatFirstSessionWatch}
-          />
-        ) : null}
-        {workbenchOpen ? (
-          <div className="code-agents-workbench">
-            <div className="code-agents-workbench__toolbar">
-              <div>
-                <p className="code-agents-kicker">Chat</p>
-                <h2>
-                  {getRunTitle(selectedRun) ??
-                    (selectedRunId
-                      ? `Chat ${selectedRunId}`
-                      : selectedGoal.primaryActionLabel)}
-                </h2>
-                <AgentCapabilitySummary
-                  metadata={hostMetadata}
-                  onOpenComputerSetup={() => setComputerSetupOpen(true)}
-                />
-              </div>
-              <div className="code-agents-toolbar-actions">
-                {canOpenTerminal && (
-                  <button
-                    type="button"
-                    className="code-agents-button"
-                    onClick={openTerminal}
-                  >
-                    <IconTerminal2 size={14} strokeWidth={1.8} />
-                    Open Terminal
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="code-agents-button"
-                  onClick={() => setWorkbenchOpen(false)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-            <div className="code-agents-workbench-frame">
-              {selectedGoalApp && renderAppSurface ? (
-                renderAppSurface({
-                  goal: selectedGoal,
-                  app: selectedGoalApp,
-                  urlParams: workbenchUrlParams,
-                  refreshKey,
-                })
-              ) : (
-                <NativeGoalSurface
-                  goal={selectedGoal}
-                  onOpenTerminal={canOpenTerminal ? openTerminal : undefined}
-                />
-              )}
-            </div>
-          </div>
+        chatFirstMainKind === "agent" &&
+        renderChatFirstMainSurface ? (
+          renderChatFirstMainSurface
         ) : (
-          <div
-            className={`code-agents-overview${
-              showingSelectedRunDetail ? " code-agents-overview--chat" : ""
-            }`}
-          >
-            {mobilePanelOpen ? (
-              <MobileConnectorPanel
-                status={remoteConnectorStatus}
-                error={remoteConnectorError}
-                message={remoteConnectorMessage}
-                relayUrl={remoteRelayUrl}
-                brandIconUrl={brandIconUrl}
-                pairing={remoteConnectorPairing}
-                updating={remoteConnectorUpdating}
-                canPair={Boolean(host.pairRemoteConnector)}
-                canToggle={Boolean(host.setRemoteConnectorEnabled)}
-                onPair={pairRemoteConnector}
-                onSetEnabled={setRemoteConnectorEnabled}
-                onRefresh={loadRemoteConnectorStatus}
-                onCopyLink={copyMobileLink}
-                onOpenSettings={onOpenSettings}
+          <>
+            {chatFirstMode &&
+            !onWatchedRunChange &&
+            watchedRun &&
+            (!activeChatFirstSurfaceKind ||
+              activeChatFirstSurfaceKind === "side-chat") ? (
+              <SessionWatchPanel
+                host={host}
+                run={watchedRun}
+                sourceRunId={
+                  watchedSession.target?.sourceSessionId ?? selectedRunId
+                }
+                onClose={closeChatFirstSessionWatch}
               />
-            ) : searchPanelOpen ? (
-              <SearchChatsPanel
-                query={searchQuery}
-                results={searchResults}
-                totalRuns={searchRuns.length}
-                loading={searchLoading}
-                transcriptLoading={searchTranscriptLoading}
-                error={searchError}
-                inputRef={searchInputRef}
-                onQueryChange={setSearchQuery}
-                onSelectRun={openSearchResult}
-                onRefresh={loadSearchRuns}
-              />
+            ) : null}
+            {workbenchOpen ? (
+              <div className="code-agents-workbench">
+                <div className="code-agents-workbench__toolbar">
+                  <div>
+                    <p className="code-agents-kicker">Chat</p>
+                    <h2>
+                      {getRunTitle(selectedRun) ??
+                        (selectedRunId
+                          ? `Chat ${selectedRunId}`
+                          : selectedGoal.primaryActionLabel)}
+                    </h2>
+                    <AgentCapabilitySummary
+                      metadata={hostMetadata}
+                      onOpenComputerSetup={() => setComputerSetupOpen(true)}
+                    />
+                  </div>
+                  <div className="code-agents-toolbar-actions">
+                    {canOpenTerminal && (
+                      <button
+                        type="button"
+                        className="code-agents-button"
+                        onClick={openTerminal}
+                      >
+                        <IconTerminal2 size={14} strokeWidth={1.8} />
+                        Open Terminal
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="code-agents-button"
+                      onClick={() => setWorkbenchOpen(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+                <div className="code-agents-workbench-frame">
+                  {selectedGoalApp && renderAppSurface ? (
+                    renderAppSurface({
+                      goal: selectedGoal,
+                      app: selectedGoalApp,
+                      urlParams: workbenchUrlParams,
+                      refreshKey,
+                    })
+                  ) : (
+                    <NativeGoalSurface
+                      goal={selectedGoal}
+                      onOpenTerminal={
+                        canOpenTerminal ? openTerminal : undefined
+                      }
+                    />
+                  )}
+                </div>
+              </div>
             ) : (
-              <>
-                {loading ? (
-                  <OverviewSkeleton />
+              <div
+                className={`code-agents-overview${
+                  showingSelectedRunDetail ? " code-agents-overview--chat" : ""
+                }`}
+              >
+                {mobilePanelOpen ? (
+                  <MobileConnectorPanel
+                    status={remoteConnectorStatus}
+                    error={remoteConnectorError}
+                    message={remoteConnectorMessage}
+                    relayUrl={remoteRelayUrl}
+                    brandIconUrl={brandIconUrl}
+                    pairing={remoteConnectorPairing}
+                    updating={remoteConnectorUpdating}
+                    canPair={Boolean(host.pairRemoteConnector)}
+                    canToggle={Boolean(host.setRemoteConnectorEnabled)}
+                    onPair={pairRemoteConnector}
+                    onSetEnabled={setRemoteConnectorEnabled}
+                    onRefresh={loadRemoteConnectorStatus}
+                    onCopyLink={copyMobileLink}
+                    onOpenSettings={onOpenSettings}
+                  />
+                ) : searchPanelOpen ? (
+                  <SearchChatsPanel
+                    query={searchQuery}
+                    results={searchResults}
+                    totalRuns={searchRuns.length}
+                    loading={searchLoading}
+                    transcriptLoading={searchTranscriptLoading}
+                    error={searchError}
+                    inputRef={searchInputRef}
+                    onQueryChange={setSearchQuery}
+                    onSelectRun={openSearchResult}
+                    onRefresh={loadSearchRuns}
+                  />
                 ) : (
                   <>
-                    {status !== "ok" && (
-                      <div
-                        className={`code-agents-callout code-agents-callout--${status}`}
-                      >
-                        <IconAlertCircle size={17} strokeWidth={1.8} />
-                        <span>
-                          {status === "unauthorized"
-                            ? `Open ${selectedGoal.surfaceLabel} and sign in to see chats.`
-                            : (error ??
-                              `${selectedGoal.surfaceLabel} is not reporting chats yet.`)}
-                        </span>
-                      </div>
-                    )}
-
-                    {activeNewSessionExtension &&
-                    selectedExtensionDetailId &&
-                    activeNewSessionExtension.renderDetail ? (
-                      activeNewSessionExtension.renderDetail({
-                        detailId: selectedExtensionDetailId,
-                        onClose: openSelectedGoal,
-                      })
-                    ) : selectedRun ? (
-                      <RunDetailCard
-                        host={host}
-                        run={selectedRun}
-                        selectedRunId={selectedRunId}
-                        goal={selectedGoal}
-                        transcriptEvents={transcriptEvents}
-                        transcriptLoading={transcriptLoading}
-                        transcriptError={transcriptError}
-                        permissionMode={selectedPermissionMode}
-                        modelSelection={selectedModelSelection}
-                        modelOptions={modelOptions}
-                        onPermissionModeChange={changeSelectedPermissionMode}
-                        onModelSelectionChange={setModelSelection}
-                        onStop={() => controlRun("stop")}
-                        onApprove={() => controlRun("approve")}
-                        onApproveAlways={() => controlRun("approve-always")}
-                        onDeny={() => controlRun("deny")}
-                        providerBlocked={providerGate.blocked}
-                        builderConnecting={builderConnecting}
-                        builderConnectMessage={builderConnectMessage}
-                        onConnectBuilder={connectBuilderProvider}
-                        onOpenSettings={onOpenSettings}
-                        onConnectProvider={connectBuilderProvider}
-                        onConnectLocalRuntime={
-                          codexCliAvailable ? connectLocalRuntime : undefined
-                        }
-                      />
+                    {loading ? (
+                      <OverviewSkeleton />
                     ) : (
-                      <div className="code-agents-start">
-                        <h2>What outcome do you want?</h2>
-                        {!activeNewSessionExtension && providerGate.blocked && (
-                          <ProviderGateNotice
-                            description={providerGate.description}
-                            connecting={builderConnecting}
-                            message={builderConnectMessage}
+                      <>
+                        {status !== "ok" && (
+                          <div
+                            className={`code-agents-callout code-agents-callout--${status}`}
+                          >
+                            <IconAlertCircle size={17} strokeWidth={1.8} />
+                            <span>
+                              {status === "unauthorized"
+                                ? `Open ${selectedGoal.surfaceLabel} and sign in to see chats.`
+                                : (error ??
+                                  `${selectedGoal.surfaceLabel} is not reporting chats yet.`)}
+                            </span>
+                          </div>
+                        )}
+
+                        {activeNewSessionExtension &&
+                        selectedExtensionDetailId &&
+                        activeNewSessionExtension.renderDetail ? (
+                          activeNewSessionExtension.renderDetail({
+                            detailId: selectedExtensionDetailId,
+                            onClose: openSelectedGoal,
+                          })
+                        ) : selectedRun ? (
+                          <RunDetailCard
+                            host={host}
+                            run={selectedRun}
+                            selectedRunId={selectedRunId}
+                            goal={selectedGoal}
+                            transcriptEvents={transcriptEvents}
+                            transcriptLoading={transcriptLoading}
+                            transcriptError={transcriptError}
+                            permissionMode={selectedPermissionMode}
+                            modelSelection={selectedModelSelection}
+                            modelOptions={modelOptions}
+                            onPermissionModeChange={
+                              changeSelectedPermissionMode
+                            }
+                            onModelSelectionChange={setModelSelection}
+                            onStop={() => controlRun("stop")}
+                            onApprove={() => controlRun("approve")}
+                            onApproveAlways={() => controlRun("approve-always")}
+                            onDeny={() => controlRun("deny")}
+                            providerBlocked={providerGate.blocked}
+                            builderConnecting={builderConnecting}
+                            builderConnectMessage={builderConnectMessage}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
+                            onConnectProvider={connectBuilderProvider}
                             onConnectLocalRuntime={
                               codexCliAvailable
-                                ? () => void connectLocalRuntime("codex-cli")
+                                ? connectLocalRuntime
                                 : undefined
                             }
                           />
+                        ) : (
+                          <div className="code-agents-start">
+                            <h2>What outcome do you want?</h2>
+                            {!activeNewSessionExtension &&
+                              providerGate.blocked && (
+                                <ProviderGateNotice
+                                  description={providerGate.description}
+                                  connecting={builderConnecting}
+                                  message={builderConnectMessage}
+                                  onConnectBuilder={connectBuilderProvider}
+                                  onOpenSettings={onOpenSettings}
+                                  onConnectLocalRuntime={
+                                    codexCliAvailable
+                                      ? () =>
+                                          void connectLocalRuntime("codex-cli")
+                                      : undefined
+                                  }
+                                />
+                              )}
+                            <NewSessionComposer
+                              prompt={newPrompt}
+                              promptSeed={newPromptSeed}
+                              inputRef={newPromptRef}
+                              creating={creatingRun}
+                              permissionMode={newRunPermissionMode}
+                              modelSelection={selectedModelSelection}
+                              modelOptions={modelOptions}
+                              slashCommands={
+                                activeNewSessionExtension ? [] : slashCommands
+                              }
+                              disabled={
+                                activeNewSessionExtension
+                                  ? activeNewSessionExtension.disabled
+                                  : providerGate.blocked
+                              }
+                              modeControl={newSessionExtension?.renderModeControl?.(
+                                {
+                                  permissionMode: newRunPermissionMode,
+                                  onPermissionModeChange:
+                                    setNewRunPermissionMode,
+                                },
+                              )}
+                              useDefaultModeControl={
+                                newSessionExtensionComposerState.useDefaultModeControl
+                              }
+                              showModelSelector={
+                                newSessionExtensionComposerState.showModelSelector
+                              }
+                              onPromptChange={setNewPrompt}
+                              onPermissionModeChange={setNewRunPermissionMode}
+                              onModelSelectionChange={setModelSelection}
+                              onSlashCommand={
+                                activeNewSessionExtension
+                                  ? undefined
+                                  : handleSlashCommand
+                              }
+                              onSubmit={createRunFromPrompt}
+                              onConnectProvider={
+                                activeNewSessionExtension
+                                  ? undefined
+                                  : connectBuilderProvider
+                              }
+                              onConnectLocalRuntime={
+                                !activeNewSessionExtension && codexCliAvailable
+                                  ? connectLocalRuntime
+                                  : undefined
+                              }
+                            />
+                            {(projects.length > 0 ||
+                              canChooseProjectFolder) && (
+                              <ProjectFolderPicker
+                                variant="bar"
+                                projects={projects}
+                                selectedPath={selectedProjectPath}
+                                loading={loadingProjects}
+                                canChoose={canChooseProjectFolder}
+                                onSelect={selectProjectFolder}
+                                onChoose={chooseProjectFolder}
+                              />
+                            )}
+                          </div>
                         )}
-                        <NewSessionComposer
-                          prompt={newPrompt}
-                          promptSeed={newPromptSeed}
-                          inputRef={newPromptRef}
-                          creating={creatingRun}
-                          permissionMode={newRunPermissionMode}
-                          modelSelection={selectedModelSelection}
-                          modelOptions={modelOptions}
-                          slashCommands={
-                            activeNewSessionExtension ? [] : slashCommands
-                          }
-                          disabled={
-                            activeNewSessionExtension
-                              ? activeNewSessionExtension.disabled
-                              : providerGate.blocked
-                          }
-                          modeControl={newSessionExtension?.renderModeControl?.(
-                            {
-                              permissionMode: newRunPermissionMode,
-                              onPermissionModeChange: setNewRunPermissionMode,
-                            },
-                          )}
-                          useDefaultModeControl={
-                            newSessionExtensionComposerState.useDefaultModeControl
-                          }
-                          showModelSelector={
-                            newSessionExtensionComposerState.showModelSelector
-                          }
-                          onPromptChange={setNewPrompt}
-                          onPermissionModeChange={setNewRunPermissionMode}
-                          onModelSelectionChange={setModelSelection}
-                          onSlashCommand={
-                            activeNewSessionExtension
-                              ? undefined
-                              : handleSlashCommand
-                          }
-                          onSubmit={createRunFromPrompt}
-                          onConnectProvider={
-                            activeNewSessionExtension
-                              ? undefined
-                              : connectBuilderProvider
-                          }
-                          onConnectLocalRuntime={
-                            !activeNewSessionExtension && codexCliAvailable
-                              ? connectLocalRuntime
-                              : undefined
-                          }
-                        />
-                        {(projects.length > 0 || canChooseProjectFolder) && (
-                          <ProjectFolderPicker
-                            variant="bar"
-                            projects={projects}
-                            selectedPath={selectedProjectPath}
-                            loading={loadingProjects}
-                            canChoose={canChooseProjectFolder}
-                            onSelect={selectProjectFolder}
-                            onChoose={chooseProjectFolder}
-                          />
-                        )}
-                      </div>
+                      </>
                     )}
                   </>
                 )}
-              </>
+              </div>
             )}
-          </div>
+          </>
         )}
       </main>
       <ComputerAccessDialog

@@ -64,7 +64,7 @@ async function snapshot(page: Page, name: string): Promise<SurfaceSnapshot> {
       launcher: document.querySelectorAll(
         ".dispatch-chat-first-surface-launcher",
       ).length,
-      emptyCards: document.querySelectorAll("[data-surface-empty-state] > div")
+      emptyCards: document.querySelectorAll("[data-surface-empty-state] > *")
         .length,
       toggle: document.querySelectorAll("[data-chat-first-surface-toggle]")
         .length,
@@ -128,11 +128,11 @@ async function runSmoke(browser: Browser): Promise<void> {
 
     await on.page.locator("[data-chat-first-surface-toggle]").click();
     const picker = await snapshot(on.page, "03-chat-first-surface-picker");
-    assert.equal(picker.panel, 0);
-    assert.equal(picker.launcher, 1);
+    assert.equal(picker.panel, 1);
+    assert.equal(picker.launcher, 0);
     assert.equal(picker.emptyCards, 6);
     assert.equal(
-      await on.page.getByText("Deferred", { exact: true }).count(),
+      await on.page.locator('[data-surface-availability="deferred"]').count(),
       3,
       "deferred side surfaces should be labeled honestly",
     );
@@ -194,8 +194,8 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.getByRole("button", { name: "Close browser" }).click();
     await on.page.keyboard.press("Control+Alt+b");
     const keyboardPicker = await snapshot(on.page, "08-chat-first-keyboard");
-    assert.equal(keyboardPicker.panel, 0);
-    assert.equal(keyboardPicker.launcher, 1);
+    assert.equal(keyboardPicker.panel, 1);
+    assert.equal(keyboardPicker.launcher, 0);
     assert.equal(keyboardPicker.emptyCards, 6);
   } finally {
     await on.context.close();
@@ -333,17 +333,66 @@ async function runElectronSmoke(): Promise<void> {
       empty.mainWidth > 0,
       "Electron Agent content should be measurable",
     );
+    const chatFirstNav = await page
+      .locator(".code-agents-nav-list")
+      .innerText();
+    assert.match(chatFirstNav, /Agent chat/);
+    assert.match(chatFirstNav, /Code work/);
+    assert.doesNotMatch(chatFirstNav, /Mobile|Computer access/);
+
+    await page.getByRole("button", { name: "Code work" }).click();
+    assert.equal(
+      await page.locator(".code-agents-overview").count(),
+      1,
+      "Code work should keep the local coding-agent surface",
+    );
+    await page.getByRole("button", { name: "Agent chat" }).click();
+    assert.equal(
+      await page.locator(".desktop-chat-first-agent-chat").count(),
+      1,
+      "Agent chat should use the Dispatch app webview",
+    );
+    const agentChatSlot = await page
+      .locator(".desktop-chat-first-agent-chat .webview-slot--active")
+      .evaluate((element) => {
+        const slot = element.getBoundingClientRect();
+        const rail = document
+          .querySelector(".code-agents-rail")
+          ?.getBoundingClientRect();
+        const main = document
+          .querySelector(".code-agents-main")
+          ?.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          opacity: style.opacity,
+          pointerEvents: style.pointerEvents,
+          slotLeft: slot.left,
+          slotRight: slot.right,
+          railRight: rail?.right ?? 0,
+          mainLeft: main?.left ?? 0,
+          mainRight: main?.right ?? 0,
+        };
+      });
+    assert.equal(agentChatSlot.opacity, "1");
+    assert.equal(agentChatSlot.pointerEvents, "auto");
+    assert.ok(
+      agentChatSlot.slotLeft >= agentChatSlot.railRight - 1 &&
+        agentChatSlot.slotRight <= agentChatSlot.mainRight + 1 &&
+        agentChatSlot.slotLeft >= agentChatSlot.mainLeft - 1,
+      "Dispatch webview should stay inside the desktop chat center",
+    );
 
     await page.locator("[data-chat-first-surface-toggle]").click();
     const picker = await electronSnapshot(page, "electron-03-surface-picker");
-    assert.equal(picker.launcher, 1);
+    assert.equal(picker.panel, 1);
+    assert.equal(picker.launcher, 0);
     assert.equal(
       picker.cards,
       6,
       "Electron should expose the six-card catalog",
     );
     assert.equal(
-      await page.locator(".desktop-chat-first-surface-empty__status").count(),
+      await page.locator('[data-surface-availability="deferred"]').count(),
       3,
       "Electron deferred surfaces should be labeled honestly",
     );

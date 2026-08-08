@@ -59,6 +59,9 @@ import type {
 } from "../../../shared/multi-frontier-ipc.js";
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import AppWebview from "./AppWebview.js";
+import DesktopChatFirstAgentChat, {
+  DesktopChatFirstUnavailable,
+} from "./DesktopChatFirstAgentChat.js";
 import DesktopChatFirstAppPane from "./DesktopChatFirstAppPane.js";
 import DesktopChatFirstBrowserPane from "./DesktopChatFirstBrowserPane.js";
 import DesktopChatFirstRail, {
@@ -198,6 +201,9 @@ export default function CodeAgentsHub({
     title?: string;
   } | null>(null);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
+  const [chatFirstMainKind, setChatFirstMainKind] = useState<"agent" | "code">(
+    "agent",
+  );
   const [multiFrontierMode, setMultiFrontierMode] = useState(false);
   const [multiFrontierState, setMultiFrontierState] =
     useState<MultiFrontierRendererState>();
@@ -1255,6 +1261,7 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind === "app" && activeChatFirstSurfaceTab.appId
       ? apps.find((app) => app.id === activeChatFirstSurfaceTab.appId)
       : undefined;
+  const dispatchApp = apps.find((app) => app.id === "dispatch" && app.enabled);
 
   return (
     <QueryClientProvider client={codeAgentsQueryClient}>
@@ -1287,7 +1294,11 @@ export default function CodeAgentsHub({
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           railNavigationSlot={
             chatFirstMode ? (
-              <DesktopChatFirstNavigation onOpenApp={openChatFirstApp} />
+              <DesktopChatFirstNavigation
+                onOpenApp={openChatFirstApp}
+                activeKind={chatFirstMainKind}
+                onSelectKind={setChatFirstMainKind}
+              />
             ) : undefined
           }
           railWorkspaceSlot={
@@ -1318,6 +1329,18 @@ export default function CodeAgentsHub({
           }
           newSessionExtension={multiFrontierExtension}
           openDetailRequest={multiFrontierOpenDetailRequest}
+          chatFirstMainKind={chatFirstMainKind}
+          onChatFirstMainKindChange={setChatFirstMainKind}
+          renderChatFirstMainSurface={
+            dispatchApp ? (
+              <DesktopChatFirstAgentChat
+                app={dispatchApp}
+                isActive={isActive && chatFirstMainKind === "agent"}
+              />
+            ) : (
+              <DesktopChatFirstUnavailable message="Agent chat is unavailable because Dispatch is not configured in this desktop workspace." />
+            )
+          }
           renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
             <div className="code-agents-embedded-app-surface">
               <AppWebview
@@ -1336,30 +1359,11 @@ export default function CodeAgentsHub({
             onToggle={chatFirstSurfacePanel.toggle}
           />
         ) : null}
-        {chatFirstMode &&
-        chatFirstSurfacePanel.open &&
-        chatFirstSurfaceTabs.tabs.length === 0 ? (
-          <div
-            className="desktop-chat-first-surface-launcher"
-            role="dialog"
-            aria-label="Open a side surface"
+        {chatFirstMode && chatFirstSurfacePanel.open ? (
+          <aside
+            className="desktop-chat-first-surface-panel"
+            aria-label="Side surfaces"
           >
-            <DesktopChatFirstSurfaceTabs
-              tabs={[]}
-              activeTabId={null}
-              onActivate={() => undefined}
-              onClose={() => undefined}
-              onCloseOthers={() => undefined}
-              onCloseToRight={() => undefined}
-              onCloseAll={() => undefined}
-              onOpenSurface={openChatFirstSurface}
-            />
-          </div>
-        ) : null}
-        {chatFirstMode &&
-        chatFirstSurfacePanel.open &&
-        chatFirstSurfaceTabs.tabs.length > 0 ? (
-          <aside className="desktop-chat-first-surface-panel">
             <div
               className="desktop-chat-first-resize-handle"
               role="separator"
@@ -1392,47 +1396,49 @@ export default function CodeAgentsHub({
               onCloseAll={closeAllChatFirstSurfaceTabs}
               onOpenSurface={openChatFirstSurface}
             />
-            <div className="desktop-chat-first-surface-panel__content">
-              {activeChatFirstSurfaceTab?.kind === "side-chat" ? (
-                chatFirstWatchedRun ? (
-                  <SessionWatchPanel
-                    host={host}
-                    run={chatFirstWatchedRun}
-                    sourceRunId={chatFirstWatchedSourceRunId}
-                    onClose={closeChatFirstSessionWatch}
+            {chatFirstSurfaceTabs.tabs.length > 0 ? (
+              <div className="desktop-chat-first-surface-panel__content">
+                {activeChatFirstSurfaceTab?.kind === "side-chat" ? (
+                  chatFirstWatchedRun ? (
+                    <SessionWatchPanel
+                      host={host}
+                      run={chatFirstWatchedRun}
+                      sourceRunId={chatFirstWatchedSourceRunId}
+                      onClose={closeChatFirstSessionWatch}
+                    />
+                  ) : (
+                    <div className="desktop-chat-first-surface-empty__message">
+                      The selected session is no longer available.
+                    </div>
+                  )
+                ) : activeChatFirstSurfaceTab?.kind === "browser" &&
+                  activeChatFirstSurfaceTab.url ? (
+                  <DesktopChatFirstBrowserPane
+                    url={activeChatFirstSurfaceTab.url}
+                    title={activeChatFirstSurfaceTab.title}
+                    isActive={isActive}
+                    onClose={() =>
+                      closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+                    }
                   />
-                ) : (
-                  <div className="desktop-chat-first-surface-empty__message">
-                    The selected session is no longer available.
-                  </div>
-                )
-              ) : activeChatFirstSurfaceTab?.kind === "browser" &&
-                activeChatFirstSurfaceTab.url ? (
-                <DesktopChatFirstBrowserPane
-                  url={activeChatFirstSurfaceTab.url}
-                  title={activeChatFirstSurfaceTab.title}
-                  isActive={isActive}
-                  onClose={() =>
-                    closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                  }
-                />
-              ) : activeChatFirstSurfaceTab?.kind === "app" &&
-                selectedChatFirstApp ? (
-                <DesktopChatFirstAppPane
-                  app={selectedChatFirstApp}
-                  path={activeChatFirstSurfaceTab.path}
-                  view={activeChatFirstSurfaceTab.view}
-                  onClose={() =>
-                    closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                  }
-                />
-              ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
-                <ChatFirstAgentActivityPanel
-                  activities={chatFirstAgentActivities}
-                  onWatch={watchChatFirstAgent}
-                />
-              ) : null}
-            </div>
+                ) : activeChatFirstSurfaceTab?.kind === "app" &&
+                  selectedChatFirstApp ? (
+                  <DesktopChatFirstAppPane
+                    app={selectedChatFirstApp}
+                    path={activeChatFirstSurfaceTab.path}
+                    view={activeChatFirstSurfaceTab.view}
+                    onClose={() =>
+                      closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+                    }
+                  />
+                ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
+                  <ChatFirstAgentActivityPanel
+                    activities={chatFirstAgentActivities}
+                    onWatch={watchChatFirstAgent}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </aside>
         ) : null}
       </div>

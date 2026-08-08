@@ -155,31 +155,32 @@ export default function DesktopChatFirstSurfaceTabs({
             <div
               key={surface.kind}
               className="desktop-chat-first-surface-empty__card"
-              title="Open this surface from the chat when it is available."
+              title={
+                surface.disabledReason ??
+                "Ask the agent to open this surface when it is available."
+              }
+              aria-label={`${surface.label}: ${surface.disabledReason ?? "Available from chat"}`}
             >
               <div>
                 <SurfaceIcon kind={surface.kind} />
                 <strong>{surface.label}</strong>
                 {surface.availability === "deferred" ? (
-                  <small className="desktop-chat-first-surface-empty__status">
-                    Deferred
-                  </small>
+                  <small
+                    className="desktop-chat-first-surface-empty__status"
+                    data-surface-availability="deferred"
+                    aria-label="Deferred"
+                  />
                 ) : null}
               </div>
-              <span>{surface.description}</span>
-              <small>
-                {surface.kind === "browser"
-                  ? "Ask the agent to open a web URL."
-                  : (surface.disabledReason ??
-                    "This surface is not available in this shell yet.")}
-              </small>
               {surface.kind === "agents" && onOpenSurface ? (
                 <button
                   type="button"
                   className="desktop-chat-first-surface-empty__open"
+                  aria-label="Open activity"
+                  title="Open activity"
                   onClick={() => onOpenSurface(surface.kind)}
                 >
-                  Open activity
+                  <span aria-hidden="true">Open</span>
                 </button>
               ) : null}
             </div>

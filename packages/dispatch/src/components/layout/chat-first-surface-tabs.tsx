@@ -181,79 +181,80 @@ function SurfaceEmptyState({
   const t = useT();
   const surfaceCopy: Record<
     ChatFirstSurfaceKind,
-    { label: string; description: string; reason?: string }
+    { label: string; reason?: string }
   > = {
     app: {
       label: t("dispatch.pages.chatFirstWorkspaceApps"),
-      description: t("dispatch.pages.chatFirstWorkspaceApps"),
     },
     browser: {
       label: t("dispatch.pages.chatFirstSurfaceBrowserLabel"),
-      description: t("dispatch.pages.chatFirstSurfaceBrowserDescription"),
       reason: t("dispatch.pages.chatFirstSurfaceBrowserReason"),
     },
     terminal: {
       label: t("dispatch.pages.chatFirstSurfaceTerminalLabel"),
-      description: t("dispatch.pages.chatFirstSurfaceTerminalDescription"),
       reason: t("dispatch.pages.chatFirstSurfaceTerminalReason"),
     },
     files: {
       label: t("dispatch.pages.chatFirstSurfaceFilesLabel"),
-      description: t("dispatch.pages.chatFirstSurfaceFilesDescription"),
       reason: t("dispatch.pages.chatFirstSurfaceFilesReason"),
     },
     diff: {
       label: t("dispatch.pages.chatFirstSurfaceDiffLabel"),
-      description: t("dispatch.pages.chatFirstSurfaceDiffDescription"),
       reason: t("dispatch.pages.chatFirstSurfaceDiffReason"),
     },
     "side-chat": {
       label: t("dispatch.pages.chatFirstSurfaceSideChatLabel"),
-      description: t("dispatch.pages.chatFirstSurfaceSideChatDescription"),
       reason: t("dispatch.pages.chatFirstSurfaceSideChatReason"),
     },
     agents: {
       label: t("dispatch.pages.chatFirstSurfaceAgentsLabel"),
-      description: t("dispatch.pages.chatFirstSurfaceAgentsDescription"),
       reason: t("dispatch.pages.chatFirstSurfaceAgentsReason"),
     },
   };
   return (
-    <div className="grid grid-cols-2 gap-2 p-3" data-surface-empty-state>
+    <div className="grid grid-cols-2 gap-1.5 p-2" data-surface-empty-state>
       {CHAT_FIRST_SURFACE_CATALOG.map((surface) => {
         const copy = surfaceCopy[surface.kind];
         const disabledReason =
           copy.reason ?? t("dispatch.pages.chatFirstUnavailable");
+        const isDeferred = surface.availability === "deferred";
+        const cardClassName =
+          "group flex min-h-12 min-w-0 items-center gap-2 rounded-md border border-border bg-background px-2.5 py-2 text-start text-xs font-medium text-foreground transition-colors hover:bg-accent";
+        const cardContent = (
+          <>
+            <SurfaceIcon kind={surface.kind} />
+            <span className="min-w-0 flex-1 truncate">{copy.label}</span>
+            {isDeferred ? (
+              <span
+                data-surface-availability="deferred"
+                className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50"
+                aria-label={t("dispatch.pages.chatFirstDeferred")}
+              />
+            ) : null}
+          </>
+        );
+        if (surface.kind === "agents" && onOpenSurface) {
+          return (
+            <button
+              key={surface.kind}
+              type="button"
+              className={cardClassName}
+              title={t("dispatch.pages.chatFirstOpenActivity")}
+              aria-label={t("dispatch.pages.chatFirstOpenActivity")}
+              onClick={() => onOpenSurface(surface.kind)}
+            >
+              {cardContent}
+            </button>
+          );
+        }
         return (
           <div
             key={surface.kind}
-            className="group rounded-lg border border-border bg-background p-3"
+            className={cardClassName}
             title={disabledReason}
+            aria-label={`${copy.label}: ${disabledReason}`}
           >
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <SurfaceIcon kind={surface.kind} />
-              <span>{copy.label}</span>
-              {surface.availability === "deferred" ? (
-                <span className="rounded-full border border-border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {t("dispatch.pages.chatFirstDeferred")}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-              {copy.description}
-            </p>
-            <p className="mt-2 text-[10px] leading-snug text-muted-foreground/70">
-              {disabledReason}
-            </p>
-            {surface.kind === "agents" && onOpenSurface ? (
-              <button
-                type="button"
-                className="mt-3 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
-                onClick={() => onOpenSurface(surface.kind)}
-              >
-                {t("dispatch.pages.chatFirstOpenActivity")}
-              </button>
-            ) : null}
+            {cardContent}
           </div>
         );
       })}

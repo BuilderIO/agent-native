@@ -53,25 +53,6 @@
   color: hsl(var(--foreground));
 }
 
-.dispatch-chat-first-surface-launcher {
-  position: absolute;
-  z-index: 8;
-  top: 3.1rem;
-  right: 0.75rem;
-  width: min(360px, calc(100% - 1.5rem));
-  max-height: min(560px, calc(100% - 4rem));
-  overflow: auto;
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.65rem;
-  background: hsl(var(--background));
-  box-shadow: 0 12px 36px hsl(var(--foreground) / 0.16);
-}
-
-.dispatch-chat-first-surface-launcher .dispatch-chat-first-surface-tabs {
-  border: 0;
-  background: transparent;
-}
-
 .dispatch-chat-first-resize-handle {
   position: absolute;
   z-index: 2;

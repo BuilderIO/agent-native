@@ -315,6 +315,7 @@ function createChatFirstSurfacePanelStore(
     state = {
       open: browserStorage()?.getItem(surfacePanelStorageKey(scope)) === "true",
     };
+    // coercion-ok: device-local panel preference failure falls back to the closed in-memory state.
   } catch {
     // The panel is an optional device preference; the live default is closed.
   }
@@ -323,6 +324,7 @@ function createChatFirstSurfacePanelStore(
     state = { open };
     try {
       browserStorage()?.setItem(surfacePanelStorageKey(scope), String(open));
+      // coercion-ok: device-local persistence failure leaves the in-memory toggle usable.
     } catch {
       // Keep the in-memory toggle usable when device storage is unavailable.
     }
@@ -436,6 +438,7 @@ function browserStorage(): StringStorage | null {
   if (typeof window === "undefined") return null;
   try {
     return window.localStorage;
+    // coercion-ok: callers receive null and expose unavailable device storage explicitly.
   } catch {
     return null;
   }
@@ -789,6 +792,7 @@ function writeChatFirstSurfaceTabsState(
       CHAT_FIRST_SURFACE_TABS_STORAGE_KEY,
       JSON.stringify({ ...all, [scope]: state }),
     );
+    // coercion-ok: device-local tab restoration failure leaves the live tab store usable.
   } catch {
     // Device-local tab restoration is optional; the live store remains usable.
   }
@@ -978,6 +982,7 @@ function parseAbsoluteHttpUrl(value: string): URL | null {
   try {
     const url = new URL(value);
     return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+    // coercion-ok: invalid URL input is returned as null and rejected by the resolver.
   } catch {
     return null;
   }

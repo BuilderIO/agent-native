@@ -62,14 +62,21 @@ function AppIcon({ app, size = 15 }: { app: AppConfig; size?: number }) {
 function NavigationItem({
   label,
   onClick,
+  active = false,
   children,
 }: {
   label: string;
   onClick: () => void;
+  active?: boolean;
   children: ReactNode;
 }) {
   return (
-    <button type="button" className="code-agents-nav-link" onClick={onClick}>
+    <button
+      type="button"
+      className={`code-agents-nav-link${active ? " code-agents-nav-link--active" : ""}`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
       {children}
       <span>{label}</span>
     </button>
@@ -290,22 +297,46 @@ export { AppIcon as DesktopChatFirstAppIcon };
 
 export function DesktopChatFirstNavigation({
   onOpenApp,
+  activeKind,
+  onSelectKind,
 }: {
   onOpenApp: (appId: string, path?: string) => void;
+  activeKind?: "agent" | "code";
+  onSelectKind?: (kind: "agent" | "code") => void;
 }) {
   return (
     <>
       <NavigationItem
         label="Integrations"
-        onClick={() => onOpenApp("dispatch", "/admin/integrations")}
+        onClick={() => {
+          onSelectKind?.("code");
+          onOpenApp("dispatch", "/admin/integrations");
+        }}
       >
         <IconPlugConnected size={15} strokeWidth={1.8} aria-hidden="true" />
       </NavigationItem>
       <NavigationItem
         label="Scheduled"
-        onClick={() => onOpenApp("dispatch", "/admin/automations")}
+        onClick={() => {
+          onSelectKind?.("code");
+          onOpenApp("dispatch", "/admin/automations");
+        }}
       >
         <IconClock size={15} strokeWidth={1.8} aria-hidden="true" />
+      </NavigationItem>
+      <NavigationItem
+        label="Agent chat"
+        active={activeKind === "agent"}
+        onClick={() => onSelectKind?.("agent")}
+      >
+        <IconMessageCircle size={15} strokeWidth={1.8} aria-hidden="true" />
+      </NavigationItem>
+      <NavigationItem
+        label="Code work"
+        active={activeKind === "code"}
+        onClick={() => onSelectKind?.("code")}
+      >
+        <IconCode size={15} strokeWidth={1.8} aria-hidden="true" />
       </NavigationItem>
     </>
   );

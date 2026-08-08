@@ -988,7 +988,11 @@ export function Layout({
   const [chatFirstPreference, setChatFirstPreference] = useState(() =>
     readChatFirstMode(),
   );
-  const chatFirstMode = extensions?.chatFirst === true || chatFirstPreference;
+  const chatFirstEmbedded =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("chatFirst") === "1";
+  const chatFirstMode =
+    extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const [chatFirstAppLayout, setChatFirstAppLayout] =
     useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
   const chatFirstAppLayoutHydratedRef = useRef(false);
@@ -1500,27 +1504,6 @@ export function Layout({
           onToggle={chatFirstSurfacePanel.toggle}
         />
       ) : null}
-      {isChatRoute &&
-      chatFirstMode &&
-      chatFirstSurfacePanel.open &&
-      chatFirstSurfaceTabs.tabs.length === 0 ? (
-        <div
-          className="dispatch-chat-first-surface-launcher"
-          role="dialog"
-          aria-label="Open a side surface"
-        >
-          <ChatFirstSurfaceTabs
-            tabs={[]}
-            activeTabId={null}
-            onActivate={() => undefined}
-            onClose={() => undefined}
-            onCloseOthers={() => undefined}
-            onCloseToRight={() => undefined}
-            onCloseAll={() => undefined}
-            onOpenSurface={openChatFirstSurface}
-          />
-        </div>
-      ) : null}
       {isChatRoute && chatFirstMode && chatFirstNotice ? (
         <div
           className="dispatch-chat-first-notice"
@@ -1563,11 +1546,10 @@ export function Layout({
       )}
     >
       {appContent}
-      {chatFirstMode &&
-      chatFirstSurfacePanel.open &&
-      chatFirstSurfaceTabs.tabs.length > 0 ? (
+      {chatFirstMode && chatFirstSurfacePanel.open ? (
         <aside
           data-dispatch-chat-first-surface
+          aria-label="Side surfaces"
           className="dispatch-chat-first-panel relative flex min-w-[320px] min-h-0 shrink-0 flex-col border-s border-border bg-background"
           style={{ width: `${chatFirstSurfaceResize.width}px` }}
         >
@@ -1601,30 +1583,32 @@ export function Layout({
             onCloseAll={closeAllChatFirstSurfaceTabs}
             onOpenSurface={openChatFirstSurface}
           />
-          <ChatFirstSurfaceContent>
-            {activeChatFirstSurfaceTab?.kind === "app" ? (
-              <ChatFirstAppPane embedded />
-            ) : activeChatFirstSurfaceTab?.kind === "browser" &&
-              activeChatFirstSurfaceTab.url ? (
-              <ChatFirstBrowserPane
-                embedded
-                url={activeChatFirstSurfaceTab.url}
-                title={activeChatFirstSurfaceTab.title}
-                onClose={() =>
-                  closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                }
-              />
-            ) : activeChatFirstSurfaceTab?.kind === "side-chat" ? (
-              <ChatFirstSessionWatchPane
-                embedded
-                onClose={() =>
-                  closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                }
-              />
-            ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
-              <ChatFirstAgentsPane />
-            ) : null}
-          </ChatFirstSurfaceContent>
+          {chatFirstSurfaceTabs.tabs.length > 0 ? (
+            <ChatFirstSurfaceContent>
+              {activeChatFirstSurfaceTab?.kind === "app" ? (
+                <ChatFirstAppPane embedded />
+              ) : activeChatFirstSurfaceTab?.kind === "browser" &&
+                activeChatFirstSurfaceTab.url ? (
+                <ChatFirstBrowserPane
+                  embedded
+                  url={activeChatFirstSurfaceTab.url}
+                  title={activeChatFirstSurfaceTab.title}
+                  onClose={() =>
+                    closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+                  }
+                />
+              ) : activeChatFirstSurfaceTab?.kind === "side-chat" ? (
+                <ChatFirstSessionWatchPane
+                  embedded
+                  onClose={() =>
+                    closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+                  }
+                />
+              ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
+                <ChatFirstAgentsPane />
+              ) : null}
+            </ChatFirstSurfaceContent>
+          ) : null}
         </aside>
       ) : null}
     </div>
