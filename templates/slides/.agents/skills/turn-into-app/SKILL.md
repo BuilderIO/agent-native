@@ -3,8 +3,9 @@ name: turn-into-app
 description: >-
   Turn visible project context, a proven thread, skill, or workflow into a
   runnable Agent-Native app with simple buttons, visible agent steps, preview,
-  and deployment handoff. Use when a user invokes `/turn-into-app` or asks to
-  make a workflow into an app, including from Claude or ChatGPT on the web.
+  and deployment handoff. Use when a user invokes `/turn-into-app`,
+  `/make-into-app`, or asks to make a workflow into an app, including from
+  Claude or ChatGPT on the web.
 user-invocable: true
 scope: both
 metadata:
@@ -37,6 +38,15 @@ The build location depends on the host. Treat this as a hard routing rule:
 - In Claude Code, Codex Code, or another local code-agent runtime with a target
   workspace, follow the local implementation steps below. The local agent may
   scaffold, edit, run, and verify the app there.
+
+Once the source brief is sufficient to identify a repeatable workflow, the
+handoff is non-interactive. Do not ask the user for visual, product, copy,
+layout, template, integration, or implementation choices that can be resolved
+from the source. Select the source's recommended option; otherwise choose the
+most direct conventional default and record the assumption for later review.
+Only stop for a genuine hard blocker such as missing authorization, a
+destructive external action, an ambiguous target workspace, or no identifiable
+workflow at all.
 
 ## Default behavior
 
@@ -104,14 +114,16 @@ before creating the app. Read the host-provided context in this order:
 Record the brief with these headings before handoff: source and provenance,
 project goal, configuration and constraints, knowledge sources, repeatable
 workflow, inputs and outputs, judgment and review points, representative runs,
-integrations and permissions, and unknowns. This is the compact contract for
+integrations and permissions, and unknowns and assumptions. This is the compact contract for
 the app. It keeps the new app useful without pretending that hidden Project
 history was imported. See [the fresh Project reference](references/fresh-project.md)
 for the host setup and brief template.
 
-If the visible Project context has no concrete repeatable job, ask for one
-focused clarification or a representative artifact. Do not fall back to a
-generic “what app do you want to make?” builder.
+If the visible Project context has no concrete repeatable job and no primary
+goal can be inferred, ask for one focused clarification or a representative
+artifact. Otherwise use the project's primary goal and source conventions; do
+not ask a questionnaire and do not fall back to a generic “what app do you
+want to make?” builder.
 
 ## Source selection guard
 
