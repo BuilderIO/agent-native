@@ -15,7 +15,8 @@ declare global {
 
 export function dndHostLog(phase: string, data?: unknown): void {
   if (typeof window === "undefined") return;
-  if (!window.__DND_DEBUG) return;
+  if (window.__DND_DEBUG === false) return;
+  if (!window.__DND_DEBUG && !import.meta.env?.DEV) return;
   try {
     const tag = `%c[dnd:host:${phase}]`;
     const style = "color:#0ea5e9;font-weight:bold";

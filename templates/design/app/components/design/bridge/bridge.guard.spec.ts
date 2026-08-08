@@ -5186,7 +5186,7 @@ it(
       });
       page.on("pageerror", (err) => pageErrors.push(err.message));
 
-      // #container is a canvas rectangle primitive (data-an-primitive):
+      // #container is a canvas frame primitive (data-an-primitive):
       // dropping onto it resolves to dropMode "absolute-container", which
       // keeps the member position:absolute — the member's inline left/top
       // must therefore be converted from its OLD containing-block space
@@ -5210,7 +5210,7 @@ it(
     </style>
   </head>
   <body>
-    <div id="container" data-an-primitive="rectangle" data-agent-native-node-id="container"></div>
+    <div id="container" data-an-primitive="frame" data-agent-native-node-id="container"></div>
     <div id="note" data-agent-native-node-id="note">Note</div>
   </body>
 </html>`);
@@ -7647,7 +7647,7 @@ it(
     </style>
   </head>
   <body>
-    <div id="rect" style="position:absolute;left:300px;top:100px;width:200px;height:150px;background:#eee" data-agent-native-node-id="rect" data-an-primitive="rectangle"></div>
+    <div id="rect" style="position:absolute;left:300px;top:100px;width:200px;height:150px;background:#eee" data-agent-native-node-id="rect" data-an-primitive="frame"></div>
     <div id="dragme" style="position:absolute;left:40px;top:40px;width:80px;height:40px;background:#6366f1;color:white" data-agent-native-node-id="dragme">Drag me</div>
   </body>
 </html>`);

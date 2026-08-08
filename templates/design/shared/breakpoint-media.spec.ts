@@ -41,6 +41,14 @@ describe("managed block extraction / injection", () => {
     const removed = injectManagedBreakpointCss(withBlock, "");
     expect(removed).not.toContain("data-agent-native-breakpoints");
   });
+
+  it("keeps the block inside <html> when the document has no <head>", () => {
+    const headless = `<!doctype html><html><body><p>hi</p></body></html>`;
+    const html = injectManagedBreakpointCss(headless, "/* x */");
+    expect(html.indexOf("<style")).toBeGreaterThan(html.indexOf("<html"));
+    expect(html.indexOf("<style")).toBeLessThan(html.indexOf("</html>"));
+    expect(extractManagedBreakpointCss(html)).toBe("/* x */");
+  });
 });
 
 describe("CSS body parse / serialize round-trip", () => {

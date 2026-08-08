@@ -4444,6 +4444,18 @@ export function DesignCanvas({
             readOnly,
           })}
           data-design-preview-iframe
+          onLoad={(event) => {
+            // The bridge logs into the IFRAME console and cannot read
+            // import.meta.env, so dev has to switch it on from out here.
+            if (!import.meta.env?.DEV) return;
+            try {
+              const win = event.currentTarget.contentWindow as
+                | (Window & { __DND_DEBUG?: boolean })
+                | null;
+              if (win) win.__DND_DEBUG = true;
+              // coercion-ok: a cross-origin preview exposes no contentWindow
+            } catch {}
+          }}
           {...{
             [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
               ? ""
