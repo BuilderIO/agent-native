@@ -3,8 +3,10 @@ name: performance
 description: >-
   Keep apps and templates loading fast. Read when adding a data model, a
   list/read action, a page or sidebar that loads data, or when something loads
-  slowly. Covers column projection, indexing hot-path queries, avoiding N+1 and
-  round-trip waterfalls, cheap polling, and not recomputing on every read.
+  slowly, or when adding a dependency to the deployed server bundle. Covers
+  column projection, indexing hot-path queries, avoiding N+1 and round-trip
+  waterfalls, cheap polling, not recomputing on every read, and cold-start
+  artifact size.
 scope: dev
 metadata:
   internal: true
@@ -146,7 +148,9 @@ just one.
 
 If you're debugging a slow first response, check whether something
 re-personalized the shell before concluding the render itself is slow — the
-fix is client-side data loading after the shell paints, never per-user SSR.
+fix is client-side data loading after the shell paints, never per-user SSR. If
+the shell is clean and a cold miss is still seconds long, the cost is upstream
+of the render: see §9.
 See the `authentication` skill for the full model and `guard:ssr-cache-shell`
 plus `ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`) for the
 enforced contract.
@@ -231,6 +235,50 @@ await backfillOneRow(); // guard:allow-boot-data-work — single row, bounded
 branch adds. It cannot see everything — a helper that hides the work one call
 deeper reads as innocent — so the rule matters more than the check.
 
+## 9. Cold start is the artifact, not just the work it does
+
+§8 covers what the process does at boot. This covers how much there is to boot.
+Measured in production: a cold cache miss on `www.agent-native.com` returned in
+**4.5–6.0s** while the in-handler `server-timing: app;dur` was only **~2100ms** —
+the other ~2900ms is platform init, spent before any of our code evaluates. A
+different app with a healthy database measured **13.4s** TTFB on its first cold
+request with `app;dur=1338`, so ~12s of init. Platform init scales with the size
+of the deployed artifact. Every app pays it, and no query tuning can reach it.
+
+- **The `/*` page function is the one every visitor's cache miss wakes.** Nothing
+  belongs in it that a page render cannot call. Headless browsers, ffmpeg, image
+  rasterizers, and other heavy runtimes belong in the function that actually
+  invokes them, or behind a job — not in the default handler. PR #2684, titled
+  "Harden auth and cold-start data paths", put 78MB of headless Chromium into
+  every page function; nothing in the diff looked like a performance change.
+- **Each extra emitted function is a full second copy of the bundle.** Netlify
+  copies the whole server directory per function, so splitting out a
+  `-background` or per-route function multiplies existing weight rather than
+  dividing it. Trim the artifact before you split it.
+- **Already-compressed binaries do not shrink again in the deploy zip.** A
+  Brotli-packed browser or a static ffmpeg build costs close to its full size in
+  upload and in cold-start extraction. Budget from bytes on disk, never from an
+  assumption that compression will absorb it.
+- **Never resolve a copied dependency by walking ancestor `node_modules`.** In a
+  monorepo that walk does not fail — it finds a sibling app's copy and ships
+  that. Resolve from the app's own dependency root and throw when it is missing;
+  a silently-found wrong package is precisely the indistinguishable-from-success
+  failure this repo bans.
+
+`packages/core/src/deploy/build.ts` is what decides all of this: the
+platform/arch filter at `:2384-2410` and the per-preset copy list at
+`:4499-4504`. Adding a package there adds it to every page function.
+
+**Measure a built bundle by timing the import and forcing exit.** Never measure
+by waiting for the process to exit — module scope starts timers and opens
+handles, so process lifetime measures those, not boot cost. That exact mistake
+produced a wrong number during the investigation behind this section.
+
+```sh
+node -e 'const t=Date.now();import(process.argv[1]).then(()=>{console.log(`${Date.now()-t}ms`);process.exit(0)})' \
+  ./.netlify/functions-internal/server/main.mjs
+```
+
 ## Checklist — run before shipping a list/read or a new table
 
 - [ ] List selects only displayed columns; heavy blobs excluded or `substr`-truncated.
@@ -246,3 +294,6 @@ deeper reads as innocent — so the rule matters more than the check.
       aggregations and re-syncs run on every cold start there (see §8).
 - [ ] Mutation-fresh reads go through actions + `useActionQuery`, not SSR loader
       data.
+- [ ] No heavy runtime (browser, ffmpeg, rasterizer) added to what the `/*` page
+      function ships, and no new copied dependency resolved by walking ancestor
+      `node_modules` (see §9).

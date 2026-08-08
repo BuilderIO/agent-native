@@ -138,7 +138,10 @@ import {
 } from "../chat-threads/store.js";
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { isTransientDatabaseError } from "../db/client.js";
+import {
+  isProductionServerlessFunctionRuntime,
+  isTransientDatabaseError,
+} from "../db/client.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -642,11 +645,31 @@ export function createAgentChatPlugin(
           startMcpConfigRefresh(mcpManager);
         }
       };
+      /**
+       * Start MCP initialization at most once, and return the run in flight.
+       *
+       * On a serverless function nothing kicks this off at boot (see the
+       * `isProductionServerlessFunctionRuntime` gate below), so every surface
+       * that actually consumes MCP tools must await this or the manager stays
+       * empty for the life of the container.
+       */
+      const ensureMcpInitialized = (): Promise<void> => {
+        mcpInitializationPromise ??= initializeMcpManager().catch((err) => {
+          console.warn(
+            `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
+          );
+        });
+        return mcpInitializationPromise;
+      };
       const getJobMcpActionEntries = (
         job?: RecurringJobContext,
       ): Record<string, ActionEntry> => {
         const requested = job?.meta.mcpTools ?? [];
         if (requested.length === 0) return {};
+        // Sync by contract (SchedulerDeps.getActions), so it cannot await the
+        // lazy init. Kick it off so a retried run finds the tools; this run
+        // still fails loudly below rather than silently dropping them.
+        void ensureMcpInitialized();
         const entries = mcpToolsToActionEntries(mcpManager, {
           toolNames: requested,
         });
@@ -665,7 +688,7 @@ export function createAgentChatPlugin(
       mountMcpServersRoutes(nitroApp, mcpManager, {
         // Serialize an unusually early settings mutation behind the initial
         // config snapshot so stale startup data cannot overwrite the write.
-        waitUntilReady: () => mcpInitializationPromise ?? Promise.resolve(),
+        waitUntilReady: ensureMcpInitialized,
       });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
@@ -5652,6 +5675,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // the background worker), so both go through identical context + handler
       // selection.
       const invokeAgentChatHandler = async (event: any) => {
+        // Chat is the main MCP consumer, and on serverless nothing hydrated the
+        // manager at boot. Awaiting here trades first-chat latency for tools
+        // that are actually present instead of a silently MCP-less run.
+        await ensureMcpInitialized();
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
 
@@ -6079,6 +6106,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
             try {
+              // Jobs may request MCP tools, and `getActions` is synchronous —
+              // hydrate before the sweep so a serverless container that never
+              // eagerly initialized still resolves them.
+              await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
               return { ok: true };
             } catch (error) {
@@ -6154,12 +6185,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         })();
       }
 
-      mcpInitializationPromise = initializeMcpManager().catch((err) => {
-        console.warn(
-          `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
-        );
-      });
-      void mcpInitializationPromise;
+      // Long-lived runtimes hydrate MCP once at boot. Serverless functions must
+      // not: nothing awaits this, so a settings scan plus third-party MCP
+      // handshakes run on EVERY cold start of every app — including requests
+      // that never touch MCP — and outlive the response on a runtime that
+      // freezes after responding. There, `ensureMcpInitialized()` is driven by
+      // the surfaces that consume MCP tools instead.
+      if (!isProductionServerlessFunctionRuntime()) {
+        void ensureMcpInitialized();
+      }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the

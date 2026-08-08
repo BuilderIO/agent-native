@@ -130,7 +130,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getHydrationStableLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (

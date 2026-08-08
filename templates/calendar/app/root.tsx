@@ -95,7 +95,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (

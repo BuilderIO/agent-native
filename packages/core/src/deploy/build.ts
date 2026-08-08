@@ -2385,6 +2385,13 @@ const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
   "@sparticuz/chromium",
   "playwright-core",
 ] as const;
+const SERVERLESS_BROWSER_RUNTIME_CONSUMER = "@agent-native/creative-context";
+const PACKAGE_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+  "devDependencies",
+  "peerDependencies",
+];
 
 // Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
 // and 32-bit-arm prebuilds of these native packages are ~100MB that can never
@@ -2407,6 +2414,13 @@ export function isServerlessNativePlatformPackage(
     packageName.endsWith(suffix),
   );
 }
+
+// Names a prebuild package by the platform it targets: `darwin-arm64`,
+// `resvg-js-win32-ia32-msvc`, `linux-x64-gnu`. Matching only says "this is a
+// per-platform prebuild"; isServerlessNativePlatformPackage decides whether it
+// can run in the function.
+const SERVERLESS_PLATFORM_PACKAGE_NAME =
+  /(?:^|-)(?:darwin|win32|linux|android|freebsd)-[a-z0-9]+(?:-[a-z0-9]+)?$/;
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
 const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
@@ -2470,6 +2484,44 @@ function readPackageManifest(
     return null;
   }
   return manifest as Record<string, unknown>;
+}
+
+function manifestDeclaresDependency(
+  manifest: Record<string, unknown> | null,
+  packageName: string,
+): boolean {
+  if (!manifest) return false;
+  return PACKAGE_DEPENDENCY_FIELDS.some((field) => {
+    const deps = manifest[field];
+    if (!deps || typeof deps !== "object" || Array.isArray(deps)) return false;
+    return Object.prototype.hasOwnProperty.call(deps, packageName);
+  });
+}
+
+/**
+ * Which dependency gives this app a path to the serverless browser runtime, or
+ * null when it has none. Resolution cannot answer this: findInstalledPackageRoot
+ * falls back to an ancestor + .pnpm store walk, so in a workspace every app
+ * "resolves" the sibling package that actually declares Chromium and ships its
+ * ~80MB into every emitted function.
+ */
+export function findServerlessBrowserRuntimeConsumer(
+  projectCwd = cwd,
+): string | null {
+  const manifest = readPackageManifest(projectCwd);
+  for (const packageName of [
+    ...SERVERLESS_BROWSER_RUNTIME_PACKAGES,
+    SERVERLESS_BROWSER_RUNTIME_CONSUMER,
+  ]) {
+    if (manifestDeclaresDependency(manifest, packageName)) return packageName;
+    const linked = path.join(
+      projectCwd,
+      "node_modules",
+      ...packageName.split("/"),
+    );
+    if (fs.existsSync(linked)) return packageName;
+  }
+  return null;
 }
 
 function packageRootFromResolvedPath(
@@ -2578,6 +2630,27 @@ export function copyInstalledBrowserRuntimePackages(
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
 
   const nodeModulesRoots = nodeModulesAncestors(projectCwd);
+  const consumer = findServerlessBrowserRuntimeConsumer(projectCwd);
+  if (!consumer) {
+    const skippedBytes = SERVERLESS_BROWSER_RUNTIME_PACKAGES.reduce(
+      (total, packageName) => {
+        const packageDir = findInstalledPackageRoot(
+          packageName,
+          nodeModulesRoots,
+        );
+        return packageDir ? total + getDirSize(packageDir) : total;
+      },
+      0,
+    );
+    console.log(
+      `[deploy] Skipped the serverless browser runtime (${SERVERLESS_BROWSER_RUNTIME_PACKAGES.join(
+        ", ",
+      )}): this app depends on neither ${SERVERLESS_BROWSER_RUNTIME_CONSUMER} ` +
+        `nor a browser package. Kept ${(skippedBytes / 1024 / 1024).toFixed(1)}MB out of every emitted function.`,
+    );
+    return 0;
+  }
+
   const copiedPackages = new Set<string>();
   let copiedCount = 0;
   for (const packageName of SERVERLESS_BROWSER_RUNTIME_PACKAGES) {
@@ -2592,11 +2665,20 @@ export function copyInstalledBrowserRuntimePackages(
     );
   }
 
-  if (copiedCount > 0) {
-    console.log(
-      `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle.`,
+  if (copiedCount === 0) {
+    // Not the same as the skip above: the app asked for the browser runtime and
+    // the build could not find it, so anything that opens a browser will fail
+    // at runtime instead of at build time.
+    console.warn(
+      `[deploy] ${consumer} needs the serverless browser runtime but none of ` +
+        `${SERVERLESS_BROWSER_RUNTIME_PACKAGES.join(", ")} is installed; the function ships without it.`,
     );
+    return 0;
   }
+
+  console.log(
+    `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle (required by ${consumer}).`,
+  );
   return copiedCount;
 }
 
@@ -3523,6 +3605,71 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
+// Netlify's hard limit is 250MB unzipped per function; a bundle this far under
+// it still leaves room for growth, and today's server functions land near 70MB
+// once the dead weight is out. Apps that legitimately ship the browser runtime
+// get its ~85MB on top, so the budget stays a regression signal rather than a
+// tax on Chromium-backed templates.
+const NETLIFY_FUNCTION_SIZE_BUDGET_BYTES = 120 * 1024 * 1024;
+const NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES = 100 * 1024 * 1024;
+
+function reportNetlifyFunctionSizes(
+  projectCwd: string,
+  internalDir: string,
+  failures: string[],
+): void {
+  if (!fs.existsSync(internalDir)) return;
+
+  const functions = fs
+    .readdirSync(internalDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({
+      name: entry.name,
+      dir: path.join(internalDir, entry.name),
+      size: getDirSize(path.join(internalDir, entry.name)),
+    }))
+    .sort((a, b) => b.size - a.size);
+  if (functions.length === 0) return;
+
+  const toMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+  const total = functions.reduce((sum, fn) => sum + fn.size, 0);
+  // Every extra function is a full second copy of the bundle: the clone is
+  // hard-linked on disk, but zip-it-and-ship-it sees regular files and uploads
+  // each one whole, so the total is what the deploy actually pays.
+  console.log(
+    `[deploy] Netlify functions: ${functions.length} (${functions
+      .map((fn) => `${fn.name} ${toMb(fn.size)}MB`)
+      .join(", ")}) — ${toMb(total)}MB uploaded in total.`,
+  );
+
+  const budget =
+    NETLIFY_FUNCTION_SIZE_BUDGET_BYTES +
+    (findServerlessBrowserRuntimeConsumer(projectCwd)
+      ? NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES
+      : 0);
+  for (const fn of functions) {
+    if (fn.size <= budget) continue;
+    // node_modules is always the biggest child and names nothing useful; the
+    // packages inside it are what a regression actually adds.
+    const nodeModulesDir = path.join(fn.dir, "node_modules");
+    const inspectDir = fs.existsSync(nodeModulesDir) ? nodeModulesDir : fn.dir;
+    const largest = fs
+      .readdirSync(inspectDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => ({
+        name: entry.name,
+        size: getDirSize(path.join(inspectDir, entry.name)),
+      }))
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 3)
+      .map((child) => `${child.name} ${toMb(child.size)}MB`)
+      .join(", ");
+    failures.push(
+      `function ${fn.name} is ${toMb(fn.size)}MB, over the ${toMb(budget)}MB budget — largest: ${largest}`,
+    );
+  }
+}
+
 export function assertSingleTemplateNetlifyBuildOutput(
   projectCwd: string,
 ): void {
@@ -3749,10 +3896,12 @@ export function assertSingleTemplateNetlifyBuildOutput(
     }
   }
 
+  reportNetlifyFunctionSizes(projectCwd, internalDir, failures);
+
   if (failures.length > 0) {
     throw new Error(
       "[deploy] Netlify deploy guard failed; refusing to publish an output " +
-        "that would likely serve Netlify 404s:\n" +
+        "that would likely serve Netlify 404s or blow the function size limit:\n" +
         failures.map((failure) => `- ${failure}`).join("\n"),
     );
   }
@@ -3907,13 +4056,7 @@ export function sanitizeServerlessFunctionPackageManifest(
   }
 
   let removed = 0;
-  const depFields = [
-    "dependencies",
-    "optionalDependencies",
-    "devDependencies",
-    "peerDependencies",
-  ];
-  for (const field of depFields) {
+  for (const field of PACKAGE_DEPENDENCY_FIELDS) {
     const deps = packageJson[field];
     if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
     const depRecord = deps as Record<string, unknown>;
@@ -3946,6 +4089,92 @@ export function sanitizeServerlessFunctionPackageManifest(
       `[deploy] Removed ${removed} desktop-only package reference(s) from ${path.relative(cwd, functionDir)}.`,
     );
   }
+}
+
+/**
+ * Nitro's dependency tracer is not subject to the copy-time filters above, so
+ * it ships every prebuild of a multi-platform native package plus whatever the
+ * local dev server left in `data/`. Prune both from the function dir before it
+ * is cloned for the extra functions, since each clone is zipped and uploaded in
+ * full.
+ *
+ * Only prunes inside a directory that still holds a runnable prebuild under the
+ * `isServerlessNativePlatformPackage` naming (`@libsql`, `@resvg`). Packages
+ * that name prebuilds differently — `@img/sharp-linux-x64` has no gnu/musl
+ * suffix — read as entirely dead and must be left alone.
+ */
+export function pruneServerlessFunctionDeadWeight(
+  functionDir: string | undefined,
+): number {
+  if (!functionDir || !fs.existsSync(functionDir)) return 0;
+
+  let removedBytes = 0;
+  const removedNames: string[] = [];
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  const packageDirs: string[] = [];
+  if (fs.existsSync(nodeModulesDir)) {
+    packageDirs.push(nodeModulesDir);
+    for (const entry of fs.readdirSync(nodeModulesDir, {
+      withFileTypes: true,
+    })) {
+      if (entry.isDirectory() && entry.name.startsWith("@")) {
+        packageDirs.push(path.join(nodeModulesDir, entry.name));
+      }
+    }
+  }
+
+  for (const packageDir of packageDirs) {
+    const prebuilds = fs
+      .readdirSync(packageDir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          SERVERLESS_PLATFORM_PACKAGE_NAME.test(entry.name),
+      )
+      .map((entry) => entry.name);
+    const runnable = prebuilds.filter(isServerlessNativePlatformPackage);
+    if (runnable.length === 0) continue;
+
+    for (const name of prebuilds) {
+      if (isServerlessNativePlatformPackage(name)) continue;
+      const deadDir = path.join(packageDir, name);
+      removedBytes += getDirSize(deadDir);
+      removedNames.push(path.relative(functionDir, deadDir));
+      fs.rmSync(deadDir, { recursive: true, force: true });
+    }
+
+    const survivors = runnable.filter((name) =>
+      fs.existsSync(path.join(packageDir, name)),
+    );
+    if (survivors.length === 0) {
+      throw new Error(
+        `[deploy] Pruning dead-platform prebuilds from ${path.relative(
+          cwd,
+          packageDir,
+        )} removed every runnable Linux prebuild (had: ${runnable.join(", ")}).`,
+      );
+    }
+  }
+
+  const dataDir = path.join(functionDir, "data");
+  if (fs.existsSync(dataDir)) {
+    removedBytes += getDirSize(dataDir);
+    removedNames.push("data");
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+
+  if (removedNames.length > 0) {
+    console.log(
+      `[deploy] Pruned ${removedNames.length} unrunnable path(s) (${(
+        removedBytes /
+        1024 /
+        1024
+      ).toFixed(
+        1,
+      )}MB) from ${path.relative(cwd, functionDir)}: ${removedNames.join(", ")}.`,
+    );
+  }
+  return removedBytes;
 }
 
 /**
@@ -4502,6 +4731,9 @@ export default bundle;
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    // Before the Netlify block below clones this dir into the extra functions,
+    // so they inherit the pruned bundle instead of a second full copy.
+    pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 

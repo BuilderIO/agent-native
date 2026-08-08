@@ -173,6 +173,7 @@ describe("durable BigQuery backfill worker", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [queuedJob] }),
     };
     mocks.getDbExec.mockReturnValue(db);
@@ -186,10 +187,14 @@ describe("durable BigQuery backfill worker", () => {
     });
     expect(db.execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: expect.stringContaining(
-          "ON CONFLICT (id) DO UPDATE SET batch_size",
-        ),
+        sql: expect.stringContaining("ON CONFLICT (id) DO NOTHING"),
         args: expect.arrayContaining([scope.orgId, scope.userEmail, 750]),
+      }),
+    );
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("SET batch_size = ?"),
+        args: [750, job.id, 750],
       }),
     );
   });
@@ -203,6 +208,7 @@ describe("durable BigQuery backfill worker", () => {
       execute: vi
         .fn()
         .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowsAffected: 1 })
         .mockResolvedValueOnce({
           rows: [{ ...job, backfill_cursor: legacyCursor }],
         }),
@@ -226,7 +232,11 @@ describe("durable BigQuery backfill worker", () => {
 
   it("does not reset a pending job when prepare is repeated", async () => {
     const db = {
-      execute: vi.fn().mockResolvedValue({ rows: [job] }),
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [job] })
+        .mockResolvedValueOnce({ rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [job] }),
     };
     mocks.getDbExec.mockReturnValue(db);
 
@@ -239,12 +249,16 @@ describe("durable BigQuery backfill worker", () => {
     });
     expect(db.execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: expect.stringContaining(
-          "ON CONFLICT (id) DO UPDATE SET batch_size",
-        ),
+        sql: expect.stringContaining("ON CONFLICT (id) DO NOTHING"),
       }),
     );
-    expect(db.execute).toHaveBeenCalledTimes(2);
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("SET batch_size = ?"),
+        args: [750, job.id, 750],
+      }),
+    );
+    expect(db.execute).toHaveBeenCalledTimes(3);
   });
 
   it("does not run while explicitly disabled", async () => {

@@ -259,6 +259,14 @@ function isSsrHtmlOrDataResponse(
  * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
  * │ for the whole deployment cannot.                                           │
  * └──────────────────────────────────────────────────────────────────────────┘
+ *
+ * The same sharing rule governs any DIAGNOSTIC header on this response. A
+ * per-request timing written here is stored once by the origin render and
+ * replayed unchanged to every later visitor, so it must not wear a live-looking
+ * phase name. `installHttpResponseTelemetryHooks` detects the shared-cacheable
+ * policy stamped below and collapses `server-timing` to one `origin` entry
+ * carrying the render's wall-clock time; do not add a per-request header here
+ * that contradicts that.
  */
 function applyDefaultSsrCacheHeader(
   headers: Headers,

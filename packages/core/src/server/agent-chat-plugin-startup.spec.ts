@@ -29,8 +29,30 @@ describe("agent chat startup", () => {
     expect(mcpSetup).toContain("new McpClientManager(null)");
     expect(mcpSetup).not.toContain("await mcpManager.start()");
     expect(
-      source.indexOf("mcpInitializationPromise = initializeMcpManager()"),
+      source.indexOf("if (!isProductionServerlessFunctionRuntime()) {"),
     ).toBeGreaterThan(source.lastIndexOf("mcpManager.onChange"));
+  });
+
+  it("does not eagerly hydrate MCP on a serverless cold start", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+
+    // Nothing awaits the eager hydration, so on a runtime that freezes after
+    // responding its settings scan and MCP handshakes escape past the response.
+    expect(source).toContain(
+      "if (!isProductionServerlessFunctionRuntime()) {\n        void ensureMcpInitialized();",
+    );
+    // The lazy path must actually run: never initializing would be worse than
+    // the cold-start cost it removes.
+    expect(source).toContain("waitUntilReady: ensureMcpInitialized,");
+    expect(
+      source.slice(
+        source.indexOf("const invokeAgentChatHandler"),
+        source.indexOf("const ownerContext = await resolveOwnerContext(event)"),
+      ),
+    ).toContain("await ensureMcpInitialized();");
   });
 
   it("keeps trigger subscription registration behind route readiness", () => {
