@@ -1031,7 +1031,7 @@ function backfillBranchSql(
     ? [cursor.receivedAt, cursor.receivedAt, cursor.id]
     : [];
   return {
-    sql: `SELECT id, received_at
+    sql: `SELECT ${FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ")}
       FROM analytics_events
       WHERE ${predicate}${cursorSql ? ` AND ${cursorSql}` : ""}
       ORDER BY received_at ASC, id ASC LIMIT ?`,
@@ -1039,19 +1039,31 @@ function backfillBranchSql(
   };
 }
 
-function backfillRowsByIdsSql(ids: string[]): {
-  sql: string;
-  args: string[];
-} {
+function backfillScopedRowsSql(
+  branches: Array<{ predicate: string; args: string[] }>,
+  cursor: FirstPartyAnalyticsBackfillCursor,
+  limit: number,
+): { sql: string; args: Array<string | number> } {
+  const branchQueries = branches.map((branch) =>
+    backfillBranchSql(branch.predicate, branch.args, cursor),
+  );
+  const columns = FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ");
   return {
-    sql: `SELECT ${FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ")}
-      FROM analytics_events
-      WHERE id IN (${ids.map(() => "?").join(", ")})`,
-    args: ids,
+    sql: `WITH ${branchQueries
+      .map(
+        (_branch, index) =>
+          `backfill_branch_${index} AS (${branchQueries[index]!.sql})`,
+      )
+      .join(", ")}
+      SELECT ${columns}
+      FROM (${branchQueries.map((_branch, index) => `SELECT ${columns} FROM backfill_branch_${index}`).join(" UNION ALL ")}) AS selected_events
+      ORDER BY received_at ASC, id ASC LIMIT ?`,
+    args: [
+      ...branchQueries.flatMap((branch) => [...branch.args, limit]),
+      limit,
+    ],
   };
 }
-
-const MAX_SQLITE_BIND_VARIABLES = 900;
 
 function backfillRowCursor(
   row: Record<string, unknown>,
@@ -1067,18 +1079,6 @@ function backfillRowCursor(
     );
   }
   return { receivedAt, id };
-}
-
-function compareBackfillRows(
-  left: Record<string, unknown>,
-  right: Record<string, unknown>,
-): number {
-  const leftCursor = backfillRowCursor(left);
-  const rightCursor = backfillRowCursor(right);
-  return (
-    leftCursor.receivedAt.localeCompare(rightCursor.receivedAt) ||
-    leftCursor.id.localeCompare(rightCursor.id)
-  );
 }
 
 export async function backfillFirstPartyAnalyticsBatch(
@@ -1108,22 +1108,15 @@ export async function backfillFirstPartyAnalyticsBatch(
         },
       ];
   const rows: Record<string, unknown>[] = [];
-  for (const branch of branches) {
-    const scoped = backfillBranchSql(
-      branch.predicate,
-      branch.args,
-      parsedCursor,
-    );
-    const result = await db.execute({
-      sql: scoped.sql,
-      args: [...scoped.args, boundedLimit],
-      timeoutMs: 20_000,
-      maxAttempts: 1,
-    });
-    rows.push(...(result.rows as Record<string, unknown>[]));
-  }
-  rows.sort(compareBackfillRows);
-  const selectedRows = rows.slice(0, boundedLimit);
+  const scoped = backfillScopedRowsSql(branches, parsedCursor, boundedLimit);
+  const result = await db.execute({
+    sql: scoped.sql,
+    args: scoped.args,
+    timeoutMs: 20_000,
+    maxAttempts: 1,
+  });
+  rows.push(...(result.rows as Record<string, unknown>[]));
+  const selectedRows = rows;
   if (!selectedRows.length) {
     return {
       nextCursor: serializeBackfillCursor(parsedCursor),
@@ -1132,36 +1125,7 @@ export async function backfillFirstPartyAnalyticsBatch(
     };
   }
 
-  const selectedIds = selectedRows.map((row) => backfillRowCursor(row).id);
-  const hydratedRows: Record<string, unknown>[] = [];
-  for (
-    let offset = 0;
-    offset < selectedIds.length;
-    offset += MAX_SQLITE_BIND_VARIABLES
-  ) {
-    const hydratedQuery = backfillRowsByIdsSql(
-      selectedIds.slice(offset, offset + MAX_SQLITE_BIND_VARIABLES),
-    );
-    const hydratedResult = await db.execute({
-      sql: hydratedQuery.sql,
-      args: hydratedQuery.args,
-      timeoutMs: 20_000,
-      maxAttempts: 1,
-    });
-    hydratedRows.push(...(hydratedResult.rows as Record<string, unknown>[]));
-  }
-  const hydratedById = new Map(
-    hydratedRows.map((row) => [backfillRowCursor(row).id, row]),
-  );
-  const selectedEvents = selectedIds.map((id) => {
-    const row = hydratedById.get(id);
-    if (!row) {
-      throw new Error(
-        `First-party analytics backfill row ${id} disappeared before hydration`,
-      );
-    }
-    return row;
-  });
+  const selectedEvents = selectedRows;
   await insertFirstPartyAnalyticsRows(selectedEvents, configuredTable);
   const lastCursor = backfillRowCursor(selectedRows[selectedRows.length - 1]!);
   return {

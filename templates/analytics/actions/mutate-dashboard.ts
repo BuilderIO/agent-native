@@ -238,10 +238,13 @@ function sqlValidationScope(
 async function validateMutationSql(
   config: Record<string, unknown>,
   operations: DashboardMutationOperation[],
+  signal?: AbortSignal,
 ): Promise<string | null> {
   const scope = sqlValidationScope(operations);
   if (scope === null) return null;
-  return validatePanelSql(config, scope === "all" ? undefined : scope);
+  return validatePanelSql(config, scope === "all" ? undefined : scope, {
+    signal,
+  });
 }
 
 function movedPanelIdsFrom(operations: DashboardMutationOperation[]): string[] {
@@ -318,7 +321,8 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async (args) => {
+  timeoutMs: 35_000,
+  run: async (args, actionContext) => {
     const code = nonEmptyCode(args.code);
     const requestedOperations = nonEmptyOperations(args.operations);
     const wantsHelpOnly =
@@ -387,7 +391,11 @@ export default defineAction({
       root = computed.nextRoot;
       operations = computed.nextOperations;
       mutation = computed.nextMutation;
-      const sqlError = await validateMutationSql(root, operations);
+      const sqlError = await validateMutationSql(
+        root,
+        operations,
+        actionContext?.signal,
+      );
       if (sqlError) throw new Error(sqlError);
     } else {
       const saved = await upsertDashboardWithRetry(
@@ -398,6 +406,7 @@ export default defineAction({
           const sqlError = await validateMutationSql(
             computed.nextRoot,
             computed.nextOperations,
+            actionContext?.signal,
           );
           if (sqlError) throw new Error(sqlError);
           root = computed.nextRoot;

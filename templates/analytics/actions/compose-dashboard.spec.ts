@@ -678,6 +678,7 @@ describe("compose-dashboard", () => {
       { userEmail: "alice@example.com", orgId: null, caller: "tool" },
     );
     expect(result.panelCount).toBe(2);
+    expect(result.changed).toBe(false);
     expect(result.skippedExistingIds).toEqual([
       "total-signups",
       "sessions-by-app",

@@ -329,16 +329,30 @@ export default defineAction({
       ? (finalConfig.panels as unknown[]).length
       : 0;
 
-    queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
+    const changed =
+      !existing ||
+      args.overwrite === true ||
+      appendedCount > 0 ||
+      refreshedExistingIds.length > 0;
+
+    if (changed) {
+      queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
+    }
 
     const parts: string[] = [];
     if (existing && !args.overwrite) {
-      if (refreshedExistingIds.length > 0) {
+      if (!changed) {
+        parts.push(`No changes were needed for "${args.dashboardId}"`);
+      } else if (refreshedExistingIds.length > 0) {
         parts.push(
           `Refreshed ${refreshedExistingIds.length} existing panel(s)`,
         );
       }
-      parts.push(`Appended ${appendedCount} panel(s) to "${args.dashboardId}"`);
+      if (changed) {
+        parts.push(
+          `Appended ${appendedCount} panel(s) to "${args.dashboardId}"`,
+        );
+      }
       if (skippedExistingIds.length > 0) {
         parts.push(`${skippedExistingIds.length} already present`);
       }
@@ -361,6 +375,7 @@ export default defineAction({
 
     return {
       saved: true,
+      changed,
       id: args.dashboardId,
       dashboardId: args.dashboardId,
       name: dashboardName,

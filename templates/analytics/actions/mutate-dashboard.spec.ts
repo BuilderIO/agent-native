@@ -348,6 +348,48 @@ describe("mutate-dashboard", () => {
     expect(mocks.upsertDashboard).not.toHaveBeenCalled();
   });
 
+  it("validates multiple BigQuery panels in parallel within one batch", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: {
+          ...dashboardConfig(),
+          panels: [panel("a", "bigquery"), panel("b", "bigquery")],
+        },
+      });
+      mocks.dryRunQuery.mockImplementation(
+        async () =>
+          await new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 100),
+          ),
+      );
+
+      const pending = mutateDashboard.run({
+        dashboardId: "traffic",
+        operations: [
+          {
+            op: "updatePanel",
+            panelId: "a",
+            patch: { sql: "SELECT 1" },
+          },
+          {
+            op: "updatePanel",
+            panelId: "b",
+            patch: { sql: "SELECT 2" },
+          },
+        ],
+      });
+
+      await vi.advanceTimersByTimeAsync(99);
+      expect(mocks.dryRunQuery).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({ saved: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not let unrelated legacy-invalid SQL block a valid duplicate", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",

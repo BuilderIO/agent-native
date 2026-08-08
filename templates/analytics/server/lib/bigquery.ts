@@ -384,7 +384,17 @@ function rowsToObjects(
  * Returns `null` when the query is valid; otherwise returns a short error
  * string suitable for bubbling back to the agent.
  */
-export async function dryRunQuery(sql: string): Promise<string | null> {
+export interface DryRunQueryOptions {
+  signal?: AbortSignal;
+}
+
+export async function dryRunQuery(
+  sql: string,
+  options: DryRunQueryOptions = {},
+): Promise<string | null> {
+  if (options.signal?.aborted) {
+    throw new Error("BigQuery validation was cancelled before it started");
+  }
   const { projectId, appEventsTable } = await getProjectInfo();
   const resolvedSql = await resolveTablePlaceholder(
     sql,
@@ -396,6 +406,8 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutMessage = `BigQuery validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`;
@@ -432,6 +444,7 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
       };
       const msg = parsed.error?.message?.trim();
       if (msg) return msg;
+      // coercion-ok: malformed BigQuery error bodies use the status fallback below.
     } catch {
       // Fall through
     }
@@ -440,6 +453,7 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
     if (timedOut) return timeoutMessage;
     throw error;
   } finally {
+    options.signal?.removeEventListener("abort", abortFromCaller);
     if (timer !== undefined) clearTimeout(timer);
   }
 }

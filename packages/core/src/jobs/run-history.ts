@@ -445,17 +445,21 @@ export async function deleteAutomationRuns(
 export async function listAutomationRuns(options: {
   owners: string[];
   automation: string;
+  appId?: string | null;
   limit?: number;
 }): Promise<AutomationRun[]> {
   await ensureTable();
   const owners = options.owners.filter(Boolean);
   if (!owners.length) return [];
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+  const appId = options.appId?.trim() || null;
   const placeholders = owners.map(() => "?").join(", ");
+  const appFilter = appId ? " AND (app_id = ? OR app_id IS NULL)" : "";
   const result = await getDbExec().execute({
     sql: `SELECT * FROM ${TABLE} WHERE owner IN (${placeholders}) AND automation = ?
+          ${appFilter}
           ORDER BY started_at DESC LIMIT ${limit}`,
-    args: [...owners, options.automation],
+    args: [...owners, options.automation, ...(appId ? [appId] : [])],
   });
   const now = Date.now();
   return (result.rows ?? []).map((row) =>

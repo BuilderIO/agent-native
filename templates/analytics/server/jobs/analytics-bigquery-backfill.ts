@@ -17,6 +17,7 @@ const DEFAULT_MAX_BATCHES_PER_SWEEP = 2;
 const MAX_BATCHES_PER_SWEEP = 4;
 const DEFAULT_MAX_ACTIVE_SESSIONS = 80;
 const DEFAULT_MAX_TOTAL_SESSIONS = 250;
+const BATCH_SIZE_ENV = "ANALYTICS_BIGQUERY_BACKFILL_BATCH_SIZE";
 
 type Query =
   | string
@@ -82,6 +83,16 @@ function jobId(orgId: string): string {
 function boundedBatchSize(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_BATCH_SIZE;
   return Math.min(Math.max(Math.floor(value as number), 1), MAX_BATCH_SIZE);
+}
+
+function runtimeBatchSize(job: BigQueryBackfillJob): number {
+  const raw = process.env[BATCH_SIZE_ENV]?.trim();
+  if (!raw) return job.batchSize;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return job.batchSize;
+  // Keep the override bounded so operators can lower throughput without
+  // rewriting the cursor-bearing job row.
+  return boundedBatchSize(parsed);
 }
 
 function maxBatchesPerSweep(): number {
@@ -190,13 +201,21 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
   const id = jobId(scope.orgId ?? "");
   if (!scope.orgId)
     throw new Error("BigQuery backfill requires an organization");
+  const conflictClause =
+    requestedBatchSize === undefined
+      ? "ON CONFLICT (id) DO NOTHING"
+      : `ON CONFLICT (id) DO UPDATE SET batch_size = CASE
+           WHEN batch_size < excluded.batch_size
+             THEN excluded.batch_size
+           ELSE batch_size
+         END`;
   await executor().execute({
     sql: `INSERT INTO ${JOB_TABLE} (
             id, org_id, owner_email, table_ref, batch_size, backfill_cursor,
               status, copied_count, lease_token, lease_expires_at, next_run_at,
               last_error, completed_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
-            ON CONFLICT (id) DO NOTHING`,
+            ${conflictClause}`,
     args: [
       id,
       scope.orgId,
@@ -420,7 +439,7 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
           backfillFirstPartyAnalyticsBatch(
             { userEmail: job.ownerEmail, orgId: job.orgId },
             job.cursor,
-            job.batchSize,
+            runtimeBatchSize(job),
             job.table,
           ),
       );

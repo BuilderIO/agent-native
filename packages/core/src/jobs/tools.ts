@@ -40,7 +40,7 @@ function getSharedOwner(): string {
   return sharedResourceOwner(getRequestOrgId());
 }
 
-function jobBelongsToApp(meta: JobFrontmatter, appId?: string): boolean {
+export function jobBelongsToApp(meta: JobFrontmatter, appId?: string): boolean {
   const ownerAppId = meta.appId?.trim();
   if (!ownerAppId) return true;
   return ownerAppId === appId?.trim();

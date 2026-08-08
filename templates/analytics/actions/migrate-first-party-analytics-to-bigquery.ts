@@ -44,7 +44,9 @@ const migrationSchema = z.object({
     .min(1)
     .max(750)
     .optional()
-    .describe("Optional per-page limit used when mode is prepare."),
+    .describe(
+      "Optional per-page limit used when mode is prepare; for an existing job, it can only increase the bounded batch size.",
+    ),
   confirm: z.boolean().optional(),
 });
 
