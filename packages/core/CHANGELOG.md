@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.146.5
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
 ## 0.146.4
 
 ### Patch Changes
