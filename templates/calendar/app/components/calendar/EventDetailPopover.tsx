@@ -36,6 +36,7 @@ import {
   RenderedDescription,
   AutoGrowTextarea,
 } from "@/components/calendar/EventDescription";
+import { EventHoverPreview } from "@/components/calendar/EventHoverPreview";
 import {
   AttachmentControls,
   ReminderControls,
@@ -92,6 +93,7 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
+import { extractMeetingLink } from "@/lib/event-meeting";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import {
   createEventDetailPopoverToken,
@@ -193,54 +195,6 @@ function formatTimeShort(dateStr: string): string {
   return `${hour12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
-/** Extract a Zoom/Meet/Teams link from location or description */
-function extractMeetingLink(event: CalendarEvent): {
-  url: string;
-  type: "zoom" | "meet" | "teams" | "link";
-  label?: string;
-  pin?: string;
-  passcode?: string;
-} | null {
-  if (event.meetingLink) {
-    return { url: event.meetingLink, type: getMeetingType(event.meetingLink) };
-  }
-
-  // Check conferenceData first
-  if (event.conferenceData?.entryPoints) {
-    const videoEntry = event.conferenceData.entryPoints.find(
-      (ep) => ep.entryPointType === "video",
-    );
-    if (videoEntry) {
-      let type: "zoom" | "meet" | "teams" | "link" = "link";
-      if (videoEntry.uri.includes("zoom.us")) type = "zoom";
-      else if (videoEntry.uri.includes("meet.google.com")) type = "meet";
-      else if (videoEntry.uri.includes("teams.microsoft.com")) type = "teams";
-      return {
-        url: videoEntry.uri,
-        type,
-        label: videoEntry.label || undefined,
-        pin: videoEntry.pin || undefined,
-        passcode: videoEntry.passcode || undefined,
-      };
-    }
-  }
-
-  // Fall back to the legacy hangoutLink (Google Meet)
-  if (event.hangoutLink) {
-    return { url: event.hangoutLink, type: "meet" };
-  }
-
-  // Fall back to text matching
-  const text = `${event.location || ""} ${event.description || ""}`;
-  const zoom = text.match(/https?:\/\/[^\s]*zoom\.us\/j\/[^\s)"]*/i);
-  if (zoom) return { url: zoom[0], type: "zoom" };
-  const meet = text.match(/https?:\/\/meet\.google\.com\/[^\s)"]*/i);
-  if (meet) return { url: meet[0], type: "meet" };
-  const teams = text.match(/https?:\/\/teams\.microsoft\.com\/[^\s)"]*/i);
-  if (teams) return { url: teams[0], type: "teams" };
-  return null;
-}
-
 function getMeetingLabel(
   type: "zoom" | "meet" | "teams" | "link",
   t: ReturnType<typeof useT>,
@@ -255,13 +209,6 @@ function getMeetingLabel(
     default:
       return t("eventForm.joinMeeting");
   }
-}
-
-function getMeetingType(url: string): "zoom" | "meet" | "teams" | "link" {
-  if (url.includes("zoom.us")) return "zoom";
-  if (url.includes("meet.google.com")) return "meet";
-  if (url.includes("teams.microsoft.com")) return "teams";
-  return "link";
 }
 
 function MeetingLinkSkeleton({ provider }: { provider: "meet" | "zoom" }) {
@@ -434,6 +381,10 @@ interface EventDetailPopoverProps {
   onDismissNew?: (eventId: string, accountEmail?: string) => void;
   /** Called after the popover's visible open state changes through its normal lifecycle. */
   onOpenChange?: (open: boolean) => void;
+  /** Adds the compact, read-only Month/Week disclosure without changing click details. */
+  showHoverPreview?: boolean;
+  /** Temporarily suppresses the preview while a parent owns pointer drag state. */
+  hoverPreviewDisabled?: boolean;
   onDraftUpdate?: (
     eventId: string,
     updates: Partial<CalendarEvent> & {
@@ -462,6 +413,8 @@ export function EventDetailPopover({
   onTitleSave,
   onDismissNew,
   onOpenChange,
+  showHoverPreview = false,
+  hoverPreviewDisabled = false,
   onDraftUpdate,
   onDraftCreate,
   onDraftDiscard,
@@ -1416,6 +1369,8 @@ export function EventDetailPopover({
     sidebarEvent?.id === event.id &&
     sidebarEvent.accountEmail === event.accountEmail;
   const detailsOpen = popoverOpen || sidebarDetailsOpen;
+  const hoverPreviewEnabled =
+    showHoverPreview && !isMobile && !isWorkingLocation && !isOutOfOffice;
   const previousDetailsOpenRef = useRef(false);
 
   useEffect(() => {
@@ -1434,7 +1389,16 @@ export function EventDetailPopover({
   return (
     <Popover open={popoverOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild onClick={handleTriggerClick}>
-        {children}
+        {hoverPreviewEnabled ? (
+          <EventHoverPreview
+            event={event}
+            disabled={hoverPreviewDisabled || detailsOpen}
+          >
+            {children as React.ReactElement<{ className?: string }>}
+          </EventHoverPreview>
+        ) : (
+          children
+        )}
       </PopoverTrigger>
       <PopoverContent
         align={isMobile ? "center" : "start"}

@@ -568,6 +568,8 @@ const WeekEventCard = memo(function WeekEventCard({
       onDraftCreate={onDraftCreate}
       onDraftDiscard={onDraftDiscard}
       onOpenChange={(open) => onPopoverOpenChange(event, open)}
+      showHoverPreview
+      hoverPreviewDisabled={isDragging || isBeingDragged}
     >
       {eventButton}
     </EventDetailPopover>
@@ -1203,6 +1205,7 @@ export const WeekView = memo(function WeekView({
                         onDraftUpdate={onDraftUpdate}
                         onDraftCreate={onDraftCreate}
                         onDraftDiscard={onDraftDiscard}
+                        showHoverPreview
                       >
                         <button
                           className={cn(
