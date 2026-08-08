@@ -691,6 +691,7 @@ const messages = {
     cronFieldCount: "A cron expression needs exactly 5 fields.",
     saveSchedule: "Save schedule",
     details: "Details",
+    viewDetails: "View details",
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
