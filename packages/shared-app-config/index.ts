@@ -64,6 +64,8 @@ export interface FrameSettings {
   enabled: boolean;
   /** Whether to show the Agent-Native Code tab in Desktop */
   showCodeTab: boolean;
+  /** Opt into the chat-first Codex/T3-like desktop workbench. */
+  chatFirstMode: boolean;
   /** Load frame from localhost (dev) or production URL (prod) */
   mode: "dev" | "prod";
   /** Production URL for the frame (if deployed) */

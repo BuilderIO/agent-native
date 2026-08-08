@@ -11,6 +11,7 @@ export type {
   CodeAgentsRenderAppSurface,
 } from "./CodeAgentsApp.js";
 export { resolveNewSessionExtensionComposerState } from "./CodeAgentsApp.js";
+export { SessionWatchPanel } from "./SessionWatchPanel.js";
 export * from "./composer-primitives.js";
 export * from "./code-agents.js";
 export * from "./types.js";

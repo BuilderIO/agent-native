@@ -44,6 +44,7 @@
     "qa:composer-geometry": "tsx scripts/qa-composer-geometry-smoke.ts",
     "qa:dispatch-workspace-resources": "tsx scripts/qa-dispatch-workspace-resources-smoke.ts",
     "qa:dispatch-automations": "tsx scripts/qa-dispatch-automations-smoke.ts",
+    "qa:chat-first-workbench": "tsx scripts/qa-chat-first-workbench-smoke.ts",
     "qa:template-routes": "tsx scripts/qa-template-route-matrix.ts",
     "qa:sign-in": "tsx scripts/qa-sign-in-matrix-smoke.ts",
     "actions:audit": "node scripts/audit-template-actions.mjs",

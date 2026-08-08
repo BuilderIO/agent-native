@@ -234,7 +234,16 @@ if (IS_DEV) {
   // Keep local electron-vite runs out of the packaged app's Chromium profile.
   // Sharing the same userData directory lets dev and prod processes fight over
   // persisted webview storage (notably IndexedDB LevelDB LOCK files).
-  const devUserDataPath = path.join(app.getPath("appData"), "Agent Native Dev");
+  // An explicit Electron --user-data-dir remains authoritative so scripted
+  // desktop smoke tests can isolate state without touching a developer's
+  // normal profile.
+  const requestedUserDataPath = process.argv
+    .find((argument) => argument.startsWith("--user-data-dir="))
+    ?.slice("--user-data-dir=".length)
+    .trim();
+  const devUserDataPath = requestedUserDataPath
+    ? path.resolve(requestedUserDataPath)
+    : path.join(app.getPath("appData"), "Agent Native Dev");
   try {
     fs.mkdirSync(devUserDataPath, { recursive: true });
     app.setPath("userData", devUserDataPath);

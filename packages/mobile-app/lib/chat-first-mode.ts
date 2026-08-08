@@ -1,0 +1,88 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useCallback, useEffect, useState } from "react";
+
+// Keep this value aligned with @agent-native/core's browser preference so the
+// three clients share one documented opt-in contract without bundling the web
+// storage implementation into React Native.
+export const CHAT_FIRST_MODE_STORAGE_KEY = "agent-native:chat-first-mode:v1";
+
+const listeners = new Set<(enabled: boolean) => void>();
+
+export type ChatFirstModeStorageResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; enabled: boolean; reason: string };
+
+export async function loadChatFirstMode(): Promise<ChatFirstModeStorageResult> {
+  try {
+    return {
+      ok: true,
+      enabled:
+        (await AsyncStorage.getItem(CHAT_FIRST_MODE_STORAGE_KEY)) === "true",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      enabled: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function saveChatFirstMode(
+  enabled: boolean,
+): Promise<ChatFirstModeStorageResult> {
+  try {
+    await AsyncStorage.setItem(CHAT_FIRST_MODE_STORAGE_KEY, String(enabled));
+    for (const listener of listeners) listener(enabled);
+    return { ok: true, enabled };
+  } catch (error) {
+    return {
+      ok: false,
+      enabled: !enabled,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function subscribeChatFirstMode(
+  listener: (enabled: boolean) => void,
+): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function useChatFirstMode(): {
+  enabled: boolean;
+  error: string | null;
+  setEnabled: (enabled: boolean) => Promise<ChatFirstModeStorageResult>;
+} {
+  const [enabled, setEnabledState] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void loadChatFirstMode().then((result) => {
+      if (!active) return;
+      setEnabledState(result.enabled);
+      setError(result.ok ? null : "Chat-first preference could not be read.");
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => subscribeChatFirstMode(setEnabledState), []);
+  const setEnabled = useCallback(
+    async (value: boolean) => {
+      const previous = enabled;
+      setEnabledState(value);
+      setError(null);
+      const result = await saveChatFirstMode(value);
+      if (!result.ok) {
+        setEnabledState(previous);
+        setError("Chat-first preference could not be saved on this device.");
+      }
+      return result;
+    },
+    [enabled],
+  );
+  return { enabled, error, setEnabled };
+}

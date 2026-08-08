@@ -19,7 +19,7 @@ import AppSettings, {
 } from "./components/AppSettings.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
-import Sidebar from "./components/Sidebar.js";
+import Sidebar, { WindowControls } from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
 import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
@@ -135,6 +135,7 @@ export default function App() {
     null,
   );
   const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(true);
+  const [chatFirstMode, setChatFirstMode] = useState(false);
   const [hasMountedCodeAgents, setHasMountedCodeAgents] = useState(false);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
@@ -167,8 +168,14 @@ export default function App() {
     if (!window.electronAPI?.frame) return;
     window.electronAPI.frame
       .load()
-      .then((settings) => setShowCodeAgentsTab(settings.showCodeTab))
-      .catch(() => setShowCodeAgentsTab(true));
+      .then((settings) => {
+        setShowCodeAgentsTab(settings.showCodeTab);
+        setChatFirstMode(settings.chatFirstMode === true);
+      })
+      .catch(() => {
+        setShowCodeAgentsTab(true);
+        setChatFirstMode(false);
+      });
   }, []);
 
   const enabledApps = apps.filter((a) => a.enabled);
@@ -244,6 +251,7 @@ export default function App() {
 
   const handleFrameSettingsChanged = useCallback((settings: FrameSettings) => {
     setShowCodeAgentsTab(settings.showCodeTab);
+    setChatFirstMode(settings.chatFirstMode === true);
   }, []);
 
   const activateApp = useCallback(
@@ -837,6 +845,7 @@ export default function App() {
 
   const isCodeAgentsActive =
     showCodeAgentsTab && activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
+  const isChatFirstActive = isCodeAgentsActive && chatFirstMode;
   const shouldRenderCodeAgents =
     showCodeAgentsTab && (isCodeAgentsActive || hasMountedCodeAgents);
 
@@ -869,6 +878,9 @@ export default function App() {
 
   return (
     <div className="shell">
+      {isChatFirstActive ? (
+        <WindowControls className="win-controls desktop-chat-first-window-controls" />
+      ) : null}
       {findOpen && (
         <div className="find-overlay">
           <input
@@ -922,7 +934,7 @@ export default function App() {
           </button>
         </div>
       )}
-      {isCodeAgentsActive ? (
+      {isCodeAgentsActive && !isChatFirstActive ? (
         <div className="tabbar tabbar--shell">
           {reserveMacOSWindowControlsSpace && (
             <div className="tabbar-window-spacer" aria-hidden="true" />
@@ -933,7 +945,7 @@ export default function App() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : isChatFirstActive ? null : (
         <TabBar
           tabs={currentAppTabs?.tabs ?? []}
           activeTabId={currentAppTabs?.activeTabId ?? ""}
@@ -947,22 +959,30 @@ export default function App() {
         />
       )}
       <div className="shell-body">
-        <Sidebar
-          apps={appDefs}
-          activeAppId={activeSidebarAppId}
-          onTabChange={handleSidebarTabChange}
-          onAppContextMenu={(appId) => void handleSidebarAppContextMenu(appId)}
-          onAddAppClick={() => setShowAddApp(true)}
-          isCodeAgentsActive={isCodeAgentsActive}
-          onCodeAgentsClick={
-            showCodeAgentsTab ? handleCodeAgentsClick : undefined
-          }
-          onSettingsClick={() => setShowSettings(true)}
-        />
+        {!isChatFirstActive && (
+          <Sidebar
+            apps={appDefs}
+            activeAppId={activeSidebarAppId}
+            onTabChange={handleSidebarTabChange}
+            onAppContextMenu={(appId) =>
+              void handleSidebarAppContextMenu(appId)
+            }
+            onAddAppClick={() => setShowAddApp(true)}
+            isCodeAgentsActive={isCodeAgentsActive}
+            onCodeAgentsClick={
+              showCodeAgentsTab ? handleCodeAgentsClick : undefined
+            }
+            onSettingsClick={() => setShowSettings(true)}
+          />
+        )}
         <div
-          className={`content-area${
-            isCodeAgentsActive ? " content-area--code-agents" : ""
-          }`}
+          className={[
+            "content-area",
+            isCodeAgentsActive ? "content-area--code-agents" : "",
+            isChatFirstActive ? "content-area--chat-first" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           {shouldRenderCodeAgents && (
             <div
@@ -977,6 +997,8 @@ export default function App() {
                 openRequest={codeAgentsOpenRequest}
                 refreshKey={refreshKey}
                 onOpenSettings={() => setShowSettings(true)}
+                onCreateApp={() => setShowAddApp(true)}
+                chatFirstMode={chatFirstMode}
               />
             </div>
           )}

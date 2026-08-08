@@ -3,6 +3,8 @@ import { Feather } from "@expo/vector-icons";
 import { useCallback, useState } from "react";
 import {
   Alert,
+  Platform,
+  PlatformColor,
   ScrollView,
   Switch,
   Text,
@@ -13,10 +15,43 @@ import {
 import AppForm from "@/components/AppForm";
 import DictationSettings from "@/components/DictationSettings";
 import { SafeAreaView } from "@/components/uniwind-interop";
+import { useChatFirstMode } from "@/lib/chat-first-mode";
 import { useApps } from "@/lib/use-apps";
+
+const CHAT_FIRST_SWITCH_COLORS = {
+  offTrack:
+    Platform.OS === "ios"
+      ? PlatformColor("systemGray4")
+      : Platform.OS === "android"
+        ? PlatformColor("?android:attr/colorControlNormal")
+        : "transparent",
+  onTrack:
+    Platform.OS === "ios"
+      ? PlatformColor("systemGreen")
+      : Platform.OS === "android"
+        ? PlatformColor("?android:attr/colorAccent")
+        : "currentColor",
+  offThumb:
+    Platform.OS === "ios"
+      ? PlatformColor("secondaryLabelColor")
+      : Platform.OS === "android"
+        ? PlatformColor("?android:attr/textColorSecondary")
+        : "currentColor",
+  onThumb:
+    Platform.OS === "ios"
+      ? PlatformColor("labelColor")
+      : Platform.OS === "android"
+        ? PlatformColor("?android:attr/textColorPrimary")
+        : "currentColor",
+};
 
 export default function SettingsScreen() {
   const { apps, updateApp, addApp, removeApp, resetToDefaults } = useApps();
+  const {
+    enabled: chatFirstMode,
+    error: chatFirstModeError,
+    setEnabled: setChatFirstMode,
+  } = useChatFirstMode();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingApp, setEditingApp] = useState<AppConfig | undefined>();
 
@@ -76,6 +111,44 @@ export default function SettingsScreen() {
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <ScrollView>
         <DictationSettings />
+
+        <Text className="text-gray-light text-[13px] font-semibold uppercase tracking-[0.5px] px-4 pt-5 pb-2">
+          Workspace
+        </Text>
+        <View className="flex-row items-center justify-between px-4 py-3 border-b border-gray-dark">
+          <View className="flex-1 pr-4">
+            <Text className="text-white text-base font-medium">
+              Chat-first workspace
+            </Text>
+            <Text className="text-gray-medium text-xs mt-0.5">
+              Keep chats central and open apps from a compact workspace rail.
+            </Text>
+            <Text className="text-gray-medium text-[11px] mt-1">
+              Mobile opens apps full-screen; contextual side panes are available
+              in Dispatch and Electron.
+            </Text>
+          </View>
+          <Switch
+            value={chatFirstMode}
+            onValueChange={(value) => {
+              void setChatFirstMode(value);
+            }}
+            trackColor={{
+              false: CHAT_FIRST_SWITCH_COLORS.offTrack,
+              true: CHAT_FIRST_SWITCH_COLORS.onTrack,
+            }}
+            thumbColor={
+              chatFirstMode
+                ? CHAT_FIRST_SWITCH_COLORS.onThumb
+                : CHAT_FIRST_SWITCH_COLORS.offThumb
+            }
+          />
+        </View>
+        {chatFirstModeError ? (
+          <Text className="px-4 pt-2 text-error text-xs">
+            {chatFirstModeError}
+          </Text>
+        ) : null}
 
         {/* Installed Apps */}
         <Text className="text-gray-light text-[13px] font-semibold uppercase tracking-[0.5px] px-4 pt-5 pb-2">

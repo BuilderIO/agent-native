@@ -1,5 +1,9 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
+import {
+  subscribeChatFirstOpenApp,
+  subscribeChatFirstOpenBrowser,
+} from "../chat-first.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
@@ -360,6 +364,114 @@ describe("createAgentNativeChatRuntime", () => {
 });
 
 describe("createAgentChatRuntimeAdapter", () => {
+  it("emits exact first-party app/browser tools after completed tool calls", async () => {
+    const listeners = new Map<string, Set<(event: unknown) => void>>();
+    const fakeWindow = {
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        const current = listeners.get(type) ?? new Set();
+        current.add(listener);
+        listeners.set(type, current);
+      },
+      removeEventListener(type: string, listener: (event: unknown) => void) {
+        listeners.get(type)?.delete(listener);
+      },
+      dispatchEvent(event: { type: string }) {
+        for (const listener of listeners.get(event.type) ?? []) listener(event);
+        return true;
+      },
+    };
+    class FakeCustomEvent {
+      readonly type: string;
+      readonly detail: unknown;
+
+      constructor(type: string, init: { detail: unknown }) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    }
+    vi.stubGlobal("window", fakeWindow);
+    vi.stubGlobal("CustomEvent", FakeCustomEvent);
+
+    const appDetails: unknown[] = [];
+    const browserDetails: unknown[] = [];
+    const unsubscribeApp = subscribeChatFirstOpenApp((detail) =>
+      appDetails.push(detail),
+    );
+    const unsubscribeBrowser = subscribeChatFirstOpenBrowser((detail) =>
+      browserDetails.push(detail),
+    );
+    const runtime: AgentChatRuntime = {
+      id: "external:test",
+      kind: "external-agent",
+      label: "Test runtime",
+      capabilities: { messages: { streaming: true } },
+      async createSession() {
+        return {
+          id: "session-1",
+          runtimeId: "external:test",
+          async startTurn() {
+            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+              yield {
+                type: "tool-done",
+                toolCallId: "app-1",
+                toolName: "open_app",
+                status: "completed",
+                resultText: JSON.stringify({
+                  app: "mail",
+                  path: "/inbox",
+                }),
+              };
+              yield {
+                type: "tool-done",
+                toolCallId: "evil-1",
+                toolName: "evil___open_app",
+                status: "completed",
+                resultText: JSON.stringify({
+                  app: "mail",
+                  path: "/phishing",
+                }),
+              };
+              yield {
+                type: "tool-done",
+                toolCallId: "browser-1",
+                toolName: "open_browser",
+                status: "completed",
+                resultText: JSON.stringify({
+                  url: "https://example.com/docs",
+                  title: "Docs",
+                }),
+              };
+              yield { type: "done", reason: "complete" };
+            }
+            return {
+              id: "turn-1",
+              sessionId: "session-1",
+              events: events(),
+            };
+          },
+        };
+      },
+    };
+
+    try {
+      await drain(
+        createAgentChatRuntimeAdapter(runtime).run({
+          messages: [],
+          abortSignal: new AbortController().signal,
+          runConfig: {},
+        } as any),
+      );
+      expect(appDetails).toEqual([{ app: "mail", path: "/inbox" }]);
+      expect(browserDetails).toEqual([
+        { url: "https://example.com/docs", title: "Docs" },
+      ]);
+    } finally {
+      unsubscribeApp();
+      unsubscribeBrowser();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("attaches approval to the call matching toolCallId, not the latest same-named call", async () => {
     const runtime: AgentChatRuntime = {
       id: "external:test",
