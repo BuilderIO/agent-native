@@ -589,11 +589,6 @@ function AutomationsView({
     "list-factory-automations",
     { factoryId },
   );
-  const healthQuery = useActionQuery<FactoryAutomationHealth>(
-    "get-factory-automation-health",
-    {},
-    { refetchInterval: 60_000 },
-  );
   const saveMutation = useActionMutation("save-factory-automation");
   const runMutation = useActionMutation("run-factory-automation");
   const {
@@ -684,85 +679,17 @@ function AutomationsView({
       schedule: draft.schedule ?? "",
       enabled: draft.enabled,
     });
-    await Promise.all([automationsQuery.refetch(), healthQuery.refetch()]);
+    await automationsQuery.refetch();
   }
 
   async function runAutomation() {
     if (!draft) return;
     await runMutation.mutateAsync({ factoryId, automationId: draft.id });
-    await Promise.all([automationsQuery.refetch(), healthQuery.refetch()]);
+    await automationsQuery.refetch();
   }
-
-  const health = healthQuery.data;
-  const healthLabel = health
-    ? {
-        healthy: t("factoryRoute.automationHealthHealthy"),
-        stale: t("factoryRoute.automationHealthStale"),
-        error: t("factoryRoute.automationHealthError"),
-        "no-data": t("factoryRoute.automationHealthNoData"),
-      }[health.status]
-    : t("factoryRoute.automationHealthNoData");
 
   return (
     <div className="space-y-4 p-4 lg:p-6">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">
-            {t("factoryRoute.automationHealthTitle")}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("factoryRoute.automationHealthDescription")}
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-2 pt-0 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border px-2 py-1 font-medium">
-              {healthLabel}
-            </span>
-            {health?.lastCheckedAt && (
-              <span className="text-muted-foreground">
-                {t("factoryRoute.automationLastCheck")}:{" "}
-                {formatAutomationDate(health.lastCheckedAt)}
-              </span>
-            )}
-            {health?.lastDispatchedAt && (
-              <span className="text-muted-foreground">
-                {t("factoryRoute.automationLastDispatch")}:{" "}
-                {formatAutomationDate(health.lastDispatchedAt)}
-              </span>
-            )}
-            {health?.runtime && (
-              <span className="text-muted-foreground">
-                {t("factoryRoute.automationRuntime")}: {health.runtime}
-              </span>
-            )}
-          </div>
-          {!health?.lastCheckedAt && (
-            <p className="text-muted-foreground">
-              {t("factoryRoute.automationHealthNoDataHint")}
-            </p>
-          )}
-          {health?.status === "stale" && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationHealthStaleHint")}
-            </p>
-          )}
-          {health?.lastError && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationHealthErrorDetail")}:{" "}
-              {health.lastError}
-            </p>
-          )}
-          {healthQuery.isError && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-              {healthQuery.error instanceof Error
-                ? healthQuery.error.message
-                : String(healthQuery.error)}
-            </p>
-          )}
-        </CardContent>
-      </Card>
       <div className="grid gap-4 lg:grid-cols-[minmax(220px,.35fr)_minmax(0,1fr)]">
         <Card>
           <CardHeader>
@@ -1407,6 +1334,11 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
     useState("");
   const query = useActionQuery("get-triage-config", {});
+  const schedulerHealthQuery = useActionQuery<FactoryAutomationHealth>(
+    "get-factory-automation-health",
+    {},
+    { refetchInterval: 60_000 },
+  );
   const mutation = useActionMutation("save-triage-config");
   useEffect(() => {
     const data = query.data as TriageConfig | undefined;
@@ -1427,7 +1359,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
     setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
   }, [query.data]);
   return (
-    <div className="max-w-4xl p-4 lg:p-6">
+    <div className="max-w-4xl space-y-4 p-4 lg:p-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
@@ -1621,7 +1553,107 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           </div>
         </CardContent>
       </Card>
+      <SchedulerHealthStatus
+        health={schedulerHealthQuery.data}
+        isError={schedulerHealthQuery.isError}
+        error={schedulerHealthQuery.error}
+        t={t}
+      />
     </div>
+  );
+}
+
+function SchedulerHealthStatus({
+  health,
+  isError,
+  error,
+  t,
+}: {
+  health?: FactoryAutomationHealth;
+  isError: boolean;
+  error: unknown;
+  t: ReturnType<typeof useT>;
+}) {
+  const healthLabel = isError
+    ? t("factoryRoute.automationHealthError")
+    : health
+      ? {
+          healthy: t("factoryRoute.automationHealthHealthy"),
+          stale: t("factoryRoute.automationHealthStale"),
+          error: t("factoryRoute.automationHealthError"),
+          "no-data": t("factoryRoute.automationHealthNoData"),
+        }[health.status]
+      : t("factoryRoute.automationHealthNoData");
+  const hasNoHeartbeat =
+    !isError &&
+    (!health || health.status === "no-data") &&
+    !health?.lastCheckedAt;
+  const hasDiagnostics =
+    isError ||
+    hasNoHeartbeat ||
+    health?.status === "stale" ||
+    health?.status === "error" ||
+    Boolean(health?.lastError);
+
+  return (
+    <section
+      aria-labelledby="factory-scheduler-health"
+      className="border-t px-1 pt-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2
+            id="factory-scheduler-health"
+            className="text-sm font-medium text-muted-foreground"
+          >
+            {t("factoryRoute.automationHealthTitle")}
+          </h2>
+          <span className="rounded-full border px-2 py-0.5 text-xs font-medium">
+            {healthLabel}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {health?.lastCheckedAt && (
+            <span>
+              {t("factoryRoute.automationLastCheck")}:{" "}
+              {formatAutomationDate(health.lastCheckedAt)}
+            </span>
+          )}
+          {health?.lastDispatchedAt && (
+            <span>
+              {t("factoryRoute.automationLastDispatch")}:{" "}
+              {formatAutomationDate(health.lastDispatchedAt)}
+            </span>
+          )}
+        </div>
+      </div>
+      {hasDiagnostics && (
+        <div className="mt-2 grid gap-1 text-xs">
+          {hasNoHeartbeat && (
+            <p className="text-muted-foreground">
+              {t("factoryRoute.automationHealthNoDataHint")}
+            </p>
+          )}
+          {health?.status === "stale" && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationHealthStaleHint")}
+            </p>
+          )}
+          {health?.lastError && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationHealthErrorDetail")}:{" "}
+              {health.lastError}
+            </p>
+          )}
+          {isError && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
+              {error instanceof Error ? error.message : String(error)}
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
