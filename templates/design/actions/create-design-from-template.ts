@@ -11,8 +11,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  extractTemplateFonts,
   redactTemplateDesignData,
   remapTemplateFileIds,
+  templateFileDimensions,
 } from "../server/lib/design-template-data.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";
@@ -149,6 +151,11 @@ export default defineAction({
       redactTemplateDesignData(templateData),
       fileIdMap,
     );
+    // The copied screens are edited in place, so the design's own files stop
+    // being evidence of what the template looked like after the first
+    // refinement. Capturing the small facts here — which template file backs
+    // each screen, its exact frame, and the declared fonts — is what lets
+    // every later turn restate them without re-reading the template.
     data.templateSource = {
       templateId,
       title: templateTitle,
@@ -158,6 +165,18 @@ export default defineAction({
       templateDesignSystemId,
       appliedDesignSystemId: linkedDesignSystemId,
       designSystemOverridden,
+      files: files.map((file) => {
+        const designFileId = fileIdMap.get(file.id)!;
+        const { width, height } = templateFileDimensions(data, designFileId);
+        return {
+          designFileId,
+          templateFileId: file.id,
+          filename: file.filename,
+          width,
+          height,
+        };
+      }),
+      fonts: extractTemplateFonts(files.map((file) => file.content).join("\n")),
     };
     if (prompt) data.templatePrompt = prompt;
 

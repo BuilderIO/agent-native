@@ -182,6 +182,7 @@ export function designTemplateRefinementDirectives(
     `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
     ...designSystemTemplateEditDirectives(designSystemId),
     `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
+    `The copied screens are edited in place, so they stop showing the template once this run saves. \`view-screen\` reports the template's authoritative dimensions and fonts as \`design.createdFromTemplate\` on every turn — keep them unchanged. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,
     "Refine the existing template with `edit-design`; do not call `generate-design`, `delete-file`, or create a replacement screen.",
     'Layers marked `data-agent-native-locked="true"` and everything inside them must remain byte-for-byte unchanged. The server rejects changes to locked backgrounds, logos, and other fixed template layers.',
     "Preserve canvasFrames and the template's width and height. Change only the unlocked content needed for the user's request.",

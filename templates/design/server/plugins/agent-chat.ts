@@ -27,6 +27,7 @@ const INITIAL_TOOL_NAMES = [
   "get-design-snapshot",
   "create-design",
   "create-design-from-template",
+  "get-design-template",
   "save-design-as-template",
   "open-visual-edit",
   "add-localhost-screens",

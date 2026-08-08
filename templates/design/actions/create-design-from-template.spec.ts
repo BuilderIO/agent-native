@@ -45,7 +45,8 @@ vi.mock("../server/db/index.js", () => {
       filename: "index.html",
       fileType: "html",
       content:
-        '<main style="width:1080px;height:1080px"><div data-agent-native-locked="true">Brand</div><p>Editable</p></main>',
+        '<link href="https://fonts.googleapis.com/css2?family=Sora:wght@700" rel="stylesheet">' +
+        '<main style="width:1080px;height:1080px;font-family:Sora,sans-serif"><div data-agent-native-locked="true">Brand</div><p>Editable</p></main>',
     },
   ];
   return {
@@ -156,6 +157,16 @@ describe("create-design-from-template", () => {
       appliedDesignSystemId: "override-system",
       designSystemOverridden: true,
     });
+    expect(data.templateSource.files).toEqual([
+      {
+        designFileId: "copied-file",
+        templateFileId: "template-file",
+        filename: "index.html",
+        width: 1080,
+        height: 1080,
+      },
+    ]);
+    expect(data.templateSource.fonts).toEqual(["Sora"]);
     expect(testState.insertedFiles[0]?.content).toContain(
       'data-agent-native-locked="true"',
     );

@@ -1,12 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  extractTemplateFonts,
   firstTemplateDimensions,
   redactTemplateDesignData,
   remapTemplateFileIds,
 } from "./design-template-data.js";
 
 describe("design template data", () => {
+  it("captures quoted CSS font families", () => {
+    const fonts = extractTemplateFonts(
+      "<style>h1{font-family:\"DM Sans\", sans-serif} p{font-family: 'Helvetica Neue', sans-serif}</style>",
+    );
+
+    expect(fonts).toEqual(["DM Sans", "Helvetica Neue"]);
+  });
+
+  it("skips a malformed Google Fonts URL instead of throwing", () => {
+    const fonts = extractTemplateFonts(
+      '<link href="https://fonts.googleapis.com/css2?family=Sora&family=%E0%A4%A">',
+    );
+
+    expect(fonts).toEqual(["Sora"]);
+  });
+
   it("remaps file-addressed canvas and screen metadata", () => {
     const data = remapTemplateFileIds(
       JSON.stringify({
