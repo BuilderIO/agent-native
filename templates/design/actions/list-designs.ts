@@ -13,7 +13,7 @@ const PREVIEW_MAX_BYTES = 50_000;
 export default defineAction({
   description:
     "List all design projects accessible to the current user. " +
-    "Returns title, id, project type, and timestamps.",
+    "Returns title, id, project type, owner email, and timestamps.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -43,6 +43,7 @@ export default defineAction({
         projectType: schema.designs.projectType,
         designSystemId: schema.designs.designSystemId,
         visibility: schema.designs.visibility,
+        ownerEmail: schema.designs.ownerEmail,
         createdAt: schema.designs.createdAt,
         updatedAt: schema.designs.updatedAt,
       })
@@ -106,6 +107,7 @@ export default defineAction({
         projectType: row.projectType,
         designSystemId: row.designSystemId,
         visibility: row.visibility,
+        ownerEmail: row.ownerEmail,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };
