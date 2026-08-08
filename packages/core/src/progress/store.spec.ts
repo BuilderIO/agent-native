@@ -66,6 +66,38 @@ describe("progress store", () => {
     expect(call.args).toEqual(["alice@example.com", 50]);
   });
 
+  it("uses a deterministic keyset cursor to retrieve rows after the first 200", async () => {
+    await listRuns("alice@example.com", {
+      activeOnly: true,
+      limit: 200,
+      before: {
+        startedAt: "2026-07-30T12:00:00.000Z",
+        id: "run-0200",
+      },
+    });
+
+    const call = lastSelect();
+    expect(call.sql).toMatch(
+      /started_at < \? OR \(started_at = \? AND id < \?\)/,
+    );
+    expect(call.sql).toMatch(/ORDER BY started_at DESC, id DESC LIMIT \?/);
+    expect(call.args).toEqual([
+      "alice@example.com",
+      Date.parse("2026-07-30T12:00:00.000Z"),
+      Date.parse("2026-07-30T12:00:00.000Z"),
+      "run-0200",
+      200,
+    ]);
+  });
+
+  it("rejects an invalid keyset cursor instead of repeating the first page", async () => {
+    await expect(
+      listRuns("alice@example.com", {
+        before: { startedAt: "not-a-timestamp", id: "run-0200" },
+      }),
+    ).rejects.toThrow(/before\.startedAt/);
+  });
+
   it("marks stale running rows cancelled before listing active runs", async () => {
     const now = Date.UTC(2026, 4, 8, 16, 0, 0);
     vi.spyOn(Date, "now").mockReturnValue(now);

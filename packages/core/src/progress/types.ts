@@ -54,6 +54,11 @@ export interface ListRunsOptions {
   activeOnly?: boolean;
   /** Max rows. Default 50. */
   limit?: number;
+  /**
+   * Return rows strictly older than this run in `(startedAt, id)` order.
+   * Pass the final row from the previous page to continue listing.
+   */
+  before?: Pick<AgentRun, "startedAt" | "id">;
   /** Optional request event for producers that need to self-dispatch work. */
   event?: unknown;
 }

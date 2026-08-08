@@ -63,8 +63,8 @@ async function ensureTable(): Promise<void> {
         // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
         await ensureTableExists("progress_runs", createSql);
         await ensureIndexExists(
-          "idx_progress_runs_owner_status",
-          `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status ON progress_runs (owner, status, started_at)`,
+          "idx_progress_runs_owner_status_started_id",
+          `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status_started_id ON progress_runs (owner, status, started_at DESC, id DESC)`,
         );
         return;
       }
@@ -78,7 +78,7 @@ async function ensureTable(): Promise<void> {
       await client.execute(createSql);
       try {
         await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status ON progress_runs (owner, status, started_at)`,
+          `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status_started_id ON progress_runs (owner, status, started_at DESC, id DESC)`,
         );
       } catch {
         // Index already exists or the dialect rejected a duplicate.
@@ -331,9 +331,20 @@ export async function listRuns(
   let where = `owner = ?`;
   const args: Array<string | number> = [owner];
   if (options.activeOnly) where += ` AND status = 'running'`;
+  if (options.before) {
+    const beforeStartedAt = Date.parse(options.before.startedAt);
+    if (!Number.isFinite(beforeStartedAt)) {
+      throw new TypeError("before.startedAt must be a valid timestamp");
+    }
+    if (!options.before.id) {
+      throw new TypeError("before.id must be a non-empty string");
+    }
+    where += ` AND (started_at < ? OR (started_at = ? AND id < ?))`;
+    args.push(beforeStartedAt, beforeStartedAt, options.before.id);
+  }
   args.push(limit);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM progress_runs WHERE ${where} ORDER BY started_at DESC LIMIT ?`,
+    sql: `SELECT * FROM progress_runs WHERE ${where} ORDER BY started_at DESC, id DESC LIMIT ?`,
     args,
   });
   return rows.map((r) => parseRow(r as Record<string, unknown>));

@@ -3,7 +3,7 @@
  *
  * Mounted under `/_agent-native/runs/*` by `core-routes-plugin`.
  *
- *   GET    /_agent-native/runs?active=true&limit=50
+ *   GET    /_agent-native/runs?active=true&limit=50&beforeStartedAt=<iso>&beforeId=<id>
  *   GET    /_agent-native/runs/:id
  *   DELETE /_agent-native/runs/:id
  *
@@ -28,6 +28,22 @@ function parseLimit(value: unknown, fallback = 50): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.min(Math.floor(n), 200);
+}
+
+function parseBefore(
+  startedAt: unknown,
+  id: unknown,
+): { startedAt: string; id: string } | undefined {
+  if (startedAt == null && id == null) return undefined;
+  if (
+    typeof startedAt !== "string" ||
+    !Number.isFinite(Date.parse(startedAt)) ||
+    typeof id !== "string" ||
+    id.length === 0
+  ) {
+    throw new Error("Invalid progress run cursor");
+  }
+  return { startedAt, id };
 }
 
 async function resolveOwner(event: H3Event): Promise<string> {
@@ -56,8 +72,20 @@ export function createProgressHandler() {
     // GET /  — list
     if (method === "GET" && parts.length === 0) {
       const q = getQuery(event);
+      let before: ReturnType<typeof parseBefore>;
+      try {
+        before = parseBefore(q.beforeStartedAt, q.beforeId);
+      } catch {
+        const { createError } = await import("h3");
+        throw createError({
+          statusCode: 400,
+          statusMessage:
+            "beforeStartedAt and beforeId must form a valid run cursor",
+        });
+      }
       return listRuns(owner, {
         activeOnly: q.active === "true" || q.active === "1",
+        ...(before ? { before } : {}),
         limit: parseLimit(q.limit),
         event,
       });
