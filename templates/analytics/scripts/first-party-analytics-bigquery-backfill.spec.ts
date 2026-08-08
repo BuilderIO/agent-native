@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  assertSourceAtCheckpoint,
   buildPageQuery,
   parseDedicatedBackfillOptions,
   runDedicatedBackfill,
@@ -116,6 +117,7 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
         ],
       })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     const upload = vi.fn().mockResolvedValue(2);
     const store = memoryStore();
@@ -150,6 +152,54 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
         id: "event-2",
       },
     });
+  });
+
+  it("reconciles rows written after the initial cutoff", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:00.000Z", id: "cutoff-1" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:01.000Z", id: "event-1" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:02.000Z", id: "cutoff-2" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:02.000Z", id: "event-2" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:02.000Z", id: "cutoff-2" }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+    const upload = vi.fn().mockResolvedValue(1);
+    const store = memoryStore();
+
+    await expect(
+      runDedicatedBackfill(
+        {
+          scope,
+          table: null,
+          batchSize: 2,
+          concurrency: 1,
+          maxBatches: 10,
+          checkpointPath: "/tmp/unused-in-memory-checkpoint.json",
+        },
+        dependencies(execute, upload, store),
+      ),
+    ).resolves.toMatchObject({
+      batches: 2,
+      copiedThisRun: 2,
+      copiedTotal: 2,
+      complete: true,
+    });
+    expect(upload).toHaveBeenNthCalledWith(1, [
+      { received_at: "2026-08-08T00:00:01.000Z", id: "event-1" },
+    ]);
+    expect(upload).toHaveBeenNthCalledWith(2, [
+      { received_at: "2026-08-08T00:00:02.000Z", id: "event-2" },
+    ]);
   });
 
   it("leaves the cursor unchanged when a page is only partially acknowledged", async () => {
@@ -228,6 +278,44 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
       ),
     ).rejects.toThrow("org cursor is missing receivedAt");
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects finalization when a source branch advanced past its cutoff", async () => {
+    const checkpoint: DedicatedBackfillCheckpoint = {
+      version: 1,
+      scope,
+      table: null,
+      branches: {
+        org: {
+          cutoff: {
+            receivedAt: "2026-08-08T00:00:00.000Z",
+            id: "cutoff",
+          },
+          cursor: {
+            receivedAt: "2026-08-08T00:00:00.000Z",
+            id: "cutoff",
+          },
+          copied: 1,
+          complete: true,
+        },
+        legacy: {
+          cutoff: null,
+          cursor: null,
+          copied: 0,
+          complete: true,
+        },
+      },
+      updatedAt: "2026-08-08T00:00:00.000Z",
+    };
+    const db = {
+      execute: vi.fn().mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:01.000Z", id: "new-event" }],
+      }),
+    };
+
+    await expect(
+      assertSourceAtCheckpoint(scope, checkpoint, db),
+    ).rejects.toThrow("org branch has events after the checkpoint cutoff");
   });
 
   it("stops at the explicit work budget and can resume later", async () => {

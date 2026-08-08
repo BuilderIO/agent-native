@@ -17,7 +17,10 @@ import {
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import { output, parseArgs } from "../actions/helpers.js";
-import { getFirstPartyAnalyticsBigQueryBackfillJob } from "../server/jobs/analytics-bigquery-backfill.js";
+import {
+  acquireDedicatedFirstPartyAnalyticsBackfillLease,
+  getFirstPartyAnalyticsBigQueryBackfillJob,
+} from "../server/jobs/analytics-bigquery-backfill.js";
 import {
   createFirstPartyAnalyticsInserter,
   FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS,
@@ -35,6 +38,10 @@ const MAX_MAX_BATCHES = 10_000;
 const DEFAULT_CHECKPOINT_PATH = ".analytics-first-party-bigquery-backfill.json";
 const QUERY_TIMEOUT_MS = 30_000;
 const JOB_TABLE = "analytics_bigquery_backfill_jobs";
+const FINALIZE_ALLOW_ENV =
+  "AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_FINALIZE_ALLOW";
+const FINALIZE_QUIESCENT_ENV =
+  "AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_QUIESCENT";
 
 type BranchName = "org" | "legacy";
 
@@ -356,6 +363,35 @@ function latestCursor(
   return cursors[cursors.length - 1] ?? null;
 }
 
+function compareCursors(left: BackfillCursor, right: BackfillCursor): number {
+  return (
+    left.receivedAt.localeCompare(right.receivedAt) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+export async function assertSourceAtCheckpoint(
+  scope: DedicatedBackfillOptions["scope"],
+  checkpoint: DedicatedBackfillCheckpoint,
+  db: DbExecutor = getDbExec(),
+): Promise<void> {
+  for (const spec of branchSpecs(scope)) {
+    const result = await db.execute(buildHighWaterMarkQuery(spec));
+    const latestRow = result.rows[0];
+    if (!latestRow) continue;
+    const latest = cursorFromRow(
+      latestRow,
+      `${spec.name} final high-water mark`,
+    );
+    const cutoff = checkpoint.branches[spec.name].cutoff;
+    if (!cutoff || compareCursors(latest, cutoff) > 0) {
+      throw new Error(
+        `Refusing to finalize: ${spec.name} branch has events after the checkpoint cutoff; quiesce source writes and retry the finalization`,
+      );
+    }
+  }
+}
+
 export class JsonCheckpointStore implements CheckpointStore {
   constructor(private readonly path: string) {}
 
@@ -384,6 +420,28 @@ export class JsonCheckpointStore implements CheckpointStore {
     });
     await rename(temporaryPath, this.path);
   }
+}
+
+async function refreshBranchCutoff(
+  spec: BranchSpec,
+  state: BranchCheckpoint,
+  checkpoint: DedicatedBackfillCheckpoint,
+  dependencies: DedicatedBackfillDependencies,
+  now: () => string,
+): Promise<void> {
+  const result = await dependencies.db.execute(buildHighWaterMarkQuery(spec));
+  const row = result.rows[0];
+  const latest = row
+    ? cursorFromRow(row, `${spec.name} high-water mark`)
+    : null;
+  if (latest && (!state.cutoff || compareCursors(latest, state.cutoff) > 0)) {
+    state.cutoff = latest;
+    state.complete = false;
+  } else {
+    state.complete = true;
+  }
+  checkpoint.updatedAt = now();
+  await dependencies.checkpointStore.save(checkpoint);
 }
 
 export async function acquireCheckpointLock(
@@ -439,16 +497,7 @@ export async function runDedicatedBackfill(
     if (state.complete) continue;
 
     if (!state.cutoff) {
-      const result = await dependencies.db.execute(
-        buildHighWaterMarkQuery(spec),
-      );
-      const row = result.rows[0];
-      state.cutoff = row
-        ? cursorFromRow(row, `${spec.name} high-water mark`)
-        : null;
-      state.complete = state.cutoff === null;
-      checkpoint.updatedAt = now();
-      await dependencies.checkpointStore.save(checkpoint);
+      await refreshBranchCutoff(spec, state, checkpoint, dependencies, now);
       if (state.complete) continue;
     }
 
@@ -462,10 +511,9 @@ export async function runDedicatedBackfill(
       );
       const rows = result.rows as Array<Record<string, unknown>>;
       if (!rows.length) {
-        state.complete = true;
-        checkpoint.updatedAt = now();
-        await dependencies.checkpointStore.save(checkpoint);
-        break;
+        await refreshBranchCutoff(spec, state, checkpoint, dependencies, now);
+        if (state.complete) break;
+        continue;
       }
 
       const copied = await dependencies.upload(rows);
@@ -479,7 +527,7 @@ export async function runDedicatedBackfill(
       state.copied += copied;
       copiedThisRun += copied;
       batches += 1;
-      state.complete = rows.length < options.batchSize;
+      state.complete = false;
       checkpoint.updatedAt = now();
       await dependencies.checkpointStore.save(checkpoint);
       dependencies.onProgress?.({
@@ -488,6 +536,9 @@ export async function runDedicatedBackfill(
         copiedThisRun,
         copiedTotal: state.copied,
       });
+      if (rows.length < options.batchSize) {
+        await refreshBranchCutoff(spec, state, checkpoint, dependencies, now);
+      }
     }
     if (stop) break;
   }
@@ -520,8 +571,10 @@ Options:
   --checkpoint=<path>           Atomic local checkpoint path
 
 After the checkpoint is complete, reconcile it into the shipped durable job
-before using the normal action's approved cutover gate:
-  AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_FINALIZE_ALLOW=1 pnpm backfill:first-party-bigquery \
+after quiescing source event writes and checking the final high-water marks:
+  AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_FINALIZE_ALLOW=1 \
+  AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_QUIESCENT=1 \
+  pnpm backfill:first-party-bigquery \
     --finalize --owner-email=<email> --org-id=<org>
 `;
 
@@ -529,6 +582,7 @@ async function runApprovedWorker(
   options: DedicatedBackfillOptions,
 ): Promise<DedicatedBackfillResult> {
   let releaseLock: (() => Promise<void>) | null = null;
+  let releaseLease: (() => Promise<void>) | null = null;
   try {
     releaseLock = await acquireCheckpointLock(options.checkpointPath);
     return await withMigrationRuntime(async () =>
@@ -545,7 +599,16 @@ async function runApprovedWorker(
           );
         }
         const configuredTable = options.table ?? backend.table;
+        if (!configuredTable) {
+          throw new Error(
+            "Refusing to start the dedicated backfill without a configured BigQuery table",
+          );
+        }
         const workerOptions = { ...options, table: configuredTable };
+        releaseLease = await acquireDedicatedFirstPartyAnalyticsBackfillLease(
+          options.scope,
+          configuredTable,
+        );
         const insertRows = await createFirstPartyAnalyticsInserter(
           configuredTable,
           {
@@ -565,11 +628,25 @@ async function runApprovedWorker(
       }),
     );
   } finally {
-    if (releaseLock) {
+    const leaseToRelease = releaseLease as (() => Promise<void>) | null;
+    const lockToRelease = releaseLock as (() => Promise<void>) | null;
+    if (leaseToRelease) {
+      try {
+        await leaseToRelease();
+      } finally {
+        if (lockToRelease) {
+          try {
+            await closeDbExec();
+          } finally {
+            await lockToRelease();
+          }
+        }
+      }
+    } else if (lockToRelease) {
       try {
         await closeDbExec();
       } finally {
-        await releaseLock();
+        await lockToRelease();
       }
     }
   }
@@ -641,6 +718,8 @@ async function runApprovedFinalize(
             "The shipped backfill worker currently owns the durable job lease; wait for it to stop before finalizing",
           );
         }
+
+        await assertSourceAtCheckpoint(options.scope, checkpoint);
 
         const cursor = latestCursor(checkpoint);
         const now = new Date().toISOString();
@@ -726,12 +805,14 @@ async function main(): Promise<void> {
     return;
   }
   if (options.finalize) {
-    if (
-      process.env.AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_FINALIZE_ALLOW !==
-      "1"
-    ) {
+    if (process.env[FINALIZE_ALLOW_ENV] !== "1") {
       throw new Error(
-        "Checkpoint finalization is disabled. Set AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_FINALIZE_ALLOW=1 only after explicit production approval.",
+        `Checkpoint finalization is disabled. Set ${FINALIZE_ALLOW_ENV}=1 only after explicit production approval.`,
+      );
+    }
+    if (process.env[FINALIZE_QUIESCENT_ENV] !== "1") {
+      throw new Error(
+        `Checkpoint finalization requires source event writes to be quiesced. Set ${FINALIZE_QUIESCENT_ENV}=1 only after the final high-water check and explicit production approval.`,
       );
     }
     output(await runApprovedFinalize(options));
