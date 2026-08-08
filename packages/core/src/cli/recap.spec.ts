@@ -1001,16 +1001,16 @@ describe("recap setup planning", () => {
 
   it("selects required secrets for each backend", () => {
     expect(recapRequiredSecrets("claude")).toEqual([
-      "PLAN_RECAP_TOKEN",
-      "ANTHROPIC_API_KEY",
+      { names: ["PLAN_RECAP_TOKEN"] },
+      { names: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] },
     ]);
     expect(recapRequiredSecrets("codex")).toEqual([
-      "PLAN_RECAP_TOKEN",
-      "OPENAI_API_KEY",
+      { names: ["PLAN_RECAP_TOKEN"] },
+      { names: ["OPENAI_API_KEY"] },
     ]);
     expect(recapRequiredSecrets("openai-compatible")).toEqual([
-      "PLAN_RECAP_TOKEN",
-      "VISUAL_RECAP_API_KEY",
+      { names: ["PLAN_RECAP_TOKEN"] },
+      { names: ["VISUAL_RECAP_API_KEY"] },
     ]);
   });
 
@@ -1109,7 +1109,10 @@ describe("recap setup planning", () => {
         repo: "BuilderIO/example",
         workflowPath: path.join(".github", "workflows", "pr-visual-recap.yml"),
         workflowExists: true,
-        requiredSecrets: ["PLAN_RECAP_TOKEN", "OPENAI_API_KEY"],
+        requiredSecrets: [
+          { names: ["PLAN_RECAP_TOKEN"] },
+          { names: ["OPENAI_API_KEY"] },
+        ],
         variableValues: {
           VISUAL_RECAP_AGENT: "codex",
           VISUAL_RECAP_MODEL: "gpt-5.6-sol",
@@ -1144,8 +1147,8 @@ describe("recap setup planning", () => {
 
       expect(plan.agent).toBe("openai-compatible");
       expect(plan.requiredSecrets).toEqual([
-        "PLAN_RECAP_TOKEN",
-        "VISUAL_RECAP_API_KEY",
+        { names: ["PLAN_RECAP_TOKEN"] },
+        { names: ["VISUAL_RECAP_API_KEY"] },
       ]);
       expect(plan.requiredVariables).toEqual([
         {
@@ -2441,12 +2444,22 @@ describe("recap gate decision", () => {
     expect(result.reasons).toContain("PLAN_RECAP_TOKEN not configured");
   });
 
-  it("skips when the claude backend's ANTHROPIC_API_KEY is missing", () => {
-    const result = evaluateRecapGate(ok({ hasAnthropic: false }));
+  it("skips when the claude backend has neither credential", () => {
+    const result = evaluateRecapGate(
+      ok({ hasAnthropic: false, hasClaudeOauth: false }),
+    );
     expect(result.run).toBe(false);
     expect(result.reasons).toContain(
-      "ANTHROPIC_API_KEY not configured (claude backend)",
+      "neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN configured (claude backend)",
     );
+  });
+
+  it("runs the claude backend on a subscription OAuth token alone", () => {
+    const result = evaluateRecapGate(
+      ok({ hasAnthropic: false, hasClaudeOauth: true }),
+    );
+    expect(result.run).toBe(true);
+    expect(result.reasons).toEqual([]);
   });
 
   it("skips when the codex backend's OPENAI_API_KEY is missing", () => {
