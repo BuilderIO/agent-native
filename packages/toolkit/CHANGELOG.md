@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.13.6
+
+### Patch Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
 ## 0.13.5
 
 ### Patch Changes
