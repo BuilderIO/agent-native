@@ -520,11 +520,13 @@ function DispatchChatsSection({
   showNewChat = false,
   prelude,
   chatFirstMode = false,
+  chatFirstEmbedded = false,
 }: {
   onNavigate?: () => void;
   showNewChat?: boolean;
   prelude?: ReactNode;
   chatFirstMode?: boolean;
+  chatFirstEmbedded?: boolean;
 }) {
   const t = useT();
   const navigate = useNavigate();
