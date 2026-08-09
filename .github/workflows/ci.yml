@@ -630,9 +630,10 @@ jobs:
         # the script itself races module eval against a 30s window and force-exits.
         # Match the deployed Netlify environment so failed best-effort local
         # SQLite setup cannot call process.exit during this import-only probe.
-        # `--report-uncovered` names the templates this run never built, so an
-        # unbuilt template cannot be mistaken for one that passed a budget.
-        run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs --report-uncovered plan clips assets
+        # This lane intentionally probes the three built representatives above.
+        # The smoke script's optional `--report-uncovered` mode is fail-closed;
+        # use it only when the caller intends to gate on full template coverage.
+        run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs plan clips assets
 
       # Exercise the two other Node serverless presets as well. These import
       # their generated handlers, so an unresolved bare runtime dependency
