@@ -5,6 +5,13 @@ import {
   writeChatFirstAppLayout,
   type ChatFirstAppLayoutPreference,
 } from "@agent-native/core/client/agent-chat";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@agent-native/toolkit/ui";
 import type { AppConfig } from "@shared/app-registry";
 import {
   IconApps,
@@ -13,6 +20,8 @@ import {
   IconBrain,
   IconCalendar,
   IconChartBar,
+  IconChevronDown,
+  IconChevronUp,
   IconClock,
   IconCode,
   IconFileText,
@@ -99,20 +108,25 @@ export default function DesktopChatFirstRail({
   }));
   const [draggedAppId, setDraggedAppId] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [showAllApps, setShowAllApps] = useState(false);
   const availableApps = useMemo(
     () => apps.filter((app) => app.enabled && app.id !== "agent"),
     [apps],
   );
-  const visibleApps = useMemo(() => {
+  const orderedApps = useMemo(() => {
     const appsById = new Map(availableApps.map((app) => [app.id, app]));
     return orderChatFirstAppIds(
       availableApps.map((app) => app.id),
       layout,
     )
       .map((id) => appsById.get(id))
-      .filter((app): app is AppConfig => Boolean(app))
-      .slice(0, 6);
+      .filter((app): app is AppConfig => Boolean(app));
   }, [availableApps, layout]);
+  const visibleApps = useMemo(
+    () => (showAllApps ? orderedApps : orderedApps.slice(0, 5)),
+    [orderedApps, showAllApps],
+  );
+  const hasMoreApps = orderedApps.length > visibleApps.length;
   const hasDispatch = availableApps.some((app) => app.id === "dispatch");
 
   function persistLayout(next: ChatFirstAppLayoutPreference) {
@@ -166,9 +180,6 @@ export default function DesktopChatFirstRail({
       <div className="desktop-chat-first-apps__label">
         <IconApps size={13} strokeWidth={1.8} aria-hidden="true" />
         <span>Apps</span>
-        <span className="desktop-chat-first-apps__count">
-          {visibleApps.length}
-        </span>
         {onCreateApp ? (
           <button
             type="button"
@@ -196,84 +207,128 @@ export default function DesktopChatFirstRail({
           ) : null}
         </>
       ) : (
-        visibleApps.map((app) => (
-          <div
-            key={app.id}
-            className={[
-              "desktop-chat-first-app",
-              app.id === activeAppId ? "desktop-chat-first-app--active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            draggable
-            data-app-id={app.id}
-            onDragStart={() => setDraggedAppId(app.id)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              reorderApps(app.id);
-              setDraggedAppId(null);
-            }}
-            onDragEnd={() => setDraggedAppId(null)}
-          >
-            <IconGripVertical
-              className="desktop-chat-first-app__grip"
-              size={13}
-              strokeWidth={1.7}
-              aria-hidden="true"
-            />
-            <button
-              type="button"
-              className="desktop-chat-first-app__open"
-              onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent(CHAT_FIRST_OPEN_APP_EVENT, {
-                    detail: { app: app.id },
-                  }),
-                );
-              }}
-              onKeyDown={(event) => {
-                if (!event.altKey) return;
-                if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  moveApp(app.id, -1);
-                } else if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  moveApp(app.id, 1);
-                }
-              }}
-              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-              title={app.name}
-            >
-              <span className="desktop-chat-first-app__icon">
-                <AppIcon app={app} />
-              </span>
-              <span className="desktop-chat-first-app__name">{app.name}</span>
-            </button>
-            <button
-              type="button"
-              className="desktop-chat-first-app__pin"
-              aria-label={
-                layout.pinnedIds.includes(app.id)
-                  ? `Unpin ${app.name}`
-                  : `Pin ${app.name}`
-              }
-              aria-pressed={layout.pinnedIds.includes(app.id)}
-              title={
-                layout.pinnedIds.includes(app.id)
-                  ? "Remove from pinned apps"
-                  : "Pin app to the top"
-              }
-              onClick={() => togglePinned(app.id)}
-            >
-              <IconPin
-                size={13}
-                strokeWidth={layout.pinnedIds.includes(app.id) ? 2.2 : 1.6}
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-        ))
+        visibleApps.map((app) => {
+          const pinned = layout.pinnedIds.includes(app.id);
+          return (
+            <ContextMenu key={app.id}>
+              <ContextMenuTrigger asChild>
+                <div
+                  className={[
+                    "desktop-chat-first-app",
+                    app.id === activeAppId
+                      ? "desktop-chat-first-app--active"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  draggable
+                  data-app-id={app.id}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    setDraggedAppId(app.id);
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    reorderApps(app.id);
+                    setDraggedAppId(null);
+                  }}
+                  onDragEnd={() => setDraggedAppId(null)}
+                >
+                  <IconGripVertical
+                    className="desktop-chat-first-app__grip"
+                    size={13}
+                    strokeWidth={1.7}
+                    aria-hidden="true"
+                  />
+                  <button
+                    type="button"
+                    className="desktop-chat-first-app__open"
+                    onClick={() => {
+                      window.dispatchEvent(
+                        new CustomEvent(CHAT_FIRST_OPEN_APP_EVENT, {
+                          detail: { app: app.id },
+                        }),
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (!event.altKey) return;
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        moveApp(app.id, -1);
+                      } else if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        moveApp(app.id, 1);
+                      }
+                    }}
+                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                    title={app.name}
+                  >
+                    <span className="desktop-chat-first-app__icon">
+                      <AppIcon app={app} />
+                    </span>
+                    <span className="desktop-chat-first-app__name">
+                      {app.name}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`desktop-chat-first-app__pin${pinned ? " desktop-chat-first-app__pin--visible" : ""}`}
+                    aria-label={
+                      pinned ? `Unpin ${app.name}` : `Pin ${app.name}`
+                    }
+                    aria-pressed={pinned}
+                    title={
+                      pinned ? "Remove from pinned apps" : "Pin app to the top"
+                    }
+                    onClick={() => togglePinned(app.id)}
+                  >
+                    <IconPin
+                      size={13}
+                      strokeWidth={pinned ? 2.2 : 1.6}
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onSelect={() => togglePinned(app.id)}>
+                  <IconPin size={14} aria-hidden="true" />
+                  {pinned ? "Remove from pinned apps" : "Pin app to the top"}
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled={orderedApps.indexOf(app) === 0}
+                  onSelect={() => moveApp(app.id, -1)}
+                >
+                  <IconChevronUp size={14} aria-hidden="true" />
+                  Move up
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={orderedApps.indexOf(app) === orderedApps.length - 1}
+                  onSelect={() => moveApp(app.id, 1)}
+                >
+                  <IconChevronDown size={14} aria-hidden="true" />
+                  Move down
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        })
       )}
+      {hasMoreApps || showAllApps ? (
+        <button
+          type="button"
+          className="desktop-chat-first-apps__more"
+          onClick={() => setShowAllApps((value) => !value)}
+        >
+          {showAllApps ? (
+            <IconChevronUp size={13} aria-hidden="true" />
+          ) : (
+            <IconChevronDown size={13} aria-hidden="true" />
+          )}
+          <span>{showAllApps ? "Show less" : "Show more"}</span>
+        </button>
+      ) : null}
       {!hasDispatch && (
         <p className="desktop-chat-first-apps__hint">
           Enable Dispatch for integrations and schedules.

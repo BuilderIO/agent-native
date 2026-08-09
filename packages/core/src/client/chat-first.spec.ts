@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CHAT_FIRST_DEFAULT_APP_IDS,
   orderChatFirstAppIds,
   readChatFirstAppLayout,
   writeChatFirstAppLayout,
@@ -40,6 +41,22 @@ function createStorage(): Storage {
 }
 
 describe("chat-first preference", () => {
+  it("uses the shared first-run app order before the rest of the catalog", () => {
+    expect(CHAT_FIRST_DEFAULT_APP_IDS).toEqual([
+      "content",
+      "design",
+      "mail",
+      "calendar",
+      "clips",
+    ]);
+    expect(
+      orderChatFirstAppIds(
+        ["brain", "mail", "calendar", "design", "clips", "content"],
+        { pinnedIds: [], orderedIds: [] },
+      ),
+    ).toEqual(["content", "design", "mail", "calendar", "clips", "brain"]);
+  });
+
   it("defaults to disabled and persists the opt-in value", () => {
     const storage = createStorage();
 
@@ -281,14 +298,14 @@ describe("chat-first session watch contract", () => {
 
   it("clamps and persists side-surface width without accepting invalid values", () => {
     const storage = createStorage();
-    expect(clampChatFirstSurfaceWidth(100, 1200)).toBe(360);
+    expect(clampChatFirstSurfaceWidth(100, 1200)).toBe(320);
     expect(clampChatFirstSurfaceWidth(2000, 1200)).toBe(840);
     expect(writeChatFirstSurfaceWidth(620, "thread-1", storage)).toEqual({
       ok: true,
     });
     expect(readChatFirstSurfaceWidth("thread-1", storage)).toBe(620);
     expect(readChatFirstSurfaceWidth("missing", storage)).toBe(
-      clampChatFirstSurfaceWidth(540),
+      clampChatFirstSurfaceWidth(380),
     );
   });
 });

@@ -12,17 +12,17 @@ const DESKTOP_APP_ICON_OVERRIDES: Partial<Record<string, string>> = {
   clips: "VideoPlus",
 };
 const DESKTOP_DEFAULT_APP_ORDER = [
+  "content",
+  "design",
+  "mail",
+  "calendar",
   "clips",
   "plan",
-  "design",
-  "content",
   "slides",
   "analytics",
-  "mail",
   "forms",
   "brain",
   "assets",
-  "calendar",
   "dispatch",
   "chat",
 ];

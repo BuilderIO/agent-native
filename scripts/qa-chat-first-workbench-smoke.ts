@@ -36,6 +36,9 @@ type SurfaceSnapshot = {
   tabs: number;
   mainWidth: number;
   chatWidth: number;
+  panelWidth: number;
+  chatRight: number;
+  panelLeft: number;
 };
 
 function saveScreenshot(page: Page, name: string): Promise<void> {
@@ -77,6 +80,8 @@ async function snapshot(page: Page, name: string): Promise<SurfaceSnapshot> {
       mainWidth: main?.getBoundingClientRect().width ?? 0,
       chatWidth: chat?.getBoundingClientRect().width ?? 0,
       panelWidth: panel?.getBoundingClientRect().width ?? 0,
+      chatRight: chat?.getBoundingClientRect().right ?? 0,
+      panelLeft: panel?.getBoundingClientRect().left ?? 0,
     };
   });
   await saveScreenshot(page, name);
@@ -129,6 +134,14 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.locator("[data-chat-first-surface-toggle]").click();
     const picker = await snapshot(on.page, "03-chat-first-surface-picker");
     assert.equal(picker.panel, 1);
+    assert.ok(
+      picker.chatWidth < empty.chatWidth - 1,
+      "opening a side surface should shrink the conversation column",
+    );
+    assert.ok(
+      picker.panelWidth >= 320 && picker.panelLeft >= picker.chatRight - 1,
+      "side surface should be an inline column beside the conversation, not an overlay",
+    );
     assert.equal(picker.launcher, 0);
     assert.equal(picker.emptyCards, 6);
     assert.equal(
@@ -231,9 +244,8 @@ async function electronSnapshot(
       ).length,
       toggle: document.querySelectorAll("[data-chat-first-surface-toggle]")
         .length,
-      cards: document.querySelectorAll(
-        ".desktop-chat-first-surface-empty__card",
-      ).length,
+      cards: document.querySelectorAll(".desktop-chat-first-surface-empty__row")
+        .length,
       tabs: document.querySelectorAll(
         ".desktop-chat-first-surface-tabs [role=tab]",
       ).length,
@@ -241,6 +253,26 @@ async function electronSnapshot(
         .length,
       appPane: document.querySelectorAll(".desktop-chat-first-app-pane").length,
       mainWidth: main?.getBoundingClientRect().width ?? 0,
+      chatWidth:
+        document
+          .querySelector<HTMLElement>(
+            ".desktop-chat-first-hub > .code-agents-surface",
+          )
+          ?.getBoundingClientRect().width ?? 0,
+      panelWidth:
+        document
+          .querySelector<HTMLElement>(".desktop-chat-first-surface-panel")
+          ?.getBoundingClientRect().width ?? 0,
+      chatRight:
+        document
+          .querySelector<HTMLElement>(
+            ".desktop-chat-first-hub > .code-agents-surface",
+          )
+          ?.getBoundingClientRect().right ?? 0,
+      panelLeft:
+        document
+          .querySelector<HTMLElement>(".desktop-chat-first-surface-panel")
+          ?.getBoundingClientRect().left ?? 0,
     };
   });
   await saveScreenshot(page, name);
@@ -333,6 +365,34 @@ async function runElectronSmoke(): Promise<void> {
       empty.mainWidth > 0,
       "Electron Agent content should be measurable",
     );
+    assert.equal(
+      await page
+        .locator(".code-agents-main-toolbar [data-chat-first-surface-toggle]")
+        .count(),
+      1,
+      "Electron panel toggle should stay in the central toolbar above native webviews",
+    );
+    const defaultAppIds = await page
+      .locator(".desktop-chat-first-app[data-app-id]")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-app-id")),
+      );
+    assert.deepEqual(
+      defaultAppIds.slice(0, 5),
+      ["content", "design", "mail", "calendar", "clips"],
+      "Electron first-run apps should use the shared default order",
+    );
+    assert.equal(
+      await page.getByRole("button", { name: "Show more" }).count(),
+      1,
+      "Electron app rail should progressively disclose the remaining apps",
+    );
+    await page.getByRole("button", { name: "Show more" }).click();
+    assert.ok(
+      (await page.locator(".desktop-chat-first-app[data-app-id]").count()) > 5,
+      "Electron Show more should reveal the remaining apps",
+    );
+    await page.getByRole("button", { name: "Show less" }).click();
     const chatFirstNav = await page
       .locator(".code-agents-nav-list")
       .innerText();
@@ -382,9 +442,21 @@ async function runElectronSmoke(): Promise<void> {
       "Dispatch webview should stay inside the desktop chat center",
     );
 
-    await page.locator("[data-chat-first-surface-toggle]").click();
+    const electronToggle = page.locator("[data-chat-first-surface-toggle]");
+    await electronToggle.click();
+    await page
+      .locator(".desktop-chat-first-surface-panel")
+      .waitFor({ state: "visible" });
     const picker = await electronSnapshot(page, "electron-03-surface-picker");
     assert.equal(picker.panel, 1);
+    assert.ok(
+      picker.chatWidth < empty.chatWidth - 1,
+      "Electron side surface should shrink the conversation column",
+    );
+    assert.ok(
+      picker.panelWidth >= 340 && picker.panelLeft >= picker.chatRight - 1,
+      "Electron side surface should be an inline column beside the conversation",
+    );
     assert.equal(picker.launcher, 0);
     assert.equal(
       picker.cards,

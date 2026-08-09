@@ -453,6 +453,17 @@
   overflow: hidden;
 }
 
+.code-agents-main-toolbar {
+  display: flex;
+  min-height: 44px;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+}
+
 .code-agents-session-watch {
   flex: 0 0 auto;
   display: flex;

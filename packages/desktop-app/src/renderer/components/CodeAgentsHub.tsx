@@ -1286,6 +1286,14 @@ export default function CodeAgentsHub({
           refreshKey={refreshKey}
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
+          mainToolbarSlot={
+            chatFirstMode ? (
+              <ChatFirstSurfacePanelToggle
+                open={chatFirstSurfacePanel.open}
+                onToggle={chatFirstSurfacePanel.toggle}
+              />
+            ) : undefined
+          }
           activeChatFirstSurfaceKind={
             chatFirstMode ? activeChatFirstSurfaceTab?.kind : undefined
           }
@@ -1353,12 +1361,6 @@ export default function CodeAgentsHub({
             </div>
           )}
         />
-        {chatFirstMode ? (
-          <ChatFirstSurfacePanelToggle
-            open={chatFirstSurfacePanel.open}
-            onToggle={chatFirstSurfacePanel.toggle}
-          />
-        ) : null}
         {chatFirstMode && chatFirstSurfacePanel.open ? (
           <aside
             className="desktop-chat-first-surface-panel"

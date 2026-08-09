@@ -23,6 +23,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../ui/context-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 const ICONS: Record<ChatFirstSurfaceKind, ComponentType<{ size?: number }>> = {
   app: IconFiles,
@@ -212,50 +213,68 @@ function SurfaceEmptyState({
     },
   };
   return (
-    <div className="grid grid-cols-2 gap-1.5 p-2" data-surface-empty-state>
+    <div
+      className="flex flex-col px-2 py-1"
+      data-surface-empty-state
+      aria-label={t("dispatch.pages.chatFirstOpenSideSurfaces")}
+    >
       {CHAT_FIRST_SURFACE_CATALOG.map((surface) => {
         const copy = surfaceCopy[surface.kind];
-        const disabledReason =
-          copy.reason ?? t("dispatch.pages.chatFirstUnavailable");
+        const reason =
+          surface.disabledReason ??
+          copy.reason ??
+          t("dispatch.pages.chatFirstUnavailable");
         const isDeferred = surface.availability === "deferred";
-        const cardClassName =
-          "group flex min-h-12 min-w-0 items-center gap-2 rounded-md border border-border bg-background px-2.5 py-2 text-start text-xs font-medium text-foreground transition-colors hover:bg-accent";
-        const cardContent = (
-          <>
+        const row = (
+          <div
+            className={cn(
+              "flex h-6 min-w-0 items-center gap-2 rounded px-2 text-xs transition-colors",
+              surface.kind === "agents" && onOpenSurface
+                ? "text-foreground hover:bg-accent"
+                : isDeferred
+                  ? "text-muted-foreground/60"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+            title={!isDeferred ? reason : undefined}
+            aria-label={`${copy.label}: ${reason}`}
+          >
             <SurfaceIcon kind={surface.kind} />
             <span className="min-w-0 flex-1 truncate">{copy.label}</span>
             {isDeferred ? (
               <span
                 data-surface-availability="deferred"
-                className="size-1.5 shrink-0 rounded-full bg-muted-foreground/50"
+                className="size-1.5 shrink-0 rounded-full bg-muted-foreground/45"
                 aria-label={t("dispatch.pages.chatFirstDeferred")}
               />
             ) : null}
-          </>
+          </div>
         );
         if (surface.kind === "agents" && onOpenSurface) {
           return (
             <button
               key={surface.kind}
               type="button"
-              className={cardClassName}
+              className="text-start"
               title={t("dispatch.pages.chatFirstOpenActivity")}
               aria-label={t("dispatch.pages.chatFirstOpenActivity")}
               onClick={() => onOpenSurface(surface.kind)}
             >
-              {cardContent}
+              {row}
             </button>
           );
         }
+        if (!isDeferred) {
+          return <div key={surface.kind}>{row}</div>;
+        }
         return (
-          <div
-            key={surface.kind}
-            className={cardClassName}
-            title={disabledReason}
-            aria-label={`${copy.label}: ${disabledReason}`}
-          >
-            {cardContent}
-          </div>
+          <Tooltip key={surface.kind}>
+            <TooltipTrigger asChild>
+              <div className="text-start">{row}</div>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-72">
+              {reason}
+            </TooltipContent>
+          </Tooltip>
         );
       })}
     </div>

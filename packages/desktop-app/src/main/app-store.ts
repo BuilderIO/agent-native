@@ -513,7 +513,7 @@ export function saveRemoteConnectorSettings(
 }
 
 export function getDefaultDesktopAppsRoot(): string {
-  return path.join(app.getPath("home"), "Agent Native Apps");
+  return path.join(app.getPath("home"), ".agent-native", "workspaces");
 }
 
 export function loadDesktopAppPreferences(): DesktopAppPreferences {

@@ -12,7 +12,7 @@ export const CHAT_FIRST_APP_LAYOUT_STORAGE_KEY =
 export const CHAT_FIRST_SURFACE_TABS_STORAGE_KEY =
   "agent-native:chat-first-surface-tabs:v1";
 export const CHAT_FIRST_SURFACE_WIDTH_STORAGE_KEY =
-  "agent-native:chat-first-surface-width:v1";
+  "agent-native:chat-first-surface-width:v2";
 export const CHAT_FIRST_SURFACE_PANEL_STORAGE_KEY =
   "agent-native:chat-first-surface-panel:v1";
 export const CHAT_FIRST_MODE_CHANGED_EVENT = "agentNative:chatFirstModeChanged";
@@ -193,8 +193,21 @@ export function chatFirstSurfaceTabId(
   return `${kind}:${value}`;
 }
 
-export const CHAT_FIRST_SURFACE_WIDTH_DEFAULT = 540;
-export const CHAT_FIRST_SURFACE_WIDTH_MIN = 360;
+export const CHAT_FIRST_SURFACE_WIDTH_DEFAULT = 380;
+export const CHAT_FIRST_SURFACE_WIDTH_MIN = 320;
+
+/**
+ * The first-run rail is intentionally opinionated. These are the five
+ * everyday workspace apps shown before the user expands the rest of the
+ * catalog; an explicit ordered layout still wins after the first change.
+ */
+export const CHAT_FIRST_DEFAULT_APP_IDS = [
+  "content",
+  "design",
+  "mail",
+  "calendar",
+  "clips",
+] as const;
 
 export function clampChatFirstSurfaceWidth(
   value: number,
@@ -536,9 +549,17 @@ export function orderChatFirstAppIds(
   layout: ChatFirstAppLayoutPreference,
 ): string[] {
   const available = new Set(appIds);
+  const preferredDefaults = CHAT_FIRST_DEFAULT_APP_IDS.filter((id) =>
+    available.has(id),
+  );
+  const preferredDefaultSet = new Set<string>(preferredDefaults);
+  const fallbackOrder = [
+    ...preferredDefaults,
+    ...appIds.filter((id) => !preferredDefaultSet.has(id)),
+  ];
   const ordered = [
     ...layout.orderedIds.filter((id) => available.has(id)),
-    ...appIds.filter((id) => !layout.orderedIds.includes(id)),
+    ...fallbackOrder.filter((id) => !layout.orderedIds.includes(id)),
   ];
   const pinned = new Set(layout.pinnedIds.filter((id) => available.has(id)));
   // `orderedIds` is the single source of positional truth. Pinning changes

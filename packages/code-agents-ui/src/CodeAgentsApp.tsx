@@ -251,6 +251,8 @@ export interface CodeAgentsAppProps {
   refreshKey?: number;
   brandIconUrl?: string;
   onOpenSettings?: () => void;
+  /** Compact actions rendered above the primary surface. */
+  mainToolbarSlot?: ReactNode;
   /** Extra first-party navigation items rendered below New chat. */
   railNavigationSlot?: ReactNode;
   /** App shortcuts rendered between navigation and the chat history. */
@@ -435,6 +437,7 @@ export default function CodeAgentsApp({
   refreshKey = 0,
   brandIconUrl,
   onOpenSettings,
+  mainToolbarSlot,
   railNavigationSlot,
   railWorkspaceSlot,
   railFooterSlot,
@@ -1908,6 +1911,9 @@ export default function CodeAgentsApp({
       </aside>
 
       <main className="code-agents-main">
+        {mainToolbarSlot ? (
+          <div className="code-agents-main-toolbar">{mainToolbarSlot}</div>
+        ) : null}
         {chatFirstMode &&
         chatFirstMainKind === "agent" &&
         renderChatFirstMainSurface ? (

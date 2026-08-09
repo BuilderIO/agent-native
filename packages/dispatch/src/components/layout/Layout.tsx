@@ -495,7 +495,7 @@ function DispatchChatsSection({
       {showNewChat ? (
         <button
           type="button"
-          className="flex h-9 w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="flex h-7 w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           onClick={() => void handleNewChat()}
         >
           <IconPlus size={16} className="shrink-0" aria-hidden="true" />
@@ -865,7 +865,7 @@ export function NavContent({
                         <Link
                           to={dispatchNavLinkTarget("/admin/integrations")}
                           onClick={onNavigate}
-                          className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                         >
                           <IconPlugConnected size={16} className="shrink-0" />
                           <span>Integrations</span>
@@ -875,7 +875,7 @@ export function NavContent({
                         <Link
                           to={dispatchNavLinkTarget("/admin/automations")}
                           onClick={onNavigate}
-                          className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                         >
                           <IconClock size={16} className="shrink-0" />
                           <span>Scheduled</span>
