@@ -89,6 +89,7 @@ function createQuickPromptWindow(): BrowserWindow {
     focusable: true,
     skipTaskbar: true,
     hasShadow: true,
+    // guard:allow-raw-color — Electron needs an RGBA color for this transparent window.
     backgroundColor: "#00000000",
     ...(process.platform === "darwin"
       ? {
