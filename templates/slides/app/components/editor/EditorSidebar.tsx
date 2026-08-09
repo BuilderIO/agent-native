@@ -35,7 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
-import type { AspectRatio } from "@/lib/aspect-ratios";
+import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
 
 import type { DesignSystemData } from "../../../shared/api";
@@ -194,6 +194,8 @@ function SortableSlideThumb({
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const thumbDims = getAspectRatioDims(aspectRatio);
+
   return (
     <div ref={setNodeRef} style={style} className="group relative">
       <button
@@ -228,6 +230,11 @@ function SortableSlideThumb({
 
         {/* Thumbnail */}
         <div className="flex-1 min-w-0">
+          {/* Each thumbnail paints a full-resolution slide canvas scaled down by
+           * transform, so a long rail keeps dozens of large layers live and the
+           * browser drops frames or paints stale tiles. `content-visibility`
+           * lets it skip everything below the fold; `aspect-ratio` keeps the row
+           * the right height while its contents are skipped. */}
           <div
             className="w-full overflow-hidden rounded border"
             style={{
@@ -235,6 +242,8 @@ function SortableSlideThumb({
                 presenceUsers.length > 0
                   ? presenceUsers[0].color + "66"
                   : "rgba(255,255,255,0.06)",
+              aspectRatio: `${thumbDims.width} / ${thumbDims.height}`,
+              contentVisibility: "auto",
             }}
           >
             <SlideRenderer
