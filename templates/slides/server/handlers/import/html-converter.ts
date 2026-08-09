@@ -1,3 +1,5 @@
+import { ASPECT_RATIOS } from "@shared/aspect-ratios";
+
 import type {
   ParsedElement,
   ParsedParagraph,
@@ -169,6 +171,34 @@ const CSS_PX_PER_POINT = 96 / 72;
 const DEFAULT_PPTX_BACKGROUND = "#000000"; // guard:allow-raw-color - preserve PPTX black when no background is declared
 const DEFAULT_PPTX_FOREGROUND = "#ffffff"; // guard:allow-raw-color - preserve PPTX white when no run color is declared
 
+/**
+ * The absolute px box `toSlidePxX`/`toSlidePxY` scale positions and sizes
+ * against. It must match the aspect-ratio preset the deck actually renders
+ * into (`ASPECT_RATIOS`, chosen by the import actions' own
+ * `nearestAspectRatio`) rather than a fixed 16:9 box: a PDF page or a custom
+ * PPTX slide size is routinely portrait or square, and scaling its elements
+ * against a 960x540 reference while the deck itself renders in an 864x1080
+ * (or other) box stretches every element by the ratio between the two
+ * boxes, most visibly squashing everything into the top fraction of a
+ * taller-than-540 canvas.
+ */
+function referenceBoxForSlide(
+  widthEmu: number,
+  heightEmu: number,
+): { width: number; height: number } {
+  const target = widthEmu / heightEmu;
+  let best: { width: number; height: number } = ASPECT_RATIOS["16:9"];
+  let bestDiff = Infinity;
+  for (const preset of Object.values(ASPECT_RATIOS)) {
+    const diff = Math.abs(preset.width / preset.height - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = preset;
+    }
+  }
+  return { width: best.width, height: best.height };
+}
+
 function buildFidelitySlide(
   slide: ParsedSlide,
   imageUrls: string | Record<string, string> | undefined,
@@ -176,9 +206,10 @@ function buildFidelitySlide(
 ): string {
   const widthEmu = slide.widthEmu || DEFAULT_SLIDE_WIDTH_EMU;
   const heightEmu = slide.heightEmu || DEFAULT_SLIDE_HEIGHT_EMU;
+  const refBox = referenceBoxForSlide(widthEmu, heightEmu);
   const background = slide.backgroundColor ?? DEFAULT_PPTX_BACKGROUND;
   const gridStyle = slide.backgroundGrid
-    ? `background-image:linear-gradient(to right, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu))}px, transparent ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu))}px),linear-gradient(to bottom, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu))}px, transparent ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu))}px);background-size:${toSlidePxX(slide.backgroundGrid.stepXEmu, widthEmu)}px ${toSlidePxY(slide.backgroundGrid.stepYEmu, heightEmu)}px;background-position:${toSlidePxX(slide.backgroundGrid.offsetXEmu, widthEmu)}px ${toSlidePxY(slide.backgroundGrid.offsetYEmu, heightEmu)}px;background-repeat:repeat;`
+    ? `background-image:linear-gradient(to right, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu, refBox.width))}px, transparent ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu, refBox.width))}px),linear-gradient(to bottom, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu, refBox.height))}px, transparent ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu, refBox.height))}px);background-size:${toSlidePxX(slide.backgroundGrid.stepXEmu, widthEmu, refBox.width)}px ${toSlidePxY(slide.backgroundGrid.stepYEmu, heightEmu, refBox.height)}px;background-position:${toSlidePxX(slide.backgroundGrid.offsetXEmu, widthEmu, refBox.width)}px ${toSlidePxY(slide.backgroundGrid.offsetYEmu, heightEmu, refBox.height)}px;background-repeat:repeat;`
     : "";
   const elements = slide.elements ?? [];
   const html = elements
@@ -188,6 +219,7 @@ function buildFidelitySlide(
         index,
         widthEmu,
         heightEmu,
+        refBox,
         imageUrls,
         themeFont,
       ),
@@ -203,10 +235,11 @@ function buildFidelityElement(
   index: number,
   widthEmu: number,
   heightEmu: number,
+  refBox: { width: number; height: number },
   imageUrls: string | Record<string, string> | undefined,
   themeFont: string | undefined,
 ): string {
-  const position = `position: absolute; left: ${toSlidePxX(element.x, widthEmu)}px; top: ${toSlidePxY(element.y, heightEmu)}px; width: ${toSlidePxX(element.width, widthEmu)}px; height: ${toSlidePxY(element.height, heightEmu)}px; z-index: ${index}; box-sizing: border-box;`;
+  const position = `position: absolute; left: ${toSlidePxX(element.x, widthEmu, refBox.width)}px; top: ${toSlidePxY(element.y, heightEmu, refBox.height)}px; width: ${toSlidePxX(element.width, widthEmu, refBox.width)}px; height: ${toSlidePxY(element.height, heightEmu, refBox.height)}px; z-index: ${index}; box-sizing: border-box;`;
   const rotation = element.rotation
     ? ` transform: rotate(${element.rotation}deg); transform-origin: center center;`
     : "";
@@ -218,12 +251,18 @@ function buildFidelityElement(
     return `<div class="fmd-pptx-image" data-pptx-element-kind="image" data-pptx-image-name="${esc(element.image?.name ?? "image")}"${objectId} style="${position}${rotation} overflow: hidden;">${url ? `<img src="${esc(url)}" alt="" style="${imageStyle}" />` : `<div class="fmd-img-placeholder" style="width:100%;height:100%;">Imported image: ${esc(element.image?.name ?? "image")}</div>`}</div>`;
   }
 
-  const decoration = shapeDecoration(element, widthEmu);
+  const decoration = shapeDecoration(element, widthEmu, refBox.width);
   if (element.kind === "shape") {
     return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}"></div>`;
   }
 
-  const textStyle = textBoxStyle(element, widthEmu, heightEmu, themeFont);
+  const textStyle = textBoxStyle(
+    element,
+    widthEmu,
+    heightEmu,
+    refBox,
+    themeFont,
+  );
   const defaultFontWeight = element.placeholderType === "title" ? 700 : 400;
   const paragraphs = (element.paragraphs ?? [])
     .map((paragraph, paragraphIndex) =>
@@ -231,6 +270,7 @@ function buildFidelityElement(
         paragraph,
         paragraphIndex,
         widthEmu,
+        refBox.width,
         themeFont,
         defaultFontWeight,
       ),
@@ -239,12 +279,20 @@ function buildFidelityElement(
   return `<div class="fmd-pptx-text" data-pptx-element-kind="text"${objectId} style="${position}${rotation}${decoration}${textStyle}">${paragraphs}</div>`;
 }
 
-function toSlidePxX(valueEmu: number, slideWidthEmu: number): number {
-  return Math.round((valueEmu / slideWidthEmu) * 960 * 1000) / 1000;
+function toSlidePxX(
+  valueEmu: number,
+  slideWidthEmu: number,
+  refWidthPx: number,
+): number {
+  return Math.round((valueEmu / slideWidthEmu) * refWidthPx * 1000) / 1000;
 }
 
-function toSlidePxY(valueEmu: number, slideHeightEmu: number): number {
-  return Math.round((valueEmu / slideHeightEmu) * 540 * 1000) / 1000;
+function toSlidePxY(
+  valueEmu: number,
+  slideHeightEmu: number,
+  refHeightPx: number,
+): number {
+  return Math.round((valueEmu / slideHeightEmu) * refHeightPx * 1000) / 1000;
 }
 
 function imageUrlForElement(
@@ -263,10 +311,14 @@ function imageRenderStyle(element: ParsedElement): string {
   return `display:block;position:absolute;left:${(-crop.left / visibleWidth) * 100}%;top:${(-crop.top / visibleHeight) * 100}%;width:${(1 / visibleWidth) * 100}%;height:${(1 / visibleHeight) * 100}%;object-fit:fill;`;
 }
 
-function shapeDecoration(element: ParsedElement, widthEmu: number): string {
+function shapeDecoration(
+  element: ParsedElement,
+  widthEmu: number,
+  refWidthPx: number,
+): string {
   const fill = element.fill ? `background: ${esc(element.fill)};` : "";
   const line = element.lineColor
-    ? `border: ${Math.max(1, toSlidePxX(element.lineWidth ?? 12700, widthEmu))}px solid ${esc(element.lineColor)};`
+    ? `border: ${Math.max(1, toSlidePxX(element.lineWidth ?? 12700, widthEmu, refWidthPx))}px solid ${esc(element.lineColor)};`
     : "";
   const radius = element.shapeType === "roundRect" ? "border-radius: 6px;" : "";
   return `${fill}${line}${radius}`;
@@ -276,13 +328,16 @@ function textBoxStyle(
   element: ParsedElement,
   widthEmu: number,
   heightEmu: number,
+  refBox: { width: number; height: number },
   themeFont: string | undefined,
 ): string {
   const padding = element.padding;
-  const left = padding ? toSlidePxX(padding.left, widthEmu) : 0;
-  const right = padding ? toSlidePxX(padding.right, widthEmu) : 0;
-  const top = padding ? toSlidePxY(padding.top, heightEmu) : 0;
-  const bottom = padding ? toSlidePxY(padding.bottom, heightEmu) : 0;
+  const left = padding ? toSlidePxX(padding.left, widthEmu, refBox.width) : 0;
+  const right = padding ? toSlidePxX(padding.right, widthEmu, refBox.width) : 0;
+  const top = padding ? toSlidePxY(padding.top, heightEmu, refBox.height) : 0;
+  const bottom = padding
+    ? toSlidePxY(padding.bottom, heightEmu, refBox.height)
+    : 0;
   const align = element.paragraphs?.[0]?.alignment ?? "left";
   const vertical =
     element.verticalAlign === "middle"
@@ -297,6 +352,7 @@ function buildFidelityParagraph(
   paragraph: ParsedParagraph,
   paragraphIndex: number,
   widthEmu: number,
+  refWidthPx: number,
   themeFont: string | undefined,
   defaultFontWeight: number,
 ): string {
@@ -307,10 +363,10 @@ function buildFidelityParagraph(
     ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${(paragraph.bulletSize ?? firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT}px;">${esc(paragraph.bulletChar)}</span>`
     : "";
   const marginLeft = paragraph.marginLeftEmu
-    ? toSlidePxX(paragraph.marginLeftEmu, widthEmu)
+    ? toSlidePxX(paragraph.marginLeftEmu, widthEmu, refWidthPx)
     : 0;
   const indent = paragraph.indentEmu
-    ? toSlidePxX(paragraph.indentEmu, widthEmu)
+    ? toSlidePxX(paragraph.indentEmu, widthEmu, refWidthPx)
     : 0;
   const spacingBefore = paragraph.spaceBeforePt ?? 0;
   const spacingAfter = paragraph.spaceAfterPt ?? 0;
