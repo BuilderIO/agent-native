@@ -324,6 +324,34 @@ describe("readAgentsBundleFromFs", () => {
     }
   });
 
+  it("loads namespaced skills from the canonical agent skills directory", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(
+      tpl,
+      ".agents",
+      "skills",
+      "calendar-tools",
+      "meeting-helper",
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: meeting-helper\ndescription: Imported calendar skill\n---\nPlugin body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills["meeting-helper"]?.meta.description).toBe(
+        "Imported calendar skill",
+      );
+      expect(bundle.skills["meeting-helper"]?.dir).toBe(
+        ".agents/skills/calendar-tools/meeting-helper",
+      );
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
   it("adds workspace AGENTS.md when provided", () => {
     const tpl = makeTemplate(null);
     const ws = makeWorkspaceSource({ agentsMd: "# Workspace wide" });

@@ -20,6 +20,7 @@ import {
   isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
+import { desktopRemoteMcpUnavailable } from "@shared/chat-first-mcp";
 import {
   CODE_AGENTS_SURFACE_ID,
   CODE_AGENT_GOALS,
@@ -1052,6 +1053,7 @@ function createWindow(): BrowserWindow {
 // ---------- DevTools: target the active app webview ----------
 
 let activeAppId = "";
+let chatFirstPreviewAppId: string | null = null;
 let activeWebviewContentsId: number | undefined;
 let desktopShortcutRegistrations = new Map<
   string,
@@ -1138,7 +1140,7 @@ async function invokeRendererDesktopShortcutActivation(
       typeof (result as { appId?: unknown }).appId === "string"
         ? (result as { appId: string }).appId
         : "";
-    if (handled && appId) activeAppId = appId;
+    if (handled && appId) setDesktopActiveAppId(appId);
     debugDesktopShortcut("activation bridge result", {
       requestId: request.requestId,
       app: request.app,
@@ -1200,7 +1202,7 @@ function scheduleDesktopShortcutActivationRetry(requestId: string) {
 }
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
-  activeAppId = appId;
+  setDesktopActiveAppId(appId);
   if (appId !== "design") desktopDesignPreviewManager?.clearOwner();
   void ensureManagedDesktopAppRunning(appId);
 });
@@ -1215,7 +1217,7 @@ ipcMain.on(
       typeof payload?.requestId === "string" ? payload.requestId : "";
     const appId = typeof payload?.appId === "string" ? payload.appId : "";
     if (!requestId) return;
-    if (appId) activeAppId = appId;
+    if (appId) setDesktopActiveAppId(appId);
     debugDesktopShortcut("activation acknowledged", {
       requestId,
       app: appId || undefined,
@@ -1235,7 +1237,7 @@ ipcMain.on(
       }
       return;
     }
-    activeAppId = target.appId;
+    setDesktopActiveAppId(target.appId);
     activeWebviewContentsId = target.webContentsId;
     setSentryWebContentsMetadata(target.webContentsId, {
       role: "app-webview",
@@ -3279,11 +3281,8 @@ async function desktopCodeAgentMcpEnvironment(
   };
   const allowlist = new Set(Object.keys(servers));
   const appIds: string[] = [];
-  const remoteConfig: DesktopCodeAgentMcpEnvironment["remoteConfig"] = {
-    state: "unavailable",
-    error:
-      "Connected MCP settings require a secure desktop MCP capability broker.",
-  };
+  const remoteConfig: DesktopCodeAgentMcpEnvironment["remoteConfig"] =
+    desktopRemoteMcpUnavailable();
 
   for (const appConfig of loadAppsForAuthContext()) {
     if (appConfig.enabled === false) continue;
@@ -5129,6 +5128,85 @@ const managedDesktopAppRetryTimers = new Map<
 >();
 const managedDesktopAppStarts = new Set<string>();
 const managedDesktopAppStartAttempts = new Map<string, number>();
+type ManagedDesktopAppDemandSource = "active-app" | "chat-first-preview";
+const managedDesktopAppDemand = new Map<
+  string,
+  Set<ManagedDesktopAppDemandSource>
+>();
+
+function hasManagedDesktopAppDemand(appId: string): boolean {
+  return (managedDesktopAppDemand.get(appId)?.size ?? 0) > 0;
+}
+
+function stopManagedDesktopAppProcess(appId: string): void {
+  const child = managedDesktopAppProcesses.get(appId);
+  if (!child) return;
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
+  } else {
+    child.kill("SIGTERM");
+  }
+  managedDesktopAppProcesses.delete(appId);
+}
+
+function setManagedDesktopAppDemand(
+  appId: string,
+  source: ManagedDesktopAppDemandSource,
+  demanded: boolean,
+): void {
+  if (!appId) return;
+  const sources = managedDesktopAppDemand.get(appId) ?? new Set();
+  if (demanded) {
+    if (!AppStore.isDesktopManagedApp(appId)) return;
+    sources.add(source);
+    managedDesktopAppDemand.set(appId, sources);
+    if (!managedDesktopAppProcesses.get(appId)?.pid) {
+      scheduleManagedDesktopAppStart(appId);
+    }
+    return;
+  }
+
+  sources.delete(source);
+  if (sources.size > 0) {
+    managedDesktopAppDemand.set(appId, sources);
+    return;
+  }
+  managedDesktopAppDemand.delete(appId);
+  clearManagedDesktopAppRetry(appId);
+  managedDesktopAppStartAttempts.delete(appId);
+  stopManagedDesktopAppProcess(appId);
+}
+
+function setDesktopActiveAppId(appId: string): void {
+  const nextAppId = appId.trim();
+  if (activeAppId === nextAppId) return;
+
+  const previousAppId = activeAppId;
+  if (previousAppId) {
+    setManagedDesktopAppDemand(previousAppId, "active-app", false);
+    if (previousAppId === CODE_AGENTS_SURFACE_ID && chatFirstPreviewAppId) {
+      setManagedDesktopAppDemand(
+        chatFirstPreviewAppId,
+        "chat-first-preview",
+        false,
+      );
+    }
+  }
+
+  activeAppId = nextAppId;
+  if (nextAppId) setManagedDesktopAppDemand(nextAppId, "active-app", true);
+  if (nextAppId === CODE_AGENTS_SURFACE_ID && chatFirstPreviewAppId) {
+    setManagedDesktopAppDemand(
+      chatFirstPreviewAppId,
+      "chat-first-preview",
+      true,
+    );
+  }
+}
 
 function desktopAppCreationSettings(): DesktopAppCreationSettings {
   return {
@@ -5315,7 +5393,15 @@ async function createDesktopAppFromPrompt(
   };
   const apps = AppStore.addApp(appConfig);
   AppStore.markDesktopManagedApp(appId, appsRoot);
-  scheduleManagedDesktopAppStart(appId, 1_500);
+  if (chatFirstPreviewAppId && chatFirstPreviewAppId !== appId) {
+    setManagedDesktopAppDemand(
+      chatFirstPreviewAppId,
+      "chat-first-preview",
+      false,
+    );
+  }
+  chatFirstPreviewAppId = appId;
+  setManagedDesktopAppDemand(appId, "chat-first-preview", true);
   refreshDesktopShortcutBindings();
   return {
     ok: true,
@@ -5351,7 +5437,7 @@ function clearManagedDesktopAppRetry(appId: string): void {
 }
 
 function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
-  if (appIsQuitting) return;
+  if (appIsQuitting || !hasManagedDesktopAppDemand(appId)) return;
   clearManagedDesktopAppRetry(appId);
   managedDesktopAppRetryTimers.set(
     appId,
@@ -5365,6 +5451,7 @@ function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
 async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
   if (
     appIsQuitting ||
+    !hasManagedDesktopAppDemand(appId) ||
     !AppStore.isDesktopManagedApp(appId) ||
     managedDesktopAppStarts.has(appId)
   ) {
@@ -5404,6 +5491,7 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
       return;
     }
 
+    if (!hasManagedDesktopAppDemand(appId)) return;
     emitDesktopAppRuntimeStatus({
       appId,
       state: "starting",
@@ -5475,6 +5563,10 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
     });
 
     for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (!hasManagedDesktopAppDemand(appId)) {
+        stopManagedDesktopAppProcess(appId);
+        return;
+      }
       if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
         managedDesktopAppStartAttempts.delete(appId);
         emitDesktopAppRuntimeStatus({
@@ -5504,20 +5596,11 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
 }
 
 function stopManagedDesktopApp(appId: string): void {
+  managedDesktopAppDemand.delete(appId);
+  if (chatFirstPreviewAppId === appId) chatFirstPreviewAppId = null;
   clearManagedDesktopAppRetry(appId);
   managedDesktopAppStartAttempts.delete(appId);
-  const child = managedDesktopAppProcesses.get(appId);
-  if (!child) return;
-  if (process.platform !== "win32" && child.pid) {
-    try {
-      process.kill(-child.pid, "SIGTERM");
-    } catch {
-      child.kill("SIGTERM");
-    }
-  } else {
-    child.kill("SIGTERM");
-  }
-  managedDesktopAppProcesses.delete(appId);
+  stopManagedDesktopAppProcess(appId);
 }
 
 function showDesktopAppContextMenu(

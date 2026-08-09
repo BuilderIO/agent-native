@@ -2,8 +2,9 @@
  * Import and validate the portable Agent Plugin format.
  *
  * The importer intentionally handles only local plugin directories. Skills are
- * copied as inert files, and remote Streamable HTTP MCP entries are translated
- * to the Agent-Native `mcp.config.json` shape without copying package headers.
+ * copied as inert files into the workspace's agent-visible `.agents/skills`
+ * tree, and remote Streamable HTTP MCP entries are translated to the
+ * Agent-Native `mcp.config.json` shape without copying package headers.
  * A plugin package is not a credential store and this command never executes
  * a plugin's scripts or stdio servers.
  */
@@ -171,7 +172,7 @@ Usage:
 Commands:
   import   Import a standard Agent Plugin's Skills and remote MCP servers into an Agent-Native workspace.
 
-The importer copies Skills into a namespaced skills/<plugin>/<skill> path and
+The importer copies Skills into a namespaced .agents/skills/<plugin>/<skill> path and
 maps Streamable HTTP MCP servers into mcp.config.json. Package headers are
 never imported as credentials; configure authentication through the app's
 normal Connections flow. Stdio and SSE servers are reported and skipped.`;
@@ -1228,7 +1229,7 @@ export function importAgentPlugin(
 
   const slug = pluginSlug(plugin.manifest.name);
   const skillsTargetDir = canonicalPathForComparison(
-    options.skillsTargetDir ?? path.join(targetDir, "skills"),
+    options.skillsTargetDir ?? path.join(targetDir, ".agents", "skills"),
   );
   if (
     pathExists(skillsTargetDir) &&

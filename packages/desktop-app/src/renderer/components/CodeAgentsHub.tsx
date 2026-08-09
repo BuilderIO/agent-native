@@ -152,7 +152,9 @@ export function isChatFirstSurfaceTabActive(input: {
 export function chatFirstPreviewPartitionKey(
   appId: string | undefined,
 ): string {
-  return `persist:chat-first-preview-${appId?.trim() || "browser"}`;
+  return appId?.trim()
+    ? `persist:app-${appId.trim()}`
+    : "persist:chat-first-browser";
 }
 
 interface CodeAgentsHubProps {

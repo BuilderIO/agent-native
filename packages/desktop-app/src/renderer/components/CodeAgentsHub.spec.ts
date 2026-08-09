@@ -228,15 +228,11 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     ).toBe(false);
   });
 
-  it("derives a dedicated preview partition for chat-first app builds", () => {
-    expect(chatFirstPreviewPartitionKey("app-1")).toBe(
-      "persist:chat-first-preview-app-1",
-    );
-    expect(chatFirstPreviewPartitionKey("  app-1  ")).toBe(
-      "persist:chat-first-preview-app-1",
-    );
+  it("shares the created app partition with chat-first previews", () => {
+    expect(chatFirstPreviewPartitionKey("app-1")).toBe("persist:app-app-1");
+    expect(chatFirstPreviewPartitionKey("  app-1  ")).toBe("persist:app-app-1");
     expect(chatFirstPreviewPartitionKey(undefined)).toBe(
-      "persist:chat-first-preview-browser",
+      "persist:chat-first-browser",
     );
   });
 

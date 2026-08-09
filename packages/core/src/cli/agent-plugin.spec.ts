@@ -4,11 +4,13 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { readAgentsBundleFromFs } from "../server/agents-bundle.js";
 import {
   importAgentPlugin,
   loadAgentPlugin,
   parseAgentPluginArgs,
 } from "./agent-plugin.js";
+import { mergeCodeAgentMcpConfig } from "./code-agent-mcp-config.js";
 
 const tmpRoots: string[] = [];
 
@@ -183,6 +185,7 @@ describe("Agent Plugin import", () => {
     const result = importAgentPlugin(pluginRoot, { targetDir: workspace });
     const skillPath = path.join(
       workspace,
+      ".agents",
       "skills",
       "calendar-tools",
       "meeting-helper",
@@ -209,6 +212,22 @@ describe("Agent Plugin import", () => {
     expect(metadata.pluginHash).toBe(result.plugin.hash);
     expect(metadata.mcpServers[0].headersIgnored).toBe(1);
     expect(JSON.stringify(metadata)).not.toContain("package-placeholder");
+
+    const agentBundle = readAgentsBundleFromFs(workspace);
+    expect(agentBundle.skills["meeting-helper"]?.content).toContain(
+      "Read the relevant calendar context",
+    );
+    expect(
+      mergeCodeAgentMcpConfig(null, {
+        MCP_SERVERS: JSON.stringify(config),
+      } as NodeJS.ProcessEnv),
+    ).toMatchObject({
+      servers: {
+        [server.id]: {
+          url: "https://calendar.example.com/mcp",
+        },
+      },
+    });
   });
 
   it("can place namespaced skills in the agent-visible skills root", () => {
@@ -248,6 +267,7 @@ describe("Agent Plugin import", () => {
 
     const skillPath = path.join(
       workspace,
+      ".agents",
       "skills",
       "calendar-tools",
       "meeting-helper",

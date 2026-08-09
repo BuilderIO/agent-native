@@ -74,29 +74,78 @@ function errorFromBody(
     : fallback;
 }
 
-async function requestMcpHost(
+function abortError(): DOMException {
+  return new DOMException("The operation was aborted.", "AbortError");
+}
+
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? abortError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+export async function requestMcpHost(
   host: McpHost,
   route: string,
   init: RequestInit = {},
 ): Promise<Record<string, unknown>> {
   const origin = new URL(host.baseUrl).origin;
-  const cookies = await host.session.cookies.get({ url: origin });
-  const cookieHeader = cookies
-    .map((cookie) => `${cookie.name}=${cookie.value}`)
-    .join("; ");
-  const headers = new Headers(init.headers);
-  if (cookieHeader) headers.set("cookie", cookieHeader);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MCP_REQUEST_TIMEOUT_MS);
-  let response: Response;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, MCP_REQUEST_TIMEOUT_MS);
+  const callerSignal = init.signal;
+  const abortFromCaller = () => controller.abort();
+  if (callerSignal?.aborted) {
+    abortFromCaller();
+  } else {
+    callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
   try {
-    response = await fetch(routeUrl(host.baseUrl, route), {
-      ...init,
-      headers,
-      signal: init.signal ?? controller.signal,
-    });
+    const cookies = await withAbort(
+      host.session.cookies.get({ url: origin }),
+      controller.signal,
+    );
+    const cookieHeader = cookies
+      .map((cookie) => `${cookie.name}=${cookie.value}`)
+      .join("; ");
+    const headers = new Headers(init.headers);
+    if (cookieHeader) headers.set("cookie", cookieHeader);
+    const response = await withAbort(
+      fetch(routeUrl(host.baseUrl, route), {
+        ...init,
+        headers,
+        signal: controller.signal,
+      }),
+      controller.signal,
+    );
+    const body = await withAbort(readJson(response), controller.signal);
+    if (!response.ok) {
+      throw new Error(
+        errorFromBody(
+          body,
+          `MCP settings request failed (${response.status}).`,
+        ),
+      );
+    }
+    return body;
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (timedOut) {
       throw new Error(
         `MCP settings request timed out after ${MCP_REQUEST_TIMEOUT_MS / 1000} seconds.`,
       );
@@ -104,14 +153,8 @@ async function requestMcpHost(
     throw error;
   } finally {
     clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
   }
-  const body = await readJson(response);
-  if (!response.ok) {
-    throw new Error(
-      errorFromBody(body, `MCP settings request failed (${response.status}).`),
-    );
-  }
-  return body;
 }
 
 export function registerChatFirstMcpIpc(deps: ChatFirstMcpIpcDeps): void {

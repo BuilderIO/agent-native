@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { resolveAppWebviewPartition } from "./AppWebview.js";
 
 describe("AppWebview partition selection", () => {
-  it("keeps chat-first preview webviews on an isolated partition", () => {
+  it("keeps chat-first preview webviews on the app partition", () => {
     expect(
       resolveAppWebviewPartition({
         appId: "app-1",
@@ -16,9 +16,9 @@ describe("AppWebview partition selection", () => {
       resolveAppWebviewPartition({
         appId: "app-1",
         sourceUrl: "https://preview.example.com",
-        partitionKey: "persist:chat-first-preview-app-1",
+        partitionKey: "persist:app-app-1",
       }),
-    ).toBe("persist:chat-first-preview-app-1");
+    ).toBe("persist:app-app-1");
   });
 
   it("keeps app tabs on their app-scoped partition", () => {

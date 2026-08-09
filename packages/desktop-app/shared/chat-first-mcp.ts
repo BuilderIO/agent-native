@@ -15,6 +15,19 @@ export const CHAT_FIRST_MCP_IPC = {
   IMPORT_PLUGIN: "chat-first:mcp:import-plugin",
 } as const;
 
+export const DESKTOP_REMOTE_MCP_UNAVAILABLE_REASON =
+  "Connected MCP settings require a secure desktop MCP capability broker.";
+
+export function desktopRemoteMcpUnavailable(): {
+  state: "unavailable";
+  error: string;
+} {
+  return {
+    state: "unavailable",
+    error: DESKTOP_REMOTE_MCP_UNAVAILABLE_REASON,
+  };
+}
+
 export type ChatFirstMcpServer = McpServer;
 export type ChatFirstMcpServersList = McpServersList;
 export type ChatFirstMcpTestResult = TestMcpUrlResult;

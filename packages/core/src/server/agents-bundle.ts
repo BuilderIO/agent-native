@@ -404,9 +404,9 @@ export function readAgentsBundleFromFs(
   // overwrite the template's. `.agents/skills` is canonical; `.agent/skills`
   // is accepted as a legacy alias and does not override canonical skills.
   const skills: Record<string, Skill> = {};
-  for (const [index, relSkillsDir] of TEMPLATE_SKILLS_DIRS.entries()) {
+  for (const relSkillsDir of TEMPLATE_SKILLS_DIRS) {
     try {
-      readSkillsDir(path.join(cwd, relSkillsDir), cwd, skills, index > 0);
+      readNestedSkillsDir(path.join(cwd, relSkillsDir), cwd, skills);
     } catch {}
   }
 
