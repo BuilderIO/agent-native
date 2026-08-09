@@ -1,5 +1,23 @@
 # @agent-native/skills
 
+## 0.2.515
+
+### Patch Changes
+
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+  - @agent-native/core@0.147.0
+
+## 0.2.514
+
+### Patch Changes
+
+- Updated dependencies [89d223a]
+  - @agent-native/core@0.146.8
+
 ## 0.2.513
 
 ### Patch Changes

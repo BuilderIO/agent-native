@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.21.0
+
+### Minor Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- Updated dependencies [cf16fae]
+  - @agent-native/toolkit@0.13.6
+
 ## 0.20.4
 
 ### Patch Changes
