@@ -361,6 +361,7 @@ function AuditItemRow({ group }: { group: AuditItemGroup }) {
 }
 
 function AuditDecisionFacts({ event }: { event: FactoryAuditEvent | null }) {
+  const t = useT();
   if (!event) return null;
   const clearBug = readBooleanDetail(event.details, "clearBug");
   const productUx = readBooleanDetail(event.details, "productUxImplications");
@@ -372,12 +373,20 @@ function AuditDecisionFacts({ event }: { event: FactoryAuditEvent | null }) {
   return (
     <div className="flex flex-wrap content-start gap-x-3 gap-y-1 text-xs text-muted-foreground sm:max-w-[260px] sm:justify-end">
       {clearBug !== null && (
-        <AuditFact label="Clear bug" value={yesNo(clearBug)} />
+        <AuditFact
+          label={t("factoryRoute.auditClearBug")}
+          value={yesNo(clearBug)}
+        />
       )}
       {productUx !== null && (
-        <AuditFact label="UX impact" value={yesNo(productUx)} />
+        <AuditFact
+          label={t("factoryRoute.auditUxImpact")}
+          value={yesNo(productUx)}
+        />
       )}
-      {ownerArea && <AuditFact label="Owner area" value={ownerArea} />}
+      {ownerArea && (
+        <AuditFact label={t("factoryRoute.auditOwnerArea")} value={ownerArea} />
+      )}
       {guards && <AuditFact label="Guards" value={guards} />}
     </div>
   );

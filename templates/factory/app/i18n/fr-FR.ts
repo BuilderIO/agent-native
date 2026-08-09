@@ -182,9 +182,12 @@ const messages = {
     auditNoEvents:
       "Aucun événement détaillé n'a été enregistré. Ouvrez le fil de l'agent pour la trace complète.",
     auditOpenThread: "Ouvrir le fil",
-    auditOpenItem: "Ouvrir l'élément",
+    auditOpenItem: "Ouvrir l’élément",
     auditOpenSource: "Ouvrir la source",
     auditInternal: "Factory",
+    auditClearBug: "Bug avéré",
+    auditUxImpact: "Impact UX",
+    auditOwnerArea: "Domaine responsable",
     automationsTitle: "Automatisations",
     automationsDescription: "Planifiez et exécutez les prompts de la factory.",
     automationsLoading: "Chargement des automatisations...",

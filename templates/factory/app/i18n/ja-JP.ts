@@ -175,6 +175,9 @@ const messages = {
     auditOpenItem: "項目を開く",
     auditOpenSource: "ソースを開く",
     auditInternal: "Factory",
+    auditClearBug: "明確なバグ",
+    auditUxImpact: "UXへの影響",
+    auditOwnerArea: "担当領域",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",
