@@ -1,5 +1,20 @@
 # @agent-native/core
 
+## 0.147.0
+
+### Minor Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- cf16fae: Keep imported Agent Plugin skills in the agent-visible workspace skills tree, including namespaced plugin skills.
+- cf16fae: Prevent duplicate recurring automation dispatch across multiple app deployments and preserve verified Builder credentials for detached background runs.
+- cf16fae: Document prerendering in the scaffolded app's `react-router.config.ts`: a commented, correct example with the three conditions a path must meet (public, build-time constant, never redirecting), left off by default because every route the scaffold ships is signed-in and a prerendered file is served without auth middleware running.
+- cf16fae: Repair structured route metadata before it can appear as a serialized payload in browser tab titles.
+- Updated dependencies [cf16fae]
+  - @agent-native/toolkit@0.13.6
+
 ## 0.146.8
 
 ### Patch Changes
