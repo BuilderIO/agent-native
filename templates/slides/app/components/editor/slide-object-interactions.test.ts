@@ -20,6 +20,7 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   getSlideTextBoxDefaultColor,
+  isDeletableFlowImage,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
@@ -736,5 +737,31 @@ describe("slide object interactions", () => {
 
     expect(pasted.style.left).toBe("");
     expect(pasted.style.top).toBe("");
+  });
+});
+
+describe("isDeletableFlowImage", () => {
+  it("accepts a plain image in flow layout", () => {
+    const img = document.createElement("img");
+    expect(isDeletableFlowImage(img)).toBe(true);
+  });
+
+  it("accepts an image placeholder box", () => {
+    const placeholder = document.createElement("div");
+    placeholder.className = "fmd-img-placeholder";
+    expect(isDeletableFlowImage(placeholder)).toBe(true);
+  });
+
+  it("refuses ordinary flow containers so Delete cannot collapse a layout", () => {
+    const card = document.createElement("div");
+    card.className = "fmd-card";
+    card.innerHTML = "<img src='x.png' /><p>Zamioculcas</p>";
+    expect(isDeletableFlowImage(card)).toBe(false);
+  });
+
+  it("refuses text blocks", () => {
+    const heading = document.createElement("h1");
+    heading.textContent = "Low LIGHT";
+    expect(isDeletableFlowImage(heading)).toBe(false);
   });
 });

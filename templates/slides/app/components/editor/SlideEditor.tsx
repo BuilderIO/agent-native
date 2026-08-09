@@ -119,6 +119,7 @@ import {
   getSlideTextBoxDefaultColor,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  isDeletableFlowImage,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   type CopiedSlideObjects,
@@ -2404,9 +2405,18 @@ export default function SlideEditor({
         clearMultiSelection();
       } else {
         const element = resolveSelectedElement();
-        if (!element || !isPersistedFreeformObject(element)) return;
-        e.preventDefault();
-        removeSlideObjectAndLayoutSpacer(element);
+        if (!element) return;
+        if (isPersistedFreeformObject(element)) {
+          e.preventDefault();
+          removeSlideObjectAndLayoutSpacer(element);
+        } else if (isDeletableFlowImage(element)) {
+          e.preventDefault();
+          element.remove();
+          setSelectedImg(null);
+          setImageOverlay(null);
+        } else {
+          return;
+        }
         clearSelectedElement();
       }
 

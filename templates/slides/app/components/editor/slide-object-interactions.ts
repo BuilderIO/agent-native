@@ -521,6 +521,23 @@ export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
   element.remove();
 }
 
+/**
+ * Whether Delete should remove `element` even though it is not a freeform
+ * canvas object.
+ *
+ * Flow-layout nodes are deliberately excluded from object operations, because
+ * deleting an arbitrary one collapses the layout around it. An image is the
+ * exception: it is a leaf, users select it directly, and removing it leaves
+ * the surrounding grid or card intact. Without this, selecting a picture in a
+ * card grid and pressing Delete silently did nothing.
+ */
+export function isDeletableFlowImage(element: HTMLElement): boolean {
+  return (
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder")
+  );
+}
+
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,
