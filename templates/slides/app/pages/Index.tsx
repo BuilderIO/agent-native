@@ -71,6 +71,16 @@ import { TAB_ID } from "@/lib/tab-id";
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 
+/**
+ * PDF/PPTX import renders every page (image extraction, per-page fidelity
+ * parsing) and can run well past the client's default 60s action timeout on
+ * large or image-heavy files. A timeout here only aborts the *client's wait*
+ * — the server keeps importing and the deck still ends up with slides — so
+ * the old default made the editor silently fail to open on a deck that had
+ * (or was about to have) real content.
+ */
+const IMPORT_ACTION_TIMEOUT_MS = 5 * 60 * 1000;
+
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */
 interface DeckGenerationRetryState {
@@ -781,9 +791,11 @@ export default function Index() {
       }
 
       if (selection.kind === "google-slides") {
-        const imported = (await callAction("import-google-slides-reference", {
-          presentationUrl: selection.url,
-        })) as { id?: unknown };
+        const imported = (await callAction(
+          "import-google-slides-reference",
+          { presentationUrl: selection.url },
+          { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+        )) as { id?: unknown };
         if (typeof imported.id !== "string" || !imported.id) {
           throw new Error(
             "The Google Slides presentation did not create a deck.",
@@ -799,10 +811,11 @@ export default function Index() {
       if (!file) throw new Error("The selected file could not be uploaded.");
 
       if (selection.kind === "pptx") {
-        const imported = (await callAction("import-pptx", {
-          filePath: file.path,
-          designSystemId: initialDesignSystemId,
-        })) as { id?: unknown };
+        const imported = (await callAction(
+          "import-pptx",
+          { filePath: file.path, designSystemId: initialDesignSystemId },
+          { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+        )) as { id?: unknown };
         if (typeof imported.id !== "string" || !imported.id) {
           throw new Error("The PowerPoint presentation did not create a deck.");
         }
@@ -832,12 +845,16 @@ export default function Index() {
       }
 
       try {
-        const imported = (await callAction("import-file", {
-          filePath: file.path,
-          format: "pdf",
-          deckId: deck.id,
-          importIntoDeck: true,
-        })) as { imported?: unknown; deckId?: unknown };
+        const imported = (await callAction(
+          "import-file",
+          {
+            filePath: file.path,
+            format: "pdf",
+            deckId: deck.id,
+            importIntoDeck: true,
+          },
+          { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+        )) as { imported?: unknown; deckId?: unknown };
         if (imported.imported !== true || imported.deckId !== deck.id) {
           throw new Error("The PDF could not be imported into the new deck.");
         }
@@ -903,9 +920,11 @@ export default function Index() {
           referenceDeckId: null,
         };
         if (pptxReference) {
-          const imported = (await callAction("import-pptx", {
-            filePath: pptxReference.path,
-          })) as { id?: unknown };
+          const imported = (await callAction(
+            "import-pptx",
+            { filePath: pptxReference.path },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as { id?: unknown };
           if (typeof imported.id !== "string" || !imported.id) {
             throw new Error("The imported presentation did not create a deck.");
           }
@@ -932,12 +951,16 @@ export default function Index() {
             );
           }
           try {
-            const imported = (await callAction("import-file", {
-              filePath: pdfReference.path,
-              format: "pdf",
-              deckId: referenceDeck.id,
-              importIntoDeck: true,
-            })) as { imported?: unknown; deckId?: unknown };
+            const imported = (await callAction(
+              "import-file",
+              {
+                filePath: pdfReference.path,
+                format: "pdf",
+                deckId: referenceDeck.id,
+                importIntoDeck: true,
+              },
+              { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+            )) as { imported?: unknown; deckId?: unknown };
             if (
               imported.imported !== true ||
               imported.deckId !== referenceDeck.id
