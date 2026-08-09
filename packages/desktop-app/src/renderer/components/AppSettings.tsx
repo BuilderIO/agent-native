@@ -23,7 +23,6 @@ import {
   type DesktopShortcutUpsertRequest,
 } from "@shared/desktop-shortcuts";
 import type { UpdateStatus } from "@shared/ipc-channels";
-import type { QuickPromptSettings } from "@shared/quick-prompt";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -509,11 +508,6 @@ export default function AppSettings({
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
-  const [quickPromptSettings, setQuickPromptSettings] =
-    useState<QuickPromptSettings | null>(null);
-  const [quickPromptMessage, setQuickPromptMessage] = useState<string | null>(
-    null,
-  );
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
@@ -572,20 +566,6 @@ export default function AppSettings({
       });
     }
   }, [onFrameSettingsChanged]);
-
-  useEffect(() => {
-    const api = window.electronAPI?.quickPrompt;
-    if (!api) return;
-    void api
-      .load()
-      .then((settings) => {
-        setQuickPromptSettings(settings);
-        setQuickPromptMessage(settings.error ?? null);
-      })
-      .catch((err) => {
-        setQuickPromptMessage(err instanceof Error ? err.message : String(err));
-      });
-  }, []);
 
   const refreshProviderSettings = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -704,18 +684,6 @@ export default function AppSettings({
     },
     [onFrameSettingsChanged],
   );
-
-  const handleQuickPromptToggle = useCallback(async (enabled: boolean) => {
-    const api = window.electronAPI?.quickPrompt;
-    if (!api) return;
-    try {
-      const updated = await api.update({ enabled });
-      setQuickPromptSettings(updated);
-      setQuickPromptMessage(updated.error ?? null);
-    } catch (err) {
-      setQuickPromptMessage(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
 
   const handleRemoteToggle = useCallback(async (enabled: boolean) => {
     const api = window.electronAPI?.codeAgents;
@@ -951,33 +919,6 @@ export default function AppSettings({
                       void handleChatFirstToggle(checked)
                     }
                     aria-label="Use the chat-first desktop shell"
-                  />
-                }
-              />
-            ) : null}
-            {quickPromptSettings ? (
-              <SettingsRow
-                label="Quick Prompt"
-                description={
-                  "Ask Agent Native from anywhere with Cmd+Space." +
-                  (quickPromptSettings.enabled &&
-                  !quickPromptSettings.registered
-                    ? " " +
-                      (quickPromptSettings.error ??
-                        "The shortcut is unavailable.")
-                    : "")
-                }
-                control={
-                  <Switch
-                    checked={quickPromptSettings.enabled}
-                    onCheckedChange={(checked) =>
-                      void handleQuickPromptToggle(checked)
-                    }
-                    aria-label={
-                      quickPromptSettings.enabled
-                        ? "Disable Quick Prompt"
-                        : "Enable Quick Prompt"
-                    }
                   />
                 }
               />

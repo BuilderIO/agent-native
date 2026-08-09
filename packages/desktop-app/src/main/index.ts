@@ -86,7 +86,6 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
-  type QuickPromptSubmitResult,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
   type DesktopContentFileDeleteRequest,
@@ -103,10 +102,6 @@ import {
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
 } from "@shared/ipc-channels";
-import {
-  QUICK_PROMPT_ACCELERATOR,
-  type QuickPromptSettings,
-} from "@shared/quick-prompt";
 import {
   app,
   BrowserWindow,
@@ -281,9 +276,6 @@ if (IS_DEV) {
 
 let pendingDeepLink: string | null = null;
 let mainWindow: BrowserWindow | null = null;
-let quickPromptWindow: BrowserWindow | null = null;
-let quickPromptShortcutRegistered = false;
-let quickPromptShortcutError: string | undefined;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
@@ -1052,98 +1044,6 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-function focusQuickPromptWindow(win: BrowserWindow): void {
-  if (win.isDestroyed()) return;
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  if (process.platform === "darwin") app.focus({ steal: true });
-}
-
-function createQuickPromptWindow(): BrowserWindow {
-  if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {
-    return quickPromptWindow;
-  }
-
-  const isMac = process.platform === "darwin";
-
-  const win = new BrowserWindow({
-    width: 760,
-    height: 148,
-    minWidth: 560,
-    minHeight: 128,
-    maxWidth: 1040,
-    maxHeight: 220,
-    show: false,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: false,
-    hasShadow: true,
-    ...(isMac && {
-      vibrancy: "under-window",
-      visualEffectState: "active",
-    }),
-    skipTaskbar: true,
-    title: "Quick Prompt",
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: true,
-    },
-  });
-
-  win.setAlwaysOnTop(true, "floating");
-  if (typeof win.setVisibleOnAllWorkspaces === "function") {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  }
-  win.setMenuBarVisibility(false);
-  installSentryWebContentsInstrumentation(win.webContents, {
-    role: "quick-prompt-renderer",
-  });
-
-  const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
-  if (IS_DEV && rendererUrl) {
-    const url = new URL(rendererUrl);
-    url.searchParams.set("surface", "quick-prompt");
-    void win.loadURL(url.toString());
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/index.html"), {
-      query: { surface: "quick-prompt" },
-    });
-  }
-
-  win.on("blur", () => {
-    if (!win.isDestroyed()) win.hide();
-  });
-  win.on("closed", () => {
-    if (quickPromptWindow === win) quickPromptWindow = null;
-  });
-
-  quickPromptWindow = win;
-  return win;
-}
-
-function showQuickPromptWindow(): void {
-  const win = createQuickPromptWindow();
-  if (win.isVisible() && win.isFocused()) {
-    win.hide();
-    return;
-  }
-  if (win.webContents.isLoading()) {
-    win.once("ready-to-show", () => focusQuickPromptWindow(win));
-    return;
-  }
-  focusQuickPromptWindow(win);
-}
-
-function hideQuickPromptWindow(): void {
-  if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {
-    quickPromptWindow.hide();
-  }
-}
-
 // ---------- DevTools: target the active app webview ----------
 
 let activeAppId = "";
@@ -1402,63 +1302,6 @@ function getDesktopShortcutSettings(): DesktopShortcutSettings {
         },
     ),
   };
-}
-
-function getQuickPromptSettings(): QuickPromptSettings {
-  const preferences = AppStore.loadQuickPromptPreferences();
-  return {
-    ...preferences,
-    accelerator: QUICK_PROMPT_ACCELERATOR,
-    registered: quickPromptShortcutRegistered,
-    ...(quickPromptShortcutError ? { error: quickPromptShortcutError } : {}),
-  };
-}
-
-function unregisterQuickPromptShortcut(): void {
-  if (!quickPromptShortcutRegistered) return;
-  try {
-    globalShortcut.unregister(QUICK_PROMPT_ACCELERATOR);
-  } catch {
-    // coercion-ok: Electron clears global shortcuts on quit; this cleanup is best effort.
-  }
-  quickPromptShortcutRegistered = false;
-}
-
-function registerQuickPromptShortcut(): void {
-  unregisterQuickPromptShortcut();
-  quickPromptShortcutError = undefined;
-
-  if (!AppStore.loadQuickPromptPreferences().enabled) return;
-
-  try {
-    quickPromptShortcutRegistered = globalShortcut.register(
-      QUICK_PROMPT_ACCELERATOR,
-      () => {
-        debugDesktopShortcut("quick prompt triggered", {
-          accelerator: QUICK_PROMPT_ACCELERATOR,
-        });
-        showQuickPromptWindow();
-      },
-    );
-    if (!quickPromptShortcutRegistered) {
-      quickPromptShortcutError =
-        "macOS or another app is already using Cmd+Space.";
-      debugDesktopShortcut("quick prompt registration rejected", {
-        accelerator: QUICK_PROMPT_ACCELERATOR,
-      });
-      return;
-    }
-    debugDesktopShortcut("quick prompt registered", {
-      accelerator: QUICK_PROMPT_ACCELERATOR,
-    });
-  } catch (err) {
-    quickPromptShortcutRegistered = false;
-    quickPromptShortcutError = err instanceof Error ? err.message : String(err);
-    debugDesktopShortcut("quick prompt registration failed", {
-      accelerator: QUICK_PROMPT_ACCELERATOR,
-      error: quickPromptShortcutError,
-    });
-  }
 }
 
 function unregisterDesktopShortcutBindings() {
@@ -8177,68 +8020,6 @@ registerContentFilesIpc({
 // See main/ipc/frame.ts.
 registerFrameIpc();
 
-// ---------- IPC: Global Quick Prompt ----------
-ipcMain.handle(IPC.QUICK_PROMPT_LOAD, (): QuickPromptSettings => {
-  return getQuickPromptSettings();
-});
-
-ipcMain.handle(
-  IPC.QUICK_PROMPT_UPDATE,
-  (
-    _event: IpcMainInvokeEvent,
-    settings: { enabled?: unknown } | undefined,
-  ): QuickPromptSettings => {
-    if (typeof settings?.enabled !== "boolean") {
-      throw new Error("Quick Prompt enabled state must be a boolean.");
-    }
-    AppStore.saveQuickPromptPreferences({ enabled: settings.enabled });
-    registerQuickPromptShortcut();
-    return getQuickPromptSettings();
-  },
-);
-
-ipcMain.on(IPC.QUICK_PROMPT_DISMISS, (event: IpcMainEvent) => {
-  if (quickPromptWindow?.webContents.id !== event.sender.id) return;
-  hideQuickPromptWindow();
-});
-
-ipcMain.handle(
-  IPC.QUICK_PROMPT_SUBMIT,
-  async (
-    event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<QuickPromptSubmitResult> => {
-    if (quickPromptWindow?.webContents.id !== event.sender.id) {
-      return {
-        ok: false,
-        message: "Quick Prompt is not available in this window.",
-        error: "Unauthorized Quick Prompt renderer.",
-      };
-    }
-
-    const result = await createCodeAgentRun(input);
-    if (!result.ok) return result;
-    if (!result.run) {
-      return {
-        ok: false,
-        message: "Could not open the new coding chat.",
-        error: "The coding run was created without a run record.",
-      };
-    }
-
-    hideQuickPromptWindow();
-    sendOpenRequestToRenderer(
-      {
-        app: CODE_AGENTS_SURFACE_ID,
-        goalId: result.run.goalId,
-        runId: result.run.id,
-      },
-      { stealFocus: true },
-    );
-    return result;
-  },
-);
-
 // ---------- IPC: Local app-launch shortcuts ----------
 // See main/ipc/shortcuts.ts.
 registerShortcutsIpc({
@@ -9525,7 +9306,6 @@ app.whenReady().then(async () => {
     resolveDirectory: resolveUsableDirectory,
   });
   registerDesktopShortcutBindings();
-  registerQuickPromptShortcut();
 
   const win = createWindow();
   // Pairing details persist, but background access is opt-in per launch.
@@ -9630,10 +9410,6 @@ app.on("window-all-closed", () => {
 app.on("before-quit", (event) => {
   if (!appIsQuitting) {
     appIsQuitting = true;
-    if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {
-      quickPromptWindow.destroy();
-      quickPromptWindow = null;
-    }
     for (const appId of managedDesktopAppProcesses.keys()) {
       stopManagedDesktopApp(appId);
     }
@@ -9652,6 +9428,5 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
-  unregisterQuickPromptShortcut();
   unregisterDesktopShortcutBindings();
 });
