@@ -1552,6 +1552,7 @@ const messages = {
     mcpApps: "MCP Apps（行內 UI）",
     crossAppSso: "跨應用 SSO",
     notifications: "通知",
+    transactionalEmail: "交易信件",
     automationConnectors: "工作流程連接器",
     workspaceConnections: "工作區連線",
     creatingTemplates: "建立範本",

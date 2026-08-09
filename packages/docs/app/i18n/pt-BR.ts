@@ -1578,6 +1578,7 @@ const ptBR = {
     mcpApps: "MCP Apps (UIs inline)",
     crossAppSso: "SSO entre apps",
     notifications: "Notificações",
+    transactionalEmail: "E-mail transacional",
     automationConnectors: "Conectores de fluxo de trabalho",
     workspaceConnections: "Conexões do workspace",
     creatingTemplates: "Criar templates",

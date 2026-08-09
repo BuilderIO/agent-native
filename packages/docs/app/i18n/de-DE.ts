@@ -1582,6 +1582,7 @@ const deDE = {
     mcpApps: "MCP Apps (Inline-UIs)",
     crossAppSso: "Cross-App-SSO",
     notifications: "Benachrichtigungen",
+    transactionalEmail: "Transaktions-E-Mail",
     automationConnectors: "Workflow-Connectors",
     workspaceConnections: "Workspace-Verbindungen",
     creatingTemplates: "Templates erstellen",

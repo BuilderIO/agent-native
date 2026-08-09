@@ -1,0 +1,386 @@
+---
+title: "Transactional Email"
+description: "Send outbound email with sendEmail, style it with the shared template, replace the default branding, or supply your own HTML"
+---
+
+# Transactional Email
+
+Outbound email is two independent layers. `sendEmail()` is the transport — it
+picks a provider, resolves the sender, delivers, and logs the attempt.
+`renderEmail()` is a presentation helper that returns `{ html, text }` in the
+framework's house style. They are not coupled: you can send HTML you built
+yourself and never touch `renderEmail`, or render a message and hand the result
+to something else.
+
+```ts
+import { renderEmail, sendEmail } from "@agent-native/core/server";
+
+const { html, text } = renderEmail({
+  heading: "Your report is ready",
+  paragraphs: ["The March export finished and is ready to download."],
+  cta: { label: "Open report", url: reportUrl },
+});
+
+await sendEmail({
+  to: "sam@example.com",
+  subject: "Your report is ready",
+  html,
+  text,
+  templateId: "reports.export-ready",
+});
+```
+
+This page is about email your app _sends_. Three neighbouring things are
+separate systems:
+
+| You want to                                 | Read instead                         |
+| ------------------------------------------- | ------------------------------------ |
+| Alert a user in the in-app bell inbox       | [Notifications](/docs/notifications) |
+| Let a user converse with the agent by email | [Messaging](/docs/messaging)         |
+| Build a Gmail client                        | [Mail template](/docs/template-mail) |
+
+## Configure a provider
+
+The provider is chosen at send time from scoped secrets, in this order:
+
+| Secret              | Effect                                                                           |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `RESEND_API_KEY`    | Sends via Resend. Wins if both keys are present.                                 |
+| `SENDGRID_API_KEY`  | Sends via SendGrid. Requires `EMAIL_FROM` — SendGrid rejects unverified senders. |
+| `EMAIL_FROM`        | Default sender, as `addr@domain` or `Name <addr@domain>`.                        |
+| _(neither key set)_ | Dev fallback.                                                                    |
+
+These resolve through the scoped secret store, so they can be set per user,
+organization, or workspace — see [Secrets and
+onboarding](/docs/onboarding). With no key configured, `sendEmail` logs the
+message to the console outside production and **throws in production** rather
+than pretending a send happened. With Resend and no `EMAIL_FROM`, the sender
+falls back to Resend's sandbox address, which is fine for local development and
+wrong for anything real.
+
+Check readiness before offering a flow that depends on email:
+
+```ts
+import { getEmailReadiness } from "@agent-native/core/server";
+
+const readiness = await getEmailReadiness();
+// { status: "ready" | "not-configured" | "misconfigured" | "unavailable", provider }
+```
+
+`not-configured` (no provider) and `unavailable` (the credential store could not
+be read) are deliberately distinct. Do not collapse them into a single falsy
+check: an unreadable vault is not an unconfigured deployment, and treating it as
+one hides an outage behind a setup prompt.
+
+## `sendEmail` options
+
+| Option                    | Purpose                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `to`, `subject`, `html`   | Required. `html` is delivered verbatim — nothing wraps or sanitizes it.                                                     |
+| `text`                    | Plain-text alternative. Not derived for you; omit it and you ship an HTML-only email.                                       |
+| `cc`, `replyTo`           | Standard headers. `cc` accepts a string or an array.                                                                        |
+| `from`                    | Full sender override. Must be a verified sender for the configured provider.                                                |
+| `fromName`                | Display-name-only override, e.g. `"Alice via Clips"`. Keeps the verified address.                                           |
+| `appSender`               | Per-app sender branding on first-party deployments (see [Sender identity](#sender-identity)).                               |
+| `attachments`             | `{ filename, content, contentType, contentId, disposition }[]`.                                                             |
+| `inReplyTo`, `references` | Threading headers.                                                                                                          |
+| `templateId`              | Registered catalog id (see [the catalog](#register-the-email)). Tags the send at the provider and keys the `email_log` row. |
+| `timeoutMs`               | Aborts the send and rejects if the provider does not respond in time.                                                       |
+| `app`, `orgId`            | Attribution overrides. Default to the running app and the current request org.                                              |
+
+Every send is recorded to `email_log` — success or failure, with the provider
+error message on failure — so a silent drop is visible after the fact.
+
+## Render the shared template
+
+`renderEmail` builds the framework's standard message: a dark card on a
+near-black background, Inter with system fallbacks, table-based layout for
+Outlook, and everything inlined because email clients ignore most CSS.
+
+```ts
+import { emailLink, emailStrong, renderEmail } from "@agent-native/core/server";
+
+const { html, text } = renderEmail({
+  preheader: "Dana invited you to Acme.",
+  heading: "You're invited to join Acme",
+  paragraphs: [
+    `${emailStrong("Dana")} invited you to join ${emailStrong("Acme")}.`,
+    `Questions? ${emailLink("Read the guide", guideUrl)}.`,
+  ],
+  cta: { label: "Accept invitation", url: acceptUrl },
+  footer: "If you weren't expecting this, you can safely ignore this email.",
+});
+```
+
+| Argument                                  | Renders as                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| `preheader`                               | Hidden preview text shown beside the subject in the inbox list.          |
+| `heading`                                 | The headline, and the document `<title>`.                                |
+| `paragraphs`                              | Body copy above the CTA.                                                 |
+| `cta`, `secondaryCta`                     | Real button cells. The secondary renders dark-filled beside the primary. |
+| `linkBlock`                               | A bordered, copyable URL. `placement` puts it before or after the CTA.   |
+| `heroHtml`                                | Trusted markup injected above the CTA — e.g. a video thumbnail.          |
+| `closingParagraphs`                       | Body copy below the CTA.                                                 |
+| `footer`                                  | Small muted text at the bottom.                                          |
+| `brandName`, `brandColor`, `brandLogoUrl` | Branding — see below.                                                    |
+
+`renderEmail` also returns a plain-text rendering built from the same arguments,
+so passing both `html` and `text` costs nothing.
+
+### What is escaped, and what is not
+
+This is the part that bites. `heading`, `footer`, `cta.label`,
+`secondaryCta.label`, and both `linkBlock` fields are escaped for you.
+
+`paragraphs`, `closingParagraphs`, and `heroHtml` are **injected raw**, because
+they are how a caller composes inline emphasis and links. Any dynamic value you
+interpolate into them is your responsibility to escape. That is what
+`emailStrong()` and `emailLink()` are for — both escape their content — and why
+first-party renderers run user-supplied names through a `stripCrlf` helper
+before they reach a subject line.
+
+Never interpolate a raw user-supplied string into `paragraphs`.
+
+## Branding
+
+Set the deployment's brand once from a server plugin and every email picks it up
+— including the ones the framework sends for you, which have no call site you
+can reach:
+
+```ts
+// server/plugins/email.ts
+import { configureEmailBranding } from "@agent-native/core/server";
+
+configureEmailBranding({
+  logoUrl: "https://cdn.acme.com/mark.png",
+  color: "#0e7c86",
+});
+```
+
+`logoUrl` must be an absolute `https://` URL and `color` a six-digit
+`#rrggbb`. Both are validated **here, at the call that sets them** — a bad value
+throws at boot with a stack trace pointing at your plugin, rather than becoming
+an email that quietly looks wrong months later. A throwing call leaves any
+previously configured branding intact.
+
+The brand _name_ is not part of this object. `APP_NAME` already resolves it,
+falling back to `displayName` in the app's `package.json`, then to a recognized
+first-party template label, then to `"Agent Native"`. A second source for the
+same string is how the email header and the subject line start disagreeing.
+
+### Per-message and per-tenant overrides
+
+The same three values are `renderEmail` arguments, for the emails your own code
+renders:
+
+| Argument       | Accepts                                                        |
+| -------------- | -------------------------------------------------------------- |
+| `brandName`    | Any string. Falls back to the resolved app name.               |
+| `brandColor`   | A strict `#rrggbb` hex. Tints the CTA button and inline links. |
+| `brandLogoUrl` | An absolute `https://` URL. Replaces the header logo.          |
+
+These are validated and **fall back silently** when they don't match — a
+relative path, an `http://` URL, or a three-digit hex is dropped. That is
+deliberate: these usually carry a tenant row that legitimately has no logo, and
+a bad value in an inline `style` or `src` attribute is an injection surface. But
+it means a per-call logo that "doesn't apply" is almost always a URL that isn't
+absolute HTTPS.
+
+Resolution runs caller → `configureEmailBranding` → embedded framework logo. A
+rejected per-call value lands on the deployment's brand, not on Agent Native's.
+
+Apps that brand per organization store the values on their own settings row and
+resolve them at render time. For share invitations the [sharing
+registry](/docs/sharing) does this for you through optional `getLogoUrl`,
+`getBrandName`, `getSender`, `getHeroHtml`, and `getShareEmailExtras` resolvers,
+so an owner's brand carries into the invitation. Each is independently
+error-handled: a resolver that throws logs and falls back rather than failing
+the share.
+
+### Where the Agent Native icon comes from
+
+With no logo resolved at either level, the header falls back to a
+`cid:agent-native-logo` reference. `sendEmail` then scans the outgoing HTML for
+that exact string and, if it appears, attaches the framework's branding PNG
+inline. The image is embedded as a base64 attachment rather than fetched from a
+URL so it survives serverless bundling and is not blocked as a remote image.
+
+The rule is a plain string match, which gives you a simple lever: **HTML that
+does not contain `cid:agent-native-logo` gets no attachment at all.** Configure a
+brand logo, pass a valid `brandLogoUrl`, register your own renderer, or supply
+your own HTML — the Agent Native icon then appears nowhere in the message.
+
+## Emails the framework sends for you
+
+Most email an app sends is not sent by app code. These are rendered inside the
+framework, so there is no `renderEmail` call you can edit:
+
+| Email               | Sent when                                          |
+| ------------------- | -------------------------------------------------- |
+| Verify signup       | A user signs up and verification is required.      |
+| Magic link          | A user requests a one-time sign-in link.           |
+| Password reset      | A user requests a reset.                           |
+| Organization invite | A member is invited to an org.                     |
+| Share notification  | A resource is shared with someone.                 |
+| Review comment      | A comment or mention lands on a reviewed resource. |
+
+All six render through `renderEmail`, so `APP_NAME` and `configureEmailBranding`
+restyle every one of them without touching app code. Share notifications
+additionally honour the sharing registry's per-resource resolvers.
+
+### Replacing the template entirely
+
+When branding isn't enough — you want different markup, not a different logo —
+register a renderer. `renderEmail` then delegates to it for every message,
+framework-sent ones included:
+
+```ts
+// server/plugins/email.ts
+import {
+  registerEmailRenderer,
+  renderBuiltInEmail,
+} from "@agent-native/core/server";
+
+registerEmailRenderer({
+  id: "acme",
+  render: (args) => ({ html: acmeTemplate(args), text: acmeText(args) }),
+});
+```
+
+Your `render` receives the same `RenderEmailArgs` the built-in template gets —
+`heading`, `paragraphs`, `cta`, and the rest — and must return both `html` and
+`text`. To wrap rather than replace the framework's markup, call
+`renderBuiltInEmail(args)`; calling `renderEmail` from inside a renderer
+recurses.
+
+Register exactly one. A second registration wins and logs a warning, because two
+apps in a workspace each claiming the whole email surface is a misconfiguration,
+not a layering feature.
+
+There is deliberately **no fallback**. A renderer that throws, or returns the
+wrong shape, fails the send — `sendEmail` records it to `email_log` and the error
+surfaces. Quietly substituting the built-in template would ship a password reset
+in the wrong brand while reporting success.
+
+### What stays fixed
+
+The auth emails present a recognized first-party template as
+`"Agent-Native <App>"`; a custom deployment keeps its own name, so its users are
+not told they signed up for an Agent Native app. That is in the subject and body
+copy, not the template, so a custom renderer does not change it.
+
+Three framework paths do not go through `renderEmail` at all, so neither branding
+nor a registered renderer reaches them: the notifications `email` channel emits
+minimal HTML, the agent's `core-send-email` uses its own light markdown layout,
+and the messaging adapter sends the agent's reply text.
+
+## Supply your own HTML
+
+`renderEmail` is a convenience, not a required stage. `sendEmail` passes `html`
+straight into the provider payload — no wrapper, no sanitizer, no style
+injection.
+
+```ts
+await sendEmail({
+  to,
+  subject,
+  html: myOwnDocument, // <!DOCTYPE html> … anything you want
+  text: myPlainTextVersion,
+  templateId: "myapp.custom-digest",
+});
+```
+
+The only interaction between your markup and the transport is the
+`cid:agent-native-logo` scan described above. Two things stay true regardless of
+what you send: `text` is still yours to provide, and the sender is still
+governed by provider verification — full control over the body is not control
+over `From`.
+
+## Register the email {#register-the-email}
+
+Declare each email your app sends so the workspace can answer what emails exist,
+what triggers them, and what they look like, without reading your source.
+Register from a server plugin so it happens at startup.
+
+```ts
+import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
+
+export const EXPORT_READY_EMAIL_ID = "reports.export-ready";
+
+defineTransactionalEmail({
+  id: EXPORT_READY_EMAIL_ID,
+  name: "Export ready",
+  trigger: "A scheduled export finishes successfully.",
+  recipientLabel: "Export owner",
+  recipient: "The account email of the user who scheduled the export.",
+  senderLabel: "Default sender",
+  sender: "The configured default sender; no reply-to override.",
+  preview: () => renderExportReadyEmail(SAMPLE_EXPORT),
+});
+```
+
+Registration buys three things. [Dispatch](/docs/dispatch) can list and preview
+the email across every mounted app. The `id` becomes the provider category, which
+is how per-email delivery and open metrics are attributed — without it every send
+lands in one account-wide bucket, indistinguishable from an email that never
+sent. And passing `templateId: EXPORT_READY_EMAIL_ID` to `sendEmail` keys the
+`email_log` row to it.
+
+`preview` must render from dummy data only. It runs on demand from Dispatch, for
+apps whose data the caller may not be allowed to see, so it must not read the
+database or touch the network. Changing an `id` orphans that email's historical
+metrics.
+
+## Sender identity {#sender-identity}
+
+| Field       | Use it when                                                                    |
+| ----------- | ------------------------------------------------------------------------------ |
+| _(nothing)_ | Normal case. Uses `EMAIL_FROM`.                                                |
+| `fromName`  | Sending on behalf of a person: `"Alice via Clips" <notifications@yourdomain>`. |
+| `replyTo`   | Replies should reach a human or a specific mailbox.                            |
+| `from`      | You have a second verified sender and genuinely need a different address.      |
+
+Prefer `fromName` over `from` for per-user senders. Putting a user's own address
+in `From` breaks SPF and DKIM for your domain and lands the message in spam. The
+display name is sanitized and quoted before it reaches the header, because a CR
+or LF there would allow header injection.
+
+`appSender` is narrower: it gives first-party apps a per-app address like
+`clips@agent-native.com`. It applies **only** when the configured `EMAIL_FROM` is
+already on `agent-native.com`, since any other value means the branded address
+cannot be proven to be a verified sender. Self-hosted deployments keep their own
+sender, and a one-time warning explains why the branding was suppressed.
+
+## The agent's own send action
+
+The agent chat registers a `core-send-email` tool, on by default and removable
+with `frameworkTools: { email: false }`. It takes a **markdown** body, converts
+it, and wraps it in a separate light-themed layout — so an email the agent
+composes does not look like a system notification. Interactive runs are
+draft-first: the agent must show the composed email and get an explicit
+confirmation before calling the tool. Authorized unattended automation runs skip
+that confirmation, because approval happened when the automation was created.
+
+The markdown renderer and its light wrapper are internal to that action. For your
+own emails, use `renderEmail` or your own HTML.
+
+## Gotchas
+
+| Symptom                                            | Cause                                                                                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Agent Native icon still appears after branding     | No `configureEmailBranding` call ran, or a per-call `brandLogoUrl` was relative or `http://`.                           |
+| Auth or invite email ignores your brand            | Those have no app-reachable call site. Use `configureEmailBranding`, or register a renderer.                            |
+| Branding applies locally but not once deployed     | The plugin that calls `configureEmailBranding` isn't imported on the server. Registration is startup-ordered, not lazy. |
+| `brandColor` ignored                               | Not a strict six-digit `#rrggbb`.                                                                                       |
+| Email is dark even in a light-mode client          | Intended. The template pins the dark palette under `prefers-color-scheme: light`.                                       |
+| SendGrid 403 at runtime                            | `EMAIL_FROM` missing. Resend tolerates this; SendGrid does not.                                                         |
+| Per-email open rates all aggregate together        | No `templateId` on the send, so every message shares one provider category.                                             |
+| Send silently does nothing in dev                  | No provider configured — the body was logged to the console instead.                                                    |
+| Sender shows the app name but replies go elsewhere | `appSender` was suppressed because `EMAIL_FROM` is not on `agent-native.com`.                                           |
+
+## Related
+
+- [Notifications](/docs/notifications) — the `email` channel fans a notification out to configured recipients.
+- [Environment variables](/docs/environment-variables) — `RESEND_API_KEY`, `SENDGRID_API_KEY`, `EMAIL_FROM`.
+- [Dispatch](/docs/dispatch) — where registered emails are listed and previewed.
+- [Sharing](/docs/sharing) — share invitations, and the `getLogoUrl` branding hook.

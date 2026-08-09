@@ -74,6 +74,7 @@ ar-SA|toolkit-settings
 ar-SA|toolkit-setup-connections
 ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
+ar-SA|transactional-email
 de-DE|agent-native-config
 de-DE|agents
 de-DE|automation-connectors
@@ -147,6 +148,7 @@ de-DE|toolkit-settings
 de-DE|toolkit-setup-connections
 de-DE|toolkit-sharing
 de-DE|toolkit-ui
+de-DE|transactional-email
 es-ES|agent-native-config
 es-ES|agents
 es-ES|automation-connectors
@@ -220,6 +222,7 @@ es-ES|toolkit-settings
 es-ES|toolkit-setup-connections
 es-ES|toolkit-sharing
 es-ES|toolkit-ui
+es-ES|transactional-email
 fr-FR|agent-native-config
 fr-FR|agents
 fr-FR|automation-connectors
@@ -293,6 +296,7 @@ fr-FR|toolkit-settings
 fr-FR|toolkit-setup-connections
 fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
+fr-FR|transactional-email
 hi-IN|agent-native-config
 hi-IN|agents
 hi-IN|automation-connectors
@@ -366,6 +370,7 @@ hi-IN|toolkit-settings
 hi-IN|toolkit-setup-connections
 hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
+hi-IN|transactional-email
 ja-JP|agent-native-config
 ja-JP|agents
 ja-JP|automation-connectors
@@ -439,6 +444,7 @@ ja-JP|toolkit-settings
 ja-JP|toolkit-setup-connections
 ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
+ja-JP|transactional-email
 ko-KR|agent-native-config
 ko-KR|agents
 ko-KR|automation-connectors
@@ -512,6 +518,7 @@ ko-KR|toolkit-settings
 ko-KR|toolkit-setup-connections
 ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
+ko-KR|transactional-email
 pt-BR|agent-native-config
 pt-BR|agents
 pt-BR|automation-connectors
@@ -585,6 +592,7 @@ pt-BR|toolkit-settings
 pt-BR|toolkit-setup-connections
 pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
+pt-BR|transactional-email
 zh-CN|agent-native-config
 zh-CN|agents
 zh-CN|automation-connectors
@@ -658,6 +666,7 @@ zh-CN|toolkit-settings
 zh-CN|toolkit-setup-connections
 zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
+zh-CN|transactional-email
 zh-TW|agent-native-config
 zh-TW|agents
 zh-TW|automation-connectors
@@ -730,3 +739,4 @@ zh-TW|toolkit-settings
 zh-TW|toolkit-setup-connections
 zh-TW|toolkit-sharing
 zh-TW|toolkit-ui
+zh-TW|transactional-email

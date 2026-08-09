@@ -1575,6 +1575,7 @@ const koKR = {
     mcpApps: "MCP Apps (인라인 UI)",
     crossAppSso: "크로스 앱 SSO",
     notifications: "알림",
+    transactionalEmail: "트랜잭션 이메일",
     automationConnectors: "워크플로 커넥터",
     workspaceConnections: "Workspace 연결",
     creatingTemplates: "템플릿 만들기",

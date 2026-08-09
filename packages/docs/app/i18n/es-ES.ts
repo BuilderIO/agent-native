@@ -1582,6 +1582,7 @@ const esES = {
     mcpApps: "MCP Apps (UI integrada)",
     crossAppSso: "SSO entre apps",
     notifications: "Notificaciones",
+    transactionalEmail: "Correo transaccional",
     automationConnectors: "Conectores de flujo de trabajo",
     workspaceConnections: "Conexiones del workspace",
     creatingTemplates: "Crear plantillas",

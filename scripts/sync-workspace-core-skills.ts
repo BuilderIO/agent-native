@@ -98,6 +98,7 @@ const workspaceSkillIncludes = [
   "sharing",
   "storing-data",
   "tracking",
+  "transactional-email",
   "turn-into-app",
   "turn-into-skill",
   "upgrade-agent-native",

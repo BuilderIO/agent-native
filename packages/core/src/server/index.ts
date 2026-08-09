@@ -626,12 +626,24 @@ export {
 } from "./activity-notifications.js";
 export {
   renderEmail,
+  renderBuiltInEmail,
   emailStrong,
   emailLink,
   type RenderEmailArgs,
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
+export {
+  configureEmailBranding,
+  getEmailBranding,
+  type EmailBranding,
+} from "./email-branding.js";
+export {
+  registerEmailRenderer,
+  unregisterEmailRenderer,
+  listEmailRenderers,
+  type EmailRenderer,
+} from "./email-renderer.js";
 export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
 export {
   getConfiguredAppBasePath,

@@ -1554,6 +1554,7 @@ const zhCN = {
     mcpApps: "MCP Apps（内联 UI）",
     crossAppSso: "跨应用 SSO",
     notifications: "通知",
+    transactionalEmail: "事务性邮件",
     automationConnectors: "工作流连接器",
     workspaceConnections: "工作区连接",
     creatingTemplates: "创建模板",

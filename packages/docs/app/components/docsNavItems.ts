@@ -325,6 +325,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
       {
+        id: "transactional-email",
+        labelKey: "transactionalEmail",
+        slug: "transactional-email",
+      },
+      {
         id: "automation-connectors",
         labelKey: "automationConnectors",
         slug: "automation-connectors",

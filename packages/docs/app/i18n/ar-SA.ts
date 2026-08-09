@@ -1570,6 +1570,7 @@ const arSA = {
     mcpApps: "MCP Apps (واجهات مضمنة)",
     crossAppSso: "SSO عبر التطبيقات",
     notifications: "الإشعارات",
+    transactionalEmail: "البريد الإلكتروني للمعاملات",
     automationConnectors: "موصلات سير العمل",
     workspaceConnections: "اتصالات مساحة العمل",
     creatingTemplates: "إنشاء القوالب",

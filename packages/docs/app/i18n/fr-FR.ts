@@ -1583,6 +1583,7 @@ const frFR = {
     mcpApps: "MCP Apps (UI intégrées)",
     crossAppSso: "SSO entre apps",
     notifications: "Alertes",
+    transactionalEmail: "E-mails transactionnels",
     automationConnectors: "Connecteurs de workflow",
     workspaceConnections: "Connexions du workspace",
     creatingTemplates: "Créer des modèles",

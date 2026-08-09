@@ -8,6 +8,12 @@
  * Default is monochrome (white CTA on dark). Pass `brandColor` to tint the
  * CTA button and inline links — Clips, for example, passes its purple.
  *
+ * Branding a caller does not pass falls back to `configureEmailBranding`, which
+ * is how the framework's own auth and invite emails — rendered where no app
+ * call site exists — pick up an app's logo and color. An app that needs to
+ * replace the markup entirely registers its own renderer instead; see
+ * `email-renderer.ts`.
+ *
  * Usage:
  *   const { html, text } = renderEmail({
  *     preheader: "…",
@@ -19,6 +25,12 @@
  */
 
 import { getAppName } from "./app-name.js";
+import {
+  getEmailBranding,
+  sanitizeHexColor,
+  sanitizeLogoUrl,
+} from "./email-branding.js";
+import { getActiveEmailRenderer } from "./email-renderer.js";
 
 export const AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID = "agent-native-logo";
 
@@ -60,13 +72,15 @@ export interface RenderEmailArgs {
   brandName?: string;
   /**
    * Optional absolute `https://` logo URL shown in the brand header. When a
-   * valid URL is provided it replaces the default embedded Agent Native logo;
-   * anything else (missing, relative, non-https) falls back to that logo.
+   * valid URL is provided it replaces the deployment's configured logo;
+   * anything else (missing, relative, non-https) falls back to that logo, then
+   * to the embedded Agent Native one. See `configureEmailBranding`.
    */
   brandLogoUrl?: string;
   /**
-   * Optional brand hex color for the CTA button and inline links. Defaults to
-   * a monochrome near-white button with dark text.
+   * Optional brand hex color for the CTA button and inline links. Falls back to
+   * the color set by `configureEmailBranding`, then to a monochrome near-white
+   * button with dark text.
    */
   brandColor?: string;
 }
@@ -90,34 +104,43 @@ function escapeAttr(s: string): string {
 }
 
 /**
- * Only accept a strict `#rrggbb` hex color for `brandColor`. Anything else
- * could inject CSS into the inline `style` attribute (`red; background:url(…)`).
+ * Render a framework email. Delegates to a registered renderer when the app
+ * installed one (see `registerEmailRenderer`), otherwise uses the built-in
+ * template below.
+ *
+ * A custom renderer wrapping the framework's markup must call
+ * `renderBuiltInEmail`, not this function, which would recurse.
  */
-function sanitizeHexColor(input: string | undefined): string | undefined {
-  if (!input) return undefined;
-  return /^#[0-9a-fA-F]{6}$/.test(input) ? input : undefined;
-}
-
-/**
- * Only accept an absolute `https://` URL for the brand logo. Email clients drop
- * relative and mixed-content images, and an unvalidated string in `src` is an
- * injection surface — so anything else falls back to the embedded logo.
- */
-function sanitizeLogoUrl(input: string | undefined): string | undefined {
-  if (!input) return undefined;
-  try {
-    return new URL(input).protocol === "https:" ? input : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export function renderEmail(args: RenderEmailArgs): RenderedEmail {
+  const renderer = getActiveEmailRenderer();
+  if (!renderer) return renderBuiltInEmail(args);
+
+  const rendered = renderer.render(args);
+  // A renderer returning the wrong shape would otherwise reach the provider as
+  // `undefined` and send an empty message that logs as delivered.
+  if (
+    typeof rendered?.html !== "string" ||
+    typeof rendered?.text !== "string"
+  ) {
+    throw new Error(
+      `Email renderer "${renderer.id}" must return { html: string, text: string }.`,
+    );
+  }
+  return rendered;
+}
+
+/** The framework's standard dark-card template. */
+export function renderBuiltInEmail(args: RenderEmailArgs): RenderedEmail {
   const preheader = args.preheader || "";
-  const brand = sanitizeHexColor(args.brandColor);
+  // A rejected per-call value falls through to the deployment default rather
+  // than straight to the framework logo: a tenant row with a bad logo should
+  // land on the app's brand, not on Agent Native's.
+  const defaults = getEmailBranding();
+  const brand = sanitizeHexColor(args.brandColor) ?? defaults.color;
   const brandName = args.brandName?.trim() || getAppName() || "Agent Native";
   const logoSrc =
     sanitizeLogoUrl(args.brandLogoUrl) ??
+    defaults.logoUrl ??
     `cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`;
 
   // Monochrome default: near-white button with dark text. Brand override:

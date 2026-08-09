@@ -1572,6 +1572,7 @@ const enUS = {
     mcpApps: "MCP Apps (Inline UIs)",
     crossAppSso: "Cross-App SSO",
     notifications: "Notifications",
+    transactionalEmail: "Transactional Email",
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
     creatingTemplates: "Creating Apps",

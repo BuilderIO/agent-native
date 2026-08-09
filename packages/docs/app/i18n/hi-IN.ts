@@ -1572,6 +1572,7 @@ const hiIN = {
     mcpApps: "MCP Apps (Inline UIs)",
     crossAppSso: "Cross-app SSO",
     notifications: "सूचनाएँ",
+    transactionalEmail: "लेनदेन ईमेल",
     automationConnectors: "वर्कफ़्लो कनेक्टर",
     workspaceConnections: "Workspace connections",
     creatingTemplates: "Templates बनाना",

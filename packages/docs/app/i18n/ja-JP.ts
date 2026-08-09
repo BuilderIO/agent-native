@@ -1579,6 +1579,7 @@ const jaJP = {
     mcpApps: "MCP Apps (インライン UI)",
     crossAppSso: "クロスアプリ SSO",
     notifications: "通知",
+    transactionalEmail: "トランザクションメール",
     automationConnectors: "ワークフローコネクタ",
     workspaceConnections: "Workspace 接続",
     creatingTemplates: "テンプレート作成",
