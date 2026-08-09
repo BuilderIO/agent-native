@@ -35,6 +35,7 @@ export default defineAction({
     return queueAutomationRunNow({
       userEmail,
       orgId,
+      appId: "factory",
       scope: "organization",
       name: definition.name,
     });

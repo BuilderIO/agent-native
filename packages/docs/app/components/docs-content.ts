@@ -9,6 +9,8 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../../lib/docs-source";
+import { hasDocBlockSyntax } from "./doc-block-detection";
+import { preloadDocBlocksContent } from "./doc-block-renderer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -274,7 +276,17 @@ export async function loadDocRespectingDraftVisibility(
   // Normalize `draft` to the resolved status so callers that render a draft
   // banner off this flag stay correct for translations whose frontmatter
   // omits `draft: true` even though the canonical page is a draft.
-  return isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+  const visibleDoc =
+    isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+
+  // Route loaders run before both SSR and client-side navigations render. Keep
+  // the optional block module out of ordinary docs requests, but resolve it
+  // before a block page can paint the Markdown fallback and then reflow.
+  if (hasDocBlockSyntax(visibleDoc.body)) {
+    await preloadDocBlocksContent();
+  }
+
+  return visibleDoc;
 }
 
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {

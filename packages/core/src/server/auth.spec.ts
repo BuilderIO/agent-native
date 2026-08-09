@@ -1203,6 +1203,29 @@ describe("server/auth", () => {
       }
     });
 
+    it("lets the signed recurring-job sweep bypass the global auth guard", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_BASE_PATH", "/factory");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/factory/_agent-native/jobs/_process-sweep",
+      });
+      event.req.method = "POST";
+      event.node.req.method = "POST";
+
+      await expect(guard(event)).resolves.toBeUndefined();
+    });
+
     it("lets the durable _process-run processor routes bypass the global auth guard", async () => {
       // Both the agent-teams sub-agent processor AND the durable-background
       // agent-chat processor are self-fired with ONLY an HMAC Bearer token (no

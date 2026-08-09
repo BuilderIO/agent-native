@@ -1859,6 +1859,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
+    // through the durable background function and authenticate with the same
+    // short-lived HMAC token as the other internal processors. They do not
+    // carry a browser session, so let the route perform its own token check.
+    if (p === "/_agent-native/jobs/_process-sweep") {
+      return;
+    }
+
     // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
     // a queued sub-agent in a fresh function invocation; authenticity is
     // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
