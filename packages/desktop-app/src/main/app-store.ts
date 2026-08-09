@@ -114,7 +114,7 @@ function defaultFrameSettings(): FrameSettings {
   return {
     enabled: true,
     showCodeTab: true,
-    chatFirstMode: false,
+    chatFirstMode: true,
     mode: app.isPackaged ? "prod" : "dev",
   };
 }

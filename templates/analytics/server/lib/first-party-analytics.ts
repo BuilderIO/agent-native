@@ -612,7 +612,7 @@ export async function recordAnalyticsEvents(
   if (rows.length && backend.sink !== "bigquery") {
     try {
       await db.transaction(async (tx: any) => {
-        if (backend.sink === "postgres") {
+        if (backend.sink === "postgres" || backend.sink === "dual") {
           await reserveFirstPartyPostgresEventVolume(
             tx,
             {

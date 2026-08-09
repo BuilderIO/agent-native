@@ -8,10 +8,10 @@ import {
   type AgentEngineEntry,
 } from "../../agent/engine/index.js";
 import {
-  normalizeOpenAiBaseUrl,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "../../agent/engine/openai-compatible-endpoint.js";
+import { validateProviderBaseUrl } from "../../agent/engine/provider-endpoint-validation.js";
 import type { ActionTool } from "../../agent/types.js";
 import {
   canUseDeployCredentialFallbackForRequest,
@@ -51,11 +51,35 @@ async function resolveAgentEngineSecret(
   try {
     const value = await resolveSecret(key);
     if (value) return value;
-  } catch {
-    // Fall through to deploy env when this request is allowed to use it.
+  } catch (error) {
+    if (!canUseDeployCredentialFallbackForRequest(key)) throw error;
+    console.warn(
+      "[test-agent-engine] Saved provider secret unavailable; using deploy configuration.",
+      { key, error },
+    );
   }
   return canUseDeployCredentialFallbackForRequest(key)
     ? readDeployCredentialEnv(key)
+    : undefined;
+}
+
+async function resolveAgentEngineEndpoint(
+  key: string,
+): Promise<string | undefined> {
+  try {
+    const value = await resolveSecret(key);
+    if (value) return validateProviderBaseUrl(value);
+  } catch (error) {
+    if (!canUseDeployCredentialFallbackForRequest(key)) throw error;
+    console.warn(
+      "[test-agent-engine] Saved endpoint unavailable; using deploy configuration.",
+      { key, error },
+    );
+  }
+  if (!canUseDeployCredentialFallbackForRequest(key)) return undefined;
+  const value = readDeployCredentialEnv(key);
+  return value
+    ? validateProviderBaseUrl(value, { allowPrivate: true })
     : undefined;
 }
 
@@ -83,12 +107,11 @@ async function createEngineConfig(
       entry.name === "ai-sdk:ollama"
         ? OLLAMA_BASE_URL_ENV_VAR
         : OPENAI_BASE_URL_ENV_VAR;
-    const rawBaseUrl = args.baseUrl?.trim()
-      ? args.baseUrl
-      : await resolveAgentEngineSecret(endpointKey);
-    if (rawBaseUrl) {
-      config.baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
-    }
+    const explicitBaseUrl = args.baseUrl?.trim();
+    const baseUrl = explicitBaseUrl
+      ? await validateProviderBaseUrl(explicitBaseUrl)
+      : await resolveAgentEngineEndpoint(endpointKey);
+    if (baseUrl) config.baseUrl = baseUrl;
   }
 
   return config;

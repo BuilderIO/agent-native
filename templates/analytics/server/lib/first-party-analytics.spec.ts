@@ -370,6 +370,31 @@ describe("recordAnalyticsEvents", () => {
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
   });
 
+  it("enforces the Postgres volume limit during dual writes", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "dual",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: false,
+    });
+    analyticsDbMocks.selectLimit
+      .mockResolvedValueOnce([
+        { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
+      ])
+      .mockResolvedValueOnce([
+        { eventCount: 1_000_000, eventLimit: 1_000_000 },
+      ]);
+    analyticsDbMocks.updateReturning.mockResolvedValueOnce([]);
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("volume limit reached");
+
+    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
+    expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
   it("keeps derived exception issues in SQL after the event cutover", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",

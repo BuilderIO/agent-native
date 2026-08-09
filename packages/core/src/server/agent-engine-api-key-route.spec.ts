@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
+const mockIsBlockedExtensionUrlWithDns = vi.fn();
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
@@ -17,12 +18,29 @@ vi.mock("../secrets/storage.js", () => ({
   deleteAppSecret: vi.fn(),
 }));
 
+vi.mock("../extensions/url-safety.js", () => ({
+  isBlockedExtensionUrlWithDns: (...args: unknown[]) =>
+    mockIsBlockedExtensionUrlWithDns(...args),
+}));
+
+import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
   normalizeAgentEngineApiKeyPayload,
   resolveAgentEngineApiKeyWriteTarget,
 } from "./agent-engine-api-key-route.js";
 
 describe("agent engine api-key route helpers", () => {
+  it("rejects private provider endpoints at the server validation boundary", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValueOnce(true);
+
+    await expect(
+      validateProviderBaseUrl("http://ollama.internal:11434"),
+    ).rejects.toThrow("private/internal address");
+    expect(mockIsBlockedExtensionUrlWithDns).toHaveBeenCalledWith(
+      "http://ollama.internal:11434",
+    );
+  });
+
   it("accepts provider aliases and normalizes to provider env keys", () => {
     expect(
       normalizeAgentEngineApiKeyPayload({

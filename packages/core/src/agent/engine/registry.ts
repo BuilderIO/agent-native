@@ -22,10 +22,10 @@ import {
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
-  normalizeOpenAiBaseUrl,
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "./openai-compatible-endpoint.js";
+import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -654,6 +654,7 @@ async function resolveProviderBaseUrl(
   envVar: string,
 ): Promise<string | undefined> {
   let raw: string | null | undefined = null;
+  let allowPrivate = false;
   try {
     raw = await resolveSecret(envVar);
   } catch {
@@ -662,9 +663,10 @@ async function resolveProviderBaseUrl(
 
   if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
     raw = readDeployCredentialEnv(envVar);
+    allowPrivate = true;
   }
 
-  return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
+  return raw ? validateProviderBaseUrl(raw, { allowPrivate }) : undefined;
 }
 
 /**
@@ -787,7 +789,7 @@ async function engineCreateConfigForEntry(
   }
   if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
-      safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
+      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL);
     }
     if (safeExtra.baseUrl == null) {
       const baseUrl = await resolveProviderBaseUrl(

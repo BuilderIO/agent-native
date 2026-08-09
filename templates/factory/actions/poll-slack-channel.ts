@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -18,10 +19,15 @@ export default defineAction({
   schema: z.object({
     channelId: z.string().trim().min(1).max(128).optional(),
   }),
-  http: { method: "POST" },
+  http: false,
   run: async ({ channelId: requestedChannelId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
+    );
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "sourcePolling",
     );
     const db = getDb();
     const config = (

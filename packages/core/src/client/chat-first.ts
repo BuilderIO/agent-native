@@ -461,15 +461,16 @@ export function readChatFirstModeState(
   storage: StringStorage | null = browserStorage(),
 ): ChatFirstModeReadResult {
   if (!storage) {
-    return { enabled: false, availability: "unavailable" };
+    return { enabled: true, availability: "unavailable" };
   }
   try {
+    const stored = storage.getItem(CHAT_FIRST_MODE_STORAGE_KEY);
     return {
-      enabled: storage.getItem(CHAT_FIRST_MODE_STORAGE_KEY) === "true",
+      enabled: stored == null ? true : stored === "true",
       availability: "available",
     };
   } catch {
-    return { enabled: false, availability: "unavailable" };
+    return { enabled: true, availability: "unavailable" };
   }
 }
 

@@ -6,6 +6,7 @@ import {
 } from "h3";
 
 import { normalizeOpenAiBaseUrl } from "../agent/engine/openai-compatible-endpoint.js";
+import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
@@ -203,6 +204,17 @@ export function createAgentEngineApiKeyHandler() {
     if (!resolved.ok) {
       setResponseStatus(event, resolved.statusCode);
       return { error: resolved.error };
+    }
+
+    if (payload.baseUrl) {
+      try {
+        await validateProviderBaseUrl(payload.baseUrl);
+      } catch (err) {
+        setResponseStatus(event, 400);
+        return {
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     }
 
     if (payload.value) {
