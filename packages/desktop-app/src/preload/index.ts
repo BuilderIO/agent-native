@@ -56,6 +56,10 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
+  type QuickPromptPreferences,
+  type QuickPromptSettings,
+  type QuickPromptSubmitRequest,
+  type QuickPromptSubmitResult,
   type InterAppMessage,
   type LocalAppFolderSelectResult,
   type UpdateStatus,
@@ -256,6 +260,23 @@ const electronAPI = {
     load: (): Promise<FrameSettings> => ipcRenderer.invoke(IPC.FRAME_LOAD),
     update: (settings: Partial<FrameSettings>): Promise<FrameSettings> =>
       ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
+  },
+
+  /** Global Quick Prompt overlay controls */
+  quickPrompt: {
+    load: (): Promise<QuickPromptSettings> =>
+      ipcRenderer.invoke(IPC.QUICK_PROMPT_LOAD),
+    update: (
+      settings: Partial<QuickPromptPreferences>,
+    ): Promise<QuickPromptSettings> =>
+      ipcRenderer.invoke(IPC.QUICK_PROMPT_UPDATE, settings),
+    dismiss: (): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_DISMISS);
+    },
+    submit: (
+      request: QuickPromptSubmitRequest,
+    ): Promise<QuickPromptSubmitResult> =>
+      ipcRenderer.invoke(IPC.QUICK_PROMPT_SUBMIT, request),
   },
 
   /** Auto-update controls + status */

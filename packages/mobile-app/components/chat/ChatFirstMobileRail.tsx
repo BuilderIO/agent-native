@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react-native";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Platform, PlatformColor, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import { AppIcon } from "@/components/AppCard";
 
@@ -27,22 +27,8 @@ const APP_ID_TO_ROUTE: Record<string, string> = {
 };
 
 const MOBILE_COLORS = {
-  bright:
-    Platform.OS === "web"
-      ? "rgba(244, 244, 245, 0.92)"
-      : Platform.OS === "ios"
-        ? PlatformColor("labelColor")
-        : Platform.OS === "android"
-          ? PlatformColor("?android:attr/textColorPrimary")
-          : "currentColor",
-  muted:
-    Platform.OS === "web"
-      ? "rgba(161, 161, 170, 0.88)"
-      : Platform.OS === "ios"
-        ? PlatformColor("secondaryLabelColor")
-        : Platform.OS === "android"
-          ? PlatformColor("?android:attr/textColorSecondary")
-          : "currentColor",
+  bright: "#d4d4d8",
+  muted: "#a1a1aa",
 };
 
 export function ChatFirstMobileRail({

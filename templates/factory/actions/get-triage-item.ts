@@ -13,6 +13,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 
 export default defineAction({
   description:
@@ -21,7 +22,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ itemId }, context) => {
-    const { orgId } = await requireWorkspaceMember(
+    const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
@@ -55,6 +56,28 @@ export default defineAction({
       .where(and(eq(triageRuns.itemId, itemId), eq(triageRuns.orgId, orgId)))
       .orderBy(asc(triageRuns.startedAt));
 
+    const matchingFeedback = feedback.filter((entry) =>
+      decisions.some((decision) => decision.id === entry.decisionId),
+    );
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "get-triage-item",
+        kind: "read",
+        itemId,
+        source: item.source,
+        sourceUrl: item.sourceUrl,
+        summary: `Inspected ${item.title}`,
+        details: {
+          decisionCount: decisions.length,
+          feedbackCount: matchingFeedback.length,
+          runCount: runs.length,
+          coverage: item.coverage,
+        },
+      },
+    );
+
     return {
       ...item,
       decisions: decisions.map((decision) => ({
@@ -65,9 +88,7 @@ export default defineAction({
         mode: decision.mode,
         createdAt: decision.createdAt,
       })),
-      feedback: feedback.filter((entry) =>
-        decisions.some((decision) => decision.id === entry.decisionId),
-      ),
+      feedback: matchingFeedback,
       runs,
     };
   },

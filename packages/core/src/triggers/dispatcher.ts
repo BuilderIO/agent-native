@@ -22,6 +22,7 @@ import {
 } from "../jobs/background-automation-runner.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   parseJobResource,
 } from "../jobs/frontmatter.js";
 import {
@@ -82,16 +83,6 @@ const _eventSubscriptions = new Map<string, string>();
 // deployments; multi-instance would need a conditional DB update.
 const _dispatchingTriggers = new Set<string>();
 let _deps: TriggerDispatcherDeps | null = null;
-
-function jobBelongsToApp(
-  meta: TriggerFrontmatter,
-  appId: string | undefined,
-): boolean {
-  const ownerAppId = meta.appId?.trim();
-  if (!ownerAppId) return true;
-  const dispatcherAppId = appId?.trim();
-  return Boolean(dispatcherAppId && ownerAppId === dispatcherAppId);
-}
 
 /**
  * Record that a tick evaluated this trigger and declined to dispatch it.

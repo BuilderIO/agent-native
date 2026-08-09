@@ -21,13 +21,18 @@ import type {
   CodeAgentProviderSettingsUpdate,
   CodeAgentProviderStatus,
 } from "@shared/ipc-channels";
-import { app, safeStorage } from "electron";
+import {
+  normalizeQuickPromptPreferences,
+  type QuickPromptPreferences,
+} from "@shared/quick-prompt";
+import { app } from "electron";
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const SHORTCUT_STORE_FILE = "shortcut-config.json";
+const QUICK_PROMPT_STORE_FILE = "quick-prompt-config.json";
 const DESKTOP_APP_PREFERENCES_STORE_FILE = "desktop-app-preferences.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
 
@@ -80,6 +85,10 @@ const CODE_AGENT_PROVIDER_KEYS = CODE_AGENT_PROVIDER_DEFINITIONS.flatMap(
   (provider) => provider.keys,
 );
 
+type CodeAgentProviderCredentials = Partial<
+  Record<CodeAgentProviderCredentialKey, string>
+>;
+
 export type { FrameSettings };
 
 export interface RemoteConnectorSettings {
@@ -95,6 +104,10 @@ export interface DesktopAppPreferences {
 interface ShortcutStore {
   version: 1;
   bindings: DesktopShortcutBinding[];
+}
+
+interface QuickPromptStore extends QuickPromptPreferences {
+  version: 1;
 }
 
 function defaultFrameSettings(): FrameSettings {
@@ -183,6 +196,10 @@ function getShortcutStorePath(): string {
   return path.join(app.getPath("userData"), SHORTCUT_STORE_FILE);
 }
 
+function getQuickPromptStorePath(): string {
+  return path.join(app.getPath("userData"), QUICK_PROMPT_STORE_FILE);
+}
+
 function getDesktopAppPreferencesStorePath(): string {
   return path.join(app.getPath("userData"), DESKTOP_APP_PREFERENCES_STORE_FILE);
 }
@@ -250,6 +267,41 @@ function defaultShortcutStore(): ShortcutStore {
   return { version: 1, bindings: [] };
 }
 
+function defaultQuickPromptStore(): QuickPromptStore {
+  return { version: 1, enabled: false };
+}
+
+function loadQuickPromptStore(): QuickPromptStore {
+  try {
+    const raw = JSON.parse(fs.readFileSync(getQuickPromptStorePath(), "utf-8"));
+    return {
+      version: 1,
+      ...normalizeQuickPromptPreferences(raw),
+    };
+  } catch {
+    return defaultQuickPromptStore();
+  }
+}
+
+export function loadQuickPromptPreferences(): QuickPromptPreferences {
+  return loadQuickPromptStore();
+}
+
+export function saveQuickPromptPreferences(
+  settings: Partial<QuickPromptPreferences>,
+): QuickPromptPreferences {
+  const current = loadQuickPromptStore();
+  const updated: QuickPromptStore = {
+    version: 1,
+    enabled:
+      typeof settings.enabled === "boolean"
+        ? settings.enabled
+        : current.enabled,
+  };
+  writeJsonFileAtomic(getQuickPromptStorePath(), updated);
+  return updated;
+}
+
 function sanitizeShortcutBehavior(behavior: unknown): DesktopShortcutBehavior {
   return behavior === "show" ? "show" : "toggle";
 }
@@ -303,82 +355,34 @@ function saveShortcutStore(store: ShortcutStore): void {
   writeJsonFileAtomic(getShortcutStorePath(), store);
 }
 
-function canUseSafeStorage(): boolean {
-  try {
-    return safeStorage.isEncryptionAvailable();
-  } catch {
-    return false;
-  }
-}
-
 function encodeProviderSecret(value: string): StoredSecret {
-  if (canUseSafeStorage()) {
-    try {
-      return {
-        encoding: "safeStorage-v1",
-        value: safeStorage.encryptString(value).toString("base64"),
-        updatedAt: new Date().toISOString(),
-      };
-    } catch {
-      // Fall through to the plain fallback below.
-    }
-  }
-
   return {
-    encoding: "plain",
+    // Keep credentials in the app-owned 0600 file so startup never touches macOS Keychain.
+    encoding: "local-file-v1",
     value,
     updatedAt: new Date().toISOString(),
   };
 }
 
-function decryptProviderSecret(
-  secret: StoredSecret | undefined,
-): string | null {
+function readProviderSecret(secret: StoredSecret | undefined): string | null {
   if (!secret?.value) return null;
   if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
     return secret.value;
   }
-  if (!canUseSafeStorage()) return null;
-  try {
-    return safeStorage.decryptString(Buffer.from(secret.value, "base64"));
-  } catch {
-    return null;
-  }
+  return null;
 }
 
-function migrateDecryptableProviderSecrets(
-  store: CodeAgentProviderStore,
-  credentials: Partial<Record<CodeAgentProviderCredentialKey, string>>,
-): void {
-  if (!canUseSafeStorage()) return;
-  let changed = false;
-  for (const key of CODE_AGENT_PROVIDER_KEYS) {
-    const secret = store.credentials[key];
-    const value = credentials[key];
-    if (!value || !secret || secret.encoding === "safeStorage-v1") continue;
-    store.credentials[key] = encodeProviderSecret(value);
-    changed = true;
-  }
-  if (changed) saveCodeAgentProviderStore(store);
+function hasUsableProviderSecret(secret: StoredSecret | undefined): boolean {
+  return readProviderSecret(secret) !== null;
 }
 
-function hasStoredProviderSecretBlob(
-  secret: StoredSecret | undefined,
-): boolean {
-  return Boolean(secret?.value);
-}
-
-export function loadCodeAgentProviderCredentials(): Partial<
-  Record<CodeAgentProviderCredentialKey, string>
-> {
+export function loadCodeAgentProviderCredentials(): CodeAgentProviderCredentials {
   const store = loadCodeAgentProviderStore();
-  const credentials: Partial<Record<CodeAgentProviderCredentialKey, string>> =
-    {};
+  const credentials: CodeAgentProviderCredentials = {};
   for (const key of CODE_AGENT_PROVIDER_KEYS) {
-    const value = decryptProviderSecret(store.credentials[key]);
+    const value = readProviderSecret(store.credentials[key]);
     if (value) credentials[key] = value;
   }
-  migrateDecryptableProviderSecrets(store, credentials);
   return credentials;
 }
 
@@ -417,7 +421,7 @@ export function applyCodeAgentProviderCredentialsToEnv(): CodeAgentProviderCrede
   for (const key of CODE_AGENT_PROVIDER_KEYS) {
     if (credentials[key]) {
       appliedKeys.push(key);
-    } else if (hasStoredProviderSecretBlob(store.credentials[key])) {
+    } else if (hasUsableProviderSecret(store.credentials[key])) {
       failedKeys.push(key);
     }
   }
@@ -437,7 +441,7 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   const store = loadCodeAgentProviderStore();
   const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
     const savedKeys = provider.keys.filter((key) =>
-      hasStoredProviderSecretBlob(store.credentials[key]),
+      hasUsableProviderSecret(store.credentials[key]),
     );
     const envKeys = provider.keys.filter((key) => Boolean(process.env[key]));
     const configuredKeys = provider.keys.filter(

@@ -46,7 +46,8 @@ ladder.
 
 - `navigation.view`: `factory` when the workspace is open.
 - `navigation.factoryId`: selected Factory id when present.
-- `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `settings`.
+- `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `audit` | `settings`.
+- `navigation.factoryAuditRunId`: selected automation run in the audit view when present.
 - `navigation.factoryNodeId` / `navigation.factoryEdgeId`: selected graph item.
 - A selected graph node or edge is part of `navigation` context. Read
   `view-screen` before answering why a route exists or changing the selected
@@ -68,6 +69,7 @@ ladder.
 | `start-builder-for-item` | Govern clear-bug dispatch; Slack tags Builder in-thread, other sources use Builder API. |
 | `govern-agent-native-pull-request` | Apply CI, review, internal-author, product, and owner gates to PR approval/merge. |
 | `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect and edit org-owned Factory prompts, models, schedules, and runs. |
+| `list-factory-audit` | Inspect recent automation runs with their source observations, decisions, and provider actions. |
 | `get-factory-automation-health` | Inspect the durable scheduler heartbeat and last scheduler error when runs appear stale. |
 | `suggest-factory-rules` | Mine feedback and fast approvals into proposals. |
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |

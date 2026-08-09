@@ -53,7 +53,22 @@ describe("agent engine api-key route helpers", () => {
     });
   });
 
-  it("rejects endpoint URLs for non-OpenAI providers", () => {
+  it("accepts a local Ollama endpoint URL", () => {
+    expect(
+      normalizeAgentEngineApiKeyPayload({
+        provider: "ollama",
+        baseUrl: " http://localhost:11434/// ",
+      }),
+    ).toEqual({
+      ok: true,
+      key: "OLLAMA_BASE_URL",
+      baseUrl: "http://localhost:11434",
+      clearBaseUrl: false,
+      scope: "user",
+    });
+  });
+
+  it("rejects endpoint URLs for providers without endpoint support", () => {
     expect(
       normalizeAgentEngineApiKeyPayload({
         provider: "anthropic",
@@ -62,7 +77,7 @@ describe("agent engine api-key route helpers", () => {
     ).toEqual({
       ok: false,
       statusCode: 400,
-      error: "Endpoint URL is only supported for OpenAI.",
+      error: "Endpoint URL is only supported for OpenAI or Ollama.",
     });
   });
 

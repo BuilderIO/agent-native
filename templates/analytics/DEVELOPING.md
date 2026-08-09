@@ -190,8 +190,15 @@ for an explicitly selected organization. It is dry-run by default. It uses the
 scoped credential resolver, fixed high-water marks, separate organization and
 legacy-owner cursors, atomic local checkpoints, a local lock, and a durable
 database lease shared with the shipped worker. The tuple-paging indexes are
-installed by the additive analytics migration. It does not change the Analytics
-sink or perform cutover.
+installed by the additive analytics migration, including a filtered cursor
+index for the default `http.response` exclusion. By default it copies the most
+recent 60 days, paging from the oldest eligible row to the newest so an
+existing checkpoint can resume without duplicates or gaps. Use
+`--lookback-days=30` when a 30-day window is sufficient; the worker accepts
+30-60 days only. It skips the high-volume `http.response` infrastructure
+telemetry by default. Override the exclusion list with `--skip-events=<csv>`;
+an empty value includes every event name. It does not change the Analytics sink
+or perform cutover.
 
 ```bash
 pnpm backfill:first-party-bigquery \
@@ -217,8 +224,48 @@ AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_ALLOW=1 pnpm backfill:first-party-bigqu
   --max-batches=100
 ```
 
+The shipped durable worker uses the same policy. Set
+`ANALYTICS_BIGQUERY_BACKFILL_LOOKBACK_DAYS` and
+`ANALYTICS_BIGQUERY_BACKFILL_SKIP_EVENTS` to override its 30-60 day window and
+comma-separated event exclusions. The default exclusion is only
+`http.response`; action responses, exceptions, pageviews, session events,
+agent-run events, A2A invocations, session replay, and public-key metadata are
+preserved.
+
+### Postgres event volume guard
+
+New tenants that remain on the default Postgres sink are capped at 1,000,000
+accepted events per fixed UTC 30-day window. The reservation is atomic per
+organization (or per owner for legacy personal keys), so concurrent `/track`
+requests cannot overshoot the cap. Once reached, `/track` returns HTTP 429 with
+guidance to connect an external analytics database or BigQuery. SQL-only
+exception issues and public-key last-used metadata are still preserved for a
+rejected batch; session replay uses its separate quota path.
+
+Operators can raise or lower the guard with:
+
+```bash
+ANALYTICS_FIRST_PARTY_POSTGRES_EVENT_VOLUME_LIMIT=1000000
+ANALYTICS_FIRST_PARTY_POSTGRES_EVENT_VOLUME_WINDOW_DAYS=30
+```
+
+The guard applies only while an organization uses the `postgres` sink. Dual
+write and BigQuery-only organizations continue to accept events through the
+warehouse path while the migration state machine controls cutover.
+
+Postgres cleanup is intentionally a separate bounded action:
+`purge-first-party-analytics-postgres` is dry-run by default, limits work to a
+30-60 day window, counts only the current organization (legacy owner rows are
+opt-in), and compares the scoped BigQuery count before any delete. It never
+removes exception issues, session replay, public-key metadata, migration state,
+or volume counters. A write also requires a completed BigQuery cutover, the
+exact `PURGE_FIRST_PARTY_POSTGRES_EVENTS` confirmation, normal action approval,
+and parity unless `allowUncopiedEvents=true` is explicitly accepted.
+
 The checkpoint file contains cursors and counts, not event payloads or
-credentials. A short page triggers a fresh high-water check so rows written
+credentials. A v1 checkpoint is upgraded in place with the bounded source
+window and event filter while retaining its cursor and copied counts. A short
+page triggers a fresh high-water check so rows written
 while the worker is running are included. A partial BigQuery acknowledgement
 does not advance the cursor; retry it promptly, or run an insertId-deduplication
 or `MERGE` pass on the target table before finalizing.

@@ -9,6 +9,7 @@ import {
 } from "../../agent/engine/index.js";
 import {
   normalizeOpenAiBaseUrl,
+  OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "../../agent/engine/openai-compatible-endpoint.js";
 import type { ActionTool } from "../../agent/types.js";
@@ -77,10 +78,14 @@ async function createEngineConfig(
     allowEnvFallback: canUseDeployEnvForEntry(entry),
   };
 
-  if (entry.name === "ai-sdk:openai") {
+  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
+    const endpointKey =
+      entry.name === "ai-sdk:ollama"
+        ? OLLAMA_BASE_URL_ENV_VAR
+        : OPENAI_BASE_URL_ENV_VAR;
     const rawBaseUrl = args.baseUrl?.trim()
       ? args.baseUrl
-      : await resolveAgentEngineSecret(OPENAI_BASE_URL_ENV_VAR);
+      : await resolveAgentEngineSecret(endpointKey);
     if (rawBaseUrl) {
       config.baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
     }

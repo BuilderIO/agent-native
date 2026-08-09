@@ -23,6 +23,7 @@ import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
   normalizeOpenAiBaseUrl,
+  OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "./openai-compatible-endpoint.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
@@ -342,21 +343,24 @@ export function resolveDelegatedRunModel(
  * verbatim instead of normalized against the built-in catalog.
  *
  * `normalizeModelForEngine` honors a live engine's `preserveCustomModels`, but
- * that flag is only set on an AI SDK engine INSTANCE when the OpenAI provider
- * is pointed at an OpenAI-compatible gateway (a custom base URL — e.g. Ollama
- * Cloud or LiteLLM), whose model IDs are not in the built-in OpenAI catalog.
+ * that flag is only set on an AI SDK engine INSTANCE when the provider is
+ * Ollama, or when OpenAI is pointed at an OpenAI-compatible gateway (a custom
+ * base URL — e.g. Ollama Cloud or LiteLLM), whose model IDs are not in the
+ * built-in catalogs.
  * The static registry entry the settings actions pass to
  * `normalizeModelForEngine` cannot carry that runtime flag, so this async
- * helper reproduces the same decision — `ai-sdk:openai` AND a resolved base URL
- * — from the request's stored/deploy config. First-party OpenAI (no gateway)
- * returns false so an unknown/invalid model still normalizes to a supported one.
+ * helper reproduces the same decision from the request's stored/deploy config.
+ * Ollama always returns true because its local model inventory is user-defined;
+ * first-party OpenAI (no gateway) returns false so an unknown/invalid model
+ * still normalizes to a supported one.
  */
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
+  if (entry.name === "ai-sdk:ollama") return true;
   if (entry.name !== "ai-sdk:openai") return false;
   try {
-    return Boolean(await resolveOpenAiBaseUrl());
+    return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));
   } catch {
     return false;
   }
@@ -646,19 +650,18 @@ function engineCreateConfig(
   };
 }
 
-async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
+async function resolveProviderBaseUrl(
+  envVar: string,
+): Promise<string | undefined> {
   let raw: string | null | undefined = null;
   try {
-    raw = await resolveSecret(OPENAI_BASE_URL_ENV_VAR);
+    raw = await resolveSecret(envVar);
   } catch {
     raw = null;
   }
 
-  if (
-    !raw &&
-    canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
-  ) {
-    raw = readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR);
+  if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
+    raw = readDeployCredentialEnv(envVar);
   }
 
   return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
@@ -782,12 +785,16 @@ async function engineCreateConfigForEntry(
           : undefined;
     }
   }
-  if (entry.name === "ai-sdk:openai") {
+  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
       safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
     }
     if (safeExtra.baseUrl == null) {
-      const baseUrl = await resolveOpenAiBaseUrl();
+      const baseUrl = await resolveProviderBaseUrl(
+        entry.name === "ai-sdk:ollama"
+          ? OLLAMA_BASE_URL_ENV_VAR
+          : OPENAI_BASE_URL_ENV_VAR,
+      );
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }

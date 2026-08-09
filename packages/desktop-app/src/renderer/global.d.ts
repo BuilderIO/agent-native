@@ -570,6 +570,25 @@ type DesktopShortcutUpdateResult = {
   error?: string;
 };
 
+type QuickPromptSettings = {
+  enabled: boolean;
+  accelerator: string;
+  registered: boolean;
+  error?: string;
+};
+
+type QuickPromptPreferences = {
+  enabled: boolean;
+};
+
+type QuickPromptSubmitRequest = {
+  prompt: string;
+  cwd?: string;
+  attachments?: CodeAgentPromptAttachment[];
+};
+
+type QuickPromptSubmitResult = CodeAgentCreateRunResult;
+
 type LocalAppFolderInfo = {
   path: string;
   name: string;
@@ -712,6 +731,15 @@ interface ElectronAPI {
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;
+  };
+
+  quickPrompt: {
+    load(): Promise<QuickPromptSettings>;
+    update(
+      settings: Partial<QuickPromptPreferences>,
+    ): Promise<QuickPromptSettings>;
+    dismiss(): void;
+    submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };
 
   updater: {

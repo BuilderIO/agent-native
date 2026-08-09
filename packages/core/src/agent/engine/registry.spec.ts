@@ -473,6 +473,15 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("preserves arbitrary Ollama model ids", async () => {
+      const { resolveEnginePreservesCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEnginePreservesCustomModels({ name: "ai-sdk:ollama" }),
+      ).resolves.toBe(true);
+    });
+
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {

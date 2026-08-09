@@ -10,10 +10,12 @@ import {
   IconLoader2,
   IconPlayerPlay,
   IconPlus,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
+import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
   FactoryCanvas,
   type FactoryCanvasEdge,
@@ -111,7 +113,13 @@ type TriageConfig = {
 };
 
 type Verdict = "correct" | "incorrect" | "uncertain";
-type WorkspaceTab = "map" | "inbox" | "rules" | "automations" | "settings";
+type WorkspaceTab =
+  | "map"
+  | "inbox"
+  | "rules"
+  | "automations"
+  | "audit"
+  | "settings";
 
 type FactoryAutomationRun = {
   id?: string;
@@ -164,6 +172,7 @@ export default function FactoryRoute() {
   const [dirty, setDirty] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [auditRefreshToken, setAuditRefreshToken] = useState(0);
 
   function setActiveTab(tab: WorkspaceTab) {
     setSearchParams(
@@ -418,41 +427,62 @@ export default function FactoryRoute() {
             </Button>
           </div>
         </div>
-        <nav
-          className="mt-4 flex items-center gap-1 overflow-x-auto"
-          aria-label={t("factoryRoute.factoryViews")}
-        >
-          <TabButton
-            active={activeTab === "map"}
-            onClick={() => setActiveTab("map")}
+        <div className="mt-4 flex items-center gap-2">
+          <nav
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+            aria-label={t("factoryRoute.factoryViews")}
           >
-            Map
-          </TabButton>
-          <TabButton
-            active={activeTab === "inbox"}
-            onClick={() => setActiveTab("inbox")}
-          >
-            Inbox
-          </TabButton>
-          <TabButton
-            active={activeTab === "rules"}
-            onClick={() => setActiveTab("rules")}
-          >
-            {t("factoryRoute.rulesTab")}
-          </TabButton>
-          <TabButton
-            active={activeTab === "automations"}
-            onClick={() => setActiveTab("automations")}
-          >
-            {t("factoryRoute.automationsTab")}
-          </TabButton>
-          <TabButton
-            active={activeTab === "settings"}
-            onClick={() => setActiveTab("settings")}
-          >
-            Settings
-          </TabButton>
-        </nav>
+            <TabButton
+              active={activeTab === "map"}
+              onClick={() => setActiveTab("map")}
+            >
+              Map
+            </TabButton>
+            <TabButton
+              active={activeTab === "inbox"}
+              onClick={() => setActiveTab("inbox")}
+            >
+              Inbox
+            </TabButton>
+            <TabButton
+              active={activeTab === "rules"}
+              onClick={() => setActiveTab("rules")}
+            >
+              {t("factoryRoute.rulesTab")}
+            </TabButton>
+            <TabButton
+              active={activeTab === "automations"}
+              onClick={() => setActiveTab("automations")}
+            >
+              {t("factoryRoute.automationsTab")}
+            </TabButton>
+            <TabButton
+              active={activeTab === "audit"}
+              onClick={() => setActiveTab("audit")}
+            >
+              {t("factoryRoute.auditTab")}
+            </TabButton>
+            <TabButton
+              active={activeTab === "settings"}
+              onClick={() => setActiveTab("settings")}
+            >
+              Settings
+            </TabButton>
+          </nav>
+          {activeTab === "audit" && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label={t("factoryRoute.auditRefresh")}
+              title={t("factoryRoute.auditRefresh")}
+              onClick={() => setAuditRefreshToken((current) => current + 1)}
+            >
+              <IconRefresh className="size-4" />
+            </Button>
+          )}
+        </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
@@ -526,6 +556,11 @@ export default function FactoryRoute() {
           <RulesView t={t} />
         ) : activeTab === "automations" ? (
           <AutomationsView factoryId={factoryId} t={t} />
+        ) : activeTab === "audit" ? (
+          <FactoryAuditView
+            factoryId={factoryId}
+            refreshToken={auditRefreshToken}
+          />
         ) : (
           <SettingsView t={t} />
         )}
@@ -559,6 +594,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
   return value === "inbox" ||
     value === "rules" ||
     value === "automations" ||
+    value === "audit" ||
     value === "settings"
     ? value
     : "map";
@@ -729,7 +765,7 @@ function AutomationsView({
                     <span className="block truncate text-sm font-medium">
                       {automation.name}
                     </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
+                    <span className="mt-1 block truncate text-xs text-muted-foreground">
                       {automation.enabled
                         ? t("factoryRoute.automationEnabled")
                         : t("factoryRoute.automationDisabled")}
@@ -956,8 +992,11 @@ function formatModelName(model: string | null | undefined) {
 }
 
 function InboxView({ t }: { t: ReturnType<typeof useT> }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [status, setStatus] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    searchParams.get("itemId"),
+  );
   const [feedbackNote, setFeedbackNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const listQuery = useActionQuery("list-triage-items", {
@@ -988,6 +1027,24 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
     [];
   const normalizedItems = Array.isArray(items) ? items : (items.items ?? []);
   const selectedItem = detailQuery.data as TriageItem | undefined;
+
+  useEffect(() => {
+    setSelectedId(searchParams.get("itemId"));
+  }, [searchParams]);
+
+  function selectItem(itemId: string) {
+    setSelectedId(itemId);
+    setVerdict(null);
+    setFeedbackNote("");
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("itemId", itemId);
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,.7fr)] lg:p-6">
@@ -1046,11 +1103,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                     key={id}
                     type="button"
                     className={`grid w-full gap-3 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
-                    onClick={() => {
-                      setSelectedId(id);
-                      setVerdict(null);
-                      setFeedbackNote("");
-                    }}
+                    onClick={() => selectItem(id)}
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">

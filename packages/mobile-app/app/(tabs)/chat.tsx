@@ -212,7 +212,7 @@ export default function ChatTab() {
     return (
       <SafeAreaView className="flex-1 bg-background-dark">
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#c7f36b" />
+          <ActivityIndicator color="#d4d4d8" />
           <Text className="text-status-gray text-[13px] mt-2.5">
             Opening Chat…
           </Text>
@@ -261,7 +261,7 @@ export default function ChatTab() {
       >
         {chat.historyLoading ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#c7f36b" />
+            <ActivityIndicator color="#d4d4d8" />
           </View>
         ) : (
           <MessagesList

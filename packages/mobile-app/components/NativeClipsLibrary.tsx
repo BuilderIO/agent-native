@@ -181,9 +181,9 @@ function EmptyLibrary({
     <View className="flex-1 items-center justify-center px-7 py-18">
       <View className="w-14 h-14 rounded-2xl bg-accent-green-dim items-center justify-center mb-4.5">
         {searching ? (
-          <IconSearch color="#c7f36b" size={25} strokeWidth={1.7} />
+          <IconSearch color="#d4d4d8" size={25} strokeWidth={1.7} />
         ) : (
-          <IconVideo color="#c7f36b" size={25} strokeWidth={1.7} />
+          <IconVideo color="#d4d4d8" size={25} strokeWidth={1.7} />
         )}
       </View>
       <Text className="text-white text-lg font-bold text-center">
@@ -641,7 +641,7 @@ function NativeClipPlayer({
   if (loading) {
     return (
       <View className="flex-1 items-center justify-center px-7.5 bg-background-dark">
-        <ActivityIndicator color="#c7f36b" />
+        <ActivityIndicator color="#d4d4d8" />
         <Text className="text-text-muted text-sm leading-5 mt-2.5 text-center">
           Opening clip…
         </Text>
@@ -810,7 +810,7 @@ export default function NativeClipsLibrary({
       ListEmptyComponent={
         loading || searching ? (
           <View className="flex-1 items-center justify-center pt-18">
-            <ActivityIndicator color="#c7f36b" />
+            <ActivityIndicator color="#d4d4d8" />
             <Text className="text-text-muted text-sm leading-5 mt-2.5 text-center">
               {searching ? "Searching everything…" : "Loading your clips…"}
             </Text>

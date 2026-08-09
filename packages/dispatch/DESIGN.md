@@ -9,7 +9,8 @@ chrome-less contextual iframe beside the chat.
 
 ## Layout contract
 
-- The default Dispatch navigation and all non-chat routes stay unchanged.
+- The default Dispatch navigation keeps Overview, Chat, and Apps as its stable
+  wayfinding destinations; workspace app names remain in the Apps destination.
 - App discovery comes from list-workspace-apps; rendering always mints
   create_embed_session instead of loading a registry URL directly.
 - Agent-native app frames intentionally keep scripts, storage, and same-origin
@@ -41,3 +42,28 @@ chrome-less contextual iframe beside the chat.
 Keep the pane request app/path/url based so a future cloud worker can resume
 the same thread and contextual view. This change does not claim background
 execution, phone handoff, hosting, or computer-use portability.
+
+## Thread Debug audit plane
+
+Thread Debug is an operate-mode incident desk for people diagnosing agent runs
+under pressure. Its visual world is a restrained graphite-and-signal console:
+semantic status colors carry meaning, while the surrounding surface stays quiet
+and dense enough for repeated use. The first viewport answers one question -
+what failure pattern needs attention - then lets the operator open one run for
+its diagnosis, timeline, conversation, and raw evidence. The list is a compact
+scan surface; the selected run is the workbench. Technical payloads, event
+streams, and access metadata remain progressively disclosed instead of competing
+with the immediate recovery path. Avoid equal-weight cards, repeated raw JSON,
+internal error codes as primary copy, and dashboards that make every run look
+equally urgent.
+
+## Dispatch shell sidebar
+
+The default shell is an operate-mode wayfinding rail, not an app directory. Keep
+the first viewport to the three destinations people use to orient themselves -
+Overview, Chat, and Apps - plus quiet account and management access at the
+bottom. Workspace apps belong in the Apps destination; they must not be repeated
+as a long label list beside the global navigation. The chat-first route may show
+a compact pinned-app shelf because app switching is part of that workflow, with
+the rest behind its existing disclosure. Prefer a short, stable rail over a
+context dump that competes with the page the user opened.

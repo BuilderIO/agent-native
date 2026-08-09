@@ -20,6 +20,7 @@ import {
 } from "./cron.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
@@ -84,16 +85,6 @@ const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
 const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
-
-function jobBelongsToApp(
-  meta: JobFrontmatter,
-  appId: string | undefined,
-): boolean {
-  const ownerAppId = meta.appId?.trim();
-  if (!ownerAppId) return true;
-  const schedulerAppId = appId?.trim();
-  return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
-}
 
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
@@ -621,6 +612,13 @@ async function executeJob(
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
         actionCaller: "automation" as const,
+        actionAutomation: {
+          triggerId: resource.id,
+          triggerName: jobName,
+          ...(meta.delegatedPolicyId
+            ? { policyId: meta.delegatedPolicyId }
+            : {}),
+        },
       },
       deps,
     );

@@ -4,7 +4,6 @@ import { openBuilderConnectPopup } from "@agent-native/core/client/settings";
 import {
   IconCheck,
   IconCloud,
-  IconExternalLink,
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
@@ -173,13 +172,20 @@ export function StorageSetupCard({
         onClick={handleConnect}
         disabled={connecting || connected}
         className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start " +
+          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
           (connected
             ? "border-primary/50 bg-primary/5"
-            : "border-border bg-background hover:border-foreground/30")
+            : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
         }
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
+        <div
+          className={
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
+            (connected
+              ? "bg-foreground text-background"
+              : "bg-primary-foreground/15 text-primary-foreground")
+          }
+        >
           {connected ? (
             <IconCheck className="h-5 w-5" />
           ) : connecting ? (
@@ -197,16 +203,15 @@ export function StorageSetupCard({
                   ? t("storageSetup.waitingForBuilder")
                   : t("storageSetup.connectBuilder")}
             </span>
-            {!connected && !connecting && (
-              <>
-                <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                  {t("storageSetup.free")}
-                </span>
-                <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-              </>
-            )}
           </div>
-          <span className="mt-0.5 block text-xs text-muted-foreground">
+          <span
+            className={
+              "mt-0.5 block text-xs " +
+              (connected
+                ? "text-muted-foreground"
+                : "text-primary-foreground/80")
+            }
+          >
             {connected ? connectedDescription : connectDescription}
           </span>
         </div>

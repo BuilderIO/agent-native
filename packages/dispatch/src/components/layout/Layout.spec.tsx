@@ -233,11 +233,26 @@ describe("Dispatch NavContent", () => {
     expect(shell?.querySelector('a[href="/admin/apps"]')).toBeNull();
   });
 
-  it("shows ready workspace apps as host links and highlights the active app", async () => {
+  it("keeps workspace app discovery in the Apps destination", async () => {
     clientState.workspaceApps = [
       { id: "calendar", name: "Calendar", path: "/calendar", status: "ready" },
       { id: "pending", name: "Pending", path: "/pending", status: "pending" },
     ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector("[data-dispatch-apps-rail]")).toBeNull();
+    expect(container.querySelector('a[href="/apps"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Calendar");
+    expect(container.textContent).not.toContain("Pending");
 
     await act(async () => {
       root.render(
@@ -249,14 +264,9 @@ describe("Dispatch NavContent", () => {
       );
     });
 
-    const rail = container.querySelector("[data-dispatch-apps-rail]");
-    expect(rail).not.toBeNull();
-    expect(rail?.textContent).toContain("Calendar");
-    expect(rail?.textContent).not.toContain("Pending");
-
-    const calendarLink = rail?.querySelector('a[href="/apps/calendar"]');
-    expect(calendarLink).not.toBeNull();
-    expect(calendarLink?.getAttribute("aria-current")).toBe("page");
+    expect(container.querySelector('a[href="/apps"]')?.className).toContain(
+      "bg-sidebar-accent",
+    );
   });
 
   it("keeps Dispatch branding and anchors Settings above the organization picker", async () => {

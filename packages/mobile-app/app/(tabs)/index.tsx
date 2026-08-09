@@ -243,7 +243,7 @@ export default function HomeScreen() {
               className="items-center bg-accent-green-dark border border-accent-green-border rounded-2xl flex-row mt-5 p-3.5"
             >
               <View className="items-center justify-center bg-accent-green-medium rounded-xl h-11 w-11">
-                <IconCloudUpload color="#c7f36b" size={22} strokeWidth={1.8} />
+                <IconCloudUpload color="#d4d4d8" size={22} strokeWidth={1.8} />
               </View>
               <View className="flex-1 mx-3">
                 <Text className="text-text-light text-sm font-bold">
@@ -348,9 +348,9 @@ export default function HomeScreen() {
                         className="items-center justify-center bg-accent-green-medium-dark rounded-full h-8 w-8 active:opacity-75"
                       >
                         {syncingJobId === job.id ? (
-                          <ActivityIndicator color="#c7f36b" size="small" />
+                          <ActivityIndicator color="#d4d4d8" size="small" />
                         ) : (
-                          <IconCloudUpload color="#c7f36b" size={18} />
+                          <IconCloudUpload color="#d4d4d8" size={18} />
                         )}
                       </Pressable>
                     ) : null}

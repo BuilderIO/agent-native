@@ -73,6 +73,7 @@ event: mail.received
 mode: agentic
 createdBy: alice@example.com
 orgId: "org-1"
+appId: mail
 runAs: creator
 model: "claude-sonnet"
 mcpTools: ["mcp__mail__read"]
@@ -184,14 +185,14 @@ describe("automation domain service", () => {
 
     executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
     const adminItems = await listAutomationDefinitions(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(adminItems[0]?.canUpdate).toBe(true);
 
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
     const memberItems = await listAutomationDefinitions(
-      { userEmail: "member@example.com", orgId: "org-1" },
+      { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(memberItems[0]?.canUpdate).toBe(false);
@@ -202,7 +203,7 @@ describe("automation domain service", () => {
     resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
 
     const updated = await updateAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       {
         name: "notify",
         scope: "organization",
@@ -226,7 +227,7 @@ describe("automation domain service", () => {
     );
 
     await deleteAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
       "notify",
     );
@@ -239,7 +240,7 @@ describe("automation domain service", () => {
 
     await expect(
       updateAutomation(
-        { userEmail: "member@example.com", orgId: "org-1" },
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
         {
           name: "notify",
           scope: "organization",

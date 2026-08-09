@@ -36,6 +36,11 @@ const MAX_CONCURRENCY = 4;
 const DEFAULT_MAX_BATCHES = 1_000;
 const MAX_MAX_BATCHES = 10_000;
 const DEFAULT_CHECKPOINT_PATH = ".analytics-first-party-bigquery-backfill.json";
+const DEFAULT_LOOKBACK_DAYS = 60;
+const MIN_LOOKBACK_DAYS = 30;
+const MAX_LOOKBACK_DAYS = 60;
+const DEFAULT_EXCLUDED_EVENT_NAMES = ["http.response"];
+const MAX_EXCLUDED_EVENT_NAMES = 32;
 const QUERY_TIMEOUT_MS = 30_000;
 const MAX_HYDRATION_IDS = 500;
 const JOB_TABLE = "analytics_bigquery_backfill_jobs";
@@ -59,13 +64,16 @@ export interface BranchCheckpoint {
 }
 
 export interface DedicatedBackfillCheckpoint {
-  version: 1;
+  version: 1 | 2;
   scope: {
     userEmail: string;
     orgId: string;
   };
   table: string | null;
   branches: Record<BranchName, BranchCheckpoint>;
+  lookbackDays?: number;
+  lookbackStart?: string | null;
+  excludedEventNames?: string[];
   updatedAt: string;
 }
 
@@ -76,6 +84,8 @@ export interface DedicatedBackfillOptions {
   concurrency: number;
   maxBatches: number;
   checkpointPath: string;
+  lookbackDays?: number;
+  excludedEventNames?: string[];
 }
 
 export interface FinalizeResult {
@@ -127,6 +137,8 @@ interface BranchSpec {
   name: BranchName;
   predicate: string;
   predicateArgs: string[];
+  lookbackStart?: string | null;
+  excludedEventNames?: string[];
 }
 
 const PROJECTED_COLUMNS = FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS.join(", ");
@@ -143,6 +155,49 @@ function positiveInteger(
     throw new Error(`${name} must be a positive integer`);
   }
   return Math.min(value, maximum);
+}
+
+function parseLookbackDays(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_LOOKBACK_DAYS;
+  const value = Number(raw);
+  if (
+    !Number.isInteger(value) ||
+    value < MIN_LOOKBACK_DAYS ||
+    value > MAX_LOOKBACK_DAYS
+  ) {
+    throw new Error(
+      `--lookback-days must be an integer between ${MIN_LOOKBACK_DAYS} and ${MAX_LOOKBACK_DAYS}`,
+    );
+  }
+  return value;
+}
+
+function parseExcludedEventNames(raw: string | undefined): string[] {
+  if (raw === undefined) return [...DEFAULT_EXCLUDED_EVENT_NAMES];
+  const names = [...new Set(raw.split(",").map((name) => name.trim()))].filter(
+    Boolean,
+  );
+  if (names.length > MAX_EXCLUDED_EVENT_NAMES) {
+    throw new Error(
+      `--skip-events supports at most ${MAX_EXCLUDED_EVENT_NAMES} event names`,
+    );
+  }
+  return names;
+}
+
+function lookbackStart(now: string, days: number): string {
+  const date = new Date(now);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid backfill clock value: ${now}`);
+  }
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString();
+}
+
+interface BackfillQueryConfig {
+  lookbackDays: number;
+  lookbackStart: string | null;
+  excludedEventNames: string[];
 }
 
 function requiredArg(args: Record<string, string>, name: string): string {
@@ -178,6 +233,8 @@ export function parseDedicatedBackfillOptions(
       MAX_MAX_BATCHES,
     ),
     checkpointPath: resolve(args.checkpoint || DEFAULT_CHECKPOINT_PATH),
+    lookbackDays: parseLookbackDays(args["lookback-days"]),
+    excludedEventNames: parseExcludedEventNames(args["skip-events"]),
     execute: args.execute === "true",
     finalize: args.finalize === "true",
   };
@@ -185,29 +242,64 @@ export function parseDedicatedBackfillOptions(
 
 function branchSpecs(
   scope: FirstPartyAnalyticsScope & { orgId: string },
+  queryConfig: BackfillQueryConfig = {
+    lookbackDays: DEFAULT_LOOKBACK_DAYS,
+    lookbackStart: null,
+    excludedEventNames: [],
+  },
 ): BranchSpec[] {
   return [
     {
       name: "org",
       predicate: "org_id = ?",
       predicateArgs: [scope.orgId],
+      ...queryConfig,
     },
     {
       name: "legacy",
       predicate: "org_id IS NULL AND owner_email = ?",
       predicateArgs: [scope.userEmail],
+      ...queryConfig,
     },
   ];
 }
 
+function sourceFilter(spec: BranchSpec): {
+  clauses: string[];
+  args: string[];
+} {
+  const clauses: string[] = [];
+  const args: string[] = [];
+  if (spec.lookbackStart) {
+    clauses.push("received_at >= ?");
+    args.push(spec.lookbackStart);
+  }
+  const excluded = spec.excludedEventNames ?? [];
+  if (excluded.length) {
+    if (
+      excluded.length === DEFAULT_EXCLUDED_EVENT_NAMES.length &&
+      excluded[0] === DEFAULT_EXCLUDED_EVENT_NAMES[0]
+    ) {
+      clauses.push("event_name IS DISTINCT FROM 'http.response'");
+    } else {
+      clauses.push(
+        `(event_name IS NULL OR event_name NOT IN (${excluded.map(() => "?").join(", ")}))`,
+      );
+      args.push(...excluded);
+    }
+  }
+  return { clauses, args };
+}
+
 export function buildHighWaterMarkQuery(spec: BranchSpec): DbQuery {
+  const filters = sourceFilter(spec);
   return {
     sql: `SELECT received_at, id
       FROM analytics_events
-      WHERE ${spec.predicate}
+      WHERE ${spec.predicate}${filters.clauses.length ? `\n        AND ${filters.clauses.join("\n        AND ")}` : ""}
       ORDER BY received_at DESC, id DESC
       LIMIT 1`,
-    args: spec.predicateArgs,
+    args: [...spec.predicateArgs, ...filters.args],
     timeoutMs: QUERY_TIMEOUT_MS,
     maxAttempts: 1,
   };
@@ -221,27 +313,25 @@ export function buildPageKeyQuery(
   if (!state.cutoff) {
     throw new Error(`Cannot page ${spec.name} without a high-water mark`);
   }
+  const filters = sourceFilter(spec);
   const args: unknown[] = [
     ...spec.predicateArgs,
-    state.cutoff.receivedAt,
+    ...filters.args,
     state.cutoff.receivedAt,
     state.cutoff.id,
   ];
   let cursorClause = "";
   if (state.cursor) {
-    cursorClause = " AND (received_at > ? OR (received_at = ? AND id > ?))";
-    args.push(
-      state.cursor.receivedAt,
-      state.cursor.receivedAt,
-      state.cursor.id,
-    );
+    cursorClause = " AND (received_at, id) > (?, ?)";
+    args.push(state.cursor.receivedAt, state.cursor.id);
   }
   args.push(batchSize);
   return {
     sql: `SELECT received_at, id
       FROM analytics_events
       WHERE ${spec.predicate}
-        AND (received_at < ? OR (received_at = ? AND id <= ?))${cursorClause}
+        ${filters.clauses.map((clause) => `AND ${clause}`).join("\n        ")}
+        AND (received_at, id) <= (?, ?)${cursorClause}
       ORDER BY received_at ASC, id ASC
       LIMIT ?`,
     args,
@@ -305,9 +395,10 @@ function emptyBranchCheckpoint(): BranchCheckpoint {
 function newCheckpoint(
   options: DedicatedBackfillOptions,
   now: string,
+  queryConfig: BackfillQueryConfig,
 ): DedicatedBackfillCheckpoint {
   return {
-    version: 1,
+    version: 2,
     scope: {
       userEmail: options.scope.userEmail,
       orgId: options.scope.orgId,
@@ -317,7 +408,46 @@ function newCheckpoint(
       org: emptyBranchCheckpoint(),
       legacy: emptyBranchCheckpoint(),
     },
+    lookbackDays: queryConfig.lookbackDays,
+    lookbackStart: queryConfig.lookbackStart ?? undefined,
+    excludedEventNames: queryConfig.excludedEventNames,
     updatedAt: now,
+  };
+}
+
+function checkpointQueryConfig(
+  checkpoint: DedicatedBackfillCheckpoint,
+): BackfillQueryConfig {
+  return {
+    lookbackDays:
+      checkpoint.version === 2
+        ? (checkpoint.lookbackDays ?? DEFAULT_LOOKBACK_DAYS)
+        : DEFAULT_LOOKBACK_DAYS,
+    lookbackStart:
+      checkpoint.version === 2 ? (checkpoint.lookbackStart ?? null) : null,
+    excludedEventNames:
+      checkpoint.version === 2 ? (checkpoint.excludedEventNames ?? []) : [],
+  };
+}
+
+function upgradeCheckpoint(
+  checkpoint: DedicatedBackfillCheckpoint,
+  queryConfig: BackfillQueryConfig,
+): DedicatedBackfillCheckpoint {
+  if (checkpoint.version === 2) {
+    return checkpoint.lookbackDays === undefined
+      ? { ...checkpoint, lookbackDays: queryConfig.lookbackDays }
+      : checkpoint;
+  }
+  for (const branch of ["org", "legacy"] as const) {
+    checkpoint.branches[branch].complete = false;
+  }
+  return {
+    ...checkpoint,
+    version: 2,
+    lookbackDays: queryConfig.lookbackDays,
+    lookbackStart: queryConfig.lookbackStart ?? undefined,
+    excludedEventNames: queryConfig.excludedEventNames,
   };
 }
 
@@ -325,7 +455,7 @@ function assertCheckpointMatches(
   checkpoint: DedicatedBackfillCheckpoint,
   options: DedicatedBackfillOptions,
 ): void {
-  if (checkpoint.version !== 1) {
+  if (checkpoint.version !== 1 && checkpoint.version !== 2) {
     throw new Error(
       `Unsupported backfill checkpoint version: ${checkpoint.version}`,
     );
@@ -342,6 +472,23 @@ function assertCheckpointMatches(
     throw new Error(
       "Backfill checkpoint table does not match the current BigQuery table",
     );
+  }
+  if (checkpoint.version === 2) {
+    const lookbackDays = checkpoint.lookbackDays;
+    if (
+      (checkpoint.lookbackStart !== undefined &&
+        typeof checkpoint.lookbackStart !== "string") ||
+      typeof lookbackDays !== "number" ||
+      !Number.isInteger(lookbackDays) ||
+      lookbackDays < MIN_LOOKBACK_DAYS ||
+      lookbackDays > MAX_LOOKBACK_DAYS ||
+      !Array.isArray(checkpoint.excludedEventNames) ||
+      checkpoint.excludedEventNames.some((name) => typeof name !== "string")
+    ) {
+      throw new Error(
+        "Backfill checkpoint has invalid lookback or event filter metadata",
+      );
+    }
   }
   for (const branch of ["org", "legacy"] as const) {
     const state = checkpoint.branches[branch];
@@ -424,7 +571,7 @@ export async function assertSourceAtCheckpoint(
   checkpoint: DedicatedBackfillCheckpoint,
   db: DbExecutor = getDbExec(),
 ): Promise<void> {
-  for (const spec of branchSpecs(scope)) {
+  for (const spec of branchSpecs(scope, checkpointQueryConfig(checkpoint))) {
     const result = await db.execute(buildHighWaterMarkQuery(spec));
     const latestRow = result.rows[0];
     if (!latestRow) continue;
@@ -532,16 +679,44 @@ export async function runDedicatedBackfill(
   dependencies: DedicatedBackfillDependencies,
 ): Promise<DedicatedBackfillResult> {
   const now = dependencies.now ?? (() => new Date().toISOString());
-  const checkpoint =
-    (await dependencies.checkpointStore.load()) ??
-    newCheckpoint(options, now());
+  const checkpointNow = now();
+  const loadedCheckpoint = await dependencies.checkpointStore.load();
+  const requestedLookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
+  const requestedExcludedEventNames = options.excludedEventNames ?? [
+    ...DEFAULT_EXCLUDED_EVENT_NAMES,
+  ];
+  const queryConfig: BackfillQueryConfig = loadedCheckpoint
+    ? checkpointQueryConfig(loadedCheckpoint)
+    : {
+        lookbackDays: requestedLookbackDays,
+        lookbackStart: lookbackStart(checkpointNow, requestedLookbackDays),
+        excludedEventNames: requestedExcludedEventNames,
+      };
+  const checkpoint = loadedCheckpoint
+    ? upgradeCheckpoint(loadedCheckpoint, queryConfig)
+    : newCheckpoint(options, checkpointNow, queryConfig);
   assertCheckpointMatches(checkpoint, options);
+  if (checkpoint.version === 2) {
+    if (checkpoint.lookbackDays !== requestedLookbackDays) {
+      throw new Error(
+        "Backfill checkpoint lookback window does not match the current --lookback-days setting",
+      );
+    }
+    if (
+      JSON.stringify(checkpoint.excludedEventNames) !==
+      JSON.stringify(requestedExcludedEventNames)
+    ) {
+      throw new Error(
+        "Backfill checkpoint event filter does not match the current --skip-events setting",
+      );
+    }
+  }
   await dependencies.checkpointStore.save(checkpoint);
 
   let batches = 0;
   let copiedThisRun = 0;
   let stop = false;
-  for (const spec of branchSpecs(options.scope)) {
+  for (const spec of branchSpecs(options.scope, queryConfig)) {
     const state = checkpoint.branches[spec.name];
     if (state.complete) continue;
 
@@ -619,6 +794,8 @@ Options:
   --concurrency=<n>             BigQuery requests in flight, default 2, max 4
   --max-batches=<n>             Work budget per invocation, default 1000
   --checkpoint=<path>           Atomic local checkpoint path
+  --lookback-days=<n>           Source window, 30-60 days, default 60
+  --skip-events=<csv>           Event names to skip, default http.response
 
 After the checkpoint is complete, reconcile it into the shipped durable job
 after quiescing source event writes and checking the final high-water marks:
@@ -848,6 +1025,8 @@ async function main(): Promise<void> {
       batchSize: options.batchSize,
       concurrency: options.concurrency,
       maxBatches: options.maxBatches,
+      lookbackDays: options.lookbackDays,
+      excludedEventNames: options.excludedEventNames,
       checkpointPath: options.checkpointPath,
       message:
         "No data was copied. Pass --execute and AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_ALLOW=1 after production approval.",

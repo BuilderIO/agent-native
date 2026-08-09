@@ -5086,6 +5086,7 @@ describe("server/auth", () => {
       delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
       delete process.env.CONTEXT;
       delete process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT;
+      delete process.env.AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV;
       const authModule = await import("./auth.js");
       const localEvent = createMockEvent({
         path: "/_agent-native/auth/local-dev",
@@ -5112,6 +5113,26 @@ describe("server/auth", () => {
       remoteEvent.node.req.socket = { remoteAddress: "203.0.113.5" };
       remoteEvent.node.req.connection = remoteEvent.node.req.socket;
       expect(authModule.isLocalDevAuthAllowed(remoteEvent)).toBe(false);
+
+      const builderPreviewEvent = createMockEvent({
+        path: "/_agent-native/auth/local-dev",
+        headers: { host: "7ab4a09c60a34fdd93b2.projects.builder.my" },
+      });
+      const builderPreviewSocket = { remoteAddress: "203.0.113.5" };
+      builderPreviewEvent.node.req.socket = builderPreviewSocket;
+      builderPreviewEvent.node.req.connection = builderPreviewSocket;
+      expect(authModule.isLocalDevAuthAllowed(builderPreviewEvent)).toBe(false);
+
+      vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+      expect(authModule.isLocalDevAuthAllowed(builderPreviewEvent)).toBe(true);
+
+      vi.stubEnv("NODE_ENV", "production");
+      expect(authModule.isLocalDevAuthAllowed(builderPreviewEvent)).toBe(false);
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AGENT_NATIVE_BUILD_DEPLOY_CONTEXT", "deploy-preview");
+      expect(authModule.isLocalDevAuthAllowed(builderPreviewEvent)).toBe(false);
+      delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+      delete process.env.AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV;
 
       const app = createMockApp();
       await authModule.autoMountAuth(app, {

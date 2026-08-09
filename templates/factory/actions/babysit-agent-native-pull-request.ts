@@ -11,6 +11,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { createAiServicesGitReadClient } from "../server/triage/ai-services-git.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import {
   metadataString,
@@ -140,6 +141,20 @@ export default defineAction({
         prBabysitState: "closed-or-draft",
         prBabysitLastCheckedAt: new Date().toISOString(),
       });
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "babysit-agent-native-pull-request",
+          kind: "governance",
+          status: "skipped",
+          itemId,
+          source: "github",
+          sourceUrl: item.sourceUrl,
+          summary: "Skipped because the pull request is closed or a draft.",
+          details: { state: pullRequest.state, draft: pullRequest.draft },
+        },
+      );
       return { ok: true, action: "skipped", reason: "PR is closed or draft." };
     }
 
@@ -154,6 +169,20 @@ export default defineAction({
         prBabysitOwnerArea: ownerOwnedArea,
         prBabysitLastCheckedAt: new Date().toISOString(),
       });
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "babysit-agent-native-pull-request",
+          kind: "governance",
+          status: "skipped",
+          itemId,
+          source: "github",
+          sourceUrl: item.sourceUrl,
+          summary: `${ownerOwnedArea} is owner-managed; no bot feedback was posted.`,
+          details: { ownerOwnedArea },
+        },
+      );
       return {
         ok: true,
         action: "skipped",
@@ -205,6 +234,30 @@ export default defineAction({
       mergeableState: pullRequest.mergeableState,
       snapshot: signal,
     });
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "babysit-agent-native-pull-request",
+        kind: "governance",
+        status: needsBabysit ? "success" : "skipped",
+        itemId,
+        source: "github",
+        sourceUrl: item.sourceUrl,
+        summary: needsBabysit
+          ? "Review feedback, CI, or mergeability needs Builder attention."
+          : "The pull request is clean and needs no Builder feedback request.",
+        details: {
+          headSha: snapshot.headSha,
+          checks: snapshot.checks.length,
+          comments: snapshot.comments.length,
+          unresolvedReviewState,
+          mergeable: pullRequest.mergeable,
+          mergeableState: pullRequest.mergeableState,
+          reviewFeedbackClean: signal.isClean,
+        },
+      },
+    );
     const now = new Date();
     const nowIso = now.toISOString();
     const metadata = parseTriageMetadata(item.metadataJson);
@@ -260,6 +313,19 @@ export default defineAction({
       repository,
       item.pullRequestNumber,
       BUILDER_BOT_REQUEST,
+    );
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "babysit-agent-native-pull-request",
+        kind: "external_action",
+        itemId,
+        source: "github",
+        sourceUrl: comment.htmlUrl,
+        summary: "Posted the bounded feedback-fix request to builder-io-bot.",
+        details: { commentUrl: comment.htmlUrl, quietForMinutes: 0 },
+      },
     );
     await updateBabysitMetadata(itemId, orgId, {
       prBabysitState: "active",
