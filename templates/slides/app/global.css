@@ -258,6 +258,17 @@ button[title="Open agent sidebar"] {
   font-family: "Poppins", sans-serif;
 }
 
+/* A slide is a fixed stage: it must clip, but it must never become a scroll
+   container. Imported slide roots carry inline `overflow: hidden`, which the
+   browser can still scroll programmatically -- focusing a text box that
+   extends past the slide edge makes it "reveal" the caret by scrolling the
+   stage, shifting the top of the slide out of view until the edit ends.
+   `clip` produces the same visual clipping with no scrollport, so there is
+   nothing to scroll. Overrides the imported inline style by necessity. */
+.slide-content .fmd-slide {
+  overflow: clip !important;
+}
+
 /* Per-element inline text editing — highlight the text leaf that is
    currently being edited so the user can see which block is active. */
 .slide-content [data-editing-block="true"] {
