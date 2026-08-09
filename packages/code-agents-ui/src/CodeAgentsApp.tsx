@@ -247,6 +247,19 @@ export function resolveNewSessionExtensionComposerState(
   };
 }
 
+export function shouldCloseWatchedChatFirstSession(input: {
+  runsLoaded: boolean;
+  targetSessionId: string | null;
+  targetKind: string | null;
+  watchedRunPresent: boolean;
+}): boolean {
+  if (!input.runsLoaded || !input.targetSessionId) return false;
+  if (input.targetKind === "agent-chat" || input.targetKind === "external") {
+    return false;
+  }
+  return !input.watchedRunPresent;
+}
+
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
@@ -529,6 +542,10 @@ export default function CodeAgentsApp({
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const watchedSession = useChatFirstSessionWatch();
+  const watchedSessionTarget = watchedSession.target;
+  const watchedSessionTargetSessionId = watchedSessionTarget?.sessionId ?? null;
+  const watchedSessionTargetKind = watchedSessionTarget?.kind ?? null;
+  const watchedSessionTargetGoalId = watchedSessionTarget?.goalId ?? null;
   const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
     string | null
   >(null);
@@ -542,9 +559,8 @@ export default function CodeAgentsApp({
     [runs, selectedRunId],
   );
   const watchedRun = useMemo(
-    () =>
-      runs.find((run) => run.id === watchedSession.target?.sessionId) ?? null,
-    [runs, watchedSession.target?.sessionId],
+    () => runs.find((run) => run.id === watchedSessionTargetSessionId) ?? null,
+    [runs, watchedSessionTargetSessionId],
   );
 
   useEffect(() => {
@@ -553,35 +569,40 @@ export default function CodeAgentsApp({
   }, [activeNewSessionExtension]);
 
   useEffect(() => {
-    const target = watchedSession.target;
     if (
-      !target ||
-      !runsLoaded ||
-      target.kind === "agent-chat" ||
-      target.kind === "external"
+      !shouldCloseWatchedChatFirstSession({
+        runsLoaded,
+        targetSessionId: watchedSessionTargetSessionId,
+        targetKind: watchedSessionTargetKind,
+        watchedRunPresent: watchedRun !== null,
+      })
     ) {
       return;
     }
-    if (!watchedRun) closeChatFirstSessionWatch();
-  }, [runsLoaded, watchedRun, watchedSession.target]);
+    closeChatFirstSessionWatch();
+  }, [
+    runsLoaded,
+    watchedRun,
+    watchedSessionTargetKind,
+    watchedSessionTargetSessionId,
+  ]);
 
   useEffect(() => {
-    const goalId = watchedSession.target?.goalId;
-    const goal = getCodeAgentGoal(goalId);
-    if (watchedSession.target?.kind !== "code-agent" || !goal) return;
+    const goal = getCodeAgentGoal(watchedSessionTargetGoalId);
+    if (watchedSessionTargetKind !== "code-agent" || !goal) return;
     if (goal.id !== selectedGoalId) setSelectedGoalId(goal.id);
-  }, [selectedGoalId, watchedSession.target]);
+  }, [selectedGoalId, watchedSessionTargetGoalId, watchedSessionTargetKind]);
 
   useEffect(() => {
     onWatchedRunChange?.(
       watchedRun,
-      watchedSession.target?.sourceSessionId ?? selectedRunId,
+      watchedSessionTarget?.sourceSessionId ?? selectedRunId,
     );
   }, [
     onWatchedRunChange,
     selectedRunId,
     watchedRun,
-    watchedSession.target?.sourceSessionId,
+    watchedSessionTarget?.sourceSessionId,
   ]);
 
   useEffect(() => {

@@ -180,10 +180,7 @@ import {
   getLogFilePath,
 } from "./desktop-logger";
 import { registerAppsIpc } from "./ipc/apps";
-import {
-  fetchChatFirstMcpRuntimeConfig,
-  registerChatFirstMcpIpc,
-} from "./ipc/chat-first-mcp.js";
+import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
 import { registerFrameIpc } from "./ipc/frame";
@@ -3267,42 +3264,26 @@ interface DesktopCodeAgentMcpEnvironment {
 
 /**
  * Give each local coding run the same workspace app MCP servers shown in its
- * rail, while retaining local/plugin config and server-managed connections.
- * Cookies come from the app's real Electron partition; no local trust token
- * is synthesized for an app session.
+ * rail, while retaining local/plugin config. Remote settings credentials stay
+ * server-side until a capability broker can deliver them to this process.
  */
 async function desktopCodeAgentMcpEnvironment(
   cwd: string,
 ): Promise<DesktopCodeAgentMcpEnvironment> {
+  const workspaceRoot = resolveCodeAgentsTerminalCwd({});
+  const workspaceConfig = loadMcpConfig(workspaceRoot);
   const localConfig = loadMcpConfig(cwd);
   const servers: Record<string, McpServerConfig> = {
+    ...(workspaceConfig?.servers ?? {}),
     ...(localConfig?.servers ?? {}),
   };
-  const allowlist = new Set(Object.keys(localConfig?.servers ?? {}));
+  const allowlist = new Set(Object.keys(servers));
   const appIds: string[] = [];
-  let remoteConfig: DesktopCodeAgentMcpEnvironment["remoteConfig"] = {
+  const remoteConfig: DesktopCodeAgentMcpEnvironment["remoteConfig"] = {
     state: "unavailable",
-    error: "Connected MCP settings are unavailable.",
+    error:
+      "Connected MCP settings require a secure desktop MCP capability broker.",
   };
-
-  try {
-    const configured = await fetchChatFirstMcpRuntimeConfig(
-      resolveDesktopMcpHost,
-    );
-    for (const [serverId, server] of Object.entries(configured.servers)) {
-      servers[serverId] = server;
-      allowlist.add(serverId);
-    }
-    remoteConfig = {
-      state: "loaded",
-      serverCount: Object.keys(configured.servers).length,
-    };
-  } catch (error) {
-    remoteConfig = {
-      state: "unavailable",
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
 
   for (const appConfig of loadAppsForAuthContext()) {
     if (appConfig.enabled === false) continue;
@@ -3328,6 +3309,11 @@ async function desktopCodeAgentMcpEnvironment(
       AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST:
         [...allowlist].join(",") || "__none__",
       AGENT_NATIVE_CODE_AGENT_MCP_APP_IDS: JSON.stringify(appIds),
+      AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT: path.join(
+        workspaceRoot,
+        ".agents",
+        "skills",
+      ),
     },
     remoteConfig,
   };
@@ -5365,7 +5351,7 @@ function clearManagedDesktopAppRetry(appId: string): void {
 }
 
 function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
-  if (appIsQuitting || activeAppId !== appId) return;
+  if (appIsQuitting) return;
   clearManagedDesktopAppRetry(appId);
   managedDesktopAppRetryTimers.set(
     appId,
@@ -5483,10 +5469,7 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
             ? `${appConfig.name} stopped.`
             : "The local preview process exited unexpectedly.",
       });
-      if (
-        activeAppId === appId &&
-        (managedDesktopAppStartAttempts.get(appId) ?? 0) < 20
-      ) {
+      if ((managedDesktopAppStartAttempts.get(appId) ?? 0) < 20) {
         scheduleManagedDesktopAppStart(appId, 3_000);
       }
     });

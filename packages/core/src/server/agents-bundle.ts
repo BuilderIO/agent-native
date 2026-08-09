@@ -102,6 +102,8 @@ export interface AgentsBundle {
 
 export interface AgentsBundleReadOptions {
   instructions?: AgentNativeInstructionsConfig;
+  /** Additional skill roots supplied by a local host, such as installed plugins. */
+  additionalSkillDirs?: string[];
 }
 
 export interface AgentInstructionPaths {
@@ -342,6 +344,29 @@ function readSkillsDir(
   }
 }
 
+function readNestedSkillsDir(
+  skillsDir: string,
+  rootForRelative: string,
+  out: Record<string, Skill>,
+): void {
+  if (!fs.existsSync(skillsDir)) return;
+  readSkillsDir(skillsDir, rootForRelative, out, true);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === "." || entry.name === "..") {
+      continue;
+    }
+    const nestedDir = path.join(skillsDir, entry.name);
+    if (fs.existsSync(path.join(nestedDir, "SKILL.md"))) continue;
+    readSkillsDir(nestedDir, rootForRelative, out, true);
+  }
+}
+
 /**
  * Read AGENTS.md + all skills directly from the filesystem rooted at `cwd`.
  * Optionally also reads a workspace-core's AGENTS.md and skills directory
@@ -394,6 +419,14 @@ export function readAgentsBundleFromFs(
         true,
       );
     } catch {}
+  }
+
+  for (const skillsDir of options.additionalSkillDirs ?? []) {
+    try {
+      readNestedSkillsDir(skillsDir, cwd, skills);
+    } catch {
+      // Optional host-provided skills must not make the coding session fail.
+    }
   }
 
   return {

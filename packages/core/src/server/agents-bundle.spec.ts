@@ -354,6 +354,32 @@ describe("readAgentsBundleFromFs", () => {
     }
   });
 
+  it("loads namespaced host-provided skills from an additional root", () => {
+    const tpl = makeTemplate(null);
+    const additional = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agents-bundle-plugin-"),
+    );
+    const skill = path.join(additional, "calendar-tools", "meeting-helper");
+    fs.mkdirSync(skill, { recursive: true });
+    fs.writeFileSync(
+      path.join(skill, "SKILL.md"),
+      "---\nname: meeting-helper\ndescription: Imported calendar skill\n---\nPlugin body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        additionalSkillDirs: [additional],
+      });
+      expect(bundle.skills["meeting-helper"]?.meta.description).toBe(
+        "Imported calendar skill",
+      );
+      expect(bundle.skills["meeting-helper"]?.content).toContain("Plugin body");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+      fs.rmSync(additional, { recursive: true, force: true });
+    }
+  });
+
   it("template skill overrides workspace skill with the same name", () => {
     const tpl = makeTemplate({
       name: "policy",

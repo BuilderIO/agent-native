@@ -7,7 +7,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MultiFrontierIpcEvent } from "../../../shared/multi-frontier-ipc.js";
-import { MultiFrontierModeControl } from "./CodeAgentsHub.js";
+import {
+  chatFirstPreviewPartitionKey,
+  isChatFirstSurfaceTabActive,
+  MultiFrontierModeControl,
+} from "./CodeAgentsHub.js";
 import {
   initialMultiFrontierRunAutoContinue,
   locksMultiFrontierMode,
@@ -198,6 +202,42 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
+  });
+
+  it("keeps inactive chat-first tabs from inheriting the active webview state", () => {
+    expect(
+      isChatFirstSurfaceTabActive({
+        surfaceActive: true,
+        tabId: "tab-1",
+        activeTabId: "tab-1",
+      }),
+    ).toBe(true);
+    expect(
+      isChatFirstSurfaceTabActive({
+        surfaceActive: true,
+        tabId: "tab-1",
+        activeTabId: "tab-2",
+      }),
+    ).toBe(false);
+    expect(
+      isChatFirstSurfaceTabActive({
+        surfaceActive: false,
+        tabId: "tab-1",
+        activeTabId: "tab-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("derives a dedicated preview partition for chat-first app builds", () => {
+    expect(chatFirstPreviewPartitionKey("app-1")).toBe(
+      "persist:chat-first-preview-app-1",
+    );
+    expect(chatFirstPreviewPartitionKey("  app-1  ")).toBe(
+      "persist:chat-first-preview-app-1",
+    );
+    expect(chatFirstPreviewPartitionKey(undefined)).toBe(
+      "persist:chat-first-preview-browser",
+    );
   });
 
   it("renders a live provider update in the subscription usage popover", async () => {

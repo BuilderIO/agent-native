@@ -3,7 +3,6 @@ import type {
   McpServersList,
   TestMcpUrlResult,
 } from "@agent-native/core/client/resources";
-import type { McpServerConfig } from "@agent-native/core/mcp-client";
 
 /** IPC names for the shared core MCP settings surface in Desktop. */
 export const CHAT_FIRST_MCP_IPC = {
@@ -19,11 +18,6 @@ export const CHAT_FIRST_MCP_IPC = {
 export type ChatFirstMcpServer = McpServer;
 export type ChatFirstMcpServersList = McpServersList;
 export type ChatFirstMcpTestResult = TestMcpUrlResult;
-
-export interface ChatFirstMcpRuntimeConfig {
-  servers: Record<string, McpServerConfig>;
-  source: "settings";
-}
 
 export interface ChatFirstMcpPluginImportResult {
   ok: boolean;

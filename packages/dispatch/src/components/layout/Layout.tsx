@@ -710,7 +710,8 @@ function DispatchChatsSection({
           </TooltipContent>
         </Tooltip>
       </div>
-      {chatsLoading &&
+      {!chatFirstMode &&
+        chatsLoading &&
         visibleThreads.length === 0 &&
         Array.from({ length: 3 }).map((_, index) => (
           <div

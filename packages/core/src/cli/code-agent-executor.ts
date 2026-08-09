@@ -614,21 +614,32 @@ async function executeCodexCliRun(options: {
   const streamToolOutputToStdout =
     options.streamToolOutputToStdout ??
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   const args = [
     ...codexMcpConfigArgs(),
     "--ask-for-approval",
     "never",
-    "exec",
+    "--sandbox",
+    codexSandboxForPermissionMode(options.permissionMode),
     "--cd",
     cwd,
+    "exec",
     "--color",
     "never",
     "--skip-git-repo-check",
-    "--sandbox",
-    codexSandboxForPermissionMode(options.permissionMode),
+    "--ignore-user-config",
     "--output-last-message",
     outputPath,
   ];
+  if (additionalSkillsRoot && fs.existsSync(additionalSkillsRoot)) {
+    args.splice(
+      args.indexOf("--output-last-message"),
+      0,
+      "--add-dir",
+      additionalSkillsRoot,
+    );
+  }
   if (model) args.push("--model", model);
   args.push("-");
 
@@ -857,9 +868,16 @@ function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     mode === "Plan"
       ? "Inspect and explain only. Do not edit files or run mutating commands."
       : "Edit and verify as needed. Do not create, switch, reset, rebase, or stash git branches.";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
+    ...(additionalSkillsRoot
+      ? [
+          `Additional installed Agent Plugin skills are available under ${additionalSkillsRoot}. Read any relevant SKILL.md files before acting.`,
+        ]
+      : []),
     `Run mode: ${mode} (${permissionMode}). ${modeInstruction}`,
     "",
     "# User request",
@@ -1646,6 +1664,10 @@ export async function buildCodeAgentSystemPrompt(
   );
   const bundle = readAgentsBundleFromFs(cwd, null, {
     instructions: appConfig.instructions,
+    additionalSkillDirs: (process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT ?? "")
+      .split(path.delimiter)
+      .map((value) => value.trim())
+      .filter(Boolean),
   });
 
   // If the bundle has no AGENTS.md, try CLAUDE.md as a fallback — many repos

@@ -12,11 +12,15 @@ import { toast } from "sonner";
 import type { CodeAgentsHost } from "./CodeAgentsApp.js";
 import type { CodeAgentRun, CodeAgentTranscriptEvent } from "./types.js";
 
+export const SESSION_WATCH_TRANSCRIPT_EVENT_LIMIT = 200;
+
 export function mergeSessionWatchTranscriptEvents(
   current: CodeAgentTranscriptEvent[],
   incoming: CodeAgentTranscriptEvent[],
 ): CodeAgentTranscriptEvent[] {
-  return mergeCodeAgentTranscriptEvents(current, incoming);
+  return mergeCodeAgentTranscriptEvents(current, incoming).slice(
+    -SESSION_WATCH_TRANSCRIPT_EVENT_LIMIT,
+  );
 }
 
 /**

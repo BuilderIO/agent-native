@@ -1,5 +1,4 @@
 import type { McpConfig, McpServerConfig } from "../mcp-client/config.js";
-import { parseMergedKey } from "../mcp-client/remote-store.js";
 
 const DESKTOP_MCP_ALLOWLIST_ENV =
   "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST";
@@ -30,9 +29,7 @@ export function restrictCodeAgentMcpConfig(
   if (!allowlist || !config) return config;
 
   const servers = Object.fromEntries(
-    Object.entries(config.servers).filter(
-      ([id]) => allowlist.has(id) || parseMergedKey(id) !== null,
-    ),
+    Object.entries(config.servers).filter(([id]) => allowlist.has(id)),
   );
   return { ...config, servers };
 }
@@ -63,26 +60,23 @@ function parseMcpServers(
   } catch {
     throw new Error("MCP_SERVERS is not valid JSON.");
   }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    Array.isArray(parsed) ||
-    !("servers" in parsed) ||
-    !parsed.servers ||
-    typeof parsed.servers !== "object" ||
-    Array.isArray(parsed.servers)
-  ) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("MCP_SERVERS must contain a servers object.");
   }
+  const serverMap =
+    "servers" in parsed &&
+    parsed.servers &&
+    typeof parsed.servers === "object" &&
+    !Array.isArray(parsed.servers)
+      ? (parsed.servers as Record<string, unknown>)
+      : (parsed as Record<string, unknown>);
   return Object.fromEntries(
-    Object.entries(parsed.servers as Record<string, unknown>).map(
-      ([id, value]) => {
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error(`MCP_SERVERS entry ${id} is invalid.`);
-        }
-        return [id, value];
-      },
-    ),
+    Object.entries(serverMap).map(([id, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`MCP_SERVERS entry ${id} is invalid.`);
+      }
+      return [id, value];
+    }),
   ) as Record<string, McpServerConfig>;
 }
 
@@ -111,16 +105,16 @@ export function mergeCodeAgentMcpConfig(
 
 /**
  * Convert the host-scoped HTTP MCP config into Codex CLI's `-c` overrides.
- * `--ignore-user-config` is paired with these arguments by the caller so a
- * local coding session receives the workspace apps, not the user's global
- * MCP catalog.
+ * The caller adds `--ignore-user-config` in the `exec` segment so a local
+ * coding session receives the workspace apps, not the user's global MCP
+ * catalog.
  */
 export function codexMcpConfigArgs(
   environment: NodeJS.ProcessEnv = process.env,
 ): string[] {
   const servers = parseMcpServers(environment);
   if (Object.keys(servers).length === 0) return [];
-  const args: string[] = ["--ignore-user-config"];
+  const args: string[] = [];
   for (const [serverId, server] of Object.entries(servers)) {
     if (server.type !== "http" || !server.url) continue;
     const key = codexConfigKey(serverId);

@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { importAgentPlugin } from "@agent-native/core/cli/agent-plugin";
 import type {
   CreateMcpServerArgs,
@@ -7,7 +9,6 @@ import type {
 } from "@agent-native/core/client/resources";
 import {
   CHAT_FIRST_MCP_IPC,
-  type ChatFirstMcpRuntimeConfig,
   type ChatFirstMcpPluginImportResult,
 } from "@shared/chat-first-mcp";
 import {
@@ -27,6 +28,8 @@ export interface ChatFirstMcpIpcDeps {
   codeAgentWorkspaceRoot: () => string;
 }
 
+const MCP_REQUEST_TIMEOUT_MS = 10_000;
+
 function routeUrl(baseUrl: string, route: string): string {
   const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   return new URL(route.replace(/^\//, ""), base).toString();
@@ -40,14 +43,26 @@ function objectValue(value: unknown): Record<string, unknown> {
 
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   const text = (await response.text()).trim();
-  if (!text) return {};
-  try {
-    return objectValue(JSON.parse(text));
-  } catch {
-    return {
-      error: `MCP settings returned invalid JSON (${response.status}).`,
-    };
+  if (!text) {
+    if (response.status === 204) return {};
+    throw new Error(
+      `MCP settings returned an empty response (${response.status}).`,
+    );
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`MCP settings returned invalid JSON (${response.status}).`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      `MCP settings returned an invalid JSON object (${response.status}).`,
+    );
+  }
+  return objectValue(parsed);
 }
 
 function errorFromBody(
@@ -71,10 +86,25 @@ async function requestMcpHost(
     .join("; ");
   const headers = new Headers(init.headers);
   if (cookieHeader) headers.set("cookie", cookieHeader);
-  const response = await fetch(routeUrl(host.baseUrl, route), {
-    ...init,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MCP_REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(routeUrl(host.baseUrl, route), {
+      ...init,
+      headers,
+      signal: init.signal ?? controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(
+        `MCP settings request timed out after ${MCP_REQUEST_TIMEOUT_MS / 1000} seconds.`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const body = await readJson(response);
   if (!response.ok) {
     throw new Error(
@@ -82,21 +112,6 @@ async function requestMcpHost(
     );
   }
   return body;
-}
-
-export async function fetchChatFirstMcpRuntimeConfig(
-  resolveMcpHost: ChatFirstMcpIpcDeps["resolveMcpHost"],
-): Promise<ChatFirstMcpRuntimeConfig> {
-  const host = await resolveMcpHost();
-  if (!host) {
-    throw new Error(
-      "Open a signed-in workspace app before starting connected MCP tools.",
-    );
-  }
-  return (await requestMcpHost(
-    host,
-    "/_agent-native/mcp/servers/runtime-config",
-  )) as unknown as ChatFirstMcpRuntimeConfig;
 }
 
 export function registerChatFirstMcpIpc(deps: ChatFirstMcpIpcDeps): void {
@@ -209,8 +224,10 @@ export function registerChatFirstMcpIpc(deps: ChatFirstMcpIpcDeps): void {
         return { ok: false, error: "Import cancelled." };
       }
       try {
+        const workspaceRoot = deps.codeAgentWorkspaceRoot();
         const result = importAgentPlugin(selection.filePaths[0]!, {
-          targetDir: deps.codeAgentWorkspaceRoot(),
+          targetDir: workspaceRoot,
+          skillsTargetDir: path.join(workspaceRoot, ".agents", "skills"),
         });
         return {
           ok: true,

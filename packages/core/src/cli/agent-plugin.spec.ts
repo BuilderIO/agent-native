@@ -211,6 +211,26 @@ describe("Agent Plugin import", () => {
     expect(JSON.stringify(metadata)).not.toContain("package-placeholder");
   });
 
+  it("can place namespaced skills in the agent-visible skills root", () => {
+    const root = tmpDir();
+    const pluginRoot = writePlugin(path.join(root, "plugin"));
+    const workspace = path.join(root, "workspace");
+    const skillsRoot = path.join(workspace, ".agents", "skills");
+
+    const result = importAgentPlugin(pluginRoot, {
+      targetDir: workspace,
+      skillsTargetDir: skillsRoot,
+    });
+
+    expect(result.targetDir).toBe(fs.realpathSync(workspace));
+    expect(
+      fs.existsSync(
+        path.join(skillsRoot, "calendar-tools", "meeting-helper", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(workspace, "mcp.config.json"))).toBe(true);
+  });
+
   it("is idempotent and refuses a conflicting Skill without --force", () => {
     const root = tmpDir();
     const pluginRoot = writePlugin(path.join(root, "plugin"));

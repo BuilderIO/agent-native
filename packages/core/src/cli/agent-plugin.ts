@@ -107,6 +107,8 @@ export interface LoadedAgentPlugin {
 
 export interface AgentPluginImportOptions {
   targetDir?: string;
+  /** Optional skills root used by hosts whose agent cwd is a child workspace. */
+  skillsTargetDir?: string;
   force?: boolean;
   dryRun?: boolean;
 }
@@ -968,18 +970,12 @@ function planMcpServers(
 
 function planSkills(
   plugin: LoadedAgentPlugin,
-  targetDir: string,
-  targetPluginSlug: string,
+  skillsRoot: string,
   force: boolean,
 ): PlannedSkill[] {
   return plugin.skills.map((skill) => {
-    const destination = path.join(
-      targetDir,
-      "skills",
-      targetPluginSlug,
-      skill.name,
-    );
-    assertPathInside(targetDir, destination, "Imported skill destination");
+    const destination = path.join(skillsRoot, skill.name);
+    assertPathInside(skillsRoot, destination, "Imported skill destination");
     assertPathOutside(
       plugin.rootDir,
       destination,
@@ -1231,7 +1227,20 @@ export function importAgentPlugin(
   assertNoSymlinkInExistingPath(targetDir, "Agent-Native import target");
 
   const slug = pluginSlug(plugin.manifest.name);
-  const skillsRoot = path.join(targetDir, "skills", slug);
+  const skillsTargetDir = canonicalPathForComparison(
+    options.skillsTargetDir ?? path.join(targetDir, "skills"),
+  );
+  if (
+    pathExists(skillsTargetDir) &&
+    !fs.statSync(skillsTargetDir).isDirectory()
+  ) {
+    throw new Error(
+      `Agent-Native skills target must be a directory: ${skillsTargetDir}`,
+    );
+  }
+  assertPathOutside(plugin.rootDir, skillsTargetDir, "Imported skills target");
+  assertNoSymlinkInExistingPath(skillsTargetDir, "Imported skills target");
+  const skillsRoot = path.join(skillsTargetDir, slug);
   const metadataFile = path.join(
     targetDir,
     ".agent-native",
@@ -1239,9 +1248,9 @@ export function importAgentPlugin(
     `${slug}.json`,
   );
   const mcpFile = path.join(targetDir, "mcp.config.json");
-  assertPathInside(targetDir, skillsRoot, "Imported skills root");
   assertPathInside(targetDir, metadataFile, "Imported metadata path");
   assertPathInside(targetDir, mcpFile, "Imported MCP config path");
+  assertPathInside(skillsTargetDir, skillsRoot, "Imported skills root");
   assertPathOutside(plugin.rootDir, skillsRoot, "Imported skills root");
   assertPathOutside(plugin.rootDir, metadataFile, "Imported metadata path");
   assertPathOutside(plugin.rootDir, mcpFile, "Imported MCP config path");
@@ -1254,7 +1263,7 @@ export function importAgentPlugin(
   const force = options.force ?? false;
   const dryRun = options.dryRun ?? false;
   const existingMcp = readExistingMcpConfig(mcpFile);
-  const skillPlans = planSkills(plugin, targetDir, slug, force);
+  const skillPlans = planSkills(plugin, skillsRoot, force);
   const mcpPlans = planMcpServers(plugin, existingMcp, force);
   const existingMetadata = readExistingMetadata(metadataFile);
   const metadataIsSame = metadataMatches(existingMetadata, plugin);

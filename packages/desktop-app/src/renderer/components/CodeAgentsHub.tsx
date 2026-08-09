@@ -141,6 +141,20 @@ function chatFirstBrowserResolutionMessage(
     : "The requested browser URL is not a safe HTTP(S) address.";
 }
 
+export function isChatFirstSurfaceTabActive(input: {
+  surfaceActive: boolean;
+  tabId: string;
+  activeTabId?: string | null;
+}): boolean {
+  return input.surfaceActive && input.tabId === input.activeTabId;
+}
+
+export function chatFirstPreviewPartitionKey(
+  appId: string | undefined,
+): string {
+  return `persist:chat-first-preview-${appId?.trim() || "browser"}`;
+}
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   isActive?: boolean;
@@ -185,6 +199,10 @@ export default function CodeAgentsHub({
   onChatFirstAppCreated,
   chatFirstMode = false,
 }: CodeAgentsHubProps) {
+  const emitChatFirstOpenAppStable = useCallback(
+    (detail: ChatFirstOpenAppDetail) => emitChatFirstOpenApp(detail),
+    [],
+  );
   const chatFirstSurfaceTabs = useChatFirstSurfaceTabs("desktop");
   const chatFirstSurfaceTabsStore = getChatFirstSurfaceTabsStore("desktop");
   const chatFirstSurfaceResize = useChatFirstSurfaceResize("desktop");
@@ -1361,6 +1379,11 @@ export default function CodeAgentsHub({
       }
       if (tab.kind === "browser" && tab.url) {
         const isPreviewTab = tab.url === chatFirstPreviewUrl;
+        const isTabActive = isChatFirstSurfaceTabActive({
+          surfaceActive: isActive,
+          tabId: tab.id,
+          activeTabId: activeChatFirstSurfaceTab?.id,
+        });
         return (
           <ChatFirstBrowserPane
             url={tab.url}
@@ -1387,7 +1410,12 @@ export default function CodeAgentsHub({
                   devPort: 0,
                 }}
                 sourceUrl={url}
-                isActive={isActive}
+                isActive={isTabActive}
+                partitionKey={
+                  isPreviewTab
+                    ? chatFirstPreviewPartitionKey(chatFirstPreviewApp?.id)
+                    : undefined
+                }
                 refreshKey={isPreviewTab ? refreshKey : 0}
               />
             )}
@@ -1398,6 +1426,11 @@ export default function CodeAgentsHub({
       if (tab.kind === "app" && tab.appId) {
         const app = apps.find((candidate) => candidate.id === tab.appId);
         if (!app) return null;
+        const isTabActive = isChatFirstSurfaceTabActive({
+          surfaceActive: isActive,
+          tabId: tab.id,
+          activeTabId: activeChatFirstSurfaceTab?.id,
+        });
         return (
           <ChatFirstAppPane
             app={app}
@@ -1407,7 +1440,7 @@ export default function CodeAgentsHub({
               <AppWebview
                 app={toAppDefinition(app)}
                 appConfig={app}
-                isActive={isActive}
+                isActive={isTabActive}
                 urlPath={tab.path}
                 urlParams={{ embedded: "1", chatFirst: "1" }}
               />
@@ -1494,7 +1527,7 @@ export default function CodeAgentsHub({
               : undefined
           }
           onChatFirstOpenApp={
-            chatFirstMode ? (detail) => emitChatFirstOpenApp(detail) : undefined
+            chatFirstMode ? emitChatFirstOpenAppStable : undefined
           }
           railWorkspaceSlot={
             chatFirstMode ? (

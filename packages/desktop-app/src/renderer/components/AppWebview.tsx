@@ -53,6 +53,8 @@ interface AppWebviewProps {
   urlOpenSoft?: boolean;
   /** Query parameters to merge into the resolved app URL. */
   urlParams?: Record<string, string | null | undefined>;
+  /** Optional explicit Electron partition for preview or other isolated flows. */
+  partitionKey?: string;
   /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
   /** Emits the guest page's document title so the shell tab can stay current. */
@@ -218,6 +220,18 @@ function canSoftOpenWebview(
   }
 }
 
+export function resolveAppWebviewPartition(input: {
+  appId: string;
+  sourceUrl?: string;
+  partitionKey?: string;
+}): string {
+  const explicitPartition = input.partitionKey?.trim();
+  if (explicitPartition) return explicitPartition;
+  return input.sourceUrl?.trim()
+    ? "persist:chat-first-browser"
+    : `persist:app-${input.appId}`;
+}
+
 function buildSoftOpenScript(path: string): string {
   return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
 }
@@ -246,6 +260,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       urlPath,
       urlOpenSoft,
       urlParams,
+      partitionKey,
       refreshKey = 0,
       onTitleChange,
       onAppsChanged,
@@ -706,9 +721,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               );
               wv.setAttribute(
                 "partition",
-                sourceUrl
-                  ? "persist:chat-first-browser"
-                  : `persist:app-${app.id}`,
+                resolveAppWebviewPartition({
+                  appId: app.id,
+                  sourceUrl,
+                  partitionKey,
+                }),
               );
               wv.setAttribute("src", url);
               container.appendChild(wv);

@@ -2,6 +2,8 @@ import type { ChatFirstSurfaceKind } from "../chat-first.js";
 import type { ChatFirstCopy } from "./types.js";
 
 const DEFAULT_COPY: Record<string, string> = {
+  newChat: "New chat",
+  search: "Search",
   workspaceApps: "Apps",
   integrations: "Integrations",
   scheduled: "Scheduled",

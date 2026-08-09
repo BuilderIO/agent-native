@@ -143,6 +143,13 @@ describe("executeCodeAgentRun", () => {
   it("runs a Codex CLI-backed session without provider API keys", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    process.env.MCP_SERVERS = JSON.stringify({
+      workspaceHttp: {
+        type: "http",
+        url: "https://workspace.example/mcp",
+      },
+    });
     const binDir = path.join(root, "bin");
     const promptPath = path.join(root, "codex-prompt.txt");
     const argsPath = path.join(root, "codex-args.json");
@@ -189,29 +196,43 @@ describe("executeCodeAgentRun", () => {
       stdout: output.stream,
     });
 
-    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
-      status: "completed",
-      phase: "complete",
-      metadata: {
-        engine: "codex-cli",
-        model: "codex-default",
-      },
-    });
-    expect(output.read()).toContain("Codex streamed output");
-    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
-    const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
-    const execIndex = args.indexOf("exec");
-    expect(args.slice(0, 3)).toEqual(["--ask-for-approval", "never", "exec"]);
-    expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
-    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "system",
-          message: "Codex final answer",
-          metadata: expect.objectContaining({ engine: "codex-cli" }),
-        }),
-      ]),
-    );
+    try {
+      expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+        status: "completed",
+        phase: "complete",
+        metadata: {
+          engine: "codex-cli",
+          model: "codex-default",
+        },
+      });
+      expect(output.read()).toContain("Codex streamed output");
+      expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+      const execIndex = args.indexOf("exec");
+      expect(execIndex).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeLessThan(execIndex);
+      expect(args.indexOf("--sandbox")).toBeGreaterThan(-1);
+      expect(args.indexOf("--sandbox")).toBeLessThan(execIndex);
+      expect(args.indexOf("--cd")).toBeGreaterThan(-1);
+      expect(args.indexOf("--cd")).toBeLessThan(execIndex);
+      expect(args.indexOf("-c")).toBeGreaterThan(-1);
+      expect(args.indexOf("-c")).toBeLessThan(execIndex);
+      expect(args.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
+      expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+      expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "system",
+            message: "Codex final answer",
+            metadata: expect.objectContaining({ engine: "codex-cli" }),
+          }),
+        ]),
+      );
+    } finally {
+      if (originalMcpServers === undefined) delete process.env.MCP_SERVERS;
+      else process.env.MCP_SERVERS = originalMcpServers;
+    }
   });
 
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
