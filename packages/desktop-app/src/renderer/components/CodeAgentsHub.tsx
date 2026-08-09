@@ -11,7 +11,6 @@ import {
   type CodeAgentsNewSessionExtension,
 } from "@agent-native/code-agents-ui";
 import {
-  ChatFirstAgentActivityPanel,
   ChatFirstSurfacePanelToggle,
   chatFirstSurfaceTabId,
   closeChatFirstSessionWatch,
@@ -33,6 +32,20 @@ import {
   type ChatFirstSurfaceKind,
   type ChatFirstSurfaceTab,
 } from "@agent-native/core/client/agent-chat";
+import {
+  ChatFirstAgentsPane,
+  ChatFirstAppPane,
+  ChatFirstAppsRail,
+  ChatFirstBrowserPane,
+  ChatFirstPrimaryNavigation,
+  ChatFirstSessionWatchPane,
+  ChatFirstSurfacePanel,
+  ChatFirstSurfaceContent,
+  ChatFirstSurfaceTabs,
+  defaultChatFirstCopy,
+  type ChatFirstAppItem,
+  type ChatFirstEmbedTarget,
+} from "@agent-native/core/client/chat-first";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
   Select,
@@ -52,6 +65,7 @@ import {
   type CSSProperties,
 } from "react";
 
+import type { DesktopCreateAppResult } from "../../../shared/ipc-channels.js";
 import type {
   MultiFrontierIpcEvent,
   MultiFrontierProviderId,
@@ -59,15 +73,8 @@ import type {
 } from "../../../shared/multi-frontier-ipc.js";
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import AppWebview from "./AppWebview.js";
-import DesktopChatFirstAgentChat, {
-  DesktopChatFirstUnavailable,
-} from "./DesktopChatFirstAgentChat.js";
-import DesktopChatFirstAppPane from "./DesktopChatFirstAppPane.js";
-import DesktopChatFirstBrowserPane from "./DesktopChatFirstBrowserPane.js";
-import DesktopChatFirstRail, {
-  DesktopChatFirstNavigation,
-} from "./DesktopChatFirstRail.js";
-import DesktopChatFirstSurfaceTabs from "./DesktopChatFirstSurfaceTabs.js";
+import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
+import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import {
   initialMultiFrontierRunAutoContinue,
   locksMultiFrontierMode,
@@ -141,6 +148,7 @@ interface CodeAgentsHubProps {
   refreshKey?: number;
   onOpenSettings?: () => void;
   onCreateApp?: () => void;
+  onChatFirstAppCreated?: (result: DesktopCreateAppResult) => void;
   chatFirstMode?: boolean;
 }
 
@@ -168,6 +176,7 @@ export default function CodeAgentsHub({
   refreshKey = 0,
   onOpenSettings,
   onCreateApp,
+  onChatFirstAppCreated,
   chatFirstMode = false,
 }: CodeAgentsHubProps) {
   const chatFirstSurfaceTabs = useChatFirstSurfaceTabs("desktop");
@@ -267,6 +276,18 @@ export default function CodeAgentsHub({
         devUrl: app.devUrl,
         enabled: app.enabled,
       })),
+    [apps],
+  );
+  const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
+    () =>
+      apps
+        .filter((app) => app.enabled && app.id !== "agent")
+        .map((app) => ({
+          id: app.id,
+          name: app.name,
+          ...(app.icon ? { icon: app.icon } : {}),
+          ...(app.color ? { color: app.color } : {}),
+        })),
     [apps],
   );
 
@@ -1268,7 +1289,7 @@ export default function CodeAgentsHub({
       <div
         style={
           {
-            "--desktop-chat-first-surface-width": `${chatFirstSurfaceResize.width}px`,
+            "--chat-first-surface-width": `${chatFirstSurfaceResize.width}px`,
           } as CSSProperties
         }
         className={[
@@ -1291,6 +1312,7 @@ export default function CodeAgentsHub({
               <ChatFirstSurfacePanelToggle
                 open={chatFirstSurfacePanel.open}
                 onToggle={chatFirstSurfacePanel.toggle}
+                className="static"
               />
             ) : undefined
           }
@@ -1302,25 +1324,62 @@ export default function CodeAgentsHub({
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           railNavigationSlot={
             chatFirstMode ? (
-              <DesktopChatFirstNavigation
-                onOpenApp={openChatFirstApp}
-                activeKind={chatFirstMainKind}
-                onSelectKind={setChatFirstMainKind}
+              <ChatFirstPrimaryNavigation
+                onOpenIntegrations={() =>
+                  openChatFirstApp("dispatch", "/admin/integrations")
+                }
+                onOpenScheduled={() =>
+                  openChatFirstApp("dispatch", "/admin/automations")
+                }
               />
             ) : undefined
           }
           railWorkspaceSlot={
             chatFirstMode ? (
-              <DesktopChatFirstRail
-                apps={apps}
-                activeAppId={
-                  activeChatFirstSurfaceTab?.kind === "app"
-                    ? activeChatFirstSurfaceTab.appId
-                    : undefined
-                }
-                notice={chatFirstNotice}
-                onCreateApp={onCreateApp}
-              />
+              <>
+                {chatFirstNotice ? (
+                  <div
+                    className="flex items-start gap-1.5 border-b border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
+                    role="status"
+                    aria-live="polite"
+                    data-chat-first-notice
+                  >
+                    <span className="min-w-0 flex-1">{chatFirstNotice}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 font-semibold underline underline-offset-2"
+                      onClick={() => setChatFirstNotice(null)}
+                    >
+                      {defaultChatFirstCopy("dismiss")}
+                    </button>
+                  </div>
+                ) : null}
+                <ChatFirstAppsRail
+                  apps={chatFirstAppItems}
+                  activeAppId={
+                    activeChatFirstSurfaceTab?.kind === "app"
+                      ? activeChatFirstSurfaceTab.appId
+                      : undefined
+                  }
+                  createAppTrigger={
+                    onChatFirstAppCreated ? (
+                      <CreateAppPromptPopover
+                        onCreated={onChatFirstAppCreated}
+                      />
+                    ) : undefined
+                  }
+                  onCreateApp={onCreateApp}
+                  onOpenApp={(app) => openChatFirstApp(app.id)}
+                  renderIcon={(app) => (
+                    <CodeAgentsAppIcon
+                      id={app.id}
+                      name={app.name}
+                      icon={app.icon}
+                    />
+                  )}
+                  copy={defaultChatFirstCopy}
+                />
+              </>
             ) : undefined
           }
           railFooterSlot={
@@ -1341,12 +1400,26 @@ export default function CodeAgentsHub({
           onChatFirstMainKindChange={setChatFirstMainKind}
           renderChatFirstMainSurface={
             dispatchApp ? (
-              <DesktopChatFirstAgentChat
-                app={dispatchApp}
-                isActive={isActive && chatFirstMainKind === "agent"}
-              />
+              <div
+                data-chat-first-main-chat
+                className="h-full min-h-0 w-full overflow-hidden bg-background"
+                aria-label={`${dispatchApp.name} chat`}
+              >
+                <AppWebview
+                  app={toAppDefinition(dispatchApp)}
+                  appConfig={dispatchApp}
+                  isActive={isActive && chatFirstMainKind === "agent"}
+                  urlPath="/chat"
+                  urlParams={{ embedded: "1", chatFirst: "1" }}
+                />
+              </div>
             ) : (
-              <DesktopChatFirstUnavailable message="Agent chat is unavailable because Dispatch is not configured in this desktop workspace." />
+              <div
+                className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground"
+                role="status"
+              >
+                Dispatch chat is unavailable in this desktop workspace.
+              </div>
             )
           }
           renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
@@ -1362,18 +1435,12 @@ export default function CodeAgentsHub({
           )}
         />
         {chatFirstMode && chatFirstSurfacePanel.open ? (
-          <aside
-            className="desktop-chat-first-surface-panel"
-            aria-label="Side surfaces"
+          <ChatFirstSurfacePanel
+            width={chatFirstSurfaceResize.width}
+            onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
+            copy={defaultChatFirstCopy}
           >
-            <div
-              className="desktop-chat-first-resize-handle"
-              role="separator"
-              aria-label="Resize side surface"
-              aria-orientation="vertical"
-              onPointerDown={chatFirstSurfaceResize.onPointerDown}
-            />
-            <DesktopChatFirstSurfaceTabs
+            <ChatFirstSurfaceTabs
               tabs={chatFirstSurfaceTabs.tabs}
               activeTabId={chatFirstSurfaceTabs.activeTabId}
               onActivate={activateChatFirstSurfaceTab}
@@ -1397,51 +1464,81 @@ export default function CodeAgentsHub({
               }}
               onCloseAll={closeAllChatFirstSurfaceTabs}
               onOpenSurface={openChatFirstSurface}
+              copy={defaultChatFirstCopy}
             />
             {chatFirstSurfaceTabs.tabs.length > 0 ? (
-              <div className="desktop-chat-first-surface-panel__content">
+              <ChatFirstSurfaceContent>
                 {activeChatFirstSurfaceTab?.kind === "side-chat" ? (
-                  chatFirstWatchedRun ? (
-                    <SessionWatchPanel
-                      host={host}
-                      run={chatFirstWatchedRun}
-                      sourceRunId={chatFirstWatchedSourceRunId}
-                      onClose={closeChatFirstSessionWatch}
-                    />
-                  ) : (
-                    <div className="desktop-chat-first-surface-empty__message">
-                      The selected session is no longer available.
-                    </div>
-                  )
+                  <ChatFirstSessionWatchPane
+                    target={chatFirstSessionWatch.target}
+                    onClose={closeChatFirstSessionWatch}
+                    renderChat={(target) =>
+                      chatFirstWatchedRun ? (
+                        <SessionWatchPanel
+                          host={host}
+                          run={chatFirstWatchedRun}
+                          sourceRunId={chatFirstWatchedSourceRunId}
+                          onClose={closeChatFirstSessionWatch}
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+                          {target.title || "Selected session is unavailable."}
+                        </div>
+                      )
+                    }
+                    copy={defaultChatFirstCopy}
+                  />
                 ) : activeChatFirstSurfaceTab?.kind === "browser" &&
                   activeChatFirstSurfaceTab.url ? (
-                  <DesktopChatFirstBrowserPane
+                  <ChatFirstBrowserPane
                     url={activeChatFirstSurfaceTab.url}
                     title={activeChatFirstSurfaceTab.title}
-                    isActive={isActive}
                     onClose={() =>
                       closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
                     }
+                    renderEmbed={({ url, key }: ChatFirstEmbedTarget) => (
+                      <AppWebview
+                        key={key}
+                        app={{
+                          id: "chat-first-browser",
+                          name: "Browser",
+                          icon: "Globe",
+                          description: "Browser surface",
+                          devPort: 0,
+                        }}
+                        sourceUrl={url}
+                        isActive={isActive}
+                      />
+                    )}
+                    copy={defaultChatFirstCopy}
                   />
                 ) : activeChatFirstSurfaceTab?.kind === "app" &&
                   selectedChatFirstApp ? (
-                  <DesktopChatFirstAppPane
+                  <ChatFirstAppPane
                     app={selectedChatFirstApp}
-                    path={activeChatFirstSurfaceTab.path}
-                    view={activeChatFirstSurfaceTab.view}
-                    onClose={() =>
-                      closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                    }
+                    status="ready"
+                    embedUrl={activeChatFirstSurfaceTab.path ?? "/"}
+                    renderEmbed={() => (
+                      <AppWebview
+                        app={toAppDefinition(selectedChatFirstApp)}
+                        appConfig={selectedChatFirstApp}
+                        isActive={isActive}
+                        urlPath={activeChatFirstSurfaceTab.path}
+                        urlParams={{ embedded: "1", chatFirst: "1" }}
+                      />
+                    )}
+                    copy={defaultChatFirstCopy}
                   />
                 ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
-                  <ChatFirstAgentActivityPanel
+                  <ChatFirstAgentsPane
                     activities={chatFirstAgentActivities}
                     onWatch={watchChatFirstAgent}
+                    copy={defaultChatFirstCopy}
                   />
                 ) : null}
-              </div>
+              </ChatFirstSurfaceContent>
             ) : null}
-          </aside>
+          </ChatFirstSurfacePanel>
         ) : null}
       </div>
     </QueryClientProvider>

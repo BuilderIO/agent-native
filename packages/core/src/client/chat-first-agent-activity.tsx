@@ -1,14 +1,15 @@
 import {
   IconAlertCircle,
-  IconCheck,
-  IconCircleDot,
-  IconClock,
+  IconAsteriskSimple,
   IconCopy,
+  IconDiamond,
   IconEye,
-  IconLoader2,
-  IconPlayerPause,
+  IconFlower,
+  IconHexagon,
+  IconRosette,
   IconRefresh,
-  IconShieldExclamation,
+  IconSparkles,
+  type TablerIcon,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -16,7 +17,10 @@ import type {
   ChatFirstAgentActivity,
   ChatFirstAgentActivityStatus,
 } from "./chat-first.js";
+import { defaultChatFirstCopy } from "./chat-first/copy.js";
+import type { ChatFirstCopy } from "./chat-first/types.js";
 import { writeClipboardText } from "./clipboard.js";
+import { cn } from "./utils.js";
 
 export interface ChatFirstAgentActivityPanelProps {
   activities: readonly ChatFirstAgentActivity[];
@@ -24,44 +28,35 @@ export interface ChatFirstAgentActivityPanelProps {
   error?: string | null;
   onRefresh?: () => void;
   onWatch?: (activity: ChatFirstAgentActivity) => void;
+  copy?: ChatFirstCopy;
 }
 
-const STATUS_LABELS: Record<ChatFirstAgentActivityStatus, string> = {
-  queued: "Queued",
-  running: "Running",
-  paused: "Paused",
-  "needs-approval": "Needs approval",
-  completed: "Completed",
-  errored: "Needs attention",
-  recent: "Recent",
-  unknown: "Unknown",
+const STATUS_KEYS: Record<ChatFirstAgentActivityStatus, string> = {
+  queued: "agentActivityStatusQueued",
+  running: "agentActivityStatusRunning",
+  paused: "agentActivityStatusPaused",
+  "needs-approval": "agentActivityStatusNeedsApproval",
+  completed: "agentActivityStatusCompleted",
+  errored: "agentActivityStatusErrored",
+  recent: "agentActivityStatusRecent",
+  unknown: "agentActivityStatusUnknown",
 };
 
-function statusIcon(status: ChatFirstAgentActivityStatus) {
-  if (status === "running" || status === "queued") return IconLoader2;
-  if (status === "paused") return IconPlayerPause;
-  if (status === "needs-approval") return IconShieldExclamation;
-  if (status === "completed" || status === "recent") return IconCheck;
-  if (status === "errored") return IconAlertCircle;
-  return IconCircleDot;
-}
+const AGENT_GLYPHS: Array<{ icon: TablerIcon; color: string }> = [
+  { icon: IconSparkles, color: "text-primary" },
+  { icon: IconFlower, color: "text-destructive" },
+  { icon: IconRosette, color: "text-accent-foreground" },
+  { icon: IconHexagon, color: "text-ring" },
+  { icon: IconDiamond, color: "text-primary/70" },
+  { icon: IconAsteriskSimple, color: "text-muted-foreground" },
+];
 
-function relativeTime(value: string | number | undefined): string {
-  if (value === undefined) return "";
-  const timestamp = typeof value === "number" ? value : Date.parse(value);
-  if (!Number.isFinite(timestamp)) return "";
-  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
-function clampProgress(value: number | undefined): number | null {
-  if (value === undefined || !Number.isFinite(value)) return null;
-  return Math.min(100, Math.max(0, Math.round(value)));
+function glyphForSession(sessionId: string) {
+  let hash = 0;
+  for (const character of sessionId) {
+    hash = (hash * 31 + character.codePointAt(0)!) | 0;
+  }
+  return AGENT_GLYPHS[Math.abs(hash) % AGENT_GLYPHS.length];
 }
 
 export function ChatFirstAgentActivityPanel({
@@ -70,6 +65,7 @@ export function ChatFirstAgentActivityPanel({
   error = null,
   onRefresh,
   onWatch,
+  copy = defaultChatFirstCopy,
 }: ChatFirstAgentActivityPanelProps) {
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
 
@@ -82,25 +78,26 @@ export function ChatFirstAgentActivityPanel({
     }, 1600);
   }
 
+  const statusLabel = (status: ChatFirstAgentActivityStatus) =>
+    copy(STATUS_KEYS[status]);
+
   return (
     <section
-      className="chat-first-agent-activity"
+      className="flex min-h-0 flex-col overflow-auto px-3 pb-3 pt-2"
       data-chat-first-agents-surface
-      aria-label="Agent activity"
+      aria-label={copy("agentsTitle")}
     >
-      <header className="chat-first-agent-activity__header">
-        <div>
-          <p className="chat-first-agent-activity__eyebrow">Workspace</p>
-          <h2>Agent activity</h2>
-          <p>Follow runs and open a second session beside this chat.</p>
-        </div>
+      <header className="flex min-h-7 items-center justify-between gap-2 px-2">
+        <p className="m-0 text-[11px] font-medium text-muted-foreground">
+          {copy("agentsTitle")}
+        </p>
         {onRefresh ? (
           <button
             type="button"
-            className="chat-first-agent-activity__icon-button"
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onRefresh}
-            aria-label="Refresh agent activity"
-            title="Refresh agent activity"
+            aria-label={copy("refreshAgentActivity")}
+            title={copy("refreshAgentActivity")}
           >
             <IconRefresh size={15} aria-hidden="true" />
           </button>
@@ -109,97 +106,91 @@ export function ChatFirstAgentActivityPanel({
 
       {error ? (
         <div
-          className="chat-first-agent-activity__error"
+          className="flex items-center gap-1.5 px-2 py-2 text-[11px] text-destructive"
           role="alert"
           data-chat-first-agents-error
         >
           <IconAlertCircle size={15} aria-hidden="true" />
           <span>{error}</span>
           {onRefresh ? (
-            <button type="button" onClick={onRefresh}>
-              Retry
+            <button
+              type="button"
+              className="font-semibold underline underline-offset-2"
+              onClick={onRefresh}
+            >
+              {copy("retry")}
             </button>
           ) : null}
         </div>
       ) : null}
 
       {loading && activities.length === 0 ? (
-        <div className="chat-first-agent-activity__list" aria-busy="true">
+        <div className="grid min-h-0 gap-px" aria-busy="true">
           {Array.from({ length: 4 }, (_, index) => (
-            <div className="chat-first-agent-activity__skeleton" key={index} />
+            <div className="flex h-7 items-center gap-2 px-2" key={index}>
+              <span className="size-3 animate-pulse rounded-full bg-muted" />
+              <span className="h-2.5 w-28 animate-pulse rounded bg-muted" />
+            </div>
           ))}
         </div>
       ) : activities.length === 0 ? (
-        <div className="chat-first-agent-activity__empty">
-          <IconClock size={18} aria-hidden="true" />
-          <strong>No agent sessions yet</strong>
-          <span>Start an agent run and it will appear here.</span>
-        </div>
+        <p className="m-0 px-2 py-3 text-[11px] text-muted-foreground">
+          {copy("noAgentSessions")}
+        </p>
       ) : (
-        <div className="chat-first-agent-activity__list">
+        <div className="grid min-h-0 gap-px">
           {activities.map((activity) => {
-            const StatusIcon = statusIcon(activity.status);
-            const progress = clampProgress(activity.progressPercent);
+            const { icon: AgentGlyph, color } = glyphForSession(
+              activity.sessionId,
+            );
             const copied = copiedSessionId === activity.sessionId;
             return (
-              <article
-                className="chat-first-agent-activity__row"
+              <div
+                className="group flex min-h-7 items-center gap-2 rounded-md px-2 py-0.5 transition-colors hover:bg-accent/50 focus-within:bg-accent/50"
                 key={activity.sessionId}
               >
-                <div className="chat-first-agent-activity__row-main">
-                  <StatusIcon
-                    size={15}
-                    aria-hidden="true"
-                    className={
-                      activity.status === "running" ||
-                      activity.status === "queued"
-                        ? "chat-first-agent-activity__spinning"
-                        : undefined
-                    }
-                  />
-                  <div className="chat-first-agent-activity__copy">
-                    <strong title={activity.title}>{activity.title}</strong>
-                    <span>
-                      {activity.subtitle || STATUS_LABELS[activity.status]}
-                      {relativeTime(activity.updatedAt)
-                        ? ` · ${relativeTime(activity.updatedAt)}`
-                        : ""}
-                    </span>
-                    {progress !== null ? (
-                      <span className="chat-first-agent-activity__progress">
-                        <span style={{ width: `${progress}%` }} />
-                      </span>
-                    ) : null}
-                  </div>
-                  <span
-                    className={`chat-first-agent-activity__status chat-first-agent-activity__status--${activity.status}`}
-                  >
-                    {STATUS_LABELS[activity.status]}
-                  </span>
-                </div>
-                <div className="chat-first-agent-activity__actions">
+                <AgentGlyph
+                  size={14}
+                  strokeWidth={1.9}
+                  aria-hidden="true"
+                  className={cn("shrink-0", color)}
+                />
+                <strong
+                  className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground"
+                  title={activity.title}
+                >
+                  {activity.title}
+                </strong>
+                <span className="shrink-0 text-[10px] text-muted-foreground group-hover:hidden group-focus-within:hidden">
+                  {statusLabel(activity.status)}
+                </span>
+                <div className="ms-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                   {onWatch ? (
                     <button
                       type="button"
                       onClick={() => onWatch(activity)}
-                      className="chat-first-agent-activity__action chat-first-agent-activity__action--primary"
+                      className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={copy("watchSession")}
+                      title={copy("watchSession")}
                     >
-                      <IconEye size={13} aria-hidden="true" />
-                      Watch
+                      <IconEye size={14} aria-hidden="true" />
                     </button>
                   ) : null}
                   <button
                     type="button"
                     onClick={() => void copySessionId(activity.sessionId)}
-                    className="chat-first-agent-activity__action"
-                    aria-label={`Copy session ID for ${activity.title}`}
-                    title={copied ? "Session ID copied" : "Copy session ID"}
+                    className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={copy("copySessionIdFor", {
+                      name: activity.title,
+                    })}
+                    title={
+                      copied ? copy("sessionIdCopied") : copy("copySessionId")
+                    }
                   >
-                    <IconCopy size={13} aria-hidden="true" />
-                    {copied ? "Copied" : "ID"}
+                    <IconCopy size={14} aria-hidden="true" />
                   </button>
                 </div>
-              </article>
+              </div>
             );
           })}
         </div>

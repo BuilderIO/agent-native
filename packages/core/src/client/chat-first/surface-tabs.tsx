@@ -1,9 +1,4 @@
 import {
-  CHAT_FIRST_SURFACE_CATALOG,
-  type ChatFirstSurfaceKind,
-  type ChatFirstSurfaceTab,
-} from "@agent-native/core/client/agent-chat";
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -23,9 +18,20 @@ import {
   IconWorld,
   IconX,
 } from "@tabler/icons-react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
-const ICONS: Record<ChatFirstSurfaceKind, ComponentType<{ size?: number }>> = {
+import {
+  CHAT_FIRST_SURFACE_CATALOG,
+  type ChatFirstSurfaceKind,
+} from "../chat-first.js";
+import { cn } from "../utils.js";
+import { defaultChatFirstCopy } from "./copy.js";
+import type { ChatFirstSurfaceTabsProps } from "./types.js";
+
+const ICONS: Record<
+  ChatFirstSurfaceKind,
+  ComponentType<{ size?: number; className?: string }>
+> = {
   app: IconFiles,
   browser: IconWorld,
   terminal: IconTerminal2,
@@ -40,7 +46,7 @@ function SurfaceIcon({ kind }: { kind: ChatFirstSurfaceKind }) {
   return <Icon size={14} aria-hidden="true" />;
 }
 
-export default function DesktopChatFirstSurfaceTabs({
+export function ChatFirstSurfaceTabs({
   tabs,
   activeTabId,
   onActivate,
@@ -49,24 +55,19 @@ export default function DesktopChatFirstSurfaceTabs({
   onCloseToRight,
   onCloseAll,
   onOpenSurface,
-}: {
-  tabs: ChatFirstSurfaceTab[];
-  activeTabId: string | null;
-  onActivate: (tab: ChatFirstSurfaceTab) => void;
-  onClose: (tab: ChatFirstSurfaceTab) => void;
-  onCloseOthers: (tab: ChatFirstSurfaceTab) => void;
-  onCloseToRight: (tab: ChatFirstSurfaceTab) => void;
-  onCloseAll: () => void;
-  onOpenSurface?: (kind: ChatFirstSurfaceKind) => void;
-}) {
+  copy = defaultChatFirstCopy,
+}: ChatFirstSurfaceTabsProps) {
   return (
     <TooltipProvider delayDuration={400}>
-      <div className="desktop-chat-first-surface-tabs">
+      <div
+        data-chat-first-surface-tabs
+        className="shrink-0 border-b border-border bg-card"
+      >
         {tabs.length > 0 ? (
           <div
-            className="desktop-chat-first-surface-tabs__list"
+            className="flex min-w-0 items-center gap-1 overflow-x-auto px-2 py-1.5"
             role="tablist"
-            aria-label="Open side surfaces"
+            aria-label={copy("openSideSurfaces")}
           >
             {tabs.map((tab, index) => (
               <ContextMenu key={tab.id}>
@@ -75,8 +76,14 @@ export default function DesktopChatFirstSurfaceTabs({
                     role="tab"
                     tabIndex={activeTabId === tab.id ? 0 : -1}
                     aria-selected={activeTabId === tab.id}
-                    className="desktop-chat-first-surface-tab"
+                    data-surface-tab-id={tab.id}
                     data-active={activeTabId === tab.id ? "true" : "false"}
+                    className={cn(
+                      "group flex h-8 min-w-0 max-w-48 shrink-0 items-center rounded-md text-xs transition-colors",
+                      activeTabId === tab.id
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
                     onKeyDown={(event) => {
                       const nextIndex =
                         event.key === "ArrowRight"
@@ -94,12 +101,12 @@ export default function DesktopChatFirstSurfaceTabs({
                       requestAnimationFrame(() => {
                         document
                           .querySelector<HTMLElement>(
-                            `[data-desktop-surface-tab-id="${CSS.escape(tabs[nextIndex].id)}"]`,
+                            `[data-chat-first-surface-tab-id="${CSS.escape(tabs[nextIndex].id)}"]`,
                           )
                           ?.focus();
                       });
                     }}
-                    data-desktop-surface-tab-id={tab.id}
+                    data-chat-first-surface-tab-id={tab.id}
                     onMouseDown={(event) => {
                       if (event.button === 1) {
                         event.preventDefault();
@@ -110,17 +117,18 @@ export default function DesktopChatFirstSurfaceTabs({
                   >
                     <button
                       type="button"
-                      className="desktop-chat-first-surface-tab__main"
+                      className="flex min-w-0 flex-1 items-center gap-1.5 truncate px-2 text-start"
                       onClick={() => onActivate(tab)}
                       tabIndex={-1}
                     >
                       <SurfaceIcon kind={tab.kind} />
-                      <span>{tab.title}</span>
+                      <span className="truncate">{tab.title}</span>
                     </button>
                     <button
                       type="button"
-                      className="desktop-chat-first-surface-tab__close"
-                      aria-label={`Close ${tab.title}`}
+                      className="mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/65 opacity-0 transition-opacity hover:bg-background/70 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={copy("closeTab", { name: tab.title })}
+                      title={copy("closeTab", { name: tab.title })}
                       onClick={(event) => {
                         event.stopPropagation();
                         onClose(tab);
@@ -132,23 +140,23 @@ export default function DesktopChatFirstSurfaceTabs({
                 </ContextMenuTrigger>
                 <ContextMenuContent>
                   <ContextMenuItem onSelect={() => onClose(tab)}>
-                    Close
+                    {copy("close")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     disabled={tabs.length < 2}
                     onSelect={() => onCloseOthers(tab)}
                   >
-                    Close others
+                    {copy("closeOthers")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     disabled={tabs[tabs.length - 1]?.id === tab.id}
                     onSelect={() => onCloseToRight(tab)}
                   >
-                    Close to the right
+                    {copy("closeToRight")}
                   </ContextMenuItem>
                   <ContextMenuSeparator />
                   <ContextMenuItem onSelect={onCloseAll}>
-                    Close all
+                    {copy("closeAll")}
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
@@ -156,27 +164,37 @@ export default function DesktopChatFirstSurfaceTabs({
           </div>
         ) : (
           <div
-            className="desktop-chat-first-surface-empty"
+            className="flex flex-col px-2 py-1"
             data-surface-empty-state
+            aria-label={copy("openSideSurfaces")}
           >
             {CHAT_FIRST_SURFACE_CATALOG.map((surface) => {
-              const isDeferred = surface.availability === "deferred";
+              const label = copy(`surface.${surface.kind}.label`);
               const reason =
-                surface.disabledReason ??
-                "Ask the agent to open this surface when it is available.";
+                surface.availability === "deferred"
+                  ? copy(`surface.${surface.kind}.reason`)
+                  : copy(`surface.${surface.kind}.reason`);
+              const isDeferred = surface.availability === "deferred";
               const row = (
                 <div
-                  className={`desktop-chat-first-surface-empty__row${isDeferred ? " desktop-chat-first-surface-empty__row--deferred" : ""}`}
+                  className={cn(
+                    "flex h-7 min-w-0 items-center gap-2 rounded px-2 text-xs transition-colors",
+                    surface.kind === "agents" && onOpenSurface
+                      ? "text-foreground hover:bg-accent"
+                      : isDeferred
+                        ? "text-muted-foreground/60"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
                   title={!isDeferred ? reason : undefined}
-                  aria-label={`${surface.label}: ${reason}`}
+                  aria-label={`${label}: ${reason}`}
                 >
                   <SurfaceIcon kind={surface.kind} />
-                  <span>{surface.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
                   {isDeferred ? (
-                    <small
-                      className="desktop-chat-first-surface-empty__status"
+                    <span
                       data-surface-availability="deferred"
-                      aria-label="Deferred"
+                      className="size-1.5 shrink-0 rounded-full bg-muted-foreground/45"
+                      aria-label={copy("deferred")}
                     />
                   ) : null}
                 </div>
@@ -186,9 +204,9 @@ export default function DesktopChatFirstSurfaceTabs({
                   <button
                     key={surface.kind}
                     type="button"
-                    className="desktop-chat-first-surface-empty__action"
-                    aria-label="Open activity"
-                    title="Open activity"
+                    className="text-start"
+                    title={copy("openActivity")}
+                    aria-label={copy("openActivity")}
                     onClick={() => onOpenSurface(surface.kind)}
                   >
                     {row}
@@ -199,7 +217,7 @@ export default function DesktopChatFirstSurfaceTabs({
               return (
                 <Tooltip key={surface.kind}>
                   <TooltipTrigger asChild>
-                    <div>{row}</div>
+                    <div className="text-start">{row}</div>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="max-w-72">
                     {reason}
@@ -212,4 +230,8 @@ export default function DesktopChatFirstSurfaceTabs({
       </div>
     </TooltipProvider>
   );
+}
+
+export function ChatFirstSurfaceContent({ children }: { children: ReactNode }) {
+  return <div className="min-h-0 flex-1 overflow-hidden">{children}</div>;
 }

@@ -231,7 +231,7 @@ export default function ChatTab() {
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <View className="flex-row items-center gap-0.5 px-2 py-1.5 border-b border-border-dark">
+      <View className="flex-row items-center gap-0.5 px-2 py-1.5">
         <Text className="flex-1 text-white text-[17px] font-bold pl-2">
           Chat
         </Text>

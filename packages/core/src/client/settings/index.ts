@@ -43,6 +43,12 @@ export {
   type SettingsRowProps,
 } from "./SettingsRow.js";
 export {
+  SettingsSection,
+  SettingsSurfaceProvider,
+  useSettingsSurface,
+  type SettingsSurface,
+} from "./SettingsSection.js";
+export {
   SettingsLoadingRow,
   SettingsSkeleton,
   type SettingsLoadingRowProps,
@@ -55,3 +61,16 @@ export {
   type SettingsPanelController,
   type SettingsPanelControllerOptions,
 } from "./useSettingsPanelController.js";
+export {
+  AgentProviderPicker,
+  AgentProviderSetupForm,
+  type AgentProviderPickerProps,
+  type AgentProviderSetupFormProps,
+} from "./ProviderSetupForm.js";
+export {
+  AGENT_PROVIDER_CATALOG,
+  getAgentProviderOption,
+  providerIdForEngine,
+  type AgentProviderId,
+  type AgentProviderOption,
+} from "../agent-provider-catalog.js";

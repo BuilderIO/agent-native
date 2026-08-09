@@ -74,6 +74,13 @@ export {
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
 export {
+  buildChatFirstAppCreationPrompt,
+  titleFromChatFirstAppPrompt,
+  type ChatFirstAppCreationPromptInput,
+  type ChatFirstAppCreationResource,
+  type ChatFirstAppCreationVaultAccessMode,
+} from "./chat-first-app-creation.js";
+export {
   createPollEngine,
   type PollEngineOptions,
   type PollEngineHandle,

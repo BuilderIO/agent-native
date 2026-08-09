@@ -458,7 +458,7 @@ const enUS = {
       chatFirstStopWatching: "Stop watching",
       chatFirstWatchedSession: "Watched session",
       chatFirstSessionMessagePlaceholder: "Message this session…",
-      chatFirstAgentsTitle: "Agent sessions",
+      chatFirstAgentsTitle: "Subagents",
       chatFirstUntitledAgentSession: "Untitled agent session",
       chatFirstAgentChatSession: "Agent chat session",
     },

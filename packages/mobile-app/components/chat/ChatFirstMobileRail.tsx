@@ -1,18 +1,15 @@
-import type { AppConfig } from "@agent-native/shared-app-config";
 import {
-  IconChevronRight,
+  CHAT_FIRST_DEFAULT_APP_IDS,
+  type AppConfig,
+} from "@agent-native/shared-app-config";
+import {
+  IconChevronDown,
   IconHistory,
   IconSettings,
 } from "@tabler/icons-react-native";
 import { useRouter } from "expo-router";
-import {
-  Platform,
-  PlatformColor,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { useState } from "react";
+import { Platform, PlatformColor, Pressable, Text, View } from "react-native";
 
 import { AppIcon } from "@/components/AppCard";
 
@@ -31,17 +28,21 @@ const APP_ID_TO_ROUTE: Record<string, string> = {
 
 const MOBILE_COLORS = {
   bright:
-    Platform.OS === "ios"
-      ? PlatformColor("labelColor")
-      : Platform.OS === "android"
-        ? PlatformColor("?android:attr/textColorPrimary")
-        : "currentColor",
+    Platform.OS === "web"
+      ? "rgba(244, 244, 245, 0.92)"
+      : Platform.OS === "ios"
+        ? PlatformColor("labelColor")
+        : Platform.OS === "android"
+          ? PlatformColor("?android:attr/textColorPrimary")
+          : "currentColor",
   muted:
-    Platform.OS === "ios"
-      ? PlatformColor("secondaryLabelColor")
-      : Platform.OS === "android"
-        ? PlatformColor("?android:attr/textColorSecondary")
-        : "currentColor",
+    Platform.OS === "web"
+      ? "rgba(161, 161, 170, 0.88)"
+      : Platform.OS === "ios"
+        ? PlatformColor("secondaryLabelColor")
+        : Platform.OS === "android"
+          ? PlatformColor("?android:attr/textColorSecondary")
+          : "currentColor",
 };
 
 export function ChatFirstMobileRail({
@@ -54,13 +55,28 @@ export function ChatFirstMobileRail({
   onSettings: () => void;
 }) {
   const router = useRouter();
-  const visibleApps = apps.slice(0, 6);
+  const [showMore, setShowMore] = useState(false);
+  const orderedApps = [...apps].sort((a, b) => {
+    const aIndex = CHAT_FIRST_DEFAULT_APP_IDS.indexOf(
+      a.id as (typeof CHAT_FIRST_DEFAULT_APP_IDS)[number],
+    );
+    const bIndex = CHAT_FIRST_DEFAULT_APP_IDS.indexOf(
+      b.id as (typeof CHAT_FIRST_DEFAULT_APP_IDS)[number],
+    );
+    if (aIndex === -1 && bIndex === -1) return 0;
+    if (aIndex === -1) return 1;
+    if (bIndex === -1) return -1;
+    return aIndex - bIndex;
+  });
+  const primaryApps = orderedApps.slice(0, 5);
+  const secondaryApps = orderedApps.slice(5);
+  const visibleApps = showMore ? orderedApps : primaryApps;
 
   return (
-    <View className="border-b border-border-dark bg-background-dark px-3 pb-2">
+    <View className="bg-background-dark px-3 pb-2">
       <View className="flex-row items-center justify-between py-1">
-        <Text className="text-status-gray text-[11px] font-bold uppercase tracking-[1.1px]">
-          Workspace
+        <Text className="text-status-gray text-[11px] font-medium tracking-[0.2px]">
+          Apps
         </Text>
         <View className="flex-row items-center">
           <Pressable
@@ -82,11 +98,7 @@ export function ChatFirstMobileRail({
           </Pressable>
         </View>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 8 }}
-      >
+      <View className="gap-0.5">
         {visibleApps.map((app) => (
           <Pressable
             key={app.id}
@@ -97,9 +109,9 @@ export function ChatFirstMobileRail({
                 (APP_ID_TO_ROUTE[app.id] ?? "/app/" + app.id) as never,
               )
             }
-            className="flex-row items-center gap-2 rounded-xl border border-border-dark bg-card-dark px-2.5 py-2 active:opacity-75"
+            className="h-8 flex-row items-center gap-2 rounded-md px-2 active:bg-white/5"
           >
-            <View className="h-6 w-6 items-center justify-center rounded-lg bg-gray-medium-dark">
+            <View className="h-6 w-6 items-center justify-center">
               <AppIcon
                 iconName={app.icon}
                 size={14}
@@ -107,15 +119,31 @@ export function ChatFirstMobileRail({
               />
             </View>
             <Text
-              className="max-w-[110px] text-text-light text-xs font-semibold"
+              className="flex-1 text-text-light text-[13px] font-medium"
               numberOfLines={1}
             >
               {app.name}
             </Text>
-            <IconChevronRight color={MOBILE_COLORS.muted} size={13} />
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
+      {secondaryApps.length > 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={showMore ? "Show fewer apps" : "Show more apps"}
+          onPress={() => setShowMore((value) => !value)}
+          className="mt-0.5 flex-row items-center gap-2 rounded-md px-2 py-1.5 active:bg-white/5"
+        >
+          <IconChevronDown
+            color={MOBILE_COLORS.muted}
+            size={14}
+            style={{ transform: [{ rotate: showMore ? "180deg" : "0deg" }] }}
+          />
+          <Text className="text-status-gray text-[12px]">
+            {showMore ? "Show less" : "Show more"}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

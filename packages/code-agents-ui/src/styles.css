@@ -40,7 +40,6 @@
   --code-agents-rail-gutter: 8px;
   --code-agents-rail-row-inset: 8px;
   --code-agents-rail-icon-size: 15px;
-  --code-agents-title-icon-size: 18px;
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-muted-foreground: hsl(var(--muted-foreground));
@@ -127,42 +126,6 @@
   padding: 0;
   background: hsl(var(--sidebar-background));
   border-right: 1px solid hsl(var(--sidebar-border));
-}
-
-.code-agents-rail__header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  min-height: 48px;
-  padding: 0 12px;
-  border-bottom: 1px solid hsl(var(--sidebar-border));
-}
-
-.code-agents-title-block {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.code-agents-title-icon {
-  width: var(--code-agents-title-icon-size);
-  height: var(--code-agents-title-icon-size);
-  flex: 0 0 auto;
-  border-radius: calc(var(--radius) - 4px);
-}
-
-.code-agents-title-block h1 {
-  margin: 0;
-  color: hsl(var(--foreground));
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.code-agents-title-block p {
-  margin-top: 1px;
-  color: hsl(var(--muted-foreground) / 0.72);
-  font-size: 11px;
 }
 
 .code-agents-nav-list {
@@ -366,6 +329,17 @@
 
 .code-agents-nav-link--active svg {
   color: hsl(var(--foreground));
+}
+
+/* The chat-first rail uses one neutral treatment for New chat, Search, and
+   the shared Integrations/Scheduled actions. The legacy Agent rail keeps its
+   active-state styling above. */
+.desktop-chat-first-hub .code-agents-nav-link {
+  color: hsl(var(--sidebar-foreground) / 0.8);
+}
+
+.desktop-chat-first-hub .code-agents-nav-link svg {
+  color: inherit;
 }
 
 .code-agents-run-list {

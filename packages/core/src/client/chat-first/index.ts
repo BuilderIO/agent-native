@@ -1,0 +1,35 @@
+export { ChatFirstAgentsPane } from "./agents-pane.js";
+export { ChatFirstAppPane } from "./app-pane.js";
+export { ChatFirstAppsRail } from "./apps-rail.js";
+export { ChatFirstBrowserPane } from "./browser-pane.js";
+export { defaultChatFirstCopy } from "./copy.js";
+export { ChatFirstSessionWatchPane } from "./session-watch-pane.js";
+export {
+  ChatFirstSurfacePanel,
+  type ChatFirstSurfacePanelProps,
+} from "./surface-panel.js";
+export { ChatFirstPrimaryNavigation } from "./primary-nav.js";
+export { CHAT_FIRST_DEFAULT_APP_IDS } from "../chat-first.js";
+export {
+  buildChatFirstAppCreationPrompt,
+  titleFromChatFirstAppPrompt,
+  type ChatFirstAppCreationPromptInput,
+  type ChatFirstAppCreationResource,
+  type ChatFirstAppCreationVaultAccessMode,
+} from "../../shared/chat-first-app-creation.js";
+export {
+  ChatFirstSurfaceContent,
+  ChatFirstSurfaceTabs,
+} from "./surface-tabs.js";
+export type {
+  ChatFirstAgentActivity,
+  ChatFirstAgentsPaneProps,
+  ChatFirstAppItem,
+  ChatFirstAppPaneProps,
+  ChatFirstAppRailProps,
+  ChatFirstBrowserPaneProps,
+  ChatFirstCopy,
+  ChatFirstEmbedTarget,
+  ChatFirstSessionWatchPaneProps,
+  ChatFirstSurfaceTabsProps,
+} from "./types.js";

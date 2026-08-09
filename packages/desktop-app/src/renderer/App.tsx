@@ -213,6 +213,7 @@ export default function App() {
       return changed ? next : prev;
     });
     setActiveSidebarAppId((prev) => {
+      if (prev === CODE_AGENTS_SURFACE_ID && showCodeAgentsTab) return prev;
       if (prev && enabledApps.find((a) => a.id === prev)) return prev;
       // Pick from `appDefs` (AppDefinition) so the placeholder check works —
       // `enabledApps` is AppConfig[] and has no `placeholder` field, so the
@@ -220,7 +221,7 @@ export default function App() {
       const def = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
       return def?.id ?? "";
     });
-  }, [enabledAppIdsKey]);
+  }, [enabledAppIdsKey, showCodeAgentsTab]);
 
   useEffect(() => {
     if (!activeSidebarAppId) return;
@@ -303,6 +304,31 @@ export default function App() {
       });
     },
     [activateApp],
+  );
+
+  const handleChatFirstAppCreated = useCallback(
+    (result: DesktopCreateAppResult) => {
+      if (!result.app) return;
+      setApps(result.apps);
+      setRefreshKey((current) => current + 1);
+      setHasMountedCodeAgents(true);
+      setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+      setShowSettings(false);
+      setShowAddApp(false);
+      if (result.run) {
+        setCodeAgentsOpenRequest({
+          goalId: result.run.goalId,
+          runId: result.run.id,
+          nonce: Date.now(),
+        });
+      }
+      toast(`Building ${result.app.name}`, {
+        description:
+          "The new app is in your chats and already available in the Apps rail.",
+        duration: 5000,
+      });
+    },
+    [],
   );
 
   const handleSidebarAppContextMenu = useCallback(
@@ -998,6 +1024,7 @@ export default function App() {
                 refreshKey={refreshKey}
                 onOpenSettings={() => setShowSettings(true)}
                 onCreateApp={() => setShowAddApp(true)}
+                onChatFirstAppCreated={handleChatFirstAppCreated}
                 chatFirstMode={chatFirstMode}
               />
             </div>
@@ -1057,7 +1084,7 @@ export default function App() {
       <UpdatePrompt />
       <Toaster
         className="shell-snackbar-toaster"
-        theme="dark"
+        theme="system"
         position="bottom-center"
         offset={20}
         closeButton

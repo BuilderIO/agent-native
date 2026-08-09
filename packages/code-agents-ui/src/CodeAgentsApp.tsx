@@ -1746,24 +1746,11 @@ export default function CodeAgentsApp({
         className="code-agents-rail"
         aria-label="Agent chats and navigation"
       >
-        <div className="code-agents-rail__header">
-          <div className="code-agents-title-block">
-            {brandIconUrl && (
-              <img
-                src={brandIconUrl}
-                alt=""
-                aria-hidden="true"
-                className="code-agents-title-icon"
-              />
-            )}
-            <h1>Agent</h1>
-          </div>
-        </div>
-
         <div className="code-agents-nav-list" aria-label="Agent navigation">
           <button
             type="button"
             className={`code-agents-nav-link${
+              !chatFirstMode &&
               !searchPanelOpen &&
               !mobilePanelOpen &&
               !selectedRunId &&
@@ -1771,8 +1758,14 @@ export default function CodeAgentsApp({
                 ? " code-agents-nav-link--active"
                 : ""
             }`}
+            style={
+              chatFirstMode
+                ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
+                : undefined
+            }
             onClick={openSelectedGoal}
             aria-pressed={
+              !chatFirstMode &&
               !searchPanelOpen &&
               !mobilePanelOpen &&
               !selectedRunId &&
@@ -1786,8 +1779,15 @@ export default function CodeAgentsApp({
           <button
             type="button"
             className={`code-agents-nav-link${
-              searchPanelOpen ? " code-agents-nav-link--active" : ""
+              !chatFirstMode && searchPanelOpen
+                ? " code-agents-nav-link--active"
+                : ""
             }`}
+            style={
+              chatFirstMode
+                ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
+                : undefined
+            }
             onClick={openSearchPanel}
             aria-pressed={searchPanelOpen}
           >
@@ -4278,9 +4278,7 @@ function sortPinnedRuns(runs: CodeAgentRun[]): CodeAgentRun[] {
 function getRunSubtitle(run: CodeAgentRun): string {
   if (run.subtitle) return run.subtitle;
   if (isMigrationRun(run)) return run.sourceRoot;
-  return run.goalId && run.goalId !== "task"
-    ? `${run.goalId} chat`
-    : "Agent chat";
+  return run.goalId && run.goalId !== "task" ? `${run.goalId} chat` : "Chat";
 }
 
 function getRunPermissionMode(run: CodeAgentRun): CodeAgentPermissionMode {
