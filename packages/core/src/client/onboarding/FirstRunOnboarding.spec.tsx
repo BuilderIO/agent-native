@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
   createMcpServer: vi.fn(),
   createMcpServerMutation: vi.fn(),
+  testMcpServer: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
   useMcpServers: vi.fn(),
+  useMcpServersApi: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
 }));
@@ -32,6 +34,7 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
 vi.mock("../resources/use-mcp-servers.js", () => ({
   useCreateMcpServer: mocks.createMcpServer,
   useMcpServers: mocks.useMcpServers,
+  useMcpServersApi: mocks.useMcpServersApi,
   formatMcpServerError: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
 }));
@@ -44,8 +47,10 @@ describe("FirstRunOnboarding", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
     mocks.createMcpServer.mockReset();
+    mocks.testMcpServer.mockReset();
     mocks.useBuilderConnectFlow.mockReset();
     mocks.useMcpServers.mockReset();
+    mocks.useMcpServersApi.mockReset();
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
@@ -59,6 +64,7 @@ describe("FirstRunOnboarding", () => {
       data: { user: [], org: [], orgId: null, role: null },
       isSuccess: true,
     });
+    mocks.useMcpServersApi.mockReturnValue({ test: mocks.testMcpServer });
     mocks.createMcpServerMutation.mockReset();
     mocks.createMcpServerMutation.mockResolvedValue(undefined);
     mocks.createMcpServer.mockReturnValue({
