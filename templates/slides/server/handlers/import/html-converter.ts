@@ -167,7 +167,6 @@ export function convertToSlideHtml(
 
 const DEFAULT_SLIDE_WIDTH_EMU = 9144000;
 const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
-const CSS_PX_PER_POINT = 96 / 72;
 const DEFAULT_PPTX_BACKGROUND = "#000000"; // guard:allow-raw-color - preserve PPTX black when no background is declared
 const DEFAULT_PPTX_FOREGROUND = "#ffffff"; // guard:allow-raw-color - preserve PPTX white when no run color is declared
 
@@ -295,6 +294,27 @@ function toSlidePxY(
   return Math.round((valueEmu / slideHeightEmu) * refHeightPx * 1000) / 1000;
 }
 
+const EMU_PER_POINT = 12700;
+
+/**
+ * A run's font size (and paragraph spacing) is stored in points, a physical
+ * unit independent of the source slide's own canvas size — unlike
+ * position/size EMUs, a fixed `pt * 96/72` conversion doesn't know how far
+ * `toSlidePxX`/`toSlidePxY` scaled that canvas down (or up) to fit the
+ * deck's aspect-ratio box. Converting the point value to EMU first and
+ * running it through the same `toSlidePxX` scale keeps text sized
+ * proportionally to its box on every source slide size, not just the one
+ * physical size (10in wide) that happens to make the fixed conversion agree
+ * with the 16:9 preset's box.
+ */
+function ptToSlidePx(
+  valuePt: number,
+  widthEmu: number,
+  refWidthPx: number,
+): number {
+  return toSlidePxX(valuePt * EMU_PER_POINT, widthEmu, refWidthPx);
+}
+
 function imageUrlForElement(
   element: ParsedElement,
   imageUrls: string | Record<string, string> | undefined,
@@ -357,10 +377,15 @@ function buildFidelityParagraph(
   defaultFontWeight: number,
 ): string {
   const firstRun = paragraph.runs[0];
-  const fontSize = (firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT;
+  const fontSize = ptToSlidePx(firstRun?.fontSize ?? 18, widthEmu, refWidthPx);
   const lineHeight = paragraph.lineSpacing ?? 1.2;
+  const bulletFontSize = ptToSlidePx(
+    paragraph.bulletSize ?? firstRun?.fontSize ?? 18,
+    widthEmu,
+    refWidthPx,
+  );
   const bullet = paragraph.bulletChar
-    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${(paragraph.bulletSize ?? firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT}px;">${esc(paragraph.bulletChar)}</span>`
+    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${bulletFontSize}px;">${esc(paragraph.bulletChar)}</span>`
     : "";
   const marginLeft = paragraph.marginLeftEmu
     ? toSlidePxX(paragraph.marginLeftEmu, widthEmu, refWidthPx)
@@ -371,19 +396,31 @@ function buildFidelityParagraph(
   const spacingBefore = paragraph.spaceBeforePt ?? 0;
   const spacingAfter = paragraph.spaceAfterPt ?? 0;
   const bulletMargin = paragraph.bulletChar ? `margin-left:${indent}px;` : "";
+  const marginBefore = ptToSlidePx(spacingBefore, widthEmu, refWidthPx);
+  const marginAfter = ptToSlidePx(spacingAfter, widthEmu, refWidthPx);
   const text = paragraph.runs
-    .map((run) => formatFidelityRun(run, themeFont, defaultFontWeight))
+    .map((run) =>
+      formatFidelityRun(
+        run,
+        widthEmu,
+        refWidthPx,
+        themeFont,
+        defaultFontWeight,
+      ),
+    )
     .join("");
-  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;flex:0 0 auto;text-align:${paragraph.alignment ?? "left"};white-space:pre-wrap;margin:${spacingBefore * CSS_PX_PER_POINT}px 0 ${spacingAfter * CSS_PX_PER_POINT}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
+  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;flex:0 0 auto;text-align:${paragraph.alignment ?? "left"};white-space:pre-wrap;margin:${marginBefore}px 0 ${marginAfter}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
 }
 
 function formatFidelityRun(
   run: ParsedTextRun,
+  widthEmu: number,
+  refWidthPx: number,
   themeFont: string | undefined,
   defaultFontWeight = 400,
 ): string {
   const styles = [
-    `font-size:${(run.fontSize ?? 18) * CSS_PX_PER_POINT}px`,
+    `font-size:${ptToSlidePx(run.fontSize ?? 18, widthEmu, refWidthPx)}px`,
     `font-family:${cssFontFamily(run.fontFamily ?? themeFont)}`,
     `color:${esc(run.color ?? DEFAULT_PPTX_FOREGROUND)}`,
     `font-weight:${run.bold ? 700 : fontWeightForFamily(run.fontFamily, defaultFontWeight)}`,

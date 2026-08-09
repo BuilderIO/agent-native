@@ -370,6 +370,18 @@ export function resolveDeckColumnUpdates(
   };
 }
 
+/**
+ * The source-preservation guards (`assertSourceImportOperationsPreserved`,
+ * `assertSourceSlidePreserved`) exist for one failure mode: an agent asked to
+ * "make it prettier" silently dropping the original PDF/PPTX artwork or
+ * factual copy. A human editing their own imported deck in the browser isn't
+ * that failure mode, and the browser editor has no way to pass
+ * `preserveSource` — so these guards must only run for agent callers.
+ */
+export function isAgentPatchCaller(caller: string | undefined): boolean {
+  return caller === "tool" || caller === "mcp" || caller === "a2a";
+}
+
 // ---------------------------------------------------------------------------
 // Action definition
 // ---------------------------------------------------------------------------
@@ -402,8 +414,9 @@ export default defineAction({
       ),
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
-  run: async ({ deckId, operations, creativeContext }) => {
+  run: async ({ deckId, operations, creativeContext }, ctx) => {
     await assertAccess("deck", deckId, "editor");
+    const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 
     return withDeckLock(deckId, async () => {
       const db = getDb();
@@ -435,9 +448,12 @@ export default defineAction({
       }
 
       const sourceImport = sourceImportForDeck(deck.sourceImport);
-      assertSourceImportOperationsPreserved(sourceImport, operations);
+      if (isAgentCaller) {
+        assertSourceImportOperationsPreserved(sourceImport, operations);
+      }
       for (const op of operations) {
         if (
+          !isAgentCaller ||
           op.op !== "patch-slide" ||
           (op.fields.content === undefined && op.fields.notes === undefined)
         ) {
