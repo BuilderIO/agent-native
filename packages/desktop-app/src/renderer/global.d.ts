@@ -695,17 +695,20 @@ interface ElectronAPI {
     load(): Promise<{
       enabled: boolean;
       showCodeTab: boolean;
+      chatFirstMode: boolean;
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;
     update(settings: {
       enabled?: boolean;
       showCodeTab?: boolean;
+      chatFirstMode?: boolean;
       mode?: "dev" | "prod";
       prodUrl?: string;
     }): Promise<{
       enabled: boolean;
       showCodeTab: boolean;
+      chatFirstMode: boolean;
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;
@@ -852,6 +855,34 @@ interface ElectronAPI {
     ): Promise<DesktopCreateAppResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
+  };
+
+  mcpServers: {
+    list(): Promise<
+      import("@agent-native/core/client/resources").McpServersList
+    >;
+    create(
+      args: import("@agent-native/core/client/resources").CreateMcpServerArgs,
+    ): Promise<import("@agent-native/core/client/resources").McpServer>;
+    delete(args: {
+      id: string;
+      scope: import("@agent-native/core/client/resources").McpServerScope;
+    }): Promise<void>;
+    reconnect(args: {
+      id: string;
+      scope: import("@agent-native/core/client/resources").McpServerScope;
+    }): Promise<void>;
+    test(
+      url: string,
+      headers?: Record<string, string>,
+    ): Promise<import("@agent-native/core/client/resources").TestMcpUrlResult>;
+    testExisting(args: {
+      id: string;
+      scope: import("@agent-native/core/client/resources").McpServerScope;
+    }): Promise<import("@agent-native/core/client/resources").TestMcpUrlResult>;
+    importPlugin(): Promise<
+      import("../../shared/chat-first-mcp").ChatFirstMcpPluginImportResult
+    >;
   };
 }
 

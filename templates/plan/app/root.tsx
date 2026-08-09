@@ -241,6 +241,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         sessionBypass={sessionBypass}
+        documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >

@@ -37,6 +37,7 @@ const DEFAULT_MAX_BATCHES = 1_000;
 const MAX_MAX_BATCHES = 10_000;
 const DEFAULT_CHECKPOINT_PATH = ".analytics-first-party-bigquery-backfill.json";
 const QUERY_TIMEOUT_MS = 30_000;
+const MAX_HYDRATION_IDS = 500;
 const JOB_TABLE = "analytics_bigquery_backfill_jobs";
 const FINALIZE_ALLOW_ENV =
   "AGENT_NATIVE_ANALYTICS_BIGQUERY_BACKFILL_FINALIZE_ALLOW";
@@ -212,7 +213,7 @@ export function buildHighWaterMarkQuery(spec: BranchSpec): DbQuery {
   };
 }
 
-export function buildPageQuery(
+export function buildPageKeyQuery(
   spec: BranchSpec,
   state: BranchCheckpoint,
   batchSize: number,
@@ -237,13 +238,29 @@ export function buildPageQuery(
   }
   args.push(batchSize);
   return {
-    sql: `SELECT ${PROJECTED_COLUMNS}
+    sql: `SELECT received_at, id
       FROM analytics_events
       WHERE ${spec.predicate}
         AND (received_at < ? OR (received_at = ? AND id <= ?))${cursorClause}
       ORDER BY received_at ASC, id ASC
       LIMIT ?`,
     args,
+    timeoutMs: QUERY_TIMEOUT_MS,
+    maxAttempts: 1,
+  };
+}
+
+export function buildHydrationQuery(ids: string[]): DbQuery {
+  if (!ids.length || ids.length > MAX_HYDRATION_IDS) {
+    throw new Error(
+      `BigQuery backfill hydration requires 1-${MAX_HYDRATION_IDS} ids`,
+    );
+  }
+  return {
+    sql: `SELECT ${PROJECTED_COLUMNS}
+      FROM analytics_events
+      WHERE id IN (${ids.map(() => "?").join(", ")})`,
+    args: ids,
     timeoutMs: QUERY_TIMEOUT_MS,
     maxAttempts: 1,
   };
@@ -368,6 +385,38 @@ function compareCursors(left: BackfillCursor, right: BackfillCursor): number {
     left.receivedAt.localeCompare(right.receivedAt) ||
     left.id.localeCompare(right.id)
   );
+}
+
+async function hydratePageRows(
+  keyRows: Array<Record<string, unknown>>,
+  db: DbExecutor,
+): Promise<Array<Record<string, unknown>>> {
+  const rowsById = new Map<string, Record<string, unknown>>();
+  for (let offset = 0; offset < keyRows.length; offset += MAX_HYDRATION_IDS) {
+    const ids = keyRows
+      .slice(offset, offset + MAX_HYDRATION_IDS)
+      .map((row, index) => {
+        const cursor = cursorFromRow(row, `backfill key row ${offset + index}`);
+        return cursor.id;
+      });
+    const result = await db.execute(buildHydrationQuery(ids));
+    for (const row of result.rows as Array<Record<string, unknown>>) {
+      const id = row.id;
+      if (typeof id !== "string" || !id) {
+        throw new Error("Backfill hydration row is missing id");
+      }
+      rowsById.set(id, row);
+    }
+  }
+
+  return keyRows.map((keyRow, index) => {
+    const { id } = cursorFromRow(keyRow, `backfill key row ${index}`);
+    const row = rowsById.get(id);
+    if (!row) {
+      throw new Error(`Backfill row ${id} disappeared during hydration`);
+    }
+    return row;
+  });
 }
 
 export async function assertSourceAtCheckpoint(
@@ -506,15 +555,16 @@ export async function runDedicatedBackfill(
         stop = true;
         break;
       }
-      const result = await dependencies.db.execute(
-        buildPageQuery(spec, state, options.batchSize),
+      const keyResult = await dependencies.db.execute(
+        buildPageKeyQuery(spec, state, options.batchSize),
       );
-      const rows = result.rows as Array<Record<string, unknown>>;
-      if (!rows.length) {
+      const keyRows = keyResult.rows as Array<Record<string, unknown>>;
+      if (!keyRows.length) {
         await refreshBranchCutoff(spec, state, checkpoint, dependencies, now);
         if (state.complete) break;
         continue;
       }
+      const rows = await hydratePageRows(keyRows, dependencies.db);
 
       const copied = await dependencies.upload(rows);
       if (copied !== rows.length) {

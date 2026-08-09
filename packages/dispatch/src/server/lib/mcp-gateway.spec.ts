@@ -880,6 +880,24 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     ).rejects.toThrow(/safe app-relative route/);
   });
 
+  it("rejects a URL that does not belong to the explicitly named app", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            url: "https://mail.example.com/inbox",
+          }),
+      ),
+    ).rejects.toThrow(
+      /Embed URL must belong to an app granted through Dispatch/,
+    );
+  });
+
   it("routes same-origin mounted app embed URLs to the mounted app", async () => {
     mocks.discoverAgents.mockResolvedValue([
       {

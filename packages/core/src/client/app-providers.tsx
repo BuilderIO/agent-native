@@ -52,9 +52,13 @@ import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute } from "next-themes";
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
+import {
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
+} from "../shared/document-title.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
 import {
@@ -133,6 +137,9 @@ export interface AppProvidersProps {
    */
   sessionBypass?: boolean;
 
+  /** Fallback used if route metadata leaves the browser title empty or structured. */
+  documentTitleFallback?: string;
+
   children: React.ReactNode;
 }
 
@@ -150,6 +157,60 @@ function RoutedAppEnhancements() {
   );
 }
 
+function readDocumentTitleFallback(): string {
+  const selectors = [
+    'meta[name="application-name"]',
+    'meta[name="apple-mobile-web-app-title"]',
+    'meta[property="og:site_name"]',
+  ];
+  const metadataTitle = selectors
+    .map(
+      (selector) =>
+        document.querySelector<HTMLMetaElement>(selector)?.content ?? "",
+    )
+    .find((title) => isHumanReadableDocumentTitle(title));
+  return normalizeDocumentTitle(metadataTitle, "Agent Native");
+}
+
+/** Repairs route metadata that would otherwise expose a structured payload in the tab. */
+function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
+  const initialTitleRef = useRef<string | null>(null);
+  if (initialTitleRef.current === null && typeof document !== "undefined") {
+    const initialTitle = document.title.trim();
+    if (isHumanReadableDocumentTitle(initialTitle)) {
+      initialTitleRef.current = initialTitle;
+    }
+  }
+
+  useEffect(() => {
+    let lastKnownTitle = normalizeDocumentTitle(
+      initialTitleRef.current ?? fallbackTitle ?? readDocumentTitleFallback(),
+      fallbackTitle ?? "Agent Native",
+    );
+
+    const repairTitle = () => {
+      const currentTitle = document.title.trim();
+      if (isHumanReadableDocumentTitle(currentTitle)) {
+        lastKnownTitle = currentTitle;
+        return;
+      }
+      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent Native");
+      if (currentTitle !== nextTitle) document.title = nextTitle;
+    };
+
+    repairTitle();
+    const observer = new MutationObserver(repairTitle);
+    observer.observe(document.head, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [fallbackTitle]);
+
+  return null;
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -158,6 +219,7 @@ function ProvidersInner({
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
   i18n,
+  documentTitleFallback,
   children,
 }: {
   queryClient: QueryClient;
@@ -167,6 +229,7 @@ function ProvidersInner({
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
+  documentTitleFallback?: string;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -188,6 +251,7 @@ function ProvidersInner({
       >
         <TooltipProvider delayDuration={tooltipDelayDuration}>
           {localizedChildren}
+          <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
           <RoutedAppEnhancements />
           {toaster}
@@ -208,6 +272,7 @@ export function AppProviders({
   toaster,
   disableThemeTransitions,
   i18n,
+  documentTitleFallback,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? <DefaultSpinner />;
@@ -222,6 +287,7 @@ export function AppProviders({
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
+        documentTitleFallback={documentTitleFallback}
       >
         {children}
       </ProvidersInner>
@@ -238,6 +304,7 @@ export function AppProviders({
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
+        documentTitleFallback={documentTitleFallback}
       >
         <RequireSession bypass={sessionBypass} fallback={fallback}>
           {children}

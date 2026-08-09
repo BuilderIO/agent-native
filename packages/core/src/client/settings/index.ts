@@ -43,6 +43,12 @@ export {
   type SettingsRowProps,
 } from "./SettingsRow.js";
 export {
+  SettingsSection,
+  SettingsSurfaceProvider,
+  useSettingsSurface,
+  type SettingsSurface,
+} from "./SettingsSection.js";
+export {
   SettingsLoadingRow,
   SettingsSkeleton,
   type SettingsLoadingRowProps,

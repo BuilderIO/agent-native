@@ -555,6 +555,19 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "builder-user-42" }),
     );
+    const builderPrompt = String(
+      mocks.runBuilderAgent.mock.calls.at(-1)?.[0]?.prompt ?? "",
+    );
+    expect(builderPrompt).toContain("Autonomous Builder handoff contract:");
+    expect(builderPrompt).toContain(
+      "do not invoke a clarification, guided-question, or choice flow",
+    );
+    expect(builderPrompt).toContain(
+      "choose the most direct, conservative default",
+    );
+    expect(builderPrompt).toContain(
+      "Treat the source brief's unknowns and follow-up items as assumptions",
+    );
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {

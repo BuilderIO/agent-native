@@ -84,26 +84,7 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       {/* Windows/Linux custom traffic lights */}
-      <div className="win-controls">
-        <button
-          className="win-btn win-btn--close"
-          tabIndex={-1}
-          onClick={() => window.electronAPI?.windowControls.close()}
-          title="Close"
-        />
-        <button
-          className="win-btn win-btn--minimize"
-          tabIndex={-1}
-          onClick={() => window.electronAPI?.windowControls.minimize()}
-          title="Minimize"
-        />
-        <button
-          className="win-btn win-btn--maximize"
-          tabIndex={-1}
-          onClick={() => window.electronAPI?.windowControls.maximize()}
-          title="Maximize"
-        />
-      </div>
+      <WindowControls />
 
       {/* App tabs */}
       <nav className="sidebar-nav">
@@ -158,6 +139,35 @@ export default function Sidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+export function WindowControls({
+  className = "win-controls",
+}: {
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <button
+        className="win-btn win-btn--close"
+        tabIndex={-1}
+        onClick={() => window.electronAPI?.windowControls.close()}
+        title="Close"
+      />
+      <button
+        className="win-btn win-btn--minimize"
+        tabIndex={-1}
+        onClick={() => window.electronAPI?.windowControls.minimize()}
+        title="Minimize"
+      />
+      <button
+        className="win-btn win-btn--maximize"
+        tabIndex={-1}
+        onClick={() => window.electronAPI?.windowControls.maximize()}
+        title="Maximize"
+      />
+    </div>
   );
 }
 

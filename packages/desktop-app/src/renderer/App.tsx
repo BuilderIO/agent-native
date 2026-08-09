@@ -19,7 +19,7 @@ import AppSettings, {
 } from "./components/AppSettings.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
-import Sidebar from "./components/Sidebar.js";
+import Sidebar, { WindowControls } from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
 import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
@@ -135,11 +135,21 @@ export default function App() {
     null,
   );
   const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(true);
+  const [chatFirstMode, setChatFirstMode] = useState(false);
   const [hasMountedCodeAgents, setHasMountedCodeAgents] = useState(false);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
     runId?: string;
     nonce: number;
+  }>();
+  const [chatFirstPreviewRequest, setChatFirstPreviewRequest] = useState<{
+    appId: string;
+    nonce: number;
+  }>();
+  const [chatFirstPreviewStatus, setChatFirstPreviewStatus] = useState<{
+    appId: string;
+    state: "starting" | "ready" | "error";
+    message?: string;
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
@@ -167,8 +177,14 @@ export default function App() {
     if (!window.electronAPI?.frame) return;
     window.electronAPI.frame
       .load()
-      .then((settings) => setShowCodeAgentsTab(settings.showCodeTab))
-      .catch(() => setShowCodeAgentsTab(true));
+      .then((settings) => {
+        setShowCodeAgentsTab(settings.showCodeTab);
+        setChatFirstMode(settings.chatFirstMode === true);
+      })
+      .catch(() => {
+        setShowCodeAgentsTab(true);
+        setChatFirstMode(false);
+      });
   }, []);
 
   const enabledApps = apps.filter((a) => a.enabled);
@@ -206,6 +222,7 @@ export default function App() {
       return changed ? next : prev;
     });
     setActiveSidebarAppId((prev) => {
+      if (prev === CODE_AGENTS_SURFACE_ID && showCodeAgentsTab) return prev;
       if (prev && enabledApps.find((a) => a.id === prev)) return prev;
       // Pick from `appDefs` (AppDefinition) so the placeholder check works —
       // `enabledApps` is AppConfig[] and has no `placeholder` field, so the
@@ -213,7 +230,7 @@ export default function App() {
       const def = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
       return def?.id ?? "";
     });
-  }, [enabledAppIdsKey]);
+  }, [enabledAppIdsKey, showCodeAgentsTab]);
 
   useEffect(() => {
     if (!activeSidebarAppId) return;
@@ -244,6 +261,7 @@ export default function App() {
 
   const handleFrameSettingsChanged = useCallback((settings: FrameSettings) => {
     setShowCodeAgentsTab(settings.showCodeTab);
+    setChatFirstMode(settings.chatFirstMode === true);
   }, []);
 
   const activateApp = useCallback(
@@ -295,6 +313,36 @@ export default function App() {
       });
     },
     [activateApp],
+  );
+
+  const handleChatFirstAppCreated = useCallback(
+    (result: DesktopCreateAppResult) => {
+      if (!result.app) return;
+      setApps(result.apps);
+      setChatFirstPreviewRequest({ appId: result.app.id, nonce: Date.now() });
+      setChatFirstPreviewStatus({
+        appId: result.app.id,
+        state: "starting",
+        message: "The coding agent is preparing the local preview.",
+      });
+      setRefreshKey((current) => current + 1);
+      setHasMountedCodeAgents(true);
+      setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+      setShowSettings(false);
+      setShowAddApp(false);
+      if (result.run) {
+        setCodeAgentsOpenRequest({
+          goalId: result.run.goalId,
+          runId: result.run.id,
+          nonce: Date.now(),
+        });
+      }
+      toast(`Building ${result.app.name}`, {
+        description: "New chat started. Preview opens on the right.",
+        duration: 5000,
+      });
+    },
+    [],
   );
 
   const handleSidebarAppContextMenu = useCallback(
@@ -796,11 +844,38 @@ export default function App() {
     const appConfigApi = window.electronAPI?.appConfig;
     if (!appConfigApi?.onRuntimeStatus) return;
     return appConfigApi.onRuntimeStatus((status) => {
-      if (status.appId === activeSidebarAppId && status.state === "running") {
+      const isPreview = status.appId === chatFirstPreviewRequest?.appId;
+      if (
+        status.state === "running" &&
+        (status.appId === activeSidebarAppId || isPreview)
+      ) {
         setRefreshKey((key) => key + 1);
       }
+      if (!isPreview) return;
+      if (status.state === "waiting" || status.state === "starting") {
+        setChatFirstPreviewStatus({
+          appId: status.appId,
+          state: "starting",
+          ...(status.message ? { message: status.message } : {}),
+        });
+        return;
+      }
+      if (status.state === "running") {
+        setChatFirstPreviewStatus({
+          appId: status.appId,
+          state: "ready",
+          ...(status.message ? { message: status.message } : {}),
+        });
+        return;
+      }
+      setChatFirstPreviewStatus({
+        appId: status.appId,
+        state: "error",
+        message:
+          status.message ?? "The local preview stopped before it was ready.",
+      });
     });
-  }, [activeSidebarAppId]);
+  }, [activeSidebarAppId, chatFirstPreviewRequest?.appId]);
 
   const runFind = useCallback(
     (query: string, options?: { findNext?: boolean; forward?: boolean }) => {
@@ -837,6 +912,7 @@ export default function App() {
 
   const isCodeAgentsActive =
     showCodeAgentsTab && activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
+  const isChatFirstActive = isCodeAgentsActive && chatFirstMode;
   const shouldRenderCodeAgents =
     showCodeAgentsTab && (isCodeAgentsActive || hasMountedCodeAgents);
 
@@ -869,6 +945,9 @@ export default function App() {
 
   return (
     <div className="shell">
+      {isChatFirstActive ? (
+        <WindowControls className="win-controls desktop-chat-first-window-controls" />
+      ) : null}
       {findOpen && (
         <div className="find-overlay">
           <input
@@ -922,7 +1001,7 @@ export default function App() {
           </button>
         </div>
       )}
-      {isCodeAgentsActive ? (
+      {isCodeAgentsActive && !isChatFirstActive ? (
         <div className="tabbar tabbar--shell">
           {reserveMacOSWindowControlsSpace && (
             <div className="tabbar-window-spacer" aria-hidden="true" />
@@ -933,7 +1012,7 @@ export default function App() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : isChatFirstActive ? null : (
         <TabBar
           tabs={currentAppTabs?.tabs ?? []}
           activeTabId={currentAppTabs?.activeTabId ?? ""}
@@ -947,22 +1026,30 @@ export default function App() {
         />
       )}
       <div className="shell-body">
-        <Sidebar
-          apps={appDefs}
-          activeAppId={activeSidebarAppId}
-          onTabChange={handleSidebarTabChange}
-          onAppContextMenu={(appId) => void handleSidebarAppContextMenu(appId)}
-          onAddAppClick={() => setShowAddApp(true)}
-          isCodeAgentsActive={isCodeAgentsActive}
-          onCodeAgentsClick={
-            showCodeAgentsTab ? handleCodeAgentsClick : undefined
-          }
-          onSettingsClick={() => setShowSettings(true)}
-        />
+        {!isChatFirstActive && (
+          <Sidebar
+            apps={appDefs}
+            activeAppId={activeSidebarAppId}
+            onTabChange={handleSidebarTabChange}
+            onAppContextMenu={(appId) =>
+              void handleSidebarAppContextMenu(appId)
+            }
+            onAddAppClick={() => setShowAddApp(true)}
+            isCodeAgentsActive={isCodeAgentsActive}
+            onCodeAgentsClick={
+              showCodeAgentsTab ? handleCodeAgentsClick : undefined
+            }
+            onSettingsClick={() => setShowSettings(true)}
+          />
+        )}
         <div
-          className={`content-area${
-            isCodeAgentsActive ? " content-area--code-agents" : ""
-          }`}
+          className={[
+            "content-area",
+            isCodeAgentsActive ? "content-area--code-agents" : "",
+            isChatFirstActive ? "content-area--chat-first" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           {shouldRenderCodeAgents && (
             <div
@@ -975,8 +1062,24 @@ export default function App() {
                 apps={apps}
                 isActive={isCodeAgentsActive}
                 openRequest={codeAgentsOpenRequest}
+                chatFirstPreviewRequest={chatFirstPreviewRequest}
+                chatFirstPreviewStatus={
+                  chatFirstPreviewStatus?.appId ===
+                  chatFirstPreviewRequest?.appId
+                    ? chatFirstPreviewStatus?.state
+                    : undefined
+                }
+                chatFirstPreviewStatusMessage={
+                  chatFirstPreviewStatus?.appId ===
+                  chatFirstPreviewRequest?.appId
+                    ? chatFirstPreviewStatus?.message
+                    : undefined
+                }
                 refreshKey={refreshKey}
                 onOpenSettings={() => setShowSettings(true)}
+                onCreateApp={() => setShowAddApp(true)}
+                onChatFirstAppCreated={handleChatFirstAppCreated}
+                chatFirstMode={chatFirstMode}
               />
             </div>
           )}
@@ -1035,7 +1138,7 @@ export default function App() {
       <UpdatePrompt />
       <Toaster
         className="shell-snackbar-toaster"
-        theme="dark"
+        theme="system"
         position="bottom-center"
         offset={20}
         closeButton

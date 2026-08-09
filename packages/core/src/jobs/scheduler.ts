@@ -29,7 +29,13 @@ import {
   getAutomationRun,
   listAutomationRuns,
 } from "./run-history.js";
-import { recordAutomationSchedulerHealth } from "./scheduler-health.js";
+import {
+  acquireAutomationSchedulerLease,
+  recordAutomationSchedulerHealth,
+  releaseAutomationSchedulerLease,
+  renewAutomationSchedulerLease,
+  AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
+} from "./scheduler-health.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -156,6 +162,49 @@ function subscribeToJobsResourceEvents(): void {
  * one job cannot run twice while leaving other due jobs waiting behind it.
  */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
+  const leaseOwner = await acquireAutomationSchedulerLease({
+    appId: deps.appId,
+  });
+  if (!leaseOwner) return;
+
+  const leaseRenewal = setInterval(() => {
+    void renewAutomationSchedulerLease({
+      appId: deps.appId,
+      owner: leaseOwner,
+    }).catch((error) => {
+      console.warn(
+        "[recurring-jobs] Scheduler lease renewal failed:",
+        error instanceof Error ? error.message : error,
+      );
+    });
+  }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
+
+  let primaryFailed = false;
+  try {
+    await processRecurringJobsWithLease(deps);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    clearInterval(leaseRenewal);
+    try {
+      await releaseAutomationSchedulerLease({
+        appId: deps.appId,
+        owner: leaseOwner,
+      });
+    } catch (releaseError) {
+      console.warn(
+        "[recurring-jobs] Scheduler lease release failed:",
+        releaseError instanceof Error ? releaseError.message : releaseError,
+      );
+      if (!primaryFailed) throw releaseError;
+    }
+  }
+}
+
+async function processRecurringJobsWithLease(
+  deps: SchedulerDeps,
+): Promise<void> {
   subscribeToJobsResourceEvents();
 
   // Skip if we recently confirmed there are no job resources to run.

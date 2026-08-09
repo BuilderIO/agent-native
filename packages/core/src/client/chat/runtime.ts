@@ -4,6 +4,10 @@ import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  emitChatFirstOpenApp,
+  emitChatFirstOpenBrowser,
+} from "../chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "../error-format.js";
 import {
   settleInterruptedToolCalls,
@@ -1796,6 +1800,7 @@ export function createAgentChatRuntimeAdapter(
       };
       try {
         for await (const event of turn.events) {
+          emitChatFirstOpenAppFromRuntimeEvent(event);
           const result = applyRuntimeEventToContent(event, projection);
           if (result) {
             const metadata = (result.metadata ?? {}) as Record<string, unknown>;
@@ -1825,4 +1830,84 @@ export function createAgentChatRuntimeAdapter(
       }
     },
   };
+}
+
+function emitChatFirstOpenAppFromRuntimeEvent(
+  event: AgentChatRuntimeEventBase,
+): void {
+  if (event.type !== "tool-done") return;
+  const toolEvent = event as AgentChatRuntimeToolDoneEvent;
+  if (
+    toolEvent.status !== "completed" ||
+    (!isOpenAppTool(toolEvent.toolName) &&
+      !isOpenBrowserTool(toolEvent.toolName))
+  ) {
+    return;
+  }
+
+  const result =
+    asRecord(toolEvent.result) ?? parseResultRecord(toolEvent.resultText);
+  if (!result) {
+    console.warn(
+      `[chat-first] ${toolEvent.toolName} completed without a readable result`,
+    );
+    return;
+  }
+  if (isOpenBrowserTool(toolEvent.toolName)) {
+    const delivery = emitChatFirstOpenBrowser({
+      url: readString(result.url ?? result.href),
+      title: readString(result.title ?? result.name),
+    });
+    warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
+    return;
+  }
+
+  const detail = {
+    app: readString(result.app ?? result.appId ?? result.application),
+    path: readString(result.path ?? result.targetPath),
+    url: readString(result.url ?? result.href),
+    view: readString(result.view),
+  };
+  const delivery = emitChatFirstOpenApp(detail);
+  warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
+}
+
+function warnWhenChatFirstDeliveryIsNotObserved(
+  toolName: string,
+  delivery: { delivered: boolean; reason?: string },
+): void {
+  if (delivery.delivered) return;
+  console.warn(
+    `[chat-first] ${toolName} was completed but not delivered (${delivery.reason ?? "unknown"})`,
+  );
+}
+
+function isOpenAppTool(toolName: string): boolean {
+  return toolName === "open_app";
+}
+
+function isOpenBrowserTool(toolName: string): boolean {
+  return toolName === "open_browser";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function parseResultRecord(
+  value: string | undefined,
+): Record<string, unknown> | null {
+  if (!value?.trim()) return null;
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    // coercion-ok: malformed tool output is an unreadable absence; the caller logs it.
+    return null;
+  }
 }

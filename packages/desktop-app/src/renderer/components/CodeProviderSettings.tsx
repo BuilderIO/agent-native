@@ -8,6 +8,11 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
+import type {
+  SubscriptionProviderId,
+  SubscriptionStatus,
+} from "../../../shared/subscription-status.js";
+
 type ProviderStatusTone = "ok" | "offline";
 const PENDING_BUILDER_CONNECT_RELOAD_KEY =
   "agent-native:pending-builder-connect-after-reload";
@@ -499,6 +504,8 @@ export function CodeProviderSettings({
         </div>
       </div>
 
+      <SubscriptionSettings />
+
       <button
         type="button"
         className="settings-provider-advanced-toggle"
@@ -601,5 +608,211 @@ export function CodeProviderSettings({
         <div className="settings-provider-message">{providerMessage}</div>
       )}
     </div>
+  );
+}
+
+const SUBSCRIPTION_PROVIDERS: readonly SubscriptionProviderId[] = [
+  "codex",
+  "claude",
+];
+
+function subscriptionLabel(status: SubscriptionStatus | undefined): {
+  label: string;
+  description: string;
+  connected: boolean;
+} {
+  if (!status) {
+    return {
+      label: "Checking…",
+      description: "Checking the local CLI status.",
+      connected: false,
+    };
+  }
+  if (status.connectionState === "connected") {
+    return {
+      label: "Connected",
+      description: status.plan?.label
+        ? `${status.plan.label} subscription detected.`
+        : "Subscription login detected.",
+      connected: true,
+    };
+  }
+  if (status.connectionState === "needs-sign-in") {
+    return {
+      label: "Not signed in",
+      description: status.connectionMessage ?? "Sign in through the local CLI.",
+      connected: false,
+    };
+  }
+  if (status.connectionState === "unavailable") {
+    return {
+      label: "Not installed",
+      description:
+        status.connectionMessage ??
+        "The local CLI was not found on this computer.",
+      connected: false,
+    };
+  }
+  return {
+    label: "Could not check",
+    description: status.connectionMessage ?? "The local CLI returned an error.",
+    connected: false,
+  };
+}
+
+function SubscriptionSettings() {
+  const [statuses, setStatuses] = useState<
+    Partial<Record<SubscriptionProviderId, SubscriptionStatus>>
+  >({});
+  const [busyProvider, setBusyProvider] =
+    useState<SubscriptionProviderId | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(
+    null,
+  );
+
+  const refresh = useCallback(async (providerId: SubscriptionProviderId) => {
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    setBusyProvider(providerId);
+    setSubscriptionError(null);
+    try {
+      const result = await api.refreshProviderStatus(providerId);
+      if (result.status) {
+        setStatuses((current) => ({ ...current, [providerId]: result.status }));
+      }
+      if (result.error?.message) setSubscriptionError(result.error.message);
+    } catch (error) {
+      setSubscriptionError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setBusyProvider(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    void Promise.all(
+      SUBSCRIPTION_PROVIDERS.map(async (providerId) => {
+        try {
+          const result = await api.getProviderStatus(providerId);
+          return [providerId, result.status] as const;
+        } catch {
+          return [providerId, undefined] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setStatuses((current) => {
+        const next = { ...current };
+        for (const [providerId, status] of entries) {
+          if (status) next[providerId] = status;
+        }
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function connect(providerId: SubscriptionProviderId) {
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    setBusyProvider(providerId);
+    setSubscriptionError(null);
+    try {
+      const result = await api.beginProviderLogin(providerId);
+      if (result.status) {
+        setStatuses((current) => ({ ...current, [providerId]: result.status }));
+      }
+      if (result.error?.message) setSubscriptionError(result.error.message);
+    } catch (error) {
+      setSubscriptionError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setBusyProvider(null);
+    }
+  }
+
+  const hasSubscriptionBridge = Boolean(window.electronAPI?.multiFrontier);
+
+  return (
+    <section className="settings-subscriptions-card" aria-label="Subscriptions">
+      <div className="settings-subscriptions-header">
+        <div>
+          <span className="settings-mode-card-title">Subscriptions</span>
+          <span className="settings-mode-card-status">
+            Reuse local ChatGPT/Codex and Claude Code logins when available.
+          </span>
+        </div>
+        <span className="settings-subscriptions-platform">Desktop only</span>
+      </div>
+      <div className="settings-subscriptions-list">
+        {SUBSCRIPTION_PROVIDERS.map((providerId) => {
+          const copy =
+            providerId === "codex"
+              ? { label: "ChatGPT / Codex", command: "codex login" }
+              : { label: "Claude", command: "claude auth login --claudeai" };
+          const status = hasSubscriptionBridge
+            ? subscriptionLabel(statuses[providerId])
+            : {
+                label: "Unavailable",
+                description:
+                  "Subscription detection is unavailable in this desktop build.",
+                connected: false,
+              };
+          const busy = busyProvider === providerId;
+          return (
+            <div key={providerId} className="settings-subscription-row">
+              <div className="settings-subscription-copy">
+                <span className="settings-subscription-name">{copy.label}</span>
+                <span className="settings-subscription-description">
+                  {status.description}
+                </span>
+              </div>
+              <div className="settings-subscription-actions">
+                <span
+                  className={`settings-subscription-status${
+                    status.connected ? " settings-subscription-status--ok" : ""
+                  }`}
+                >
+                  {status.label}
+                </span>
+                {!status.connected && statuses[providerId] ? (
+                  <button
+                    type="button"
+                    className="settings-provider-text-button"
+                    disabled={busy}
+                    onClick={() =>
+                      statuses[providerId]?.connectionState === "needs-sign-in"
+                        ? void connect(providerId)
+                        : void refresh(providerId)
+                    }
+                  >
+                    {busy
+                      ? "Working…"
+                      : status.label === "Not signed in"
+                        ? "Sign in"
+                        : "Refresh"}
+                  </button>
+                ) : null}
+              </div>
+              <span className="settings-subscription-command">
+                {copy.command}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {subscriptionError ? (
+        <p className="settings-provider-message" role="alert">
+          {subscriptionError}
+        </p>
+      ) : null}
+    </section>
   );
 }

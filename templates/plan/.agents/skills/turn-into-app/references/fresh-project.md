@@ -36,7 +36,7 @@ Inputs and outputs:
 Judgment and review points:
 Representative runs: none, or 1-3 selected examples
 Integrations and permissions:
-Unknowns and follow-up:
+Unknowns and assumptions:
 ```
 
 Keep source references bounded. Prefer a file name, URL, resource ID, or short
@@ -68,6 +68,13 @@ handoff action is unavailable, stop and ask the user to authenticate Dispatch;
 do not fall back to a local sandbox build. Claude Code and Codex Code are the
 local-agent exception and may follow the implementation steps in the main
 skill.
+
+The brief is an implementation authorization, not a questionnaire. After a
+repeatable workflow is identifiable, choose any source-recommended option
+automatically. For unresolved non-blocking choices, use the most direct
+conventional default, record it under assumptions, and continue. Ask only when
+there is no identifiable workflow, no authorized target workspace, or a
+destructive/credential boundary genuinely prevents the handoff.
 
 In a new Project chat, say:
 

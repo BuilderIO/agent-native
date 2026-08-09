@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminShell } from "../admin-navigation";
 import { TooltipProvider } from "../ui/tooltip";
-import { formatThreadAge, NavContent } from "./Layout";
+import {
+  buildChatFirstEmbedSessionInput,
+  formatThreadAge,
+  NavContent,
+} from "./Layout";
 
 const clientState = vi.hoisted(() => ({
   createThread: vi.fn<() => Promise<string | null>>(),
@@ -36,6 +40,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
   appBasePath: () => "",
   appPath: (path: string) => path,
 }));
@@ -93,6 +98,16 @@ describe("formatThreadAge", () => {
     [365 * 24 * 60 * 60_000, "1y"],
   ])("formats %i milliseconds as %s", (elapsed, expected) => {
     expect(formatThreadAge(now - elapsed, now)).toBe(expected);
+  });
+});
+
+describe("chat-first embed sessions", () => {
+  it("keeps the granted app id on app-relative embed requests", () => {
+    expect(buildChatFirstEmbedSessionInput("mail", "/mail/inbox")).toEqual({
+      app: "mail",
+      path: "/mail/inbox",
+      chrome: "minimal",
+    });
   });
 });
 

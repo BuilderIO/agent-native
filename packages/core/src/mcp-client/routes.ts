@@ -6,6 +6,9 @@
  * hot-reload the configured server set.
  *
  *   GET    /_agent-native/mcp/servers           list user + org servers
+ *   GET    /_agent-native/mcp/servers/runtime-config
+ *                                                reserved; returns 410 until a
+ *                                                desktop capability broker exists
  *   POST   /_agent-native/mcp/servers           add a server
  *   DELETE /_agent-native/mcp/servers/:id       remove a server (scope via ?scope=)
  *   POST   /_agent-native/mcp/servers/:id/test  dry-run connect (no persist)
@@ -469,6 +472,14 @@ export function mountMcpServersRoutes(
         const parts = pathname ? pathname.split("/") : [];
 
         setResponseHeader(event, "Content-Type", "application/json");
+
+        if (
+          method === "GET" &&
+          parts.length === 1 &&
+          parts[0] === "runtime-config"
+        ) {
+          return handleRuntimeConfig(event);
+        }
 
         // POST /servers/test — dry-run a URL+headers before persisting
         if (method === "POST" && parts.length === 1 && parts[0] === "test") {
@@ -946,6 +957,14 @@ async function handleList(
     ),
     orgId,
     role,
+  };
+}
+
+function handleRuntimeConfig(event: H3Event): { error: string } {
+  setResponseStatus(event, 410);
+  return {
+    error:
+      "Cleartext MCP runtime config requires a desktop capability broker and is not available over session-authenticated HTTP.",
   };
 }
 
