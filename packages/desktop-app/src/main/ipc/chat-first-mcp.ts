@@ -10,7 +10,12 @@ import {
   type ChatFirstMcpRuntimeConfig,
   type ChatFirstMcpPluginImportResult,
 } from "@shared/chat-first-mcp";
-import { dialog, ipcMain, type IpcMainInvokeEvent, type Session } from "electron";
+import {
+  dialog,
+  ipcMain,
+  type IpcMainInvokeEvent,
+  type Session,
+} from "electron";
 
 export interface McpHost {
   baseUrl: string;
@@ -39,7 +44,9 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
   try {
     return objectValue(JSON.parse(text));
   } catch {
-    return { error: `MCP settings returned invalid JSON (${response.status}).` };
+    return {
+      error: `MCP settings returned invalid JSON (${response.status}).`,
+    };
   }
 }
 
@@ -92,9 +99,7 @@ export async function fetchChatFirstMcpRuntimeConfig(
   )) as unknown as ChatFirstMcpRuntimeConfig;
 }
 
-export function registerChatFirstMcpIpc(
-  deps: ChatFirstMcpIpcDeps,
-): void {
+export function registerChatFirstMcpIpc(deps: ChatFirstMcpIpcDeps): void {
   async function request(
     route: string,
     init: RequestInit = {},
@@ -108,20 +113,14 @@ export function registerChatFirstMcpIpc(
     return requestMcpHost(host, route, init);
   }
 
-  ipcMain.handle(
-    CHAT_FIRST_MCP_IPC.LIST,
-    async (): Promise<McpServersList> => {
-      const body = await request("/_agent-native/mcp/servers");
-      return body as unknown as McpServersList;
-    },
-  );
+  ipcMain.handle(CHAT_FIRST_MCP_IPC.LIST, async (): Promise<McpServersList> => {
+    const body = await request("/_agent-native/mcp/servers");
+    return body as unknown as McpServersList;
+  });
 
   ipcMain.handle(
     CHAT_FIRST_MCP_IPC.CREATE,
-    async (
-      _event: IpcMainInvokeEvent,
-      args: CreateMcpServerArgs,
-    ) => {
+    async (_event: IpcMainInvokeEvent, args: CreateMcpServerArgs) => {
       const body = await request("/_agent-native/mcp/servers", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -145,7 +144,9 @@ export function registerChatFirstMcpIpc(
         { method: "DELETE" },
       );
       if (body.ok !== true) {
-        throw new Error(errorFromBody(body, "Could not remove the MCP server."));
+        throw new Error(
+          errorFromBody(body, "Could not remove the MCP server."),
+        );
       }
     },
   );

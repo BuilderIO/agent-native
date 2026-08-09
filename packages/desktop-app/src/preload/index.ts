@@ -1,4 +1,15 @@
+import type {
+  CreateMcpServerArgs,
+  McpServersList,
+  McpServer,
+  McpServerScope,
+  TestMcpUrlResult,
+} from "@agent-native/core/client/resources";
 import type { AppConfig, FrameSettings } from "@shared/app-registry";
+import {
+  CHAT_FIRST_MCP_IPC,
+  type ChatFirstMcpPluginImportResult,
+} from "@shared/chat-first-mcp";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
 import {
   IPC,
@@ -67,18 +78,7 @@ import type {
   MultiFrontierRendererState,
 } from "@shared/multi-frontier-ipc";
 import { isDesktopSentryConfigured } from "@shared/sentry-config";
-import {
-  CHAT_FIRST_MCP_IPC,
-  type ChatFirstMcpPluginImportResult,
-} from "@shared/chat-first-mcp";
 import { contextBridge, ipcRenderer } from "electron";
-import type {
-  CreateMcpServerArgs,
-  McpServersList,
-  McpServer,
-  McpServerScope,
-  TestMcpUrlResult,
-} from "@agent-native/core/client/resources";
 
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
@@ -222,14 +222,9 @@ const electronAPI = {
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.LIST),
     create: (args: CreateMcpServerArgs): Promise<McpServer> =>
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.CREATE, args),
-    delete: (args: {
-      id: string;
-      scope: McpServerScope;
-    }): Promise<void> => ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.DELETE, args),
-    reconnect: (args: {
-      id: string;
-      scope: McpServerScope;
-    }): Promise<void> =>
+    delete: (args: { id: string; scope: McpServerScope }): Promise<void> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.DELETE, args),
+    reconnect: (args: { id: string; scope: McpServerScope }): Promise<void> =>
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.RECONNECT, args),
     test: (
       url: string,

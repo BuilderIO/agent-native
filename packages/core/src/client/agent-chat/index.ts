@@ -41,7 +41,6 @@ export {
 export {
   saveAgentEngineApiKey,
   saveAgentEngineProviderSettings,
-  setAgentEngineProvider,
   type AgentEngineProvider,
   type SaveAgentEngineApiKeyOptions,
   type SaveAgentEngineProviderSettingsOptions,

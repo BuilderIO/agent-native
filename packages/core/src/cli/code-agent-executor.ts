@@ -63,12 +63,12 @@ import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
 } from "../vite/agent-native-config-loader.js";
-import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
   restrictCodeAgentMcpConfig,
 } from "./code-agent-mcp-config.js";
+import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   addCodeAgentCommandToAllowlist,
   appendCodeAgentTranscriptEvent,

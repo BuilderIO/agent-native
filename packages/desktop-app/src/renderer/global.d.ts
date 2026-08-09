@@ -858,7 +858,9 @@ interface ElectronAPI {
   };
 
   mcpServers: {
-    list(): Promise<import("@agent-native/core/client/resources").McpServersList>;
+    list(): Promise<
+      import("@agent-native/core/client/resources").McpServersList
+    >;
     create(
       args: import("@agent-native/core/client/resources").CreateMcpServerArgs,
     ): Promise<import("@agent-native/core/client/resources").McpServer>;

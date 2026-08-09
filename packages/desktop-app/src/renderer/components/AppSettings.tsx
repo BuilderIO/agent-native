@@ -1,6 +1,4 @@
-import {
-  ConnectionsTab,
-} from "@agent-native/core/client/agent-chat";
+import { ConnectionsTab } from "@agent-native/core/client/agent-chat";
 import {
   McpServersApiProvider,
   type McpServersApi,

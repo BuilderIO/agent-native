@@ -409,10 +409,7 @@ export function McpIntegrationDialog({
     setError(null);
     setTestResult(null);
     try {
-      const res = await mcpApi.test(
-        trimmedUrl,
-        parseHeaderLines(headersText),
-      );
+      const res = await mcpApi.test(trimmedUrl, parseHeaderLines(headersText));
       setTestResult(
         res.ok
           ? {
