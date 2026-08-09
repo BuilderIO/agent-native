@@ -111,6 +111,7 @@
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
     "./client": "./dist/client/index.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
+    "./client/chat-first": "./dist/client/chat-first/index.js",
     "./client/analytics": "./dist/client/analytics/index.js",
     "./client/automation": "./dist/client/automation/index.js",
     "./client/chat": "./dist/client/chat/index.js",
