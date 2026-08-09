@@ -724,7 +724,12 @@ export async function resolveBuilderCredential(
   const envValue = canUseBuilderDeployCredentialFallbackForRequest()
     ? (readDeployCredentialEnv(key) ?? null)
     : null;
-  if (envValue) return envValue;
+  if (envValue) {
+    // A deploy fallback is still useful, but it must not turn a transient
+    // credential-store failure into a clean connected result for Builder.
+    assertCredentialStoreReadable(scoped);
+    return envValue;
+  }
   // Nothing answered AND the store never gave a real answer: that is not
   // "not connected", it is "we could not look".
   assertCredentialStoreReadable(scoped);
@@ -1628,7 +1633,7 @@ export async function resolveSecretDetailed(
     }
     return {
       value: envFallback,
-      lookupFailed: lookupFailed && !envFallback,
+      lookupFailed,
       cause,
     };
   }

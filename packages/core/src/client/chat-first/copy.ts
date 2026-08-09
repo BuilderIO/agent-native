@@ -40,6 +40,8 @@ const DEFAULT_COPY: Record<string, string> = {
   browserClose: "Close browser",
   browserPage: "Browser page",
   browserInvalidUrl: "Enter a full http(s) URL to navigate.",
+  browserPreviewStarting: "Starting preview…",
+  browserPreviewError: "Preview unavailable",
   appUnavailable: "This workspace app is no longer available.",
   appLoading: "Loading app",
   agentActivityEyebrow: "Workspace",

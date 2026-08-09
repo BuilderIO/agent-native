@@ -358,6 +358,7 @@ const unmeasuredCount = results.filter(
   (r) => r.status === "not-measured",
 ).length;
 const passedCount = results.filter((r) => r.status === "passed").length;
+let uncoveredCount = 0;
 
 console.error(
   `\n[ssr-smoke] ${passedCount} passed, ${failedCount} failed, ${unmeasuredCount} not measured (of ${results.length}).`,
@@ -374,6 +375,7 @@ if (reportUncovered) {
     .map((dirent) => dirent.name)
     .sort();
   const uncovered = allTemplates.filter((name) => !targets.includes(name));
+  uncoveredCount = uncovered.length;
 
   if (uncovered.length > 0) {
     const headline =
@@ -403,6 +405,13 @@ if (unmeasuredCount > 0) {
   console.error(
     "[ssr-smoke] Some targets were never measured. That is not a pass — the\n" +
       "boot budgets did not run for them.",
+  );
+  process.exit(3);
+}
+
+if (uncoveredCount > 0) {
+  console.error(
+    "[ssr-smoke] The requested coverage report found templates that were not measured.",
   );
   process.exit(3);
 }

@@ -70,6 +70,8 @@ export interface ChatFirstAppRailProps {
 export interface ChatFirstBrowserPaneProps {
   url: string;
   title?: string;
+  status?: "starting" | "ready" | "error";
+  statusMessage?: string;
   onClose: () => void;
   renderEmbed: (target: ChatFirstEmbedTarget) => ReactNode;
   copy?: ChatFirstCopy;

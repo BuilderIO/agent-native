@@ -26,6 +26,7 @@ import {
   type ChatFirstOpenBrowserDetail,
   type ChatFirstOpenAppDetail,
   type ChatFirstSessionReference,
+  type ChatFirstSurfaceTab,
   type ChatFirstSurfaceKind,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
@@ -42,6 +43,7 @@ import {
   ChatFirstAppPane,
   ChatFirstAppsRail,
   ChatFirstBrowserPane,
+  ChatFirstChatHistory,
   ChatFirstPrimaryNavigation,
   ChatFirstSessionWatchPane,
   ChatFirstSurfacePanel,
@@ -207,9 +209,17 @@ interface ChatFirstEmbedSessionResult {
 }
 
 interface ChatFirstEmbedSessionInput {
+  app?: string;
   path?: string;
   url?: string;
   chrome: "minimal";
+}
+
+export function buildChatFirstEmbedSessionInput(
+  appId: string,
+  path: string,
+): ChatFirstEmbedSessionInput {
+  return { app: appId, path, chrome: "minimal" };
 }
 
 interface DispatchAgentThreadSummary {
@@ -343,6 +353,8 @@ const DISPATCH_CHAT_FIRST_COPY_KEYS: Record<string, string> = {
   browserClose: "chatFirstBrowserClose",
   browserPage: "chatFirstBrowserPage",
   browserInvalidUrl: "chatFirstBrowserInvalidUrl",
+  browserPreviewStarting: "chatFirstBrowserPreviewStarting",
+  browserPreviewError: "chatFirstBrowserPreviewError",
   appUnavailable: "chatFirstAppUnavailable",
   appLoading: "chatFirstLoadingApp",
   agentActivityEyebrow: "chatFirstAgentActivityEyebrow",
@@ -707,72 +719,147 @@ function DispatchChatsSection({
             <Skeleton className="h-3 w-3/4 rounded" />
           </div>
         ))}
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={displayedActiveThreadId}
-        onSelect={(threadId) => openThread(threadId)}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("dispatch.sidebar.newChat"),
-          showMore: t("dispatch.sidebar.chats"),
-          showLess: t("dispatch.sidebar.chats"),
-        }}
-        renameMaxLength={160}
-        onRename={(threadId, title) => void renameThread(threadId, title)}
-        labels={{
-          options: (item) =>
-            t("dispatch.sidebar.chatOptions", {
-              title: item.titleText ?? "",
-            }),
-          renameInput: (item) =>
-            t("dispatch.sidebar.renameThread", {
-              title: item.titleText ?? "",
-            }),
-          rename: t("dispatch.sidebar.renameChat"),
-        }}
-        renderAdditionalRowActions={(item, closeMenu) => (
-          <>
-            <button
-              type="button"
-              role="menuitem"
-              className="an-chat-history-row__menu-item"
-              onClick={() => {
-                closeMenu();
-                void writeClipboardText(item.id).then((copied) => {
-                  toast[copied ? "success" : "error"](
-                    copied
-                      ? "Session ID copied"
-                      : "Could not copy the session ID",
-                  );
-                });
-              }}
-            >
-              <IconCopy size={13} strokeWidth={1.8} />
-              <span>Copy session ID</span>
-            </button>
-            {chatFirstMode ? (
+      {chatFirstMode ? (
+        <ChatFirstChatHistory
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          loading={chatsLoading && visibleThreads.length === 0}
+          loadingLabel={
+            <div className="space-y-1 px-2 py-1">
+              {[0, 1, 2].map((index) => (
+                <div key={index} className="flex items-center gap-2 px-1 py-1">
+                  <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+                  <Skeleton className="h-3 w-3/4 rounded" />
+                </div>
+              ))}
+            </div>
+          }
+          label={t("dispatch.sidebar.chats", { defaultValue: "Chats" })}
+          onSelect={(threadId) => openThread(threadId)}
+          renameMaxLength={160}
+          onRename={(threadId, title) => void renameThread(threadId, title)}
+          labels={{
+            options: (item) =>
+              t("dispatch.sidebar.chatOptions", {
+                title: item.titleText ?? "",
+              }),
+            renameInput: (item) =>
+              t("dispatch.sidebar.renameThread", {
+                title: item.titleText ?? "",
+              }),
+            rename: t("dispatch.sidebar.renameChat"),
+          }}
+          renderAdditionalRowActions={(item, closeMenu) => (
+            <>
               <button
                 type="button"
                 role="menuitem"
                 className="an-chat-history-row__menu-item"
                 onClick={() => {
                   closeMenu();
-                  emitChatFirstSessionWatch({
-                    sessionId: item.id,
-                    title: item.titleText,
-                    kind: "agent-chat",
-                    sourceSessionId: displayedActiveThreadId ?? undefined,
+                  void writeClipboardText(item.id).then((copied) => {
+                    toast[copied ? "success" : "error"](
+                      copied
+                        ? "Session ID copied"
+                        : "Could not copy the session ID",
+                    );
                   });
                 }}
               >
-                <IconEye size={13} strokeWidth={1.8} />
-                <span>Watch and message session</span>
+                <IconCopy size={13} strokeWidth={1.8} />
+                <span>Copy session ID</span>
               </button>
-            ) : null}
-          </>
-        )}
-        className="min-w-0"
-      />
+              {!chatFirstEmbedded ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="an-chat-history-row__menu-item"
+                  onClick={() => {
+                    closeMenu();
+                    emitChatFirstSessionWatch({
+                      sessionId: item.id,
+                      title: item.titleText,
+                      kind: "agent-chat",
+                      sourceSessionId: displayedActiveThreadId ?? undefined,
+                    });
+                  }}
+                >
+                  <IconEye size={13} strokeWidth={1.8} />
+                  <span>Watch and message session</span>
+                </button>
+              ) : null}
+            </>
+          )}
+          className="min-w-0"
+        />
+      ) : (
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("dispatch.sidebar.newChat"),
+            showMore: t("dispatch.sidebar.chats"),
+            showLess: t("dispatch.sidebar.chats"),
+          }}
+          renameMaxLength={160}
+          onRename={(threadId, title) => void renameThread(threadId, title)}
+          labels={{
+            options: (item) =>
+              t("dispatch.sidebar.chatOptions", {
+                title: item.titleText ?? "",
+              }),
+            renameInput: (item) =>
+              t("dispatch.sidebar.renameThread", {
+                title: item.titleText ?? "",
+              }),
+            rename: t("dispatch.sidebar.renameChat"),
+          }}
+          renderAdditionalRowActions={(item, closeMenu) => (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="an-chat-history-row__menu-item"
+                onClick={() => {
+                  closeMenu();
+                  void writeClipboardText(item.id).then((copied) => {
+                    toast[copied ? "success" : "error"](
+                      copied
+                        ? "Session ID copied"
+                        : "Could not copy the session ID",
+                    );
+                  });
+                }}
+              >
+                <IconCopy size={13} strokeWidth={1.8} />
+                <span>Copy session ID</span>
+              </button>
+              {chatFirstMode && !chatFirstEmbedded ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="an-chat-history-row__menu-item"
+                  onClick={() => {
+                    closeMenu();
+                    emitChatFirstSessionWatch({
+                      sessionId: item.id,
+                      title: item.titleText,
+                      kind: "agent-chat",
+                      sourceSessionId: displayedActiveThreadId ?? undefined,
+                    });
+                  }}
+                >
+                  <IconEye size={13} strokeWidth={1.8} />
+                  <span>Watch and message session</span>
+                </button>
+              ) : null}
+            </>
+          )}
+          className="min-w-0"
+        />
+      )}
     </div>
   );
 }
@@ -781,6 +868,7 @@ export function NavContent({
   onNavigate,
   extensions,
   chatFirstMode = false,
+  chatFirstEmbedded = false,
   collapsed = false,
   collapsible = false,
   onCollapsedChange,
@@ -796,6 +884,7 @@ export function NavContent({
   onNavigate?: () => void;
   extensions?: DispatchExtensionConfig;
   chatFirstMode?: boolean;
+  chatFirstEmbedded?: boolean;
   collapsed?: boolean;
   collapsible?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
@@ -1020,6 +1109,7 @@ export function NavContent({
           <DispatchChatsSection
             onNavigate={onNavigate}
             chatFirstMode={chatFirstMode}
+            chatFirstEmbedded={chatFirstEmbedded}
           />
         ) : null}
       </li>
@@ -1310,7 +1400,12 @@ export function Layout({
     setChatFirstEmbedUrl(null);
     setChatFirstEmbedError(null);
     void createChatFirstEmbedSession
-      .mutateAsync({ path: chatFirstEmbedPath, chrome: "minimal" })
+      .mutateAsync(
+        buildChatFirstEmbedSessionInput(
+          activeChatFirstApp.id,
+          chatFirstEmbedPath,
+        ),
+      )
       .then((result) => {
         if (!cancelled) setChatFirstEmbedUrl(result.startUrl);
       })
@@ -1598,8 +1693,21 @@ export function Layout({
       return;
     }
     previousChatFirstSurfaceScopeRef.current = chatFirstSurfaceScope;
+    persistChatFirstPane(null);
+    setChatFirstEmbedUrl(null);
+    setChatFirstEmbedError(null);
+    setChatFirstNotice(null);
+    pendingChatFirstOpenAppRef.current = null;
+    chatFirstPaneHydratedRef.current = true;
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
     closeChatFirstSessionWatch();
-  }, [chatFirstSurfaceScope]);
+  }, [
+    chatFirstSurfaceScope,
+    chatFirstSurfaceTabsStore,
+    persistChatFirstPane,
+    setChatFirstSurfacePanelOpen,
+  ]);
 
   useEffect(() => {
     const tabCount = chatFirstSurfaceTabs.tabs.length;
@@ -1779,6 +1887,123 @@ export function Layout({
     [t],
   );
 
+  const renderChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      if (tab.kind === "app") {
+        if (tab.id !== chatFirstSurfaceTabs.activeTabId) return null;
+        const app = tab.appId
+          ? (chatFirstWorkspaceApps.find(
+              (candidate) => candidate.id === tab.appId,
+            ) ?? null)
+          : null;
+        return (
+          <ChatFirstAppPane
+            app={app}
+            status={
+              chatFirstEmbedError
+                ? "error"
+                : chatFirstEmbedUrl
+                  ? "ready"
+                  : chatFirstAppsQuery.isLoading
+                    ? "loading"
+                    : app
+                      ? "loading"
+                      : "unresolved"
+            }
+            embedUrl={chatFirstEmbedUrl}
+            errorMessage={chatFirstEmbedError}
+            onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
+            renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
+              <iframe
+                data-dispatch-chat-first-app-frame
+                src={url}
+                title={title ?? chatFirstCopy("appUnavailable")}
+                referrerPolicy="no-referrer"
+                allow="clipboard-read; clipboard-write"
+                className="h-full w-full border-0 bg-background"
+              />
+            )}
+            copy={chatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "browser" && tab.url) {
+        return (
+          <ChatFirstBrowserPane
+            url={tab.url}
+            title={tab.title}
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderEmbed={({ url, title, key }: ChatFirstEmbedTarget) => (
+              <iframe
+                key={key}
+                src={url}
+                title={title ?? chatFirstCopy("browserPage")}
+                referrerPolicy="no-referrer"
+                allow="clipboard-read; clipboard-write"
+                className="h-full w-full border-0 bg-background"
+              />
+            )}
+            copy={chatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "side-chat") {
+        const target =
+          tab.session ??
+          (tab.id === chatFirstSurfaceTabs.activeTabId
+            ? chatFirstSessionWatch.target
+            : null);
+        return target ? (
+          <ChatFirstSessionWatchPane
+            target={target}
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderChat={renderChatFirstWatchChat}
+            copy={chatFirstCopy}
+          />
+        ) : null;
+      }
+      if (tab.kind === "agents") {
+        return (
+          <ChatFirstAgentsPane
+            activities={chatFirstAgentActivities}
+            loading={chatFirstAgentsQuery.isLoading}
+            error={
+              chatFirstAgentsQuery.isError
+                ? chatFirstAgentsQuery.error.message
+                : null
+            }
+            onRefresh={() => void chatFirstAgentsQuery.refetch()}
+            onWatch={(activity) =>
+              emitChatFirstSessionWatch({
+                sessionId: activity.sessionId,
+                title: activity.title,
+                kind: "agent-chat",
+                ...(activity.goalId ? { goalId: activity.goalId } : {}),
+              })
+            }
+            copy={chatFirstCopy}
+          />
+        );
+      }
+      return null;
+    },
+    [
+      chatFirstAgentActivities,
+      chatFirstAgentsQuery.error,
+      chatFirstAgentsQuery.isError,
+      chatFirstAgentsQuery.isLoading,
+      chatFirstAppsQuery.isLoading,
+      chatFirstCopy,
+      chatFirstEmbedError,
+      chatFirstEmbedUrl,
+      chatFirstSessionWatch.target,
+      chatFirstSurfaceTabs.activeTabId,
+      chatFirstWorkspaceApps,
+      closeChatFirstSurfaceTab,
+      renderChatFirstWatchChat,
+    ],
+  );
+
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
   }
@@ -1895,87 +2120,11 @@ export function Layout({
             copy={chatFirstCopy}
           />
           {chatFirstSurfaceTabs.tabs.length > 0 ? (
-            <ChatFirstSurfaceContent>
-              {activeChatFirstSurfaceTab?.kind === "app" ? (
-                <ChatFirstAppPane
-                  app={activeChatFirstApp}
-                  status={
-                    chatFirstEmbedError
-                      ? "error"
-                      : chatFirstEmbedUrl
-                        ? "ready"
-                        : chatFirstAppsQuery.isLoading
-                          ? "loading"
-                          : activeChatFirstApp
-                            ? "loading"
-                            : "unresolved"
-                  }
-                  embedUrl={chatFirstEmbedUrl}
-                  errorMessage={chatFirstEmbedError}
-                  onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
-                  renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
-                    <iframe
-                      data-dispatch-chat-first-app-frame
-                      src={url}
-                      title={title ?? chatFirstCopy("appUnavailable")}
-                      referrerPolicy="no-referrer"
-                      allow="clipboard-read; clipboard-write"
-                      className="h-full w-full border-0 bg-background"
-                    />
-                  )}
-                  copy={chatFirstCopy}
-                />
-              ) : activeChatFirstSurfaceTab?.kind === "browser" &&
-                activeChatFirstSurfaceTab.url ? (
-                <ChatFirstBrowserPane
-                  url={activeChatFirstSurfaceTab.url}
-                  title={activeChatFirstSurfaceTab.title}
-                  onClose={() =>
-                    closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                  }
-                  renderEmbed={({ url, title, key }: ChatFirstEmbedTarget) => (
-                    <iframe
-                      key={key}
-                      src={url}
-                      title={title ?? chatFirstCopy("browserPage")}
-                      referrerPolicy="no-referrer"
-                      allow="clipboard-read; clipboard-write"
-                      className="h-full w-full border-0 bg-background"
-                    />
-                  )}
-                  copy={chatFirstCopy}
-                />
-              ) : activeChatFirstSurfaceTab?.kind === "side-chat" ? (
-                <ChatFirstSessionWatchPane
-                  target={chatFirstSessionWatch.target}
-                  onClose={() =>
-                    closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                  }
-                  renderChat={renderChatFirstWatchChat}
-                  copy={chatFirstCopy}
-                />
-              ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
-                <ChatFirstAgentsPane
-                  activities={chatFirstAgentActivities}
-                  loading={chatFirstAgentsQuery.isLoading}
-                  error={
-                    chatFirstAgentsQuery.isError
-                      ? chatFirstAgentsQuery.error.message
-                      : null
-                  }
-                  onRefresh={() => void chatFirstAgentsQuery.refetch()}
-                  onWatch={(activity) =>
-                    emitChatFirstSessionWatch({
-                      sessionId: activity.sessionId,
-                      title: activity.title,
-                      kind: "agent-chat",
-                      ...(activity.goalId ? { goalId: activity.goalId } : {}),
-                    })
-                  }
-                  copy={chatFirstCopy}
-                />
-              ) : null}
-            </ChatFirstSurfaceContent>
+            <ChatFirstSurfaceContent
+              tabs={chatFirstSurfaceTabs.tabs}
+              activeTabId={chatFirstSurfaceTabs.activeTabId}
+              renderTab={renderChatFirstSurfaceTab}
+            />
           ) : null}
         </ChatFirstSurfacePanel>
       ) : null}
@@ -2010,6 +2159,7 @@ export function Layout({
             <NavContent
               extensions={extensions}
               chatFirstMode={chatFirstMode}
+              chatFirstEmbedded={chatFirstEmbedded}
               collapsed={sidebarCollapsed}
               chatFirstAppLayout={chatFirstAppLayout}
               onChatFirstAppLayoutChange={persistChatFirstAppLayout}
@@ -2047,6 +2197,7 @@ export function Layout({
                 <NavContent
                   extensions={extensions}
                   chatFirstMode={chatFirstMode}
+                  chatFirstEmbedded={chatFirstEmbedded}
                   collapsed={false}
                   chatFirstAppLayout={chatFirstAppLayout}
                   onChatFirstAppLayoutChange={persistChatFirstAppLayout}

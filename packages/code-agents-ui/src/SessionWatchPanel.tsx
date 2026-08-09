@@ -6,11 +6,18 @@ import {
   IconMessageCircle,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { CodeAgentsHost } from "./CodeAgentsApp.js";
 import type { CodeAgentRun, CodeAgentTranscriptEvent } from "./types.js";
+
+export function mergeSessionWatchTranscriptEvents(
+  current: CodeAgentTranscriptEvent[],
+  incoming: CodeAgentTranscriptEvent[],
+): CodeAgentTranscriptEvent[] {
+  return mergeCodeAgentTranscriptEvents(current, incoming);
+}
 
 /**
  * A deliberately small second-session surface. It watches a run through the
@@ -34,35 +41,52 @@ export function SessionWatchPanel({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const transcriptGenerationRef = useRef(0);
 
-  const loadTranscript = useCallback(async () => {
-    try {
-      const result = await host.readTranscript({
-        goalId: run.goalId,
-        runId: run.id,
-      });
-      if (result.status !== "ok") {
-        setError(result.error ?? "This session is not reporting a transcript.");
-        return;
+  const loadTranscript = useCallback(
+    async (generation?: number) => {
+      const requestGeneration = generation ?? transcriptGenerationRef.current;
+      try {
+        const result = await host.readTranscript({
+          goalId: run.goalId,
+          runId: run.id,
+        });
+        if (requestGeneration !== transcriptGenerationRef.current) return;
+        if (result.status !== "ok") {
+          setError(
+            result.error ?? "This session is not reporting a transcript.",
+          );
+          return;
+        }
+        setError(null);
+        setEvents((current) =>
+          mergeSessionWatchTranscriptEvents(current, result.events),
+        );
+      } catch (caught) {
+        if (requestGeneration !== transcriptGenerationRef.current) return;
+        setError(caught instanceof Error ? caught.message : String(caught));
+      } finally {
+        if (requestGeneration === transcriptGenerationRef.current) {
+          setLoading(false);
+        }
       }
-      setError(null);
-      setEvents(result.events);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setLoading(false);
-    }
-  }, [host, run.goalId, run.id]);
+    },
+    [host, run.goalId, run.id],
+  );
 
   useEffect(() => {
+    const generation = transcriptGenerationRef.current + 1;
+    transcriptGenerationRef.current = generation;
     setEvents([]);
     setError(null);
     setLoading(true);
-    void loadTranscript();
 
+    // Subscribe before reading the snapshot. The merge below keeps events that
+    // arrive in the gap between those two operations.
     const unsubscribe = host.subscribeTranscript?.(
       { goalId: run.goalId, runId: run.id },
       (batch) => {
+        if (generation !== transcriptGenerationRef.current) return;
         if (batch.status !== "ok") {
           setError(batch.error ?? "The watched session could not be updated.");
           return;
@@ -70,12 +94,16 @@ export function SessionWatchPanel({
         setError(null);
         if (batch.events.length > 0) {
           setEvents((current) =>
-            mergeCodeAgentTranscriptEvents(current, batch.events),
+            mergeSessionWatchTranscriptEvents(current, batch.events),
           );
         }
       },
     );
-    const interval = window.setInterval(() => void loadTranscript(), 10_000);
+    void loadTranscript(generation);
+    const interval = window.setInterval(
+      () => void loadTranscript(generation),
+      10_000,
+    );
     return () => {
       unsubscribe?.();
       window.clearInterval(interval);

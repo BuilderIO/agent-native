@@ -3,13 +3,22 @@ export { ChatFirstAppPane } from "./app-pane.js";
 export { ChatFirstAppsRail } from "./apps-rail.js";
 export { ChatFirstBrowserPane } from "./browser-pane.js";
 export { defaultChatFirstCopy } from "./copy.js";
+export {
+  ChatFirstChatHistory,
+  type ChatFirstChatHistoryProps,
+} from "./chat-history.js";
 export { ChatFirstSessionWatchPane } from "./session-watch-pane.js";
 export {
   ChatFirstSurfacePanel,
   type ChatFirstSurfacePanelProps,
 } from "./surface-panel.js";
 export { ChatFirstPrimaryNavigation } from "./primary-nav.js";
-export { CHAT_FIRST_DEFAULT_APP_IDS } from "../chat-first.js";
+export {
+  emitChatFirstOpenApp,
+  resolveChatFirstAppTarget,
+  CHAT_FIRST_DEFAULT_APP_IDS,
+  type ChatFirstOpenAppDetail,
+} from "../chat-first.js";
 export {
   buildChatFirstAppCreationPrompt,
   titleFromChatFirstAppPrompt,

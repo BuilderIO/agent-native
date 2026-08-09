@@ -10,31 +10,31 @@
    root has no explicit `.light`/`.dark` class, mirroring the pattern used
    in agent-conversation.css. */
 .code-agents-surface {
-  --background: 0 0% 100%;
+  --background: 0 0% 98%;
   --foreground: 0 0% 10%;
-  --card: 0 0% 100%;
+  --card: 0 0% 99%;
   --card-foreground: 0 0% 10%;
-  --popover: 0 0% 100%;
+  --popover: 0 0% 99%;
   --popover-foreground: 0 0% 10%;
   --primary: 0 0% 15%;
   --primary-foreground: 0 0% 100%;
   --secondary: 0 0% 95%;
   --secondary-foreground: 0 0% 15%;
-  --muted: 0 0% 95%;
+  --muted: 0 0% 94%;
   --muted-foreground: 0 0% 45%;
-  --accent: 0 0% 95%;
+  --accent: 0 0% 94%;
   --accent-foreground: 0 0% 15%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 0 0% 90%;
-  --input: 0 0% 90%;
+  --border: 0 0% 93%;
+  --input: 0 0% 92%;
   --ring: 0 0% 40%;
   --radius: 0.5rem;
-  --sidebar-background: 0 0% 97%;
+  --sidebar-background: 0 0% 96%;
   --sidebar-foreground: 0 0% 45%;
-  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent: 0 0% 93%;
   --sidebar-accent-foreground: 0 0% 15%;
-  --sidebar-border: 0 0% 90%;
+  --sidebar-border: 0 0% 93%;
   --ease: 120ms cubic-bezier(0.16, 1, 0.3, 1);
   --code-agents-chat-max: 700px;
   --code-agents-rail-gutter: 8px;
@@ -64,25 +64,25 @@
 }
 
 .dark .code-agents-surface {
-  --background: 0 0% 13%;
+  --background: 0 0% 15%;
   --foreground: 0 0% 90%;
-  --card: 0 0% 15%;
+  --card: 0 0% 17%;
   --card-foreground: 0 0% 90%;
-  --popover: 0 0% 15%;
+  --popover: 0 0% 17%;
   --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
   --primary-foreground: 0 0% 10%;
   --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
-  --muted: 0 0% 16%;
+  --muted: 0 0% 18%;
   --muted-foreground: 0 0% 60%;
-  --accent: 0 0% 18%;
+  --accent: 0 0% 20%;
   --accent-foreground: 0 0% 90%;
   --destructive: 0 91% 71%;
-  --border: 0 0% 24%;
-  --input: 0 0% 24%;
+  --border: 0 0% 26%;
+  --input: 0 0% 26%;
   --ring: 0 0% 60%;
-  --sidebar-background: 0 0% 10%;
+  --sidebar-background: 0 0% 12%;
   --sidebar-foreground: 0 0% 60%;
   --sidebar-accent: 0 0% 16%;
   --sidebar-accent-foreground: 0 0% 90%;
@@ -91,25 +91,25 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) .code-agents-surface {
-    --background: 0 0% 13%;
+    --background: 0 0% 15%;
     --foreground: 0 0% 90%;
-    --card: 0 0% 15%;
+    --card: 0 0% 17%;
     --card-foreground: 0 0% 90%;
-    --popover: 0 0% 15%;
+    --popover: 0 0% 17%;
     --popover-foreground: 0 0% 90%;
     --primary: 0 0% 75%;
     --primary-foreground: 0 0% 10%;
     --secondary: 0 0% 18%;
     --secondary-foreground: 0 0% 90%;
-    --muted: 0 0% 16%;
+    --muted: 0 0% 18%;
     --muted-foreground: 0 0% 60%;
-    --accent: 0 0% 18%;
+    --accent: 0 0% 20%;
     --accent-foreground: 0 0% 90%;
     --destructive: 0 91% 71%;
-    --border: 0 0% 24%;
-    --input: 0 0% 24%;
+    --border: 0 0% 26%;
+    --input: 0 0% 26%;
     --ring: 0 0% 60%;
-    --sidebar-background: 0 0% 10%;
+    --sidebar-background: 0 0% 12%;
     --sidebar-foreground: 0 0% 60%;
     --sidebar-accent: 0 0% 16%;
     --sidebar-accent-foreground: 0 0% 90%;

@@ -1549,6 +1549,9 @@ describe("unreadable credential store is not 'not configured'", () => {
     mockReadAppSecret.mockRejectedValue(new Error("db query timed out"));
     try {
       expect(await resolveSecret("OPENAI_API_KEY")).toBe("deploy-key");
+      await expect(
+        resolveSecretDetailed("OPENAI_API_KEY"),
+      ).resolves.toMatchObject({ value: "deploy-key", lookupFailed: true });
     } finally {
       delete process.env.OPENAI_API_KEY;
     }

@@ -44,10 +44,10 @@
   --label-inactive: hsl(var(--foreground, 0 0% 100%) / 0.48);
   --label-hover: hsl(var(--foreground, 0 0% 100%) / 0.72);
   --label-active: hsl(var(--foreground, 0 0% 100%) / 0.88);
-  --shell-bg: hsl(var(--background, 0 0% 7%));
+  --shell-bg: hsl(var(--background, 0 0% 10%));
   --shell-fg: hsl(var(--foreground, 0 0% 100%));
   --separator: hsl(var(--foreground, 0 0% 100%) / 0.1);
-  --tabbar-bg: hsl(var(--background, 0 0% 7%));
+  --tabbar-bg: hsl(var(--background, 0 0% 10%));
   --tab-active-bg: hsl(var(--muted, 0 0% 10%));
   --tab-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.06);
   --tab-text: hsl(var(--muted-foreground, 0 0% 60%));
@@ -2605,26 +2605,26 @@ body {
 }
 
 .dark .desktop-chat-first-hub {
-  --background: 0 0% 13%;
+  --background: 0 0% 15%;
   --foreground: 0 0% 90%;
-  --card: 0 0% 15%;
+  --card: 0 0% 17%;
   --card-foreground: 0 0% 90%;
-  --popover: 0 0% 15%;
+  --popover: 0 0% 17%;
   --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
   --primary-foreground: 0 0% 10%;
   --secondary: 0 0% 18%;
   --secondary-foreground: 0 0% 90%;
-  --muted: 0 0% 16%;
+  --muted: 0 0% 18%;
   --muted-foreground: 0 0% 60%;
-  --accent: 0 0% 18%;
+  --accent: 0 0% 20%;
   --accent-foreground: 0 0% 90%;
   --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 10%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 0 0% 60%;
-  --sidebar-background: 0 0% 10%;
+  --sidebar-background: 0 0% 12%;
   --sidebar-foreground: 0 0% 60%;
   --sidebar-accent: 0 0% 16%;
   --sidebar-accent-foreground: 0 0% 90%;
@@ -2721,12 +2721,13 @@ body {
   max-width: min(360px, calc(100vw - 32px));
   justify-content: center;
   padding: 10px 14px;
-  background: #171717;
-  border-color: rgba(255, 255, 255, 0.12);
+  background: hsl(var(--popover, 0 0% 100%));
+  color: hsl(var(--popover-foreground, 0 0% 10%));
+  border-color: hsl(var(--border, 0 0% 90%) / 0.78);
   border-radius: 8px;
   box-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.42),
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+    0 18px 42px hsl(var(--foreground, 0 0% 10%) / 0.14),
+    0 0 0 1px hsl(var(--border, 0 0% 90%) / 0.2) inset;
 }
 
 .shell [data-sonner-toast].shell-snackbar [data-content] {
@@ -2737,7 +2738,7 @@ body {
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0;
-  color: rgba(255, 255, 255, 0.92);
+  color: hsl(var(--popover-foreground, 0 0% 10%));
 }
 
 /* ─── Full-page settings ──────────────────────────────────────

@@ -179,14 +179,26 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     });
   }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
 
+  let primaryFailed = false;
   try {
     await processRecurringJobsWithLease(deps);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
     clearInterval(leaseRenewal);
-    await releaseAutomationSchedulerLease({
-      appId: deps.appId,
-      owner: leaseOwner,
-    });
+    try {
+      await releaseAutomationSchedulerLease({
+        appId: deps.appId,
+        owner: leaseOwner,
+      });
+    } catch (releaseError) {
+      console.warn(
+        "[recurring-jobs] Scheduler lease release failed:",
+        releaseError instanceof Error ? releaseError.message : releaseError,
+      );
+      if (!primaryFailed) throw releaseError;
+    }
   }
 }
 

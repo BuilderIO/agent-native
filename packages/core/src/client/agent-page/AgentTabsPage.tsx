@@ -232,7 +232,9 @@ function ServerStatus({ server }: { server: McpServer }) {
   );
 }
 
-function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
+export function ConnectionsTab({
+  canManageOrg = false,
+}: Partial<AgentPageTabProps> = {}) {
   const t = useT();
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();

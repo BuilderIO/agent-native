@@ -23,6 +23,7 @@ import type { ComponentType, ReactNode } from "react";
 import {
   CHAT_FIRST_SURFACE_CATALOG,
   type ChatFirstSurfaceKind,
+  type ChatFirstSurfaceTab,
 } from "../chat-first.js";
 import { cn } from "../utils.js";
 import { defaultChatFirstCopy } from "./copy.js";
@@ -232,6 +233,30 @@ export function ChatFirstSurfaceTabs({
   );
 }
 
-export function ChatFirstSurfaceContent({ children }: { children: ReactNode }) {
-  return <div className="min-h-0 flex-1 overflow-hidden">{children}</div>;
+export function ChatFirstSurfaceContent({
+  tabs,
+  activeTabId,
+  renderTab,
+}: {
+  tabs: readonly ChatFirstSurfaceTab[];
+  activeTabId: string | null;
+  renderTab: (tab: ChatFirstSurfaceTab) => ReactNode;
+}) {
+  return (
+    <div className="min-h-0 flex-1 overflow-hidden">
+      {tabs.map((tab) => {
+        const active = tab.id === activeTabId;
+        return (
+          <div
+            key={tab.id}
+            data-chat-first-surface-content={tab.id}
+            aria-hidden={!active}
+            className={cn("h-full min-h-0", !active && "hidden")}
+          >
+            {renderTab(tab)}
+          </div>
+        );
+      })}
+    </div>
+  );
 }

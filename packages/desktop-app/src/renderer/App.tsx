@@ -142,6 +142,15 @@ export default function App() {
     runId?: string;
     nonce: number;
   }>();
+  const [chatFirstPreviewRequest, setChatFirstPreviewRequest] = useState<{
+    appId: string;
+    nonce: number;
+  }>();
+  const [chatFirstPreviewStatus, setChatFirstPreviewStatus] = useState<{
+    appId: string;
+    state: "starting" | "ready" | "error";
+    message?: string;
+  }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
   const [
@@ -310,6 +319,12 @@ export default function App() {
     (result: DesktopCreateAppResult) => {
       if (!result.app) return;
       setApps(result.apps);
+      setChatFirstPreviewRequest({ appId: result.app.id, nonce: Date.now() });
+      setChatFirstPreviewStatus({
+        appId: result.app.id,
+        state: "starting",
+        message: "The coding agent is preparing the local preview.",
+      });
       setRefreshKey((current) => current + 1);
       setHasMountedCodeAgents(true);
       setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
@@ -323,8 +338,7 @@ export default function App() {
         });
       }
       toast(`Building ${result.app.name}`, {
-        description:
-          "The new app is in your chats and already available in the Apps rail.",
+        description: "New chat started. Preview opens on the right.",
         duration: 5000,
       });
     },
@@ -830,11 +844,38 @@ export default function App() {
     const appConfigApi = window.electronAPI?.appConfig;
     if (!appConfigApi?.onRuntimeStatus) return;
     return appConfigApi.onRuntimeStatus((status) => {
-      if (status.appId === activeSidebarAppId && status.state === "running") {
+      const isPreview = status.appId === chatFirstPreviewRequest?.appId;
+      if (
+        status.state === "running" &&
+        (status.appId === activeSidebarAppId || isPreview)
+      ) {
         setRefreshKey((key) => key + 1);
       }
+      if (!isPreview) return;
+      if (status.state === "waiting" || status.state === "starting") {
+        setChatFirstPreviewStatus({
+          appId: status.appId,
+          state: "starting",
+          ...(status.message ? { message: status.message } : {}),
+        });
+        return;
+      }
+      if (status.state === "running") {
+        setChatFirstPreviewStatus({
+          appId: status.appId,
+          state: "ready",
+          ...(status.message ? { message: status.message } : {}),
+        });
+        return;
+      }
+      setChatFirstPreviewStatus({
+        appId: status.appId,
+        state: "error",
+        message:
+          status.message ?? "The local preview stopped before it was ready.",
+      });
     });
-  }, [activeSidebarAppId]);
+  }, [activeSidebarAppId, chatFirstPreviewRequest?.appId]);
 
   const runFind = useCallback(
     (query: string, options?: { findNext?: boolean; forward?: boolean }) => {
@@ -1021,6 +1062,19 @@ export default function App() {
                 apps={apps}
                 isActive={isCodeAgentsActive}
                 openRequest={codeAgentsOpenRequest}
+                chatFirstPreviewRequest={chatFirstPreviewRequest}
+                chatFirstPreviewStatus={
+                  chatFirstPreviewStatus?.appId ===
+                  chatFirstPreviewRequest?.appId
+                    ? chatFirstPreviewStatus?.state
+                    : undefined
+                }
+                chatFirstPreviewStatusMessage={
+                  chatFirstPreviewStatus?.appId ===
+                  chatFirstPreviewRequest?.appId
+                    ? chatFirstPreviewStatus?.message
+                    : undefined
+                }
                 refreshKey={refreshKey}
                 onOpenSettings={() => setShowSettings(true)}
                 onCreateApp={() => setShowAddApp(true)}

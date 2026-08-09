@@ -6,6 +6,8 @@
  * hot-reload the configured server set.
  *
  *   GET    /_agent-native/mcp/servers           list user + org servers
+ *   GET    /_agent-native/mcp/servers/runtime-config
+ *                                                authenticated local-runtime config
  *   POST   /_agent-native/mcp/servers           add a server
  *   DELETE /_agent-native/mcp/servers/:id       remove a server (scope via ?scope=)
  *   POST   /_agent-native/mcp/servers/:id/test  dry-run connect (no persist)
@@ -156,6 +158,17 @@ export interface ClientServer {
   /** The key under which this server is registered in the running MCP manager. */
   mergedId: string;
   status: ServerStatus;
+}
+
+/**
+ * Authenticated runtime projection used by a local desktop agent. The normal
+ * client list intentionally redacts credentials; this projection is only
+ * consumed by the signed-in desktop main process so its child MCP client can
+ * use the same user/org servers the settings surface manages.
+ */
+export interface ClientMcpRuntimeConfig {
+  servers: Record<string, McpServerConfig>;
+  source: "settings";
 }
 
 export interface ClientBuiltinCapability {
@@ -469,6 +482,14 @@ export function mountMcpServersRoutes(
         const parts = pathname ? pathname.split("/") : [];
 
         setResponseHeader(event, "Content-Type", "application/json");
+
+        if (
+          method === "GET" &&
+          parts.length === 1 &&
+          parts[0] === "runtime-config"
+        ) {
+          return handleRuntimeConfig(event);
+        }
 
         // POST /servers/test — dry-run a URL+headers before persisting
         if (method === "POST" && parts.length === 1 && parts[0] === "test") {
@@ -947,6 +968,32 @@ async function handleList(
     orgId,
     role,
   };
+}
+
+async function handleRuntimeConfig(
+  event: H3Event,
+): Promise<ClientMcpRuntimeConfig | { error: string }> {
+  const { email, orgId } = await resolveContextForRequest(event);
+  if (!email) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+
+  const servers: Record<string, McpServerConfig> = {};
+  const userServers = await listRemoteServers("user", email);
+  for (const server of userServers) {
+    servers[mergedConfigKey("user", server, email)] =
+      await toHttpServerConfigAsync("user", email, server);
+  }
+  if (orgId) {
+    const orgServers = await listRemoteServers("org", orgId);
+    for (const server of orgServers) {
+      servers[mergedConfigKey("org", server, orgId)] =
+        await toHttpServerConfigAsync("org", orgId, server);
+    }
+  }
+
+  return { servers, source: "settings" };
 }
 
 async function handleAdd(event: H3Event, manager: McpClientManager) {

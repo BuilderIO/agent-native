@@ -13,11 +13,6 @@
   display: none;
 }
 
-.dispatch-chat-first-chats .an-chat-history--rail .an-chat-history-row__button {
-  min-height: 28px;
-  padding-block: 4px;
-}
-
 .dispatch-chat-first-notice {
   display: flex;
   align-items: center;

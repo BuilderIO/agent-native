@@ -41,6 +41,7 @@ export {
 export {
   saveAgentEngineApiKey,
   saveAgentEngineProviderSettings,
+  setAgentEngineProvider,
   type AgentEngineProvider,
   type SaveAgentEngineApiKeyOptions,
   type SaveAgentEngineProviderSettingsOptions,
@@ -229,6 +230,7 @@ export {
 } from "../AgentPanel.js";
 export {
   AgentTabsPage,
+  ConnectionsTab,
   type AgentPageExtraTabContext,
   type AgentPageExtraTabFactory,
   type AgentTabsPageProps,

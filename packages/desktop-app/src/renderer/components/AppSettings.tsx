@@ -1,4 +1,11 @@
 import {
+  ConnectionsTab,
+} from "@agent-native/core/client/agent-chat";
+import {
+  McpServersApiProvider,
+  type McpServersApi,
+} from "@agent-native/core/client/resources";
+import {
   SettingsGroup,
   SettingsRow,
   SettingsSection,
@@ -35,6 +42,7 @@ import {
   IconFolderPlus,
   IconKeyboard,
   IconLoader2,
+  IconPlugConnected,
   IconPlus,
   IconRefresh,
   IconRotate,
@@ -519,6 +527,10 @@ export default function AppSettings({
   const [providerLoadMessage, setProviderLoadMessage] = useState<string | null>(
     null,
   );
+  const [pluginImportMessage, setPluginImportMessage] = useState<string | null>(
+    null,
+  );
+  const [pluginImporting, setPluginImporting] = useState(false);
   const [shortcutSettings, setShortcutSettings] =
     useState<DesktopShortcutSettings | null>(null);
   const [shortcutDraft, setShortcutDraft] = useState<ShortcutDraft>(() =>
@@ -684,6 +696,44 @@ export default function AppSettings({
     },
     [onFrameSettingsChanged],
   );
+
+  const desktopMcpApi = useMemo<McpServersApi | null>(() => {
+    const api = window.electronAPI?.mcpServers;
+    if (!api) return null;
+    return {
+      list: api.list,
+      create: api.create,
+      delete: api.delete,
+      reconnect: api.reconnect,
+      test: api.test,
+      testExisting: api.testExisting,
+    };
+  }, []);
+
+  const handlePluginImport = useCallback(async () => {
+    const api = window.electronAPI?.mcpServers;
+    if (!api?.importPlugin || pluginImporting) return;
+    setPluginImporting(true);
+    setPluginImportMessage(null);
+    try {
+      const result = await api.importPlugin();
+      if (!result.ok) {
+        if (result.error !== "Import cancelled.") {
+          setPluginImportMessage(result.error ?? "Plugin import failed.");
+        }
+        return;
+      }
+      setPluginImportMessage(
+        `Imported ${result.plugin?.name ?? "plugin"}: ${result.skills ?? 0} skill${result.skills === 1 ? "" : "s"}, ${result.mcpServers ?? 0} MCP server${result.mcpServers === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setPluginImportMessage(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setPluginImporting(false);
+    }
+  }, [pluginImporting]);
 
   const handleRemoteToggle = useCallback(async (enabled: boolean) => {
     const api = window.electronAPI?.codeAgents;
@@ -855,6 +905,56 @@ export default function AppSettings({
     shortcutTargetApps.some((app) => app.id === shortcutDraft.app);
 
   const settingsTabs: SettingsTabItem[] = [
+    {
+      id: "connections",
+      label: "Connections",
+      icon: IconPlugConnected,
+      group: "integrations",
+      keywords: "mcp servers plugins agent integrations",
+      content: desktopMcpApi ? (
+        <div className="w-full max-w-3xl space-y-6">
+          <McpServersApiProvider api={desktopMcpApi}>
+            <ConnectionsTab />
+          </McpServersApiProvider>
+          <SettingsGroup
+            title="Plugins"
+            description="Import an Agent Plugin to add its skills and MCP servers to local coding chats."
+          >
+            <SettingsRow
+              label="Agent Plugin"
+              description="Uses the standard agent-plugins.org plugin format."
+              control={
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--ghost"
+                  onClick={() => void handlePluginImport()}
+                  disabled={pluginImporting}
+                >
+                  {pluginImporting ? "Importing…" : "Import plugin"}
+                </button>
+              }
+            >
+              {pluginImportMessage ? (
+                <p className="text-xs text-muted-foreground" role="status">
+                  {pluginImportMessage}
+                </p>
+              ) : null}
+            </SettingsRow>
+          </SettingsGroup>
+        </div>
+      ) : (
+        <div className="w-full max-w-3xl">
+          <SettingsGroup
+            title="Connections"
+            description="Open the desktop app with a signed-in workspace app to manage MCP servers."
+          >
+            <p className="px-4 py-4 text-sm text-muted-foreground">
+              MCP connections are unavailable in this window.
+            </p>
+          </SettingsGroup>
+        </div>
+      ),
+    },
     {
       id: "providers",
       label: "AI providers",

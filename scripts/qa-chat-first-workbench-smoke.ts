@@ -45,6 +45,12 @@ type SurfaceSnapshot = {
   panelLeft: number;
 };
 
+type SmokeContext = {
+  context: BrowserContext;
+  page: Page;
+  embedRequests: Array<Record<string, unknown>>;
+};
+
 function saveScreenshot(page: Page, name: string): Promise<void> {
   if (!screenshotDir) return Promise.resolve();
   fs.mkdirSync(screenshotDir, { recursive: true });
@@ -117,7 +123,7 @@ async function snapshot(page: Page, name: string): Promise<SurfaceSnapshot> {
 async function createContext(
   browser: Browser,
   enabled: boolean,
-): Promise<{ context: BrowserContext; page: Page }> {
+): Promise<SmokeContext> {
   const context = await browser.newContext({
     colorScheme,
     viewport: { width: 1280, height: 900 },
@@ -129,6 +135,40 @@ async function createContext(
     }
   }, enabled);
   const page = await context.newPage();
+  const embedRequests: Array<Record<string, unknown>> = [];
+  if (enabled) {
+    await page.route("**/_agent-native/actions/list-workspace-apps*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "mail",
+            name: "Mail",
+            path: "/mail/inbox",
+            url: "https://mail.example.test",
+            status: "ready",
+            archived: false,
+          },
+        ]),
+      }),
+    );
+    await page.route(
+      "**/_agent-native/actions/create_embed_session*",
+      async (route) => {
+        const raw = route.request().postData();
+        const payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        embedRequests.push(payload);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            startUrl: "https://mail.example.test/mail/inbox",
+          }),
+        });
+      },
+    );
+  }
   await page.goto(`${baseUrl}/chat`, { waitUntil: "domcontentloaded" });
   // The client-side auth guard can redirect after the initial document has
   // loaded, when its first session query returns 401. Give that redirect a
@@ -146,7 +186,7 @@ async function createContext(
   }
   await page.locator("body").waitFor({ state: "visible", timeout: 15_000 });
   await page.waitForTimeout(5_000);
-  return { context, page };
+  return { context, page, embedRequests };
 }
 
 async function runSmoke(browser: Browser): Promise<void> {
@@ -212,9 +252,27 @@ async function runSmoke(browser: Browser): Promise<void> {
     );
     await saveScreenshot(on.page, "04-chat-first-hostile-open-app");
 
+    await on.page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:openApp", {
+          detail: { app: "mail", path: "/mail/inbox" },
+        }),
+      );
+    });
+    await on.page.locator("[data-chat-first-app-pane]").waitFor({
+      state: "visible",
+    });
+    assert.deepEqual(
+      on.embedRequests.at(-1),
+      { app: "mail", path: "/mail/inbox", chrome: "minimal" },
+      "app-relative embeds must mint a session for the registered app",
+    );
+    await saveScreenshot(on.page, "05-chat-first-app");
+    await on.page.getByRole("button", { name: "Close Mail" }).click();
+
     await on.page.locator("[data-chat-first-surface-toggle]").click();
     await on.page.getByRole("button", { name: "Open activity" }).click();
-    const agents = await snapshot(on.page, "05-chat-first-agents");
+    const agents = await snapshot(on.page, "06-chat-first-agents");
     assert.equal(agents.panel, 1, "opening a surface should mount the panel");
     assert.ok(agents.tabs >= 1);
     assert.equal(agents.launcher, 0);
@@ -237,7 +295,7 @@ async function runSmoke(browser: Browser): Promise<void> {
     );
 
     await on.page.getByRole("button", { name: /Close Agents/ }).click();
-    const closed = await snapshot(on.page, "06-chat-first-last-tab-closed");
+    const closed = await snapshot(on.page, "07-chat-first-last-tab-closed");
     assert.equal(closed.panel, 0, "closing the last tab should hide the panel");
     assert.equal(closed.launcher, 0);
     assert.equal(closed.tabs, 0);
@@ -249,7 +307,7 @@ async function runSmoke(browser: Browser): Promise<void> {
         }),
       );
     });
-    const browserSurface = await snapshot(on.page, "07-chat-first-browser");
+    const browserSurface = await snapshot(on.page, "08-chat-first-browser");
     assert.equal(browserSurface.panel, 1);
     assert.equal(browserSurface.browser, 1);
     assert.ok(browserSurface.tabs >= 1);
@@ -261,9 +319,34 @@ async function runSmoke(browser: Browser): Promise<void> {
       );
     }
 
+    await on.page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:openBrowser", {
+          detail: { url: "https://example.org/second", title: "Second" },
+        }),
+      );
+    });
+    await on.page.waitForFunction(
+      () =>
+        document.querySelectorAll("[data-chat-first-browser-pane]").length ===
+        2,
+    );
+    const browserTabs = await snapshot(on.page, "09-chat-first-browser-tabs");
+    assert.equal(
+      browserTabs.browser,
+      2,
+      "switching browser tabs must keep both browser panes mounted",
+    );
+    assert.equal(
+      browserTabs.tabs,
+      2,
+      "each browser surface should have its own tab",
+    );
+
+    await on.page.getByRole("button", { name: "Close browser" }).click();
     await on.page.getByRole("button", { name: "Close browser" }).click();
     await on.page.keyboard.press("Control+Alt+b");
-    const keyboardPicker = await snapshot(on.page, "08-chat-first-keyboard");
+    const keyboardPicker = await snapshot(on.page, "10-chat-first-keyboard");
     assert.equal(keyboardPicker.panel, 1);
     assert.equal(keyboardPicker.launcher, 0);
     assert.equal(keyboardPicker.emptyCards, 6);
@@ -545,8 +628,13 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(
       await page.locator("[data-chat-first-main-chat]").count(),
-      1,
-      "The default chat-first center should use the Dispatch app webview",
+      0,
+      "The Electron chat-first center should use the native coding chat",
+    );
+    assert.equal(
+      await page.locator(".code-agents-workbench").count(),
+      0,
+      "The empty chat-first center should not show a workbench before a chat is selected",
     );
     const topNavColors = await page
       .locator(".code-agents-nav-list > button")
@@ -687,46 +775,23 @@ async function runElectronSmoke(): Promise<void> {
       .innerText();
     assert.doesNotMatch(chatFirstNav, /Agent chat|Code work/);
     assert.doesNotMatch(chatFirstNav, /Mobile|Computer access/);
-    if ((await page.locator("[data-chat-first-main-chat]").count()) > 0) {
-      const agentChatSlot = await page
-        .locator("[data-chat-first-main-chat] .webview-slot--active")
-        .evaluate((element) => {
-          const slot = element.getBoundingClientRect();
-          const rail = document
-            .querySelector(".code-agents-rail")
-            ?.getBoundingClientRect();
-          const main = document
-            .querySelector(".code-agents-main")
-            ?.getBoundingClientRect();
-          const style = getComputedStyle(element);
-          return {
-            opacity: style.opacity,
-            pointerEvents: style.pointerEvents,
-            slotLeft: slot.left,
-            slotRight: slot.right,
-            railRight: rail?.right ?? 0,
-            mainLeft: main?.left ?? 0,
-            mainRight: main?.right ?? 0,
-          };
-        });
-      assert.equal(agentChatSlot.opacity, "1");
-      assert.equal(agentChatSlot.pointerEvents, "auto");
-      assert.ok(
-        agentChatSlot.slotLeft >= agentChatSlot.railRight - 1 &&
-          agentChatSlot.slotRight <= agentChatSlot.mainRight + 1 &&
-          agentChatSlot.slotLeft >= agentChatSlot.mainLeft - 1,
-        "Dispatch webview should stay inside the desktop chat center",
-      );
-    } else {
-      assert.equal(
-        await page.locator(".code-agents-workbench").count(),
-        1,
-        "Selecting the new app chat should open the native code workbench",
-      );
-    }
+    assert.equal(
+      await page.locator(".code-agents-overview--chat").count(),
+      1,
+      "Selecting the new app should open the normal coding chat",
+    );
+    assert.equal(
+      await page.locator(".code-agents-workbench").count(),
+      0,
+      "Chat-first app creation should stay in the chat instead of opening a separate workbench",
+    );
 
+    const closePreview = page.getByRole("button", { name: "Close browser" });
+    if (await closePreview.count()) await closePreview.click();
     const electronToggle = page.locator("[data-chat-first-surface-toggle]");
-    await electronToggle.click();
+    if ((await page.locator("[data-chat-first-surface-panel]").count()) === 0) {
+      await electronToggle.click();
+    }
     await page
       .locator("[data-chat-first-surface-panel]")
       .waitFor({ state: "visible" });
@@ -826,6 +891,31 @@ async function runElectronSmoke(): Promise<void> {
       );
     }
 
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:openBrowser", {
+          detail: { url: "https://example.org/second", title: "Second" },
+        }),
+      );
+    });
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll("[data-chat-first-browser-pane]").length ===
+        2,
+    );
+    const browserTabs = await electronSnapshot(
+      page,
+      "electron-07-browser-tabs",
+      electronApp,
+    );
+    assert.equal(
+      browserTabs.browser,
+      2,
+      "Electron must keep both browser panes mounted across tab switches",
+    );
+    assert.equal(browserTabs.tabs, 2);
+
+    await page.getByRole("button", { name: "Close browser" }).click();
     await page.getByRole("button", { name: "Close browser" }).click();
     await page.evaluate(() => {
       window.dispatchEvent(
@@ -851,7 +941,7 @@ async function runElectronSmoke(): Promise<void> {
       0,
       "Electron hostile open_app must not mount the side panel",
     );
-    await saveElectronScreenshot(electronApp, "electron-07-hostile-open-app");
+    await saveElectronScreenshot(electronApp, "electron-08-hostile-open-app");
   } finally {
     if (electronApp) await electronApp.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

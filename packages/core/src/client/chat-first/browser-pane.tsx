@@ -15,6 +15,8 @@ import type { ChatFirstBrowserPaneProps } from "./types.js";
 export function ChatFirstBrowserPane({
   url,
   title,
+  status,
+  statusMessage,
   onClose,
   renderEmbed,
   copy = defaultChatFirstCopy,
@@ -167,11 +169,30 @@ export function ChatFirstBrowserPane({
         </p>
       ) : null}
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {renderEmbed({
-          url: currentUrl,
-          title: title || copy("browserPage"),
-          key: `${currentUrl}:${reloadKey}`,
-        })}
+        {status === "starting" || status === "error" ? (
+          <div
+            className="flex h-full items-center justify-center px-6 text-center"
+            role={status === "error" ? "alert" : "status"}
+            aria-live="polite"
+          >
+            <div className="max-w-xs space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                {status === "starting"
+                  ? copy("browserPreviewStarting")
+                  : copy("browserPreviewError")}
+              </p>
+              {statusMessage ? (
+                <p className="text-xs text-muted-foreground">{statusMessage}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          renderEmbed({
+            url: currentUrl,
+            title: title || copy("browserPage"),
+            key: `${currentUrl}:${reloadKey}`,
+          })
+        )}
       </div>
     </section>
   );

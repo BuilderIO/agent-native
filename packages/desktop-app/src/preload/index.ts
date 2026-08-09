@@ -67,7 +67,18 @@ import type {
   MultiFrontierRendererState,
 } from "@shared/multi-frontier-ipc";
 import { isDesktopSentryConfigured } from "@shared/sentry-config";
+import {
+  CHAT_FIRST_MCP_IPC,
+  type ChatFirstMcpPluginImportResult,
+} from "@shared/chat-first-mcp";
 import { contextBridge, ipcRenderer } from "electron";
+import type {
+  CreateMcpServerArgs,
+  McpServersList,
+  McpServer,
+  McpServerScope,
+  TestMcpUrlResult,
+} from "@agent-native/core/client/resources";
 
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
@@ -203,6 +214,35 @@ const electronAPI = {
       ipcRenderer.on(IPC.APP_STATUS, handler);
       return () => ipcRenderer.removeListener(IPC.APP_STATUS, handler);
     },
+  },
+
+  /** Shared MCP connection management used by the desktop settings surface. */
+  mcpServers: {
+    list: (): Promise<McpServersList> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.LIST),
+    create: (args: CreateMcpServerArgs): Promise<McpServer> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.CREATE, args),
+    delete: (args: {
+      id: string;
+      scope: McpServerScope;
+    }): Promise<void> => ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.DELETE, args),
+    reconnect: (args: {
+      id: string;
+      scope: McpServerScope;
+    }): Promise<void> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.RECONNECT, args),
+    test: (
+      url: string,
+      headers?: Record<string, string>,
+    ): Promise<TestMcpUrlResult> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.TEST, { url, headers }),
+    testExisting: (args: {
+      id: string;
+      scope: McpServerScope;
+    }): Promise<TestMcpUrlResult> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.TEST_EXISTING, args),
+    importPlugin: (): Promise<ChatFirstMcpPluginImportResult> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.IMPORT_PLUGIN),
   },
 
   /** Tell main process which app webview is currently active (for DevTools targeting) */

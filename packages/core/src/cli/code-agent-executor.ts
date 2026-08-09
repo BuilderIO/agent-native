@@ -65,6 +65,11 @@ import {
 } from "../vite/agent-native-config-loader.js";
 import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
+  codexMcpConfigArgs,
+  mergeCodeAgentMcpConfig,
+  restrictCodeAgentMcpConfig,
+} from "./code-agent-mcp-config.js";
+import {
   addCodeAgentCommandToAllowlist,
   appendCodeAgentTranscriptEvent,
   dequeueCodeAgentFollowUp,
@@ -610,6 +615,7 @@ async function executeCodexCliRun(options: {
     options.streamToolOutputToStdout ??
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const args = [
+    ...codexMcpConfigArgs(),
     "--ask-for-approval",
     "never",
     "exec",
@@ -1175,9 +1181,17 @@ async function startCodeAgentMcpManager(
     });
     return null;
   });
-  if (!config || Object.keys(config.servers ?? {}).length === 0) return null;
+  const effectiveConfig = restrictCodeAgentMcpConfig(
+    mergeCodeAgentMcpConfig(config),
+  );
+  if (
+    !effectiveConfig ||
+    Object.keys(effectiveConfig.servers ?? {}).length === 0
+  ) {
+    return null;
+  }
 
-  const manager = new McpClientManager(config);
+  const manager = new McpClientManager(effectiveConfig);
   await manager.start().catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentTranscriptEvent({

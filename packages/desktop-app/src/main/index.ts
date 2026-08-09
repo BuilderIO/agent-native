@@ -140,6 +140,10 @@ import {
   type BackgroundAgentRun,
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
+import {
+  loadMcpConfig,
+  type McpServerConfig,
+} from "../../../core/src/mcp-client/config.js";
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import {
@@ -176,6 +180,10 @@ import {
   getLogFilePath,
 } from "./desktop-logger";
 import { registerAppsIpc } from "./ipc/apps";
+import {
+  fetchChatFirstMcpRuntimeConfig,
+  registerChatFirstMcpIpc,
+} from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
 import { registerFrameIpc } from "./ipc/frame";
@@ -3097,6 +3105,7 @@ const activeCodeAgentProcesses = new Map<
     permissionMode: CodeAgentPermissionMode;
   }
 >();
+const startingCodeAgentRuns = new Set<string>();
 
 function desktopComputerHelperPath(): string {
   return app.isPackaged
@@ -3227,6 +3236,103 @@ function remoteConnectorComputerEnv(): NodeJS.ProcessEnv {
   }
 }
 
+function desktopCodeAgentMcpServerId(appId: string): string {
+  return `desktop_app_${appId.replace(/[^A-Za-z0-9_]/g, "_")}`;
+}
+
+function desktopAppMcpUrl(baseUrl: string): string {
+  const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return new URL("mcp", base).toString();
+}
+
+async function resolveDesktopMcpHost(): Promise<{
+  baseUrl: string;
+  session: Electron.Session;
+} | null> {
+  const appConfig = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "dispatch" && candidate.enabled !== false,
+  );
+  if (!appConfig) return null;
+  const baseUrl = resolveAppBaseUrl(appConfig);
+  if (!baseUrl) return null;
+  return { baseUrl, session: findRemoteRelaySession(baseUrl) };
+}
+
+interface DesktopCodeAgentMcpEnvironment {
+  env: NodeJS.ProcessEnv;
+  remoteConfig:
+    | { state: "loaded"; serverCount: number }
+    | { state: "unavailable"; error: string };
+}
+
+/**
+ * Give each local coding run the same workspace app MCP servers shown in its
+ * rail, while retaining local/plugin config and server-managed connections.
+ * Cookies come from the app's real Electron partition; no local trust token
+ * is synthesized for an app session.
+ */
+async function desktopCodeAgentMcpEnvironment(
+  cwd: string,
+): Promise<DesktopCodeAgentMcpEnvironment> {
+  const localConfig = loadMcpConfig(cwd);
+  const servers: Record<string, McpServerConfig> = {
+    ...(localConfig?.servers ?? {}),
+  };
+  const allowlist = new Set(Object.keys(localConfig?.servers ?? {}));
+  const appIds: string[] = [];
+  let remoteConfig: DesktopCodeAgentMcpEnvironment["remoteConfig"] = {
+    state: "unavailable",
+    error: "Connected MCP settings are unavailable.",
+  };
+
+  try {
+    const configured = await fetchChatFirstMcpRuntimeConfig(
+      resolveDesktopMcpHost,
+    );
+    for (const [serverId, server] of Object.entries(configured.servers)) {
+      servers[serverId] = server;
+      allowlist.add(serverId);
+    }
+    remoteConfig = {
+      state: "loaded",
+      serverCount: Object.keys(configured.servers).length,
+    };
+  } catch (error) {
+    remoteConfig = {
+      state: "unavailable",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  for (const appConfig of loadAppsForAuthContext()) {
+    if (appConfig.enabled === false) continue;
+    const baseUrl = resolveAppBaseUrl(appConfig);
+    if (!baseUrl) continue;
+    const serverId = desktopCodeAgentMcpServerId(appConfig.id);
+    const appMcpUrl = desktopAppMcpUrl(baseUrl);
+    const appSession = session.fromPartition(`persist:app-${appConfig.id}`);
+    const cookieHeader = await cookieHeaderForRelay(appSession, appMcpUrl);
+    servers[serverId] = {
+      type: "http",
+      url: appMcpUrl,
+      ...(cookieHeader ? { headers: { Cookie: cookieHeader } } : {}),
+      description: `${appConfig.name} workspace app tools`,
+    };
+    allowlist.add(serverId);
+    appIds.push(appConfig.id);
+  }
+
+  return {
+    env: {
+      MCP_SERVERS: JSON.stringify({ servers }),
+      AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST:
+        [...allowlist].join(",") || "__none__",
+      AGENT_NATIVE_CODE_AGENT_MCP_APP_IDS: JSON.stringify(appIds),
+    },
+    remoteConfig,
+  };
+}
+
 function revokeRemoteConnectorComputerControl(): void {
   revokeDesktopComputerRun("__remote_connector__");
 }
@@ -3290,12 +3396,15 @@ function persistCodeAgentChildEvent(
   guardCodeAgentPersistence({ runId, source }, persist);
 }
 
-function spawnCodeAgentRunner(
+async function spawnCodeAgentRunner(
   runId: string,
   cwd: string,
   permissionMode?: CodeAgentPermissionMode,
-): void {
-  if (activeCodeAgentProcesses.has(runId)) return;
+): Promise<void> {
+  if (activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId)) {
+    return;
+  }
+  startingCodeAgentRuns.add(runId);
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok) {
     appendCodeAgentStatusEvent(
@@ -3314,6 +3423,7 @@ function spawnCodeAgentRunner(
         runnerError: provider.error,
       },
     });
+    startingCodeAgentRuns.delete(runId);
     return;
   }
   const repoRoot = resolveRepositoryRoot(cwd);
@@ -3335,6 +3445,17 @@ function spawnCodeAgentRunner(
   );
   const { command, args } = invocation;
   try {
+    const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd);
+    if (mcpEnvironment.remoteConfig.state === "unavailable") {
+      appendCodeAgentStatusEvent(
+        runId,
+        "Connected MCP settings could not be loaded for this chat.",
+        {
+          source: "desktop-mcp-config",
+          error: mcpEnvironment.remoteConfig.error,
+        },
+      );
+    }
     const computerEnv = desktopComputerChildEnv(
       runId,
       normalizedPermissionMode,
@@ -3348,6 +3469,7 @@ function spawnCodeAgentRunner(
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
         ...invocation.env,
+        ...mcpEnvironment.env,
         ...computerEnv,
       },
     });
@@ -3360,6 +3482,7 @@ function spawnCodeAgentRunner(
       startedAt: runnerStartedAt,
       permissionMode: normalizedPermissionMode,
     });
+    startingCodeAgentRuns.delete(runId);
     touchCodeAgentRunRecord(runId, {
       status: "running",
       phase: "executing",
@@ -3444,6 +3567,7 @@ function spawnCodeAgentRunner(
     });
     child.unref();
   } catch (err) {
+    startingCodeAgentRuns.delete(runId);
     revokeDesktopComputerRun(runId);
     persistCodeAgentChildEvent(runId, "runner-start-error-status", () => {
       appendCodeAgentStatusEvent(
@@ -5274,7 +5398,11 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
   managedDesktopAppStarts.add(appId);
   try {
     if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
-      emitDesktopAppRuntimeStatus({ appId, state: "running" });
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "running",
+        message: "Preview ready.",
+      });
       return;
     }
     if (
@@ -5312,23 +5440,37 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
     managedDesktopAppProcesses.set(appId, child);
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString().trim();
-      if (text) console.log(`[desktop-app:${appId}] ${text}`);
+      if (!text) return;
+      console.log(`[desktop-app:${appId}] ${text}`);
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "running",
+        message: "Preview updated.",
+      });
     });
     child.stderr?.on("data", (chunk) => {
       const text = chunk.toString().trim();
-      if (text) console.error(`[desktop-app:${appId}] ${text}`);
+      if (!text) return;
+      console.error(`[desktop-app:${appId}] ${text}`);
+      if (/\b(error|failed|fatal|compile|syntaxerror)\b/i.test(text)) {
+        emitDesktopAppRuntimeStatus({
+          appId,
+          state: "error",
+          message: "The local preview reported a build error.",
+        });
+      }
     });
-    child.once("error", (err) => {
+    child.once("error", () => {
       if (managedDesktopAppProcesses.get(appId) === child) {
         managedDesktopAppProcesses.delete(appId);
       }
       emitDesktopAppRuntimeStatus({
         appId,
         state: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: "The local preview could not start.",
       });
     });
-    child.once("exit", (code, signal) => {
+    child.once("exit", (code) => {
       if (managedDesktopAppProcesses.get(appId) === child) {
         managedDesktopAppProcesses.delete(appId);
       }
@@ -5339,7 +5481,7 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
         message:
           code === 0
             ? `${appConfig.name} stopped.`
-            : `${appConfig.name} exited (${signal ?? code ?? "unknown"}).`,
+            : "The local preview process exited unexpectedly.",
       });
       if (
         activeAppId === appId &&
@@ -5352,17 +5494,26 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
     for (let attempt = 0; attempt < 40; attempt += 1) {
       if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
         managedDesktopAppStartAttempts.delete(appId);
-        emitDesktopAppRuntimeStatus({ appId, state: "running" });
+        emitDesktopAppRuntimeStatus({
+          appId,
+          state: "running",
+          message: "Preview ready.",
+        });
         return;
       }
       if (child.exitCode !== null || child.killed) return;
       await new Promise((resolve) => setTimeout(resolve, 750));
     }
-  } catch (err) {
     emitDesktopAppRuntimeStatus({
       appId,
       state: "error",
-      message: err instanceof Error ? err.message : String(err),
+      message: "The local preview did not become ready.",
+    });
+  } catch {
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "error",
+      message: "The local preview could not start.",
     });
   } finally {
     managedDesktopAppStarts.delete(appId);
@@ -7985,6 +8136,11 @@ registerAppsIpc({
   normalizeDesktopAppsRoot,
   createDesktopAppFromPrompt,
   showDesktopAppContextMenu,
+});
+
+registerChatFirstMcpIpc({
+  resolveMcpHost: resolveDesktopMcpHost,
+  codeAgentWorkspaceRoot: () => resolveCodeAgentsTerminalCwd({}),
 });
 
 // See main/ipc/plan-files.ts.

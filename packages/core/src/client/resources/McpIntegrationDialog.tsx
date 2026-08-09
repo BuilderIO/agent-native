@@ -40,7 +40,7 @@ import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
   formatMcpServerError,
   getMcpUrlValidationError,
-  testMcpServerUrl,
+  useMcpServersApi,
   useMcpServers,
   type CreateMcpServerArgs,
   type McpServerScope,
@@ -147,6 +147,7 @@ export function McpIntegrationDialog({
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mcpApi = useMcpServersApi();
   const mcpServersQuery = useMcpServers();
   const defaultIntegrations = useMemo(
     () => integrations ?? getDefaultMcpIntegrations(),
@@ -408,7 +409,7 @@ export function McpIntegrationDialog({
     setError(null);
     setTestResult(null);
     try {
-      const res = await testMcpServerUrl(
+      const res = await mcpApi.test(
         trimmedUrl,
         parseHeaderLines(headersText),
       );

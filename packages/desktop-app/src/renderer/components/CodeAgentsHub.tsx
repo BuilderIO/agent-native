@@ -14,6 +14,7 @@ import {
   ChatFirstSurfacePanelToggle,
   chatFirstSurfaceTabId,
   closeChatFirstSessionWatch,
+  emitChatFirstOpenApp,
   emitChatFirstSessionWatch,
   getChatFirstSurfaceTabsStore,
   resolveChatFirstAppTarget,
@@ -37,7 +38,6 @@ import {
   ChatFirstAppPane,
   ChatFirstAppsRail,
   ChatFirstBrowserPane,
-  ChatFirstPrimaryNavigation,
   ChatFirstSessionWatchPane,
   ChatFirstSurfacePanel,
   ChatFirstSurfaceContent,
@@ -145,6 +145,9 @@ interface CodeAgentsHubProps {
   apps: AppConfig[];
   isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
+  chatFirstPreviewRequest?: { appId: string; nonce: number };
+  chatFirstPreviewStatus?: "starting" | "ready" | "error";
+  chatFirstPreviewStatusMessage?: string;
   refreshKey?: number;
   onOpenSettings?: () => void;
   onCreateApp?: () => void;
@@ -173,6 +176,9 @@ export default function CodeAgentsHub({
   apps,
   isActive = true,
   openRequest,
+  chatFirstPreviewRequest,
+  chatFirstPreviewStatus,
+  chatFirstPreviewStatusMessage,
   refreshKey = 0,
   onOpenSettings,
   onCreateApp,
@@ -210,9 +216,7 @@ export default function CodeAgentsHub({
     title?: string;
   } | null>(null);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
-  const [chatFirstMainKind, setChatFirstMainKind] = useState<"agent" | "code">(
-    "agent",
-  );
+  const handledChatFirstPreviewNonceRef = useRef<number | null>(null);
   const [multiFrontierMode, setMultiFrontierMode] = useState(false);
   const [multiFrontierState, setMultiFrontierState] =
     useState<MultiFrontierRendererState>();
@@ -251,6 +255,7 @@ export default function CodeAgentsHub({
         setChatFirstNotice("That app is not enabled in the desktop workspace.");
         return;
       }
+      window.electronAPI?.setActiveApp?.(app.id);
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
       closeChatFirstSessionWatch();
@@ -332,6 +337,37 @@ export default function CodeAgentsHub({
     },
     [chatFirstSurfaceTabsStore],
   );
+
+  useEffect(() => {
+    const request = chatFirstPreviewRequest;
+    if (
+      !chatFirstMode ||
+      !request ||
+      handledChatFirstPreviewNonceRef.current === request.nonce
+    ) {
+      return;
+    }
+    const app = apps.find(
+      (candidate) => candidate.id === request.appId && candidate.enabled,
+    );
+    if (!app) return;
+    handledChatFirstPreviewNonceRef.current = request.nonce;
+    if (!app.devUrl?.trim()) {
+      setChatFirstNotice(
+        `${app.name} is building locally, but it has not published a preview URL yet.`,
+      );
+      return;
+    }
+    resolveChatFirstOpenBrowser({
+      url: app.devUrl,
+      title: `${app.name} preview`,
+    });
+  }, [
+    apps,
+    chatFirstMode,
+    chatFirstPreviewRequest,
+    resolveChatFirstOpenBrowser,
+  ]);
 
   useEffect(() => {
     if (!chatFirstMode) {
@@ -1278,12 +1314,137 @@ export default function CodeAgentsHub({
     [],
   );
 
-  const selectedChatFirstApp =
-    activeChatFirstSurfaceTab?.kind === "app" && activeChatFirstSurfaceTab.appId
-      ? apps.find((app) => app.id === activeChatFirstSurfaceTab.appId)
-      : undefined;
-  const dispatchApp = apps.find((app) => app.id === "dispatch" && app.enabled);
-
+  const chatFirstPreviewApp = chatFirstPreviewRequest
+    ? apps.find(
+        (app) => app.id === chatFirstPreviewRequest.appId && app.enabled,
+      )
+    : undefined;
+  const chatFirstPreviewUrl = chatFirstPreviewApp?.devUrl?.trim();
+  const renderChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      if (tab.kind === "side-chat") {
+        const target =
+          tab.session ??
+          (tab.id === chatFirstSurfaceTabs.activeTabId
+            ? chatFirstSessionWatch.target
+            : null);
+        if (!target) return null;
+        const watchedRunForTab =
+          chatFirstWatchedRun?.id === target.sessionId
+            ? chatFirstWatchedRun
+            : null;
+        return (
+          <ChatFirstSessionWatchPane
+            target={target}
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderChat={(session) =>
+              watchedRunForTab ? (
+                <SessionWatchPanel
+                  host={host}
+                  run={watchedRunForTab}
+                  sourceRunId={chatFirstWatchedSourceRunId}
+                  onClose={closeChatFirstSessionWatch}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+                  {session.kind === "agent-chat"
+                    ? "Agent chat sessions are available in Dispatch."
+                    : session.kind === "external"
+                      ? "This session is only available in its source app."
+                      : session.title || "Selected session is unavailable."}
+                </div>
+              )
+            }
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "browser" && tab.url) {
+        const isPreviewTab = tab.url === chatFirstPreviewUrl;
+        return (
+          <ChatFirstBrowserPane
+            url={tab.url}
+            title={tab.title}
+            status={
+              isPreviewTab && tab.id === activeChatFirstSurfaceTab?.id
+                ? chatFirstPreviewStatus
+                : undefined
+            }
+            statusMessage={
+              isPreviewTab && tab.id === activeChatFirstSurfaceTab?.id
+                ? chatFirstPreviewStatusMessage
+                : undefined
+            }
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderEmbed={({ url, key }: ChatFirstEmbedTarget) => (
+              <AppWebview
+                key={key}
+                app={{
+                  id: "chat-first-browser",
+                  name: "Browser",
+                  icon: "Globe",
+                  description: "Browser surface",
+                  devPort: 0,
+                }}
+                sourceUrl={url}
+                isActive={isActive}
+                refreshKey={isPreviewTab ? refreshKey : 0}
+              />
+            )}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "app" && tab.appId) {
+        const app = apps.find((candidate) => candidate.id === tab.appId);
+        if (!app) return null;
+        return (
+          <ChatFirstAppPane
+            app={app}
+            status="ready"
+            embedUrl={tab.path ?? "/"}
+            renderEmbed={() => (
+              <AppWebview
+                app={toAppDefinition(app)}
+                appConfig={app}
+                isActive={isActive}
+                urlPath={tab.path}
+                urlParams={{ embedded: "1", chatFirst: "1" }}
+              />
+            )}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "agents") {
+        return (
+          <ChatFirstAgentsPane
+            activities={chatFirstAgentActivities}
+            onWatch={watchChatFirstAgent}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      return null;
+    },
+    [
+      activeChatFirstSurfaceTab?.id,
+      apps,
+      chatFirstAgentActivities,
+      chatFirstPreviewStatus,
+      chatFirstPreviewStatusMessage,
+      chatFirstPreviewUrl,
+      chatFirstSessionWatch.target,
+      chatFirstSurfaceTabs.activeTabId,
+      chatFirstWatchedRun,
+      chatFirstWatchedSourceRunId,
+      closeChatFirstSurfaceTab,
+      host,
+      isActive,
+      refreshKey,
+      watchChatFirstAgent,
+    ],
+  );
   return (
     <QueryClientProvider client={codeAgentsQueryClient}>
       <div
@@ -1322,17 +1483,18 @@ export default function CodeAgentsHub({
           chatFirstMode={chatFirstMode}
           onRunsChange={handleChatFirstRunsChange}
           onWatchedRunChange={handleChatFirstWatchedRunChange}
-          railNavigationSlot={
-            chatFirstMode ? (
-              <ChatFirstPrimaryNavigation
-                onOpenIntegrations={() =>
-                  openChatFirstApp("dispatch", "/admin/integrations")
+          chatFirstNavigation={
+            chatFirstMode
+              ? {
+                  onOpenIntegrations: () =>
+                    openChatFirstApp("dispatch", "/admin/integrations"),
+                  onOpenScheduled: () =>
+                    openChatFirstApp("dispatch", "/admin/automations"),
                 }
-                onOpenScheduled={() =>
-                  openChatFirstApp("dispatch", "/admin/automations")
-                }
-              />
-            ) : undefined
+              : undefined
+          }
+          onChatFirstOpenApp={
+            chatFirstMode ? (detail) => emitChatFirstOpenApp(detail) : undefined
           }
           railWorkspaceSlot={
             chatFirstMode ? (
@@ -1396,32 +1558,7 @@ export default function CodeAgentsHub({
           }
           newSessionExtension={multiFrontierExtension}
           openDetailRequest={multiFrontierOpenDetailRequest}
-          chatFirstMainKind={chatFirstMainKind}
-          onChatFirstMainKindChange={setChatFirstMainKind}
-          renderChatFirstMainSurface={
-            dispatchApp ? (
-              <div
-                data-chat-first-main-chat
-                className="h-full min-h-0 w-full overflow-hidden bg-background"
-                aria-label={`${dispatchApp.name} chat`}
-              >
-                <AppWebview
-                  app={toAppDefinition(dispatchApp)}
-                  appConfig={dispatchApp}
-                  isActive={isActive && chatFirstMainKind === "agent"}
-                  urlPath="/chat"
-                  urlParams={{ embedded: "1", chatFirst: "1" }}
-                />
-              </div>
-            ) : (
-              <div
-                className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground"
-                role="status"
-              >
-                Dispatch chat is unavailable in this desktop workspace.
-              </div>
-            )
-          }
+          chatFirstMainKind="code"
           renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
             <div className="code-agents-embedded-app-surface">
               <AppWebview
@@ -1467,76 +1604,11 @@ export default function CodeAgentsHub({
               copy={defaultChatFirstCopy}
             />
             {chatFirstSurfaceTabs.tabs.length > 0 ? (
-              <ChatFirstSurfaceContent>
-                {activeChatFirstSurfaceTab?.kind === "side-chat" ? (
-                  <ChatFirstSessionWatchPane
-                    target={chatFirstSessionWatch.target}
-                    onClose={closeChatFirstSessionWatch}
-                    renderChat={(target) =>
-                      chatFirstWatchedRun ? (
-                        <SessionWatchPanel
-                          host={host}
-                          run={chatFirstWatchedRun}
-                          sourceRunId={chatFirstWatchedSourceRunId}
-                          onClose={closeChatFirstSessionWatch}
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-                          {target.title || "Selected session is unavailable."}
-                        </div>
-                      )
-                    }
-                    copy={defaultChatFirstCopy}
-                  />
-                ) : activeChatFirstSurfaceTab?.kind === "browser" &&
-                  activeChatFirstSurfaceTab.url ? (
-                  <ChatFirstBrowserPane
-                    url={activeChatFirstSurfaceTab.url}
-                    title={activeChatFirstSurfaceTab.title}
-                    onClose={() =>
-                      closeChatFirstSurfaceTab(activeChatFirstSurfaceTab)
-                    }
-                    renderEmbed={({ url, key }: ChatFirstEmbedTarget) => (
-                      <AppWebview
-                        key={key}
-                        app={{
-                          id: "chat-first-browser",
-                          name: "Browser",
-                          icon: "Globe",
-                          description: "Browser surface",
-                          devPort: 0,
-                        }}
-                        sourceUrl={url}
-                        isActive={isActive}
-                      />
-                    )}
-                    copy={defaultChatFirstCopy}
-                  />
-                ) : activeChatFirstSurfaceTab?.kind === "app" &&
-                  selectedChatFirstApp ? (
-                  <ChatFirstAppPane
-                    app={selectedChatFirstApp}
-                    status="ready"
-                    embedUrl={activeChatFirstSurfaceTab.path ?? "/"}
-                    renderEmbed={() => (
-                      <AppWebview
-                        app={toAppDefinition(selectedChatFirstApp)}
-                        appConfig={selectedChatFirstApp}
-                        isActive={isActive}
-                        urlPath={activeChatFirstSurfaceTab.path}
-                        urlParams={{ embedded: "1", chatFirst: "1" }}
-                      />
-                    )}
-                    copy={defaultChatFirstCopy}
-                  />
-                ) : activeChatFirstSurfaceTab?.kind === "agents" ? (
-                  <ChatFirstAgentsPane
-                    activities={chatFirstAgentActivities}
-                    onWatch={watchChatFirstAgent}
-                    copy={defaultChatFirstCopy}
-                  />
-                ) : null}
-              </ChatFirstSurfaceContent>
+              <ChatFirstSurfaceContent
+                tabs={chatFirstSurfaceTabs.tabs}
+                activeTabId={chatFirstSurfaceTabs.activeTabId}
+                renderTab={renderChatFirstSurfaceTab}
+              />
             ) : null}
           </ChatFirstSurfacePanel>
         ) : null}
