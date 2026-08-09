@@ -142,11 +142,22 @@ function PresenceAvatarTip({
 
 // Thumbnail overlays sit on top of rendered slide artwork, which is arbitrary
 // user content rather than a themed app surface, so they use a fixed scrim.
+// No `backdrop-filter` and no always-mounted-but-transparent variant: each one
+// forces the compositor to keep a backdrop snapshot for its area, and a long
+// slide rail multiplies that by the slide count until the browser starts
+// serving stale tiles and flickering on hover. `hidden` keeps them out of the
+// layer tree until the row is actually hovered.
 const THUMB_OVERLAY_CLASS =
   // guard:allow-raw-color — matches the duplicate/delete overlays below.
-  "absolute top-2 left-7 rounded bg-black/60 p-1 backdrop-blur-sm border border-white/10 cursor-grab active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100";
+  "absolute top-2 left-7 rounded bg-black/80 p-1 border border-white/10 cursor-grab active:cursor-grabbing sm:hidden sm:group-hover:block";
 // guard:allow-raw-color — same fixed scrim as the class above.
 const THUMB_OVERLAY_ICON_CLASS = "w-3 h-3 text-white/60";
+const THUMB_ACTION_CLASS =
+  // guard:allow-raw-color — same fixed scrim as the drag handle above.
+  "p-1.5 rounded bg-black/80 border border-white/10 hover:bg-black";
+const THUMB_DELETE_CLASS =
+  // guard:allow-raw-color — same fixed scrim as the drag handle above.
+  "p-1.5 rounded bg-black/80 border border-white/10 hover:bg-red-900/80";
 
 function SortableSlideThumb({
   slide,
@@ -266,7 +277,7 @@ function SortableSlideThumb({
 
       {/* Actions - always visible on touch devices */}
       {!readOnly && (
-        <div className="absolute top-2 right-2 flex gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
+        <div className="absolute top-2 right-2 flex gap-0.5 sm:hidden sm:group-hover:flex">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -274,7 +285,7 @@ function SortableSlideThumb({
                   e.stopPropagation();
                   onDuplicate();
                 }}
-                className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
+                className={THUMB_ACTION_CLASS}
                 aria-label={t("editorSidebar.duplicateSlide")}
               >
                 <IconCopy className="w-3 h-3 text-white/60" />
@@ -289,7 +300,7 @@ function SortableSlideThumb({
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
+                className={THUMB_DELETE_CLASS}
                 aria-label={t("editorSidebar.deleteSlide")}
               >
                 <IconTrash className="w-3 h-3 text-white/60" />
