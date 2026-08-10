@@ -14,6 +14,10 @@ export interface DesktopStartupDependencies {
   logWarning: (message: string, error: unknown) => void;
 }
 
+export function resolveDesktopSsoBrokerStatePath(userDataPath: string): string {
+  return path.join(userDataPath, "desktop-sso.json");
+}
+
 export function initializeDesktopStartup({
   isPackaged,
   version,

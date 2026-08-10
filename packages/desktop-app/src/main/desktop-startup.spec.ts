@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { initializeDesktopStartup } from "./desktop-startup.js";
+import {
+  initializeDesktopStartup,
+  resolveDesktopSsoBrokerStatePath,
+} from "./desktop-startup.js";
 
 function createDependencies(
   overrides: Partial<Parameters<typeof initializeDesktopStartup>[0]> = {},
@@ -24,6 +27,12 @@ function createDependencies(
 }
 
 describe("initializeDesktopStartup", () => {
+  it("keeps local broker state inside the active Desktop profile", () => {
+    expect(resolveDesktopSsoBrokerStatePath("/isolated-canary-profile")).toBe(
+      "/isolated-canary-profile/desktop-sso.json",
+    );
+  });
+
   it("isolates a packaged canary before initializing profile consumers", () => {
     const { dependencies, events } = createDependencies();
 

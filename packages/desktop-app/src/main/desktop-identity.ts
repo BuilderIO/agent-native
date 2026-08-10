@@ -20,6 +20,7 @@ const DESKTOP_LOGOUT_PATH = "/_agent-native/auth/logout";
 const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_COOKIE_WAIT_MS = 2_000;
+const DEFAULT_AVAILABILITY_TIMEOUT_MS = 5_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 
 export type DesktopWorkspaceLogoutPath =
@@ -187,6 +188,38 @@ export function isDesktopIdentityAuthorizeNavigation(
   }
 }
 
+export async function fetchDesktopIdentityAvailability(
+  authorityApp: DesktopIdentityApp,
+  identitySession: Session,
+  timeoutMs = DEFAULT_AVAILABILITY_TIMEOUT_MS,
+): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await identitySession.fetch(
+      new URL(
+        "/_agent-native/identity/availability",
+        authorityApp.origin,
+      ).toString(),
+      {
+        method: "GET",
+        redirect: "manual",
+        credentials: "include",
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) return false;
+    const body = (await response.json().catch(() => null)) as {
+      available?: unknown;
+    } | null;
+    return body?.available === true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class DesktopIdentityBroker {
   private readonly pendingByApp = new Map<string, Promise<boolean>>();
   private readonly unsupportedAppIds = new Set<string>();
@@ -205,8 +238,11 @@ export class DesktopIdentityBroker {
   private status: DesktopIdentityStatus = "idle";
   private ceremonyGeneration = 0;
   private automaticSignInSuppressed = false;
+  private availability: "unknown" | "available" | "unavailable";
 
-  constructor(private readonly options: DesktopIdentityBrokerOptions) {}
+  constructor(private readonly options: DesktopIdentityBrokerOptions) {
+    this.availability = options.isAvailable ? "unknown" : "available";
+  }
 
   getStatus(): DesktopIdentityStatus {
     return this.status;
@@ -228,6 +264,7 @@ export class DesktopIdentityBroker {
     const observedGeneration = this.ceremonyGeneration;
     if (observedStatus === "signing-in" || this.signOutOperation) return;
     if (!authorityApp) {
+      this.availability = "unavailable";
       this.setStatus("idle");
       return;
     }
@@ -243,9 +280,11 @@ export class DesktopIdentityBroker {
         return;
       }
       if (!available) {
+        this.availability = "unavailable";
         this.setStatus("idle");
         return;
       }
+      this.availability = "available";
     }
     const cookies = await this.options.identitySession.cookies.get({
       url: authorityApp.origin,
@@ -270,6 +309,7 @@ export class DesktopIdentityBroker {
     if (
       !app ||
       (this.options.isAvailable && !this.options.resolveApp("dispatch")) ||
+      (this.options.isAvailable && this.availability !== "available") ||
       this.automaticSignInSuppressed ||
       this.unsupportedAppIds.has(appId) ||
       !isDesktopSignInNavigation(navigationUrl, app)
@@ -585,6 +625,7 @@ export class DesktopIdentityBroker {
     if (this.options.isAvailable) {
       authorityApp = this.options.resolveApp("dispatch");
       if (!authorityApp) {
+        this.availability = "unavailable";
         this.unsupportedAppIds.add(app.id);
         this.setStatus("idle");
         this.options.reloadApp(app);
@@ -601,11 +642,13 @@ export class DesktopIdentityBroker {
       }
       if (!this.isCeremonyCurrent(generation)) return false;
       if (!available) {
+        this.availability = "unavailable";
         this.unsupportedAppIds.add(app.id);
         this.setStatus("idle");
         this.options.reloadApp(app);
         return false;
       }
+      this.availability = "available";
     }
 
     this.setStatus("signing-in");
@@ -723,6 +766,17 @@ export class DesktopIdentityBroker {
       identityWindow.webContents.on(
         "did-navigate",
         (_event, url, httpResponseCode) => {
+          if (
+            !settled &&
+            httpResponseCode >= 400 &&
+            authorityApp &&
+            isDesktopIdentityAuthorizeNavigation(url, authorityApp, app)
+          ) {
+            this.unsupportedAppIds.add(app.id);
+            this.options.reloadApp(app);
+            finish(false, "idle");
+            return;
+          }
           if (
             settled ||
             completionStarted ||

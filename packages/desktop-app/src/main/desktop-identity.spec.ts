@@ -4,6 +4,7 @@ import {
   DESKTOP_IDENTITY_COMPLETE_PATH,
   DesktopIdentityBroker,
   desktopWorkspaceLogoutPath,
+  fetchDesktopIdentityAvailability,
   isDesktopIdentityAuthorizeNavigation,
   isDesktopIdentityCompletion,
   isDesktopIdentityConfiguredAppEligible,
@@ -254,6 +255,30 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).not.toHaveBeenCalled();
   });
 
+  it("does not cancel ordinary sign-in before rollout availability is known", () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    expect(
+      broker.handleSignedOutNavigation(
+        app.id,
+        `${app.origin}/_agent-native/sign-in`,
+      ),
+    ).toBe(false);
+  });
+
   it("restores ordinary sign-in if Dispatch disappears before the ceremony", async () => {
     const app = appFixture();
     const authority = authorityFixture();
@@ -275,6 +300,8 @@ describe("DesktopIdentityBroker", () => {
       reloadApp,
       clearLocalBroker: vi.fn(),
     });
+
+    await broker.refreshStatus(authority);
 
     expect(
       broker.handleSignedOutNavigation(
@@ -306,10 +333,10 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    await expect(broker.ensureAppSession(app.id)).resolves.toBe(false);
+    await broker.refreshStatus(authority);
     expect(createWindow).not.toHaveBeenCalled();
     expect(resolveLoginRedirect).not.toHaveBeenCalled();
-    expect(reloadApp).toHaveBeenCalledWith(app);
+    expect(reloadApp).not.toHaveBeenCalled();
     expect(broker.getStatus()).toBe("idle");
     expect(
       broker.handleSignedOutNavigation(
@@ -317,6 +344,34 @@ describe("DesktopIdentityBroker", () => {
         `${app.origin}/_agent-native/sign-in`,
       ),
     ).toBe(false);
+  });
+
+  it("bounds a stalled rollout availability request", async () => {
+    vi.useFakeTimers();
+    const authority = authorityFixture();
+    let observedSignal: AbortSignal | undefined;
+    const identitySession = {
+      fetch: vi.fn(
+        (_url: string, options: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            observedSignal = options.signal as AbortSignal;
+            observedSignal.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
+          }),
+      ),
+    } as unknown as Electron.Session;
+
+    const availability = fetchDesktopIdentityAvailability(
+      authority,
+      identitySession,
+      100,
+    );
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(availability).resolves.toBe(false);
+    expect(observedSignal?.aborted).toBe(true);
+    vi.useRealTimers();
   });
 
   it("does not replace an active app-led ceremony with a stale cookie status", async () => {
@@ -426,6 +481,48 @@ describe("DesktopIdentityBroker", () => {
     );
     closedListener?.();
     await expect(ceremony).resolves.toBe(false);
+  });
+
+  it("restores ordinary sign-in when targeted authorization denies the user", async () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const reloadApp = vi.fn();
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveLoginRedirect: vi.fn(async () => authorizeUrl(authority, app)),
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow: () => identityWindow as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    const ceremony = broker.ensureAppSession(app.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const didNavigate = webContents.on.mock.calls.find(
+      ([event]) => event === "did-navigate",
+    )?.[1];
+    didNavigate({}, authorizeUrl(authority, app), 404);
+
+    await expect(ceremony).resolves.toBe(false);
+    expect(reloadApp).toHaveBeenCalledWith(app);
+    expect(identityWindow.close).toHaveBeenCalledOnce();
+    expect(broker.getStatus()).toBe("idle");
   });
 
   it("sanitizes identity preflight failures before logging", async () => {

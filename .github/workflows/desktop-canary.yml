@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-signed-macos-canary:
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/codex/desktop-workspace-sso-flagged'
+    if: github.ref == 'refs/heads/codex/desktop-workspace-sso-flagged'
     runs-on: macos-latest
     timeout-minutes: 60
     steps:

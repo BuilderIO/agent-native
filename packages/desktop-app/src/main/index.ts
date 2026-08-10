@@ -182,6 +182,7 @@ import {
   DESKTOP_IDENTITY_PARTITION,
   DesktopIdentityBroker,
   desktopWorkspaceLogoutPath,
+  fetchDesktopIdentityAvailability,
   isDesktopIdentityConfiguredAppEligible,
   type DesktopIdentityApp,
 } from "./desktop-identity";
@@ -191,7 +192,10 @@ import {
   revealLogFolder,
   getLogFilePath,
 } from "./desktop-logger";
-import { initializeDesktopStartup } from "./desktop-startup.js";
+import {
+  initializeDesktopStartup,
+  resolveDesktopSsoBrokerStatePath,
+} from "./desktop-startup.js";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -658,18 +662,7 @@ async function isDesktopIdentityAvailable(
   authorityApp: DesktopIdentityApp,
   identitySession: Electron.Session,
 ): Promise<boolean> {
-  const response = await identitySession.fetch(
-    new URL(
-      "/_agent-native/identity/availability",
-      authorityApp.origin,
-    ).toString(),
-    { method: "GET", redirect: "manual", credentials: "include" },
-  );
-  if (!response.ok) return false;
-  const body = (await response.json().catch(() => null)) as {
-    available?: unknown;
-  } | null;
-  return body?.available === true;
+  return fetchDesktopIdentityAvailability(authorityApp, identitySession);
 }
 
 function resolveDesktopIdentityLoginRedirect(
@@ -9742,7 +9735,7 @@ app.whenReady().then(async () => {
         }),
       clearLocalBroker: async () => {
         await fs.promises
-          .rm(path.join(os.homedir(), ".agent-native", "desktop-sso.json"), {
+          .rm(resolveDesktopSsoBrokerStatePath(app.getPath("userData")), {
             force: true,
           })
           .catch(() => {});
