@@ -1417,7 +1417,13 @@ function AgentPanelInner({
               </DropdownMenuItem>
             )}
             {mode === "chat" && toggleHistory && (
-              <DropdownMenuItem onSelect={toggleHistory}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Let the menu finish restoring focus before mounting the
+                  // history popover; otherwise Radix dismisses the new overlay.
+                  setTimeout(() => toggleHistory(), 0);
+                }}
+              >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
                   ? t("agentPanel.hideChats")

@@ -257,6 +257,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain(
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
+    expect(overflowMenu).toContain("setTimeout(() => toggleHistory(), 0)");
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
