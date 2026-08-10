@@ -23,6 +23,7 @@ import {
   getFrameworkRouteRequestUrl,
   getFrameworkEnvKeys,
   readLegacyCoreRouteInitSettings,
+  shouldRunCoreRouteBootDatabaseWork,
 } from "./core-routes-plugin.js";
 
 describe("readLegacyCoreRouteInitSettings", () => {
@@ -47,6 +48,33 @@ describe("readLegacyCoreRouteInitSettings", () => {
       persistedEnvVars: { OTHER_KEY: "value" },
       builderDisconnected: null,
     });
+  });
+});
+
+describe("shouldRunCoreRouteBootDatabaseWork", () => {
+  it("skips request-time database warmups in production serverless runtimes", () => {
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps boot database work for local production and development", () => {
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        NETLIFY_LOCAL: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "development",
+        NETLIFY: "true",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -712,5 +740,57 @@ describe("runDbHealthProbe", () => {
     }));
     expect(result.ok).toBe(true);
     expect(result.db).toBe(false);
+  });
+
+  it("omits pressure unless asked, so the warm cron pays nothing for it", async () => {
+    const ran: string[] = [];
+    const result = await runDbHealthProbe(() => ({
+      execute: async (sql: string) => {
+        ran.push(sql);
+        return { rows: [], rowsAffected: 0 };
+      },
+    }));
+    expect(ran).toEqual(["SELECT 1"]);
+    expect(result.pressure).toBeUndefined();
+  });
+
+  // This suite's dialect is sqlite, which has no pg_stat_activity. The probe
+  // must report that as unmeasured rather than running the query anyway — and
+  // the monitor must not read unmeasured as healthy. The measured path is
+  // covered in db-pressure.spec.ts.
+  it("reports pressure as unmeasured on a dialect that cannot answer", async () => {
+    const ran: string[] = [];
+    const result = await runDbHealthProbe(
+      () => ({
+        execute: async (sql: string) => {
+          ran.push(sql);
+          return { rows: [], rowsAffected: 0 };
+        },
+      }),
+      { pressure: true },
+    );
+    expect(ran).toEqual(["SELECT 1"]);
+    expect(result.pressure).toEqual({
+      measured: false,
+      reason: "dialect sqlite has no pg_stat_activity",
+    });
+    // Pressure never moves `ready`. Folding it in would page every uptime
+    // monitor on a warning and teach everyone to mute the route.
+    expect(result.ready).toBe(true);
+  });
+
+  it("says pressure is unmeasured when the database is unreachable", async () => {
+    const result = await runDbHealthProbe(
+      () => ({
+        execute: async () => {
+          throw new Error("connection refused");
+        },
+      }),
+      { pressure: true },
+    );
+    expect(result.pressure).toEqual({
+      measured: false,
+      reason: "database unreachable",
+    });
   });
 });

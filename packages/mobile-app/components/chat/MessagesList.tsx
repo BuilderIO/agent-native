@@ -167,12 +167,8 @@ export function MessagesList({
           className="absolute inset-0 items-center justify-center px-8"
           pointerEvents="none"
         >
-          <Text className="text-white text-xl font-semibold text-center">
+          <Text className="text-white text-lg font-semibold text-center">
             What can I help with?
-          </Text>
-          <Text className="text-status-gray text-sm text-center mt-2 leading-5">
-            Ask the agent anything — it can answer, take actions, and update the
-            app for you.
           </Text>
         </View>
       )}

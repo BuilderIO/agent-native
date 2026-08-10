@@ -28,6 +28,13 @@ describe("Clips share metadata", () => {
     expect(displayRecordingTitle("Untitled recording")).toBe("Untitled Clip");
   });
 
+  it("does not expose serialized payloads as recording titles", () => {
+    const serializedTitle = '[{"id":"recording-1","status":"ready"}]';
+
+    expect(clipsSharePageTitle(serializedTitle)).toBe("Clip recording · Clips");
+    expect(displayRecordingTitle(serializedTitle)).toBe("Untitled Clip");
+  });
+
   it("builds absolute image metadata for crawler previews", () => {
     const meta = buildClipsShareMeta({
       origin: "https://clips.example.com",

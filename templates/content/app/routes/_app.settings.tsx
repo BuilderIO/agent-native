@@ -9,7 +9,10 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
+import {
+  CreativeContextSettingsLink,
+  createCreativeContextAgentTab,
+} from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 import { toast } from "sonner";
@@ -26,7 +29,9 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+  });
   useSetPageTitle(t("settings.title"));
   const { prefs, loading: prefsLoading, save: savePrefs } = useContentPrefs();
 

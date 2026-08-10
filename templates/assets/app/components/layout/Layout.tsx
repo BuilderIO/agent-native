@@ -165,7 +165,7 @@ export function Layout({ children }: LayoutProps) {
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}
         emptyStateText={t("chat.emptyState")}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
         suggestions={[
           t("chat.suggestionBlogHeroes"),
           t("chat.suggestionProductVideo"),

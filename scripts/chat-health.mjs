@@ -69,6 +69,11 @@ const A2A_FAIL_BUDGET = 0.1;
 const CONNECT_TIMEOUT_S = 20;
 // Thresholds set from a real outage, not intuition. Healthy analytics right now
 // reads 0 / 128ms / 1; at the point it went down it read 20 / 6000ms / 56.
+//
+// packages/core/src/server/db-pressure.ts reads the same three signals from
+// inside each deployed app, which is how the hourly fleet audit gets them
+// without any production credential. Its spec fails if these numbers drift
+// apart — change both, or neither.
 const MAX_IDLE_TXN_AGE_S = 60;
 const MAX_TRIVIAL_QUERY_MS = 1_000;
 const MAX_SAME_QUERY_CONCURRENCY = 10;

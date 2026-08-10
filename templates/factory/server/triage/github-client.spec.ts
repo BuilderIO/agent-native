@@ -111,6 +111,11 @@ describe("GitHub triage client", () => {
           },
           201,
         );
+      if (path.endsWith("/comments"))
+        return response(
+          { id: 10, html_url: "https://github.test/comment/10" },
+          201,
+        );
       if (path.endsWith("/merge"))
         return response({ sha: "merge-sha", merged: true, message: "Merged" });
       throw new Error(`unexpected ${path} ${init?.method ?? "GET"}`);
@@ -136,6 +141,12 @@ describe("GitHub triage client", () => {
     await expect(
       client.approvePullRequest(repository, 2),
     ).resolves.toMatchObject({ id: 9, state: "APPROVED" });
+    await expect(
+      client.createIssueComment(repository, 2, "@builderio-bot please fix"),
+    ).resolves.toEqual({
+      id: 10,
+      htmlUrl: "https://github.test/comment/10",
+    });
     await expect(client.mergePullRequest(repository, 2)).resolves.toEqual({
       sha: "merge-sha",
       merged: true,

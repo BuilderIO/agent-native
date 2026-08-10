@@ -64,4 +64,26 @@ describe("realDataFinalGuard dashboard edits", () => {
 
     expect(result).not.toBeNull();
   });
+
+  it("does not treat a skipped compose as a completed dashboard edit", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "refresh the existing dashboard panels",
+        draftText: "The dashboard is updated.",
+        toolResults: [
+          {
+            name: "compose-dashboard",
+            isError: false,
+            content: JSON.stringify({
+              saved: true,
+              changed: false,
+              skippedExistingIds: ["pageviews-over-time"],
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
 });

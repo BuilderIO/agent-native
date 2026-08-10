@@ -48,7 +48,10 @@ import {
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import type { ReviewComment } from "@agent-native/core/review";
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
+import {
+  normalizeDocumentTitle,
+  withBuilderUtmTrackingParams,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
@@ -4991,7 +4994,10 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!design?.title) return;
-    const nextTitle = `${design.title} — Design`;
+    const nextTitle = `${normalizeDocumentTitle(
+      design.title,
+      "Untitled design",
+    )} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;
     return () => {

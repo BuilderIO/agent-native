@@ -1492,7 +1492,6 @@ const frFR = {
     templatesSection: "Apps",
     gettingStarted: "Bien démarrer",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Qu'est-ce qu'Agent-Native ?",
     agentSurfaces: "Surfaces Agent",

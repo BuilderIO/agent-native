@@ -70,7 +70,7 @@ export default function AppsScreen() {
           className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row mt-[18px] p-[14px] active:opacity-75"
         >
           <View className="items-center bg-accent-green-dim rounded-xl h-[42px] w-[42px] justify-center">
-            <IconSettings color="#c7f36b" size={20} strokeWidth={1.8} />
+            <IconSettings color="#d4d4d8" size={20} strokeWidth={1.8} />
           </View>
           <View className="flex-1 ml-3">
             <Text className="text-text-light text-[15px] font-semibold">

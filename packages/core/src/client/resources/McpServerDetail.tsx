@@ -15,15 +15,19 @@ import {
  */
 import React, { useState } from "react";
 
-import { agentNativePath } from "../api-path.js";
 import { cn } from "../utils.js";
-import { type McpServer, type TestMcpUrlResult } from "./use-mcp-servers.js";
+import {
+  useMcpServersApi,
+  type McpServer,
+  type TestMcpUrlResult,
+} from "./use-mcp-servers.js";
 
 interface McpServerDetailProps {
   server: McpServer;
 }
 
 export function McpServerDetail({ server }: McpServerDetailProps) {
+  const mcpApi = useMcpServersApi();
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestMcpUrlResult | null>(null);
 
@@ -33,22 +37,11 @@ export function McpServerDetail({ server }: McpServerDetailProps) {
     setTesting(true);
     setTestResult(null);
     try {
-      // We don't have the real header values client-side (redacted). The
-      // test-existing endpoint uses the stored headers, but there's no
-      // convenient way to hit it from here without the server id + scope,
-      // which we do have — so wire that up.
-      const res = await fetch(
-        agentNativePath(
-          `/_agent-native/mcp/servers/${encodeURIComponent(server.id)}/test?scope=${server.scope}`,
-        ),
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-      const body = (await res.json().catch(() => ({}))) as TestMcpUrlResult;
-      setTestResult(body.ok ? body : { ok: false, error: body.error });
+      const result = await mcpApi.testExisting({
+        id: server.id,
+        scope: server.scope,
+      });
+      setTestResult(result.ok ? result : { ok: false, error: result.error });
     } catch (err: any) {
       setTestResult({ ok: false, error: err?.message ?? String(err) });
     } finally {

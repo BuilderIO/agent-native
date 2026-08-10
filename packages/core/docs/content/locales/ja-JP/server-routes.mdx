@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -189,6 +194,6 @@ export default createH3SSRHandler(
 ## 次は何ですか {#whats-next}
 
 - [**Actions**](/docs/actions): アプリの操作に望ましいサーフェス。適合しない場合にのみルートに頼ってください
-- [**プラグイン**](/docs/server-plugins): ルートが提供される前に実行される起動プラグイン
+- [**プラグイン**](/docs/server-plugins): 起動プラグインとその初期化の動作
 - [**ミドルウェア**](/docs/server-middleware): `/api/*` を含むすべてのルートを保護する認証ガード
 - [**セキュリティ**](/docs/security#access-guards): `accessFilter`/`assertAccess` と完全なデータ スコープ設定モデル

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  babysitFingerprint,
+  hasMergeConflict,
+  isBuilderBotLogin,
   reconcileBabysitState,
+  shouldBabysitBuilderBotPullRequest,
   type BabysitInput,
   type ReviewCommentObservation,
 } from "./pr-babysit.js";
@@ -170,8 +174,21 @@ describe("reconcileBabysitState", () => {
       ],
     });
 
-    expect(result.failingChecks.map((c) => c.name)).toEqual(["lint"]);
+    expect(result.failingChecks.map((c) => c.name)).toEqual([
+      "lint",
+      "scaffold",
+    ]);
     expect(result.pendingChecks.map((c) => c.name)).toEqual(["build", "test"]);
+    expect(result.isClean).toBe(false);
+  });
+
+  it("treats cancelled CI as needing work", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("scaffold", "cancelled")],
+    });
+
+    expect(result.failingChecks.map((c) => c.name)).toEqual(["scaffold"]);
     expect(result.isClean).toBe(false);
   });
 
@@ -225,5 +242,71 @@ describe("reconcileBabysitState", () => {
 
     expect(result.commentsTruncated).toBe(false);
     expect(result.isClean).toBe(true);
+  });
+});
+
+describe("builder bot babysit policy", () => {
+  const clean = reconcileBabysitState(baseInput);
+
+  it("recognizes Builder bot login variants and conflicts", () => {
+    expect(isBuilderBotLogin("builder-io-bot[bot]")).toBe(true);
+    expect(isBuilderBotLogin("human-reviewer")).toBe(false);
+    expect(
+      hasMergeConflict({ mergeable: false, mergeableState: "dirty" }),
+    ).toBe(true);
+    expect(
+      hasMergeConflict({ mergeable: null, mergeableState: "unknown" }),
+    ).toBe(false);
+  });
+
+  it("only requests work for a Builder bot PR with outstanding evidence", () => {
+    expect(
+      shouldBabysitBuilderBotPullRequest({
+        author: "builder-io-bot",
+        mergeable: true,
+        mergeableState: "clean",
+        snapshot: clean,
+      }),
+    ).toBe(false);
+    const failing = reconcileBabysitState({
+      ...baseInput,
+      checks: [check("ci", "failed")],
+    });
+    expect(
+      shouldBabysitBuilderBotPullRequest({
+        author: "builder-io-bot[bot]",
+        mergeable: true,
+        mergeableState: "clean",
+        snapshot: failing,
+      }),
+    ).toBe(true);
+    expect(
+      shouldBabysitBuilderBotPullRequest({
+        author: "human-reviewer",
+        mergeable: false,
+        mergeableState: "dirty",
+        snapshot: failing,
+      }),
+    ).toBe(false);
+  });
+
+  it("changes the durable fingerprint when review state changes", () => {
+    expect(
+      babysitFingerprint({
+        headSha: "sha-1",
+        mergeable: true,
+        mergeableState: "clean",
+        snapshot: clean,
+        reviewStates: ["commented"],
+      }),
+    ).not.toBe(
+      babysitFingerprint({
+        headSha: "sha-1",
+        mergeable: true,
+        mergeableState: "clean",
+        snapshot: clean,
+        reviewStates: ["changes_requested"],
+      }),
+    );
   });
 });

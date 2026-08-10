@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,7 +101,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -116,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 需要自訂後端、提供者註冊表 API 或批處理/單例內部元件？見最後的[Advanced: custom providers & internals](#advanced)。
@@ -358,5 +358,5 @@ interface TrackingEvent {
 ## 下一步是什麼
 
 - [**Actions**](/docs/actions) — 大多數跟蹤呼叫的發起位置
-- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` 在啟動時在 core-routes 外掛中執行
+- [**Server Plugins**](/docs/server-plugins) - `registerBuiltinProviders()` 在啟動時在 core-routes 外掛中執行
 - [**安全性 — 秘密管理**](/docs/security#secrets) — 管理用於跟蹤提供者的 API 金鑰

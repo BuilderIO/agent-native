@@ -4,6 +4,7 @@ import { hashEmail } from "./remote-store.js";
 import {
   buildMergedConfig,
   formatMcpConnectError,
+  McpConfigUnreadableError,
   mountMcpServersRoutes,
   startMcpConfigRefresh,
 } from "./routes.js";
@@ -146,6 +147,25 @@ describe("startMcpConfigRefresh", () => {
     }
   });
 
+  it("starts no timer where in-process sweeps are disabled", async () => {
+    // Billed per warm container, and the first tick always scans the whole
+    // settings table because it starts dirty.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    vi.useFakeTimers();
+    const manager = {
+      getConfig: () => ({ servers: {} }),
+      reconfigure: vi.fn(async () => {}),
+    };
+    try {
+      expect(startMcpConfigRefresh(manager as never)).toBeNull();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(mockedSettings.reads).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retries a failed refresh on the next interval", async () => {
     vi.useFakeTimers();
     const reconfigure = vi
@@ -228,6 +248,14 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
     };
 
     await expect(buildMergedConfig()).resolves.toBeNull();
+  });
+
+  it("reports an unreadable settings table instead of an empty config", async () => {
+    mockedSettings.readError = new Error("connect ECONNREFUSED");
+
+    // `null` means "zero MCP servers configured". An unreachable settings table
+    // must not be able to produce that answer.
+    await expect(buildMergedConfig()).rejects.toThrow(McpConfigUnreadableError);
   });
 });
 

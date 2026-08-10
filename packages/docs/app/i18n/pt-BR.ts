@@ -1487,7 +1487,6 @@ const ptBR = {
     templatesSection: "Apps",
     gettingStarted: "Primeiros passos",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "O que é Agent-Native?",
     agentSurfaces: "Superfícies do Agent",

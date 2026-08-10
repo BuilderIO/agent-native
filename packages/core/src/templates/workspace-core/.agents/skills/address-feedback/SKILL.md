@@ -101,15 +101,28 @@ The default posture is judgment plus action: fix clear, verified bugs you agree 
    - Do not switch branches, stash, reset, force-push, or open a PR unless the user asks.
    - Add or update focused tests when the bug risk warrants it.
 
-7. Treat UX feedback with restraint.
+7. Treat UX feedback with product judgment.
 
-   Do not solve UX problems by adding more visible controls, helper text, banners, top-level nav, or always-open panels by default. Prefer cleaner interaction models:
+   Do not add visible UI as the default response. Address the underlying user
+   problem first, then choose the smallest change that makes the current state,
+   decision, action, or recovery path clearer.
 
-   - Make the existing primary action more discoverable.
-   - Remove competing elements so the right action stands out.
-   - Move secondary actions into `DropdownMenu`, `Popover`, `Sheet`, `Collapsible`, or tabs.
-   - Improve empty states around one clear action.
-   - Use progressive disclosure for optional or advanced controls.
+   - Make the current intent, state, and meaningful next step easier to find.
+   - Remove competing or redundant elements before adding controls, helper
+     text, banners, top-level navigation, or always-open panels.
+   - Put secondary or advanced actions in a `DropdownMenu`, `Popover`, `Sheet`,
+     `Collapsible`, tabs, or another contextual surface. Keep essential meaning,
+     labels, focus, hit targets, and recovery in the default path.
+   - Improve empty, loading, and error states around the user's actual need.
+
+   When the user has corrected the same visual preference more than once, treat
+   it as an acceptance criterion for the surface, not as a one-off copy edit.
+   State the underlying invariant before coding, such as “the default state
+   makes one next decision obvious and defers secondary detail,” then check the
+   rendered result against it. A screenshot showing unrelated forms, repeated
+   explanatory copy, documentation links, or competing controls in the default
+   state fails the review. Subtract that competition instead of explaining the
+   UI with more copy.
 
    When proposing a UX change, write it as: what to change, why it helps, and the tradeoff. Keep each proposal short.
 

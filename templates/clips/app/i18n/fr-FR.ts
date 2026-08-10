@@ -694,12 +694,12 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Builder.io est le chemin de stockage principal pour les téléversements Clips. S3 est disponible si vous devez utiliser votre propre bucket.",
     checkingBuilder: "Vérification de Builder.io",
     builderConnected: "Builder.io connecté",
-    connectBuilder: "Utiliser Builder.io (gratuit)",
+    connectBuilder: "Utiliser Builder.io",
     builderConnectedFor: "Utilisation de Builder.io pour {{orgName}}.",
     builderConnectedGeneric:
       "Les nouveaux clips utilisent le fournisseur Builder.io connecté.",
     builderIncludes:
-      "Inclut le stockage objet, les téléversements et la transcription gérée pour les nouveaux clips.",
+      "Le niveau gratuit de Builder.io inclut le stockage objet, les téléversements et la transcription gérée pour les nouveaux clips.",
     s3Title: "Stockage compatible S3",
     secondary: "Secondaire",
     active: "Actif",
@@ -726,8 +726,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Le nom du bucket doit contenir 3–63 lettres minuscules, chiffres ou tirets",
     s3RegionInvalid: 'Doit être une région valide (ex. us-east-1) ou "auto"',
     apiSetup: "Configuration IA",
-    apiSetupDescription:
-      "Connectez l’IA avec les crédits gratuits Builder.io ou vos propres clés LLM.",
+    apiSetupDescription: "Choisissez comment Clips se connecte à l’IA.",
     builderEasySetup: "Crédits gratuits Builder.io",
     builderAiAvailable:
       "Les crédits IA inclus et la transcription gérée sont disponibles pour Clips.",
@@ -735,8 +734,13 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Utilisez d’abord Builder.io pour les crédits IA inclus, le stockage objet, les téléversements et la transcription gérée.",
     providerKeyTitle: "Utiliser votre propre clé fournisseur",
     providerKeyDescription:
-      "Ajoutez des clés Anthropic, OpenAI, Gemini, Groq ou OpenRouter pour une utilisation facturée par fournisseur.",
+      "Choisissez Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere ou Ollama pour une utilisation facturée par fournisseur.",
     providerKeysSet: "{{count}} définies",
+    providerActionTitle: "Fournisseur d’IA",
+    providerActionDescription:
+      "Builder.io inclut un niveau gratuit, ou utilisez vos propres clés.",
+    providerManage: "Gérer",
+    providerCustomKeys: "Clés personnalisées",
     checkingProviderKeys: "Vérification des clés fournisseur…",
     keySet: "Définie",
     keyCleared: "Identifiants de stockage effacés",
@@ -1175,7 +1179,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Aucune réponse de Builder après 5 minutes. Vérifiez la fenêtre contextuelle et réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    connectBuilder: "Utiliser Builder.io (gratuit)",
+    connectBuilder: "Utiliser Builder.io",
     free: "Gratuit",
     configureS3: "configurer un stockage compatible S3",
     whyPrompt: "Pourquoi vois-je ceci ?",

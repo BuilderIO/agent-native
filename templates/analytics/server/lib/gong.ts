@@ -1,19 +1,14 @@
 // Gong sales call intelligence API helper
 // Fetches calls, transcripts, and users
 
-import { resolveCredential } from "./credentials";
-import {
-  requireRequestCredentialContext,
-  scopedCredentialCacheKey,
-} from "./credentials-context";
+import { scopedCredentialCacheKey } from "./credentials-context";
 import {
   DEFAULT_GONG_CALL_LIMIT,
   limitGongCalls,
   normalizeGongCallLimit,
 } from "./gong-limits";
-import { resolveAnalyticsGongCredentials } from "./provider-credentials";
+import { executeProviderApiRequest } from "./provider-api";
 
-const DEFAULT_API_BASE = "https://api.gong.io/v2";
 const MAX_GONG_SEARCH_PAGES = 50;
 const MAX_GONG_CALL_LIST_PAGES = 50;
 const MAX_GONG_EXHAUSTIVE_RECORDS = 500;
@@ -24,38 +19,101 @@ const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
-async function getAuthHeader(): Promise<string> {
-  const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
-  const credentials = await resolveAnalyticsGongCredentials({ ctx });
-  if (!credentials)
-    throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET not configured");
-  return `Basic ${Buffer.from(
-    `${credentials.accessKey}:${credentials.accessSecret}`,
-  ).toString("base64")}`;
-}
-
-async function getApiBase(): Promise<string> {
-  const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
-  const configured = await resolveCredential("GONG_API_BASE", ctx);
-  return (configured || DEFAULT_API_BASE).replace(/\/+$/, "");
-}
-
 export interface GongRequestOptions {
   signal?: AbortSignal;
   deadlineAt?: number;
 }
 
-function requestSignal(options?: GongRequestOptions): AbortSignal {
-  const remainingMs = options?.deadlineAt
+function requestTimeoutMs(options?: GongRequestOptions): number {
+  return options?.deadlineAt
     ? Math.max(
         1,
         Math.min(GONG_API_REQUEST_TIMEOUT_MS, options.deadlineAt - Date.now()),
       )
     : GONG_API_REQUEST_TIMEOUT_MS;
-  const timeoutSignal = AbortSignal.timeout(remainingMs);
-  return options?.signal
-    ? AbortSignal.any([options.signal, timeoutSignal])
-    : timeoutSignal;
+}
+
+interface GongProviderResponse {
+  response: {
+    ok: boolean;
+    status: number;
+    headers?: Record<string, string>;
+    json?: unknown;
+    text?: string;
+  };
+}
+
+function splitGongPath(path: string): {
+  path: string;
+  query?: Record<string, string>;
+} {
+  const separator = path.indexOf("?");
+  if (separator < 0) return { path };
+  const query = Object.fromEntries(
+    new URLSearchParams(path.slice(separator + 1)).entries(),
+  );
+  return {
+    path: path.slice(0, separator),
+    ...(Object.keys(query).length > 0 ? { query } : {}),
+  };
+}
+
+function responseHeader(
+  headers: Record<string, string> | undefined,
+  name: string,
+): string | undefined {
+  const lowerName = name.toLowerCase();
+  return Object.entries(headers ?? {}).find(
+    ([key]) => key.toLowerCase() === lowerName,
+  )?.[1];
+}
+
+function responseDetail(response: GongProviderResponse["response"]): string {
+  if (typeof response.text === "string" && response.text.trim()) {
+    return response.text.replace(/\s+/g, " ").trim().slice(0, 2_000);
+  }
+  if (response.json !== undefined) {
+    return JSON.stringify(response.json).slice(0, 2_000);
+  }
+  return "";
+}
+
+function gongApiError(response: GongProviderResponse["response"]): Error {
+  const requestId =
+    responseHeader(response.headers, "x-request-id") ??
+    responseHeader(response.headers, "request-id");
+  const retryAfter = responseHeader(response.headers, "retry-after");
+  const metadata = [
+    requestId ? `requestId ${requestId}` : "",
+    response.status === 429 && retryAfter ? `retry-after ${retryAfter}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const detail = responseDetail(response);
+  return new Error(
+    `Gong API error ${response.status}${metadata ? ` (${metadata})` : ""}${detail ? `: ${detail}` : ""}`,
+  );
+}
+
+async function executeGongRequest<T>(options: {
+  method: "GET" | "POST";
+  path: string;
+  body?: unknown;
+  requestOptions?: GongRequestOptions;
+}): Promise<T> {
+  const request = splitGongPath(options.path);
+  const result = (await executeProviderApiRequest({
+    provider: "gong",
+    method: options.method,
+    path: request.path,
+    ...(request.query ? { query: request.query } : {}),
+    ...(options.body !== undefined ? { body: options.body } : {}),
+    timeoutMs: requestTimeoutMs(options.requestOptions),
+    signal: options.requestOptions?.signal,
+  })) as GongProviderResponse;
+
+  if (!result.response.ok) throw gongApiError(result.response);
+  return result.response.json as T;
 }
 
 async function apiGet<T>(
@@ -69,20 +127,11 @@ async function apiGet<T>(
     return cached.data as T;
   }
 
-  const res = await fetch(`${await getApiBase()}${path}`, {
-    headers: {
-      Authorization: await getAuthHeader(),
-      "Content-Type": "application/json",
-    },
-    signal: requestSignal(options),
+  const data = await executeGongRequest<T>({
+    method: "GET",
+    path,
+    requestOptions: options,
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gong API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
 
   if (cache.size >= MAX_CACHE) {
     const oldest = cache.keys().next().value;
@@ -108,22 +157,12 @@ async function apiPost<T>(
     return cached.data as T;
   }
 
-  const res = await fetch(`${await getApiBase()}${path}`, {
+  const data = await executeGongRequest<T>({
     method: "POST",
-    headers: {
-      Authorization: await getAuthHeader(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    signal: requestSignal(options),
+    path,
+    body,
+    requestOptions: options,
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gong API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
 
   if (cache.size >= MAX_CACHE) {
     const oldest = cache.keys().next().value;
@@ -298,29 +337,9 @@ export async function getCall(
   return data.calls?.[0] ?? null;
 }
 
-export async function getCallDetail(
-  callId: string,
-  options?: GongRequestOptions,
-): Promise<GongCallDetail | null> {
-  const body = {
-    filter: { callIds: [callId] },
-    contentSelector: {
-      exposedFields: {
-        parties: true,
-        content: { brief: true, keyPoints: true, outline: true },
-      },
-    },
-  };
-  const data = await apiPost<{ calls?: any[] }>(
-    "/calls/extensive",
-    body,
-    `detail:${callId}`,
-    options,
-  );
-  const call = data.calls?.[0];
-  if (!call) return null;
+function normalizeCallDetail(call: any, fallbackId: string): GongCallDetail {
   return {
-    id: call.metaData?.id ?? callId,
+    id: call.metaData?.id ?? fallbackId,
     title: call.metaData?.title || "Untitled",
     url: call.metaData?.url || "",
     started: call.metaData?.started || "",
@@ -338,6 +357,48 @@ export async function getCallDetail(
       (outline: any) => outline.section || outline.text || String(outline),
     ),
   };
+}
+
+export async function getCallDetails(
+  callIds: string[],
+  options?: GongRequestOptions,
+): Promise<GongCallDetail[]> {
+  const ids = Array.from(
+    new Set(
+      callIds
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (!ids.length) return [];
+
+  const body = {
+    filter: { callIds: ids },
+    contentSelector: {
+      exposedFields: {
+        parties: true,
+        content: { brief: true, keyPoints: true, outline: true },
+      },
+    },
+  };
+  const data = await apiPost<{ calls?: any[] }>(
+    "/calls/extensive",
+    body,
+    `details:${ids.join(",")}`,
+    options,
+  );
+  return (data.calls ?? []).map((call, index) =>
+    normalizeCallDetail(call, ids[index] ?? ""),
+  );
+}
+
+export async function getCallDetail(
+  callId: string,
+  options?: GongRequestOptions,
+): Promise<GongCallDetail | null> {
+  const details = await getCallDetails([callId], options);
+  const detail = details[0];
+  return detail === undefined ? null : detail;
 }
 
 export async function getCallTranscripts(

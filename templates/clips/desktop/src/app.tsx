@@ -92,6 +92,7 @@ import {
   exportBrowserRecordingBackup,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
+  pickFullscreenRecordingDisplay,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
@@ -2899,7 +2900,10 @@ export function App() {
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
-    if (recorder && !options?.ignoreActiveRecorder) {
+    if (
+      (recorder || recordingFlowGateRef.current) &&
+      !options?.ignoreActiveRecorder
+    ) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — recorder already active",
       );
@@ -2941,20 +2945,53 @@ export function App() {
     });
 
     if (mode !== "camera" && nativeFullscreenRecordingActive) {
+      // Latch re-entry protection before these awaits, not after — both the
+      // permission prompt and the monitor picker below can take a while (the
+      // picker waits on the user), and without this a double-click while
+      // either is pending passes the top-of-function guard and starts a
+      // second, competing recording-start flow. The real flow-active latch
+      // further below hasn't run yet at this point, so reset this on every
+      // early return in this block.
+      recordingFlowGateRef.current = true;
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
         );
         if (!granted) {
+          recordingFlowGateRef.current = false;
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
+        recordingFlowGateRef.current = false;
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
+      }
+      // A restart hands off the already-live display stream from the take
+      // it's replacing (see `discardForRestart`/`preAcquiredDisplayStream`
+      // below) — it must keep recording the same screen, not re-prompt.
+      if (source === "full-screen" && !options?.resumeCapture) {
+        try {
+          // Must resolve before `recordingFlowActive` flips the toolbar on
+          // below — the toolbar reads the pick to place itself on the
+          // chosen screen the first time it's shown.
+          await pickFullscreenRecordingDisplay();
+        } catch (err) {
+          recordingFlowGateRef.current = false;
+          if (err instanceof Error && err.name === "AbortError") {
+            // User cancelled the screen picker (Escape) — abort silently,
+            // same as dismissing the native macOS screen picker.
+            return null;
+          }
+          // A real failure (picker window construction, persisting the
+          // pick, etc.) — surface it instead of silently aborting like a
+          // cancel, or the user has no idea why nothing happened.
+          setRecError(err instanceof Error ? err.message : String(err));
+          return null;
+        }
       }
     }
 
@@ -7652,7 +7689,7 @@ function Setup({
                 className="secondary"
                 onClick={connectBuilder}
               >
-                Use Builder.io (free)
+                Use Builder.io
               </button>
             ) : null}
           </div>

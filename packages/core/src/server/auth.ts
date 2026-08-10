@@ -128,9 +128,11 @@ import {
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
+  createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
   getBetterAuth,
   getBetterAuthSync,
+  isDeployPreview,
 } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
@@ -172,6 +174,7 @@ import {
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getOnboardingHtml,
@@ -473,6 +476,14 @@ async function getLegacyCookieSession(
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
     const email = await getSessionEmail(value);
     if (email) {
+      try {
+        await ensureCanonicalUserForLegacySession(email);
+      } catch (error) {
+        console.warn(
+          "[auth] legacy session canonical-user backfill failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
       return { email, token: value };
     }
@@ -1848,6 +1859,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
+    // through the durable background function and authenticate with the same
+    // short-lived HMAC token as the other internal processors. They do not
+    // carry a browser session, so let the route perform its own token check.
+    if (p === "/_agent-native/jobs/_process-sweep") {
+      return;
+    }
+
     // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
     // a queued sub-agent in a fresh function invocation; authenticity is
     // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
@@ -2244,6 +2263,124 @@ async function createAutoDevAccountForSession(
 
   const result = await creationPromise;
   return result?.password ?? null;
+}
+
+function isHostedPreviewRequest(event: H3Event): boolean {
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return (
+    host.endsWith(".agent-native.com") ||
+    isBuilderPreviewHost(host) ||
+    host.includes("deploy-preview")
+  );
+}
+
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewHost(host: string): boolean {
+  return (
+    host.endsWith(".builderio.xyz") ||
+    host.endsWith(".builderio.dev") ||
+    host.endsWith(".builder.codes") ||
+    host.endsWith(".builder.my")
+  );
+}
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function isBuilderPreviewLocalDevRequest(event: H3Event): boolean {
+  if (!isBuilderPreviewLocalDevEnabled()) return false;
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return isBuilderPreviewHost(host);
+}
+
+export function isLocalDevAuthAllowed(event: H3Event): boolean {
+  const deployPreview =
+    typeof isDeployPreview === "function" && isDeployPreview();
+  return (
+    isDevEnvironment() &&
+    !deployPreview &&
+    !isAuthDisabled() &&
+    process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
+    ((!isHostedPreviewRequest(event) && isLoopbackRequest(event)) ||
+      isBuilderPreviewLocalDevRequest(event))
+  );
+}
+
+async function createOrReuseAutoDevSession(
+  auth: NonNullable<Awaited<ReturnType<typeof getBetterAuth>>>,
+  config?: BetterAuthConfig,
+): Promise<{ email: string; token: string } | null> {
+  let session = await createBetterAuthSessionForEmail(
+    AUTO_DEV_ACCOUNT_EMAIL,
+    config,
+  );
+  if (!session) {
+    session = await createBetterAuthSessionForEmail(
+      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      config,
+    );
+  }
+  if (session) return { email: session.email, token: session.token };
+
+  const db = getDbExec();
+  const { rows: realUsers } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  if (realUsers.length > 0) return null;
+
+  const devPassword = await createAutoDevAccountForSession(auth, db);
+  if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
+
+  session = await createBetterAuthSessionForEmail(
+    AUTO_DEV_ACCOUNT_EMAIL,
+    config,
+  );
+  if (!session) {
+    session = await createBetterAuthSessionForEmail(
+      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      config,
+    );
+  }
+  return session ? { email: session.email, token: session.token } : null;
+}
+
+function createLocalDevAuthHandler(config?: BetterAuthConfig) {
+  return defineEventHandler(async (event) => {
+    if (getMethod(event) !== "POST") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    // This exact route is also allowed through createAuthGuardFn's public auth
+    // route branch. The state-changing handler still owns the full local gate.
+    if (!isLocalDevAuthAllowed(event)) {
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }
+
+    try {
+      const auth = await getBetterAuth(config);
+      const session = await createOrReuseAutoDevSession(auth, config);
+      if (!session) {
+        setResponseStatus(event, 404);
+        return { error: "Local development sign-in is unavailable" };
+      }
+      setFrameworkSessionCookie(event, session.token);
+      await addSession(session.token, session.email);
+      return authLoginResponse(event, session.token, session.email);
+    } catch {
+      // The local convenience must fail closed without exposing adapter or
+      // generated credential details to the browser or terminal.
+      setResponseStatus(event, 503);
+      return { error: "Local development sign-in is unavailable" };
+    }
+  });
 }
 
 /**
@@ -3196,6 +3333,11 @@ async function mountBetterAuthRoutes(
       ? await getAuthLoginMode()
       : ("password" as const);
 
+  app.use(
+    "/_agent-native/auth/local-dev",
+    createLocalDevAuthHandler(betterAuthConfig),
+  );
+
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
   app.use(
     "/_agent-native/auth/ba",
@@ -3795,6 +3937,11 @@ async function mountBetterAuthRoutes(
 // ---------------------------------------------------------------------------
 
 function mountAuthFallbackRoutes(app: H3App): void {
+  // Keep the local-dev action available when Better Auth initialization failed
+  // during boot. The handler retries Better Auth lazily and preserves the same
+  // production, preview, and loopback gates as the normal route set.
+  app.use("/_agent-native/auth/local-dev", createLocalDevAuthHandler());
+
   app.use(
     "/_agent-native/auth/login",
     defineEventHandler(async (event) => {

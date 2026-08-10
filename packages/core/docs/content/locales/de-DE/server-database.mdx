@@ -5,7 +5,7 @@ description: "Verbinden Sie eine portable SQL-Datenbank mit Ihrer agentennativen
 
 # Datenbank
 
-Jede agentennative App speichert ihren Zustand in SQL. UI und Agent lesen und schreiben dieselben Tabellen über dieselben Actions, mit demselben [Drizzle ORM](https://orm.drizzle.team)-Client. Wenn eine Seite Daten ändert, sieht die andere das über die Polling-Schicht.
+Jede agentennative App speichert ihren Zustand in SQL. UI und Agent lesen und schreiben dieselben Tabellen über dieselben Actions, mit demselben [Drizzle ORM](https://orm.drizzle.team)-Client. Die Live-Synchronisierung verwendet SSE mit Polling als Fallback, sodass Änderungen ohne manuelles Neuladen in der anderen Oberfläche erscheinen.
 
 <Diagram id="doc-block-9mtx2f" title="Wie Daten zur Datenbank fließen" summary="UI und Agent erreichen die Datenbank beide über dieselbe Actions-Schicht. Beide Aufrufer verwenden denselben getDb()-Client und dieselben SQL-Tabellen. Es gibt kein separates Backend für jede Seite.">
 
@@ -110,7 +110,7 @@ Eine App, die die Datenbank verwendet, benötigt drei Dateien:
 
 - `server/db/schema.ts`: Tabellendefinitionen
 - `server/db/index.ts`: das typisierte DB-Client-Singleton
-- `server/plugins/db.ts`: Migrationen, die beim Start ausgeführt werden
+- `server/plugins/db.ts`: app-eigene Migrationen für den lokalen Start
 
 ### 1. Schema definieren {#schema}
 
@@ -208,7 +208,10 @@ Importieren Sie `getDb` in Actions und Routen von diesem vorlagenlokalen Pfad. I
 
 ### 3. Migrationen schreiben {#migrations}
 
-Schemaänderungen werden beim Start über ein Nitro-Plugin in `server/plugins/db.ts` angewendet. Verwenden Sie `runMigrations` aus `@agent-native/core/db`:
+Für die lokale Entwicklung können Schemaänderungen über ein Nitro-Plugin in
+`server/plugins/db.ts` angewendet werden. In Produktion oder Serverless-
+Deployments führen Sie Migrationen in einem Release- oder Deploy-Schritt statt
+bei der ersten Anfrage aus. Verwenden Sie `runMigrations` aus `@agent-native/core/db`:
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +245,15 @@ Schemaänderungen werden beim Start über ein Nitro-Plugin in `server/plugins/db
   ]}
 />
 
-`runMigrations` führt jeden Eintrag einmal der Reihe nach aus und protokolliert dann die Version, sodass sie bei zukünftigen Neustarts übersprungen wird. Einträge sind idempotent. Das Plugin kann bei jedem Start gefahrlos aufgerufen werden.
+`runMigrations` führt jeden ausstehenden Eintrag einmal der Reihe nach aus,
+protokolliert ihn als angewendet und überspringt ihn bei späteren Läufen. Geben
+Sie neuen Einträgen einen stabilen `name`; benannte Migrationen werden unabhängig
+von ihrer Versionsnummer verfolgt.
+
+<Callout tone="warning">
+  Das Chat-Template stellt `pnpm migrate:production` bereit, um Migrationen als
+  Teil des Release-Schritts auszuführen.
+</Callout>
 
 <Callout tone="risk">
   Führen Sie `drizzle-kit push` niemals gegen eine Produktionsdatenbank aus.

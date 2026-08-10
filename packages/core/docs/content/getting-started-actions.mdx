@@ -32,27 +32,35 @@ export default defineAction({
     text: z.string().default("The quick brown fox jumps over the lazy dog."),
   }),
   outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
   chatUI: {
     renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
     title: "Text stats",
   },
   readOnly: true,
   run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
     const points = [
-      { label: "Characters", value: text.length },
-      { label: "Words", value: text.split(/\s+/).filter(Boolean).length },
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
       {
         label: "Sentences",
-        value: text.split(/[.!?]+/).filter(Boolean).length,
+        value: summary.sentences,
       },
       {
         label: "Paragraphs",
-        value: text.split(/\n\n+/).filter(Boolean).length,
+        value: summary.paragraphs,
       },
     ];
 
     return createDataChartWidgetResult({
       title: "Text statistics",
+      summary,
       chartSeries: {
         type: "bar",
         xKey: "label",
@@ -64,7 +72,7 @@ export default defineAction({
 });
 ```
 
-Run it from the terminal:
+Run this from the app directory:
 
 ```bash
 pnpm action analyze-text --text "Hello world. How are you today?"
@@ -74,11 +82,12 @@ Or ask the agent in chat:
 
 > Run the analyze-text action on "Hello world. How are you today?"
 
-The built-in `data-chart` renderer turns the structured result into a chart in
-the transcript. There is no renderer file or `app/root.tsx` import to add. For
-custom native components, see [Native Chat UI](/docs/native-chat-ui).
+When the agent runs this action in chat, the built-in `data-chart` renderer
+turns the structured result into a chart in the transcript. There is no renderer
+file or `app/root.tsx` import to add. For custom native components, see
+[Native Chat UI](/docs/native-chat-ui).
 
 ## Continue
 
-Continue with [Persist Data in SQL](/docs/getting-started-database) to save
-analysis results for later.
+Continue with [Add a Page](/docs/getting-started-pages) to use the same action
+outside the transcript.

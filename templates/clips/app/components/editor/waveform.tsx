@@ -185,7 +185,8 @@ export function Waveform({
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const scaleX = canvas.width / totalWidth;
+    ctx.setTransform(scaleX, 0, 0, dpr, 0, 0);
 
     const hasPeaks = Boolean(
       peaks?.bucketCount &&

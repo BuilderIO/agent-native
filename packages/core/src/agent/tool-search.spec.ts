@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  mcpToolsToActionEntries,
+  type McpClientManager,
+  type McpTool,
+} from "../mcp-client/index.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
@@ -105,6 +110,69 @@ describe("tool-search", () => {
           name: "delete",
           callable: false,
           planAvailability: "act-only",
+          inputSchema: expect.any(Object),
+        }),
+      ]),
+    );
+  });
+
+  it("can restrict results to read-only or conditionally read-only tools", () => {
+    const mcpTool = {
+      source: "zapier",
+      name: "mcp__zapier__list_records",
+      originalName: "list_records",
+      description: "List provider records through Zapier",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
+      raw: {},
+    } satisfies McpTool;
+    const mcpEntries = mcpToolsToActionEntries({
+      getTools: () => [mcpTool],
+    } as unknown as McpClientManager);
+
+    expect(mcpEntries[mcpTool.name].readOnly).toBe(true);
+    expect(typeof mcpEntries[mcpTool.name].planMode?.effect).toBe("function");
+
+    const result = searchToolRegistry(
+      {
+        inspect: action("Inspect provider records"),
+        conditional: {
+          ...action("Query or persist provider records"),
+          planMode: {
+            effect: (args: any): "read" | "write" =>
+              args.persist ? "write" : "read",
+          },
+        },
+        write: {
+          ...action("Write provider records"),
+          readOnly: false,
+        },
+        actOnly: {
+          ...action("Inspect records after approval"),
+          allowInPlanMode: false,
+        },
+        ...mcpEntries,
+      },
+      { query: "provider records", includeSchemas: true, readOnlyOnly: true },
+    );
+
+    expect(result.totalTools).toBe(3);
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "inspect",
+          planAvailability: "read",
+          inputSchema: expect.any(Object),
+        }),
+        expect.objectContaining({
+          name: "conditional",
+          planAvailability: "conditional",
+          inputSchema: expect.any(Object),
+        }),
+        expect.objectContaining({
+          name: "mcp__zapier__list_records",
+          kind: "mcp",
+          planAvailability: "conditional",
           inputSchema: expect.any(Object),
         }),
       ]),

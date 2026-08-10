@@ -105,7 +105,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-Importe `getDb` desde esta ruta local de plantilla (`../../server/db/index.js` en rutas, `../server/db/index.js` en actions) en lugar de hacerlo directamente desde `@agent-native/core`. La exportación principal devuelve una instancia genérica sin tipo; El `getDb()` de la plantilla lleva sus tipos de esquema. Consulte [Server](/docs/server#request-context) para saber cómo lo importan actions y las rutas personalizadas.
+Importe `getDb` desde esta ruta local de plantilla (`../../server/db/index.js` en rutas, `../server/db/index.js` en actions) en lugar de hacerlo directamente desde `@agent-native/core`. La exportación principal devuelve una instancia genérica sin tipo; El `getDb()` de la plantilla lleva sus tipos de esquema. Consulte [Server](/docs/server-routes#request-context) para saber cómo lo importan actions y las rutas personalizadas.
 
 ## Esquemas y consultas independientes del dialecto {#schema}
 

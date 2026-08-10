@@ -17,7 +17,12 @@ import {
 } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
-import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import {
+  IconMaximize,
+  IconX,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
 import {
   useState,
   useCallback,
@@ -135,6 +140,25 @@ import {
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
+
+function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg backdrop-blur"
+          onClick={props.onExit}
+          aria-label={props.label}
+        >
+          <IconX className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{props.label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
@@ -4184,10 +4208,23 @@ export default function SlideEditor({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
-            <div className="h-full bg-background">
+            <div className="relative h-full bg-background">
+              {!readOnly && (
+                <ExcalidrawExitButton
+                  // JSON.stringify drops `undefined` properties before the patch
+                  // reaches the network request, so the server's
+                  // `fields.excalidrawData !== undefined` merge check never sees
+                  // the clear — the canvas would reappear after reload. "" is a
+                  // serializable value that survives the round trip and is
+                  // already treated as "no data" everywhere excalidrawData is read.
+                  onExit={() => onUpdateSlide({ excalidrawData: "" })}
+                  label={t("raw.exitExcalidrawCanvas")}
+                />
+              )}
               <ExcalidrawSlide
                 initialData={slide.excalidrawData}
                 onChange={(data) => onUpdateSlide({ excalidrawData: data })}
+                readOnly={readOnly}
               />
             </div>
           ) : (
@@ -4409,6 +4446,7 @@ export default function SlideEditor({
 
       <DrawOverlay
         visible={!!drawMode}
+        scopeKey={slideId || slide.id}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
           const summary = annotations

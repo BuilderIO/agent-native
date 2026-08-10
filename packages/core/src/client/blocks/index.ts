@@ -196,6 +196,12 @@ export {
   WireframeEditor,
 } from "./library/wireframe.js";
 export {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "./library/sanitize-html.js";
+export {
   wireframeSchema,
   wireframeMdx,
   createStableWireframeNodeId,

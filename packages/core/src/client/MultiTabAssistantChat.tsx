@@ -2632,6 +2632,7 @@ export function MultiTabAssistantChat({
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)
                   }
+                  isThreadStateLoading={isLoading}
                   onMessageCountChange={(count) =>
                     setMessageCounts((prev) =>
                       prev[tabId] === count

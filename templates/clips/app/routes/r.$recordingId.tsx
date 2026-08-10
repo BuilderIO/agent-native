@@ -13,6 +13,10 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
+import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
@@ -747,10 +751,18 @@ export default function RecordingPage() {
 
   useEffect(() => {
     if (!recording) return;
-    document.title = isDefaultTitle(recording.title)
-      ? t("recordingPage.pageTitle")
-      : `${recording.title.trim()} · Clips`;
-  }, [recording?.title]);
+    if (
+      isDefaultTitle(recording.title) ||
+      !isHumanReadableDocumentTitle(recording.title)
+    ) {
+      document.title = t("recordingPage.pageTitle");
+      return;
+    }
+    document.title = `${normalizeDocumentTitle(
+      recording.title,
+      t("recordingPage.pageTitle"),
+    )} · Clips`;
+  }, [recording?.title, t]);
 
   // Self-heal stuck transcripts. Older recordings (before finalize-recording
   // learned to auto-trigger transcription) can sit in `pending` forever with no
@@ -1473,6 +1485,7 @@ export default function RecordingPage() {
                     >
                       <span>{t(item.labelKey)}</span>
                       {item.tooltipKey ? (
+                        // guard:allow-large-help-icon - menu item tooltip icon
                         <IconHelpCircle
                           aria-hidden="true"
                           className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
