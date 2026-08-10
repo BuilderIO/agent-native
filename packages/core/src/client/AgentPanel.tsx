@@ -1417,7 +1417,13 @@ function AgentPanelInner({
               </DropdownMenuItem>
             )}
             {mode === "chat" && toggleHistory && (
-              <DropdownMenuItem onSelect={toggleHistory}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Let the menu finish restoring focus before mounting the
+                  // history popover; otherwise Radix dismisses the new overlay.
+                  setTimeout(() => toggleHistory(), 0);
+                }}
+              >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
                   ? t("agentPanel.hideChats")
@@ -2251,7 +2257,7 @@ const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_DRAWER_Z_INDEX = 80;
 const SIDEBAR_DRAWER_VIEW_TRANSITION_NAME = "agent-native-sidebar-drawer";
 /** Shared max width of the centered fullscreen chat column and composer. */
-const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
+const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;
 
 export function getActiveTabScrollDelta(
   containerRect: Pick<DOMRect, "left" | "right">,
@@ -3527,7 +3533,6 @@ export function AgentSidebar({
         className={cn(
           "agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased",
           chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,
-          mobileAnimationEnabled && "shadow-2xl",
         )}
         data-agent-sidebar-animation={
           wideDrawerEnabled
@@ -3591,7 +3596,7 @@ export function AgentSidebar({
   ) : null;
 
   const drawerPlaceholder =
-    wideDrawerEnabled && !presentationMode && shouldRenderPanel ? (
+    wideDrawerEnabled && !presentationMode && panelOpen ? (
       <div
         aria-hidden="true"
         className="agent-sidebar-drawer-placeholder shrink-0"

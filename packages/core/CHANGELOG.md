@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.149.0
+
+### Minor Changes
+
+- c41fd16: Support Claude Code subscriptions and explicit native model selections in Agent-Native Code runs.
+
+### Patch Changes
+
+- c41fd16: Clarify that cross-app mutating work must use natural-language delegation instead of direct read-only A2A actions.
+- c41fd16: Improve auth validation and error messages, and repair legacy Better Auth user columns during release migrations.
+- c41fd16: Add an optional settings navigation header slot so desktop surfaces can keep window controls clear of the settings search.
+- c41fd16: Keep completed background runs replayable when a quiet event stream outlives the browser connection.
+- c41fd16: Fix chat to carry the connected Builder credential pair through engine resolution and preflight.
+- c41fd16: Make the interactive Chat create flow scaffold a workspace so additional apps can be added immediately.
+- c41fd16: Show a completed chat turn's work duration once instead of repeating it for every folded work segment.
+- c41fd16: Fix generated apps failing pnpm installs when Tesseract's postinstall script is blocked.
+- c41fd16: Fix the 75% chat sidebar close state so dismissing it does not leave an empty layout rail.
+- c41fd16: Make the Netlify keep-warm scheduled function opt-in with `AGENT_NATIVE_ENABLE_KEEP_WARM=1`; the existing disable flags remain available as compatibility kill switches.
+- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
+- c41fd16: Keep approved chat actions visibly resolved when the approval card remounts during continuation.
+- c41fd16: Keep the All chats history popover open when launched from the agent panel menu.
+- c41fd16: Prevent HTTP response telemetry from tracking analytics ingestion requests, including trailing-slash variants.
+- c41fd16: Keep wide Markdown tables scrollable inside the agent chat panel.
+- Updated dependencies [c41fd16]
+  - @agent-native/toolkit@0.13.8
+
 ## 0.148.1
 
 ### Patch Changes

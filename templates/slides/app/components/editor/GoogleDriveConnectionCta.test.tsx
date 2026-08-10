@@ -74,6 +74,29 @@ describe("<GoogleDriveConnectionCta>", () => {
     ).toBeTruthy();
   });
 
+  it("shows the reconnect button for a connected account without URL-import access", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              configured: true,
+              connected: true,
+              googleSlidesUrlImportReady: false,
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    render(<GoogleDriveConnectionCta />);
+
+    expect(
+      await screen.findByRole("button", { name: "Connect Google" }),
+    ).toBeTruthy();
+  });
+
   it("opens the app-owned OAuth flow and hides the CTA after connection", async () => {
     const openedTab = {
       close: vi.fn(),

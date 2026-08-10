@@ -234,7 +234,7 @@ const messages = {
     newTerminal: "Neues Terminal",
     panelOptions: "Optionen im Agentenpanel",
     collapseSidebar: "Seitenleiste einklappen",
-    widenChat: "Chat auf 75 % verbreitern",
+    widenChat: "Chat verbreitern",
     returnChatToLayout: "Chat zurück ins Layout",
     hideChats: "Chats ausblenden",
     allChats: "Alle Chats",

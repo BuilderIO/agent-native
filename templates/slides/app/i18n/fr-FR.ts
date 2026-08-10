@@ -695,6 +695,13 @@ const messages = {
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",
     importFrom: "Importer depuis",
+    imported: "Importé",
+    importedReferenceDeck: "Deck de référence importé",
+    referenceImportSuccess: "Importation réussie",
+    referenceImportSelected:
+      "« {{title}} » est maintenant le deck de référence.",
+    continue: "Continuer",
+    continueToGenerate: "Continuer pour générer",
     designSystem: "Système de design",
     referenceDeck: "Deck de référence",
     referenceDeckPlaceholder: "Reprendre le style d'un deck existant",

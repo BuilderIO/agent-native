@@ -309,7 +309,7 @@ Si vous créez un échafaudage maintenant, la commande CLI est :
 npx @agent-native/core@latest create my-platform
 ```
 
-Vous obtiendrez un sélecteur à sélection multiple. Choisissez une application (autonome) ou plusieurs (espace de travail : les applications partagent l'authentification, la marque, la configuration de l'agent et la base de données). Chaque app sélectionnée est intégrée dans `apps/<name>/` avec chaque fichier dont vous avez besoin. Pour une automation sans UI navigateur au lieu d'une UI d'app, utilisez `npx @agent-native/core@latest create my-agent --headless`.
+La CLI demande d’abord **Comment souhaitez-vous commencer ?** Choisissez **Chat** pour un espace de travail minimal avec Chat et Dispatch, ou **First-party template(s)** pour ouvrir le sélecteur multiple. Community et Headless sont les accès pour une app autonome. Les apps de l’espace de travail partagent l’authentification, la marque, la configuration de l’agent et la base de données ; chaque app est intégrée dans `apps/<name>/` avec tous les fichiers nécessaires. Pour une automation sans UI navigateur au lieu d’une UI d’app, utilisez `npx @agent-native/core@latest create my-agent --headless`.
 
 Remplissez `.env` (principalement `ANTHROPIC_API_KEY` et `DATABASE_URL`), `pnpm install`, `pnpm dev`, et cela fonctionne. Pas de "TODO : implémenter la connexion", pas de routes d'espace réservé.
 

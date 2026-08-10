@@ -229,7 +229,7 @@ const messages = {
     newTerminal: "New terminal",
     panelOptions: "Agent panel options",
     collapseSidebar: "Collapse sidebar",
-    widenChat: "Widen chat to 75%",
+    widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
     hideChats: "Hide chats",
     allChats: "All chats",

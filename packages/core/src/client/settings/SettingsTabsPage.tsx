@@ -84,6 +84,8 @@ export interface SettingsTabsPageProps {
   defaultTab?: string;
   className?: string;
   navClassName?: string;
+  /** Optional content rendered at the top of the settings navigation rail. */
+  navHeader?: ReactNode;
   contentClassName?: string;
   /** Whether to render the settings search box. Defaults to true. */
   enableSearch?: boolean;
@@ -253,6 +255,7 @@ export function SettingsTabsPage({
   defaultTab = "general",
   className,
   navClassName,
+  navHeader,
   contentClassName,
   enableSearch = true,
   searchPlaceholder = "Search settings",
@@ -545,6 +548,7 @@ export function SettingsTabsPage({
           navClassName,
         )}
       >
+        {navHeader}
         {enableSearch ? (
           <div className="relative sm:mb-2">
             <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />

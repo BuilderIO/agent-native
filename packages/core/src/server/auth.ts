@@ -94,6 +94,8 @@ import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH_MESSAGE,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
 import {
@@ -887,6 +889,21 @@ function verifyEmailRedirectHasError(
   }
 }
 
+function sanitizeVerificationErrorRedirect(
+  location: string,
+  requestUrl: string,
+): string {
+  try {
+    const parsed = new URL(location, requestUrl);
+    parsed.searchParams.set("error", "verification_link_invalid");
+    return /^[a-z][a-z\d+.-]*:/i.test(location)
+      ? parsed.toString()
+      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return location;
+  }
+}
+
 function appendVerifiedParamToLocation(location: string): string {
   const hashIndex = location.indexOf("#");
   const beforeHash = hashIndex >= 0 ? location.slice(0, hashIndex) : location;
@@ -951,6 +968,68 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
 const VALID_AUTH_EMAIL_MESSAGE =
   "Enter a valid email address, like you@example.com.";
 const AUTH_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AUTH_CREDENTIALS_REQUIRED_MESSAGE = "Enter your email and password.";
+const AUTH_EMAIL_NOT_VERIFIED_MESSAGE =
+  "Your email isn't verified yet. Check your inbox for a verification link.";
+const AUTH_ACCOUNT_EXISTS_MESSAGE =
+  "An account with this email already exists. Sign in instead or reset your password.";
+const AUTH_PASSWORD_REQUIRED_MESSAGE = "Enter a password.";
+const AUTH_LOGIN_FALLBACK =
+  "We couldn't sign you in right now. Please try again.";
+const AUTH_MAGIC_LINK_FALLBACK =
+  "We couldn't send a sign-in link right now. Please try again.";
+const AUTH_SIGNUP_FALLBACK =
+  "We couldn't create your account right now. Please try again.";
+const AUTH_VERIFICATION_LINK_FALLBACK =
+  "This verification link is invalid or expired. Request a new one.";
+const AUTH_RESET_PASSWORD_FALLBACK =
+  "We couldn't update your password. The link may have expired; request a new one.";
+const AUTH_RESET_EMAIL_FALLBACK =
+  "We couldn't send a password reset email. Check your email and try again.";
+const AUTH_GENERIC_FALLBACK =
+  "We couldn't complete that request right now. Please try again.";
+const AUTH_GOOGLE_FALLBACK =
+  "We couldn't sign you in with Google right now. Please try again.";
+const AUTH_GOOGLE_CANCELLED =
+  "Google sign-in was cancelled. Try again when you're ready.";
+const AUTH_GOOGLE_START_FALLBACK =
+  "We couldn't start Google sign-in. Please try again.";
+
+function isTechnicalAuthErrorMessage(message: string): boolean {
+  return /failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(
+    message,
+  );
+}
+
+function isAuthPasswordTooShortMessage(message: string): boolean {
+  return /password.*(?:at least|minimum|min(?:imum)?|too short)/i.test(message);
+}
+
+function isAuthPasswordTooLongMessage(message: string): boolean {
+  return /password.*(?:at most|maximum|max(?:imum)?|too long)/i.test(message);
+}
+
+function isAuthPasswordRequiredMessage(message: string): boolean {
+  return /password.*(?:required|missing)/i.test(message);
+}
+
+function isAuthEmailNotVerifiedMessage(message: string): boolean {
+  return /(?:email|account).*(?:not verified|unverified)|not verified/i.test(
+    message,
+  );
+}
+
+function isAuthAccountExistsMessage(message: string): boolean {
+  return /(?:already exists|already registered|already in use|user exists|user already|duplicate key|unique constraint|unique.*(?:email|constraint))/i.test(
+    message,
+  );
+}
+
+function isAuthInvalidCredentialsMessage(message: string): boolean {
+  return /(?:invalid|incorrect|wrong).*?(?:email|password|credentials)|(?:email|password|credentials).*?(?:invalid|incorrect|wrong)/i.test(
+    message,
+  );
+}
 
 function normalizeAuthEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -962,14 +1041,125 @@ function publicAuthError(
   error: unknown,
   fallback: string,
 ): { message: string; statusCode?: number } {
-  const message = (error as { message?: unknown })?.message;
-  if (typeof message === "string") {
-    if (isAuthEmailValidationMessage(message)) {
-      return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
-    }
-    if (message.trim()) return { message };
+  const authError = error as { code?: unknown; message?: unknown };
+  const message =
+    typeof authError?.message === "string" ? authError.message : "";
+  const code = typeof authError?.code === "string" ? authError.code : "";
+  const details = `${code} ${message}`.trim();
+
+  if (
+    isAuthEmailValidationMessage(details) ||
+    /invalid[_ -]?email/i.test(code)
+  ) {
+    return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
+  }
+  if (
+    isAuthPasswordTooShortMessage(details) ||
+    /password[_ -]?(too[_ -]?short|minimum)/i.test(code)
+  ) {
+    return { message: PASSWORD_MIN_LENGTH_MESSAGE, statusCode: 400 };
+  }
+  if (
+    isAuthPasswordTooLongMessage(details) ||
+    /password[_ -]?(too[_ -]?long|maximum)/i.test(code)
+  ) {
+    return { message: PASSWORD_MAX_LENGTH_MESSAGE, statusCode: 400 };
+  }
+  if (isAuthPasswordRequiredMessage(details)) {
+    return { message: AUTH_PASSWORD_REQUIRED_MESSAGE, statusCode: 400 };
+  }
+  if (isAuthEmailNotVerifiedMessage(details)) {
+    return { message: AUTH_EMAIL_NOT_VERIFIED_MESSAGE, statusCode: 403 };
+  }
+  if (
+    isAuthAccountExistsMessage(details) ||
+    /user[_ -]?already[_ -]?exists/i.test(code)
+  ) {
+    return { message: AUTH_ACCOUNT_EXISTS_MESSAGE, statusCode: 409 };
+  }
+  if (isAuthInvalidCredentialsMessage(details)) {
+    return { message: "The email or password is incorrect.", statusCode: 401 };
+  }
+  // Better Auth adapters can include the underlying SQL statement in an
+  // Error.message. That detail is useful in server logs, but it is neither a
+  // recovery path nor a safe public response. Map it to the route-specific
+  // fallback and keep the diagnostic in captureAuthError() above. Account
+  // conflicts are classified above so a unique constraint error stays useful.
+  if (isTechnicalAuthErrorMessage(details)) {
+    return { message: fallback, statusCode: 500 };
   }
   return { message: fallback };
+}
+
+function publicAuthErrorFromPayload(
+  payload: Record<string, unknown>,
+  fallback: string,
+): { message: string; statusCode?: number } {
+  const payloadError =
+    typeof payload.error === "string" ? payload.error : undefined;
+  const code =
+    typeof payload.code === "string"
+      ? payload.code
+      : typeof payload.errorCode === "string"
+        ? payload.errorCode
+        : payloadError && /^[A-Z0-9_ -]+$/.test(payloadError)
+          ? payloadError
+          : undefined;
+  const message =
+    typeof payload.message === "string"
+      ? payload.message
+      : payloadError && code !== payloadError
+        ? payloadError
+        : undefined;
+  return publicAuthError({ code, message }, fallback);
+}
+
+function betterAuthErrorFallback(path: string): string {
+  if (path.includes("reset-password")) return AUTH_RESET_PASSWORD_FALLBACK;
+  if (path.includes("request-password-reset")) return AUTH_RESET_EMAIL_FALLBACK;
+  if (path.includes("verify-email")) return AUTH_VERIFICATION_LINK_FALLBACK;
+  if (path.includes("send-verification-email")) {
+    return "We couldn't resend the verification email. Please try again.";
+  }
+  if (path.includes("sign-in/magic-link")) return AUTH_MAGIC_LINK_FALLBACK;
+  if (path.includes("sign-in/email")) {
+    return "The email or password is incorrect.";
+  }
+  if (path.includes("sign-up/email")) return AUTH_SIGNUP_FALLBACK;
+  return AUTH_GENERIC_FALLBACK;
+}
+
+async function sanitizeBetterAuthErrorResponse(
+  response: Response,
+  fallback: string,
+): Promise<Response> {
+  if (response.status < 400) return response;
+  const payload = await response
+    .clone()
+    .json()
+    .catch(() => undefined);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return response;
+  }
+
+  const authError = publicAuthErrorFromPayload(
+    payload as Record<string, unknown>,
+    fallback,
+  );
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json");
+  return new Response(
+    JSON.stringify({ error: authError.message, message: authError.message }),
+    {
+      status:
+        authError.message === fallback
+          ? response.status
+          : (authError.statusCode ?? response.status),
+      statusText: response.statusText,
+      headers,
+    },
+  );
 }
 
 function isAuthEmailValidationMessage(message: string): boolean {
@@ -2965,7 +3155,7 @@ async function mountBetterAuthRoutes(
         const redirectUri = resolveOAuthRedirectUri(event);
         if (redirectUri === null) {
           setResponseStatus(event, 400);
-          return { error: "Invalid redirect_uri" };
+          return { error: AUTH_GOOGLE_START_FALLBACK };
         }
         const q = getQuery(event);
         const desktop =
@@ -3084,22 +3274,22 @@ async function mountBetterAuthRoutes(
                 ? query.error_description
                 : undefined;
             const msg =
-              providerDescription ||
-              providerError ||
-              "Missing authorization code";
+              providerError === "access_denied"
+                ? AUTH_GOOGLE_CANCELLED
+                : AUTH_GOOGLE_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {
-                message: `Google sign-in failed: ${msg}`,
+                message: msg,
                 code: providerError || "missing_authorization_code",
               });
             }
             logGoogleOAuthDebug(event, "callback-error", {
               flowId,
               desktop,
-              message: msg,
+              message: providerDescription || providerError || msg,
               code: providerError,
             });
-            return oauthErrorPage(`Connection failed: ${msg}`);
+            return oauthErrorPage(msg);
           }
           // Defence in depth: the state is HMAC-signed, but if the signing
           // key ever leaked an attacker could mint state with their own
@@ -3107,8 +3297,7 @@ async function mountBetterAuthRoutes(
           // auth-url time so the token exchange is always sent to a URI we
           // own.
           if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
-            const msg =
-              "Invalid Google OAuth redirect URI in state. Restart sign-in from this app.";
+            const msg = AUTH_GOOGLE_START_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {
                 message: msg,
@@ -3120,7 +3309,7 @@ async function mountBetterAuthRoutes(
               desktop,
               message: msg,
             });
-            return oauthErrorPage(`Connection failed: ${msg}`);
+            return oauthErrorPage(msg);
           }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -3233,7 +3422,7 @@ async function mountBetterAuthRoutes(
           const msg = error.message || "Unknown error";
           if (callbackFlowId) {
             setDesktopExchangeError(callbackFlowId, {
-              message: `Google sign-in failed: ${msg}`,
+              message: AUTH_GOOGLE_FALLBACK,
               code: "callback_error",
             });
           }
@@ -3242,7 +3431,7 @@ async function mountBetterAuthRoutes(
             desktop: callbackDesktop,
             message: msg,
           });
-          return oauthErrorPage(`Connection failed: ${msg}`);
+          return oauthErrorPage(AUTH_GOOGLE_FALLBACK);
         }
       }),
     );
@@ -3460,11 +3649,21 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      const response = await auth.handler(requestForAuth);
+      let response = await auth.handler(requestForAuth);
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
+
+      if (isResponse && (response as Response).status >= 400) {
+        // The direct Better Auth surface is also reachable from the browser,
+        // so wrapper-route sanitization alone is not enough to keep adapter
+        // SQL and provider internals out of the auth UI.
+        response = await sanitizeBetterAuthErrorResponse(
+          response as Response,
+          betterAuthErrorFallback(reqPath),
+        );
+      }
 
       // After email verification, add ?verified=1 to the redirect so the
       // login page can show "Email verified!". MUTATE the response in
@@ -3481,11 +3680,12 @@ async function mountBetterAuthRoutes(
         (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
-        if (
-          loc &&
-          !/[?&]verified=/.test(loc) &&
-          !verifyEmailRedirectHasError(loc, authRequest.url)
-        ) {
+        if (loc && verifyEmailRedirectHasError(loc, authRequest.url)) {
+          response.headers.set(
+            "location",
+            sanitizeVerificationErrorRedirect(loc, authRequest.url),
+          );
+        } else if (loc && !/[?&]verified=/.test(loc)) {
           await ensureEmailVerifiedForRedirect(
             authRequest,
             response as Response,
@@ -3614,7 +3814,7 @@ async function mountBetterAuthRoutes(
 
       if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
-        return { error: "Email and password are required" };
+        return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
       }
       if (!email) {
         setResponseStatus(event, 400);
@@ -3646,15 +3846,12 @@ async function mountBetterAuthRoutes(
         // email isn't verified yet. Don't return { ok: true } without a
         // session or the frontend will reload into a dead end.
         setResponseStatus(event, 403);
-        return {
-          error:
-            "Email not verified. Check your inbox for a verification link.",
-        };
+        return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        const authError = publicAuthError(e, "Invalid email or password");
+        const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
         return { error: authError.message };
       }
@@ -3702,7 +3899,7 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "magic-link", email });
         }
-        const authError = publicAuthError(e, "Unable to send sign-in link");
+        const authError = publicAuthError(e, AUTH_MAGIC_LINK_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 400);
         return { error: authError.message };
       }
@@ -3731,13 +3928,17 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (
-        !password ||
-        typeof password !== "string" ||
-        password.length < PASSWORD_MIN_LENGTH
-      ) {
+      if (!password || typeof password !== "string") {
+        setResponseStatus(event, 400);
+        return { error: AUTH_PASSWORD_REQUIRED_MESSAGE };
+      }
+      if (password.length < PASSWORD_MIN_LENGTH) {
         setResponseStatus(event, 400);
         return { error: PASSWORD_MIN_LENGTH_MESSAGE };
+      }
+      if (password.length > PASSWORD_MAX_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3756,7 +3957,7 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        const authError = publicAuthError(e, "Registration failed");
+        const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 409);
         return { error: authError.message };
       }
@@ -3957,7 +4158,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
-        return { error: "Email and password are required" };
+        return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
       }
       if (!email) {
         setResponseStatus(event, 400);
@@ -3987,15 +4188,12 @@ function mountAuthFallbackRoutes(app: H3App): void {
           return authLoginResponse(event, result.token, email);
         }
         setResponseStatus(event, 403);
-        return {
-          error:
-            "Email not verified. Check your inbox for a verification link.",
-        };
+        return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        const authError = publicAuthError(e, "Invalid email or password");
+        const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
         return { error: authError.message };
       }
@@ -4019,13 +4217,17 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (
-        !password ||
-        typeof password !== "string" ||
-        password.length < PASSWORD_MIN_LENGTH
-      ) {
+      if (!password || typeof password !== "string") {
+        setResponseStatus(event, 400);
+        return { error: AUTH_PASSWORD_REQUIRED_MESSAGE };
+      }
+      if (password.length < PASSWORD_MIN_LENGTH) {
         setResponseStatus(event, 400);
         return { error: PASSWORD_MIN_LENGTH_MESSAGE };
+      }
+      if (password.length > PASSWORD_MAX_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -4045,7 +4247,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        const authError = publicAuthError(e, "Registration failed");
+        const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 409);
         return { error: authError.message };
       }

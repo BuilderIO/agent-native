@@ -42,9 +42,10 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
   large scans with `stageAs` and analyze them via `query-staged-dataset`.
-- `import-google-slides-reference` accepts either a Picker `fileId` or a
-  `presentationUrl`; imported PPTX timing metadata, including by-paragraph
-  reveals, stays on the deck's slide records.
+- `import-google-slides-reference` accepts a Picker `fileId` or `presentationUrl`;
+  pasted URLs may need a one-time Google reconnect for Drive export. Preserve
+  imported PPTX timing metadata, including by-paragraph reveals, on slide
+  records.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
 - Ask a sibling app's agent with a natural-language `call-agent` message by

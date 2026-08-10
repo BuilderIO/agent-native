@@ -309,7 +309,9 @@
 .agent-sidebar-panel[data-agent-sidebar-animation="drawer"] {
   overflow: clip;
   will-change: transform;
-  box-shadow: -12px 0 30px hsl(var(--foreground) / 0.08);
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: -12px 0 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   transition:
     transform 260ms var(--ease-drawer),
     width 260ms var(--ease-drawer);
@@ -329,12 +331,20 @@
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
   transform: var(
     --agent-sidebar-closed-transform,
     translateX(calc(100% + 1px))
   );
   will-change: transform;
+  box-shadow: 0 18px 40px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   transition: transform 260ms var(--ease-drawer);
+}
+
+.dark .agent-sidebar-panel[data-agent-sidebar-animation="drawer"],
+.dark .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
+  --agent-shadow-o: 0.08;
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
@@ -1079,7 +1089,9 @@
     }
 
     ::view-transition-old(agent-native-chat),
-    ::view-transition-new(agent-native-chat) {
+    ::view-transition-new(agent-native-chat),
+    ::view-transition-old(agent-native-sidebar-drawer),
+    ::view-transition-new(agent-native-sidebar-drawer) {
       /* The default `block-size: auto` scales each snapshot by width, so as the
          panel narrows (896 -> 380) its captured height shrinks and the
          bottom-pinned chat field gets dragged upward (the "rises to half-page"

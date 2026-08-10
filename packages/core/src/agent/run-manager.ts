@@ -274,12 +274,13 @@ export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * How recently a terminal run must have started for `/runs/active` to surface
- * it. Reconnect after this window won't replay the run — typical real-world
- * disconnects resolve in seconds, so 10 minutes is generous while keeping us
- * from resurrecting ancient turns when the user reopens an old thread.
+ * How recently a terminal run must have completed for `/runs/active` to surface
+ * it. This must outlast the durable browser watchdog (13 minutes) and the
+ * in-flight reader watchdog (15 minutes) so a quiet event stream can detach
+ * and still replay a run that completed while the browser was waiting.
+ * Reconnect after this window won't replay the run.
  */
-export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 10 * 60 * 1000;
+export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 20 * 60 * 1000;
 
 /** Fast poll cadence while a SQL-backed SSE subscription is actively receiving rows. */
 export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;

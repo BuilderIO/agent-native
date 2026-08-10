@@ -160,6 +160,9 @@ describe("call-agent action", () => {
     expect(tool.description).toContain(
       "never expose or call a direct action to work around",
     );
+    expect(tool.description).toContain(
+      "Never put a create, update, delete, send, save, publish, or any other side effect in action",
+    );
   });
 
   it("forwards the user's exact downstream action authorization", async () => {

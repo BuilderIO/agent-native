@@ -141,6 +141,7 @@ import {
   ChatRunningContext,
   ChatRunDurationContext,
   ApprovalContext,
+  type ApprovalResolution,
   type ApprovalContextValue,
   ReconnectStreamMessage,
 } from "./chat/tool-call-display.js";
@@ -2269,6 +2270,13 @@ export function useAutoResumeStatus(
   }, [clearAutoResume, forceStopped]);
 
   return { isAutoResuming, clearAutoResume };
+}
+
+function approvalResolutionIdentity(
+  approvalKey: string,
+  toolCallId?: string,
+): string {
+  return `${toolCallId ?? ""}\u0000${approvalKey}`;
 }
 
 const AssistantChatInner = forwardRef<
@@ -5377,12 +5385,57 @@ const AssistantChatInner = forwardRef<
     showInlineMissingKeySetup,
   );
 
+  const approvalResolutionScope = threadId ?? tabId ?? "default";
+  const [approvalResolutionState, setApprovalResolutionState] = useState<{
+    scope: string;
+    byIdentity: Map<string, ApprovalResolution>;
+  }>(() => ({
+    scope: approvalResolutionScope,
+    byIdentity: new Map(),
+  }));
+  const getApprovalResolution = useCallback(
+    (approvalKey: string, toolCallId?: string) => {
+      if (approvalResolutionState.scope !== approvalResolutionScope) {
+        return null;
+      }
+      return (
+        approvalResolutionState.byIdentity.get(
+          approvalResolutionIdentity(approvalKey, toolCallId),
+        ) ?? null
+      );
+    },
+    [approvalResolutionScope, approvalResolutionState],
+  );
+  const recordApprovalResolution = useCallback(
+    (
+      approvalKey: string,
+      resolution: ApprovalResolution,
+      toolCallId?: string,
+    ) => {
+      setApprovalResolutionState((previous) => {
+        const byIdentity =
+          previous.scope === approvalResolutionScope
+            ? previous.byIdentity
+            : new Map<string, ApprovalResolution>();
+        const next = new Map(byIdentity);
+        next.set(
+          approvalResolutionIdentity(approvalKey, toolCallId),
+          resolution,
+        );
+        return { scope: approvalResolutionScope, byIdentity: next };
+      });
+    },
+    [approvalResolutionScope],
+  );
+
   // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
   // tool call, re-issue the turn carrying the call's approval key so the server
   // gate lets that specific call run. Reuses the same append path as recovery /
   // queued messages (no hand-written fetch).
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
+      getApprovalResolution,
+      onApprovalResolved: recordApprovalResolution,
       onApprove: (approvalKey: string) => {
         markOptimisticRunning();
         appendThreadMessage({
@@ -5411,7 +5464,14 @@ const AssistantChatInner = forwardRef<
         ? { onAlwaysAllow: approvalActions.onAlwaysAllow }
         : {}),
     }),
-    [appendThreadMessage, execMode, markOptimisticRunning, approvalActions],
+    [
+      appendThreadMessage,
+      execMode,
+      getApprovalResolution,
+      markOptimisticRunning,
+      approvalActions,
+      recordApprovalResolution,
+    ],
   );
 
   return (
