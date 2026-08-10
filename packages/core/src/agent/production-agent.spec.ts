@@ -9591,6 +9591,137 @@ describe("runAgentLoop", () => {
   });
 });
 
+// ─── endsTurn (actions that hand control back to the user) ───────────────────
+
+describe("runAgentLoop endsTurn", () => {
+  /**
+   * Emits `ask-question` plus a second tool call in ONE assistant message, then
+   * a plain text completion on every later stream. The extra call reproduces the
+   * reported "it keeps asking questions": a second `ask-question` overwrites the
+   * first card before anyone can answer it.
+   */
+  const yieldEngine = (): {
+    engine: AgentEngine;
+    streamCalls: () => number;
+  } => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "ask-1",
+                name: "ask-question",
+                input: { question: "Which range?" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "ask-2",
+                name: "ask-question",
+                input: { question: "Which grain?" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "kept working" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "kept working" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    return { engine, streamCalls: () => streamCalls };
+  };
+
+  it("stops the turn after the action runs and skips later calls in the same message", async () => {
+    const { engine, streamCalls } = yieldEngine();
+    const run = vi.fn(async () => "asked");
+    const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": {
+          ...actionEntry({ readOnly: false }),
+          endsTurn: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    // The first question ran; the second never did.
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "ask-2",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+    // The model was never asked for another step.
+    expect(streamCalls()).toBe(1);
+    expect(events.some((event) => event.type === "done")).toBe(false);
+    expect(events.some((event) => event.text === "kept working")).toBe(false);
+    expect(outcomes).toEqual([
+      {
+        state: "input_required",
+        code: "awaiting_user_input",
+        message: "Waiting for your answer before continuing.",
+      },
+    ]);
+  });
+
+  it("leaves a turn running when the action is not marked endsTurn", async () => {
+    const { engine, streamCalls } = yieldEngine();
+    const run = vi.fn(async () => "asked");
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": { ...actionEntry({ readOnly: false }), run },
+      },
+      send: () => {},
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(streamCalls()).toBe(2);
+    expect(outcomes).toEqual([{ state: "completed" }]);
+  });
+});
+
 // ─── isContextTooLongError ────────────────────────────────────────────────────
 
 describe("isContextTooLongError", () => {
