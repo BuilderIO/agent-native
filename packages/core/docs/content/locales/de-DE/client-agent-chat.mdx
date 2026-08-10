@@ -1,0 +1,315 @@
+---
+title: "Agent Chat"
+description: "Clientseitige Einstiegspunkte in den Agent-Chat: sendToAgentChat, openAgentSettings, askUserQuestion, dynamische Vorschläge, useAgentChatGenerating und bereitgestellter Agent-Chat-Kontextstatus."
+---
+
+# Agent Chat
+
+Der Client Ihrer Anwendung kann über eine kleine Gruppe von Client-Helfern mit dem Agenten sprechen. Diese decken das Senden eines Prompts, das Bereitstellen versteckten Kontexts, das Stellen einer blockierenden Frage an den Benutzer und das Öffnen des Agenten-Panels ab.
+
+Im folgenden Beispiel veranlasst eine Schaltfläche **Antwort entwerfen** den Agenten, dem Benutzer eine Frage zu stellen. Sobald der Benutzer antwortet, entwirft der Agent eine Antwort unter Berücksichtigung des aktuellen Seitenkontexts und der Antwort des Benutzers.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc3c9ccac6c6404f99fc27336b78a6d8?alt=media&token=d7aa0f72-eec3-4495-99c2-0d9bea11022e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Dispatch-App-Screenshot mit der Seitenleiste des Ausführungsverlaufs"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Die Seitenleiste des Ausführungsverlaufs von Dispatch."
+/>
+
+## Wie es funktioniert
+
+Mit den von Agent-Native bereitgestellten Client-Helfermethoden kann Ihre UI den Agenten dazu bringen, auf verschiedene Weise mit dem Benutzer zu interagieren. Das Diagramm unten zeigt, wie eine Schaltfläche "Antwort entwerfen" vom Benutzer angeklickt werden kann, was den Agenten veranlasst, mit dem Benutzer zu interagieren, bevor eine Antwort generiert wird.
+
+<Image
+  src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59e297f868244e39ba5ad9c62a32281e?width=500&height=500"
+  alt="Sequenzdiagramm 'wem gehört welcher Schritt' mit drei Lifelines: App-Code, UI und Agent. Klick auf 'Antwort entwerfen' löst askUserQuestion() aus (rendert inline im Agenten-Panel). Nach der Antwort ruft sendDraftRequest() draft-ticket-reply auf und gibt eine Antwort an den UI-Composer zurück."
+  align="full"
+  width={600}
+  caption="Sequenzdiagramm zur Visualisierung eines Ablaufs der Schaltfläche 'Antwort entwerfen'."
+/>
+
+Die Benutzererfahrung ist wie folgt:
+
+1. Der Benutzer klickt auf die Schaltfläche **Antwort entwerfen**, wodurch die Funktion `askUserQuestion()` aufgerufen wird. Die Frage wird inline im Agenten-Panel beantwortet.
+
+1. Der Benutzer wählt **Rückerstattung anbieten**, wodurch `sendDraftRequest()` den Prompt und den Ticket-Kontext an den Agenten sendet.
+
+1. Der Agent ruft die [Action](/docs/actions) `draft-ticket-reply` auf, und die entworfene Antwort erscheint im Antwort-Composer.
+
+## askUserQuestion(opts) {#ask-user-question}
+
+<Signature
+  id="doc-block-client-agent-chat-3"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "Die Frage, ihre Optionen und wie sie sich verhalten soll.",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description:
+            "Die vollständige Frage. Klar, spezifisch, endet mit einem Fragezeichen.",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description:
+            'Sehr kurzer Chip/Titel, etwa 12 Zeichen, z. B. `"Antwort"`.',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description:
+            "2–4 unterschiedliche Optionen. Jede ist `{ label, value?, description?, preview?, recommended? }`. `value` entspricht standardmäßig `label`.",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            'Fügt eine Freitext-Option "Andere" hinzu, in die der Mitarbeiter tippen kann.',
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "Mehrfachauswahl statt Einzelauswahl.",
+        },
+        {
+          name: "stateKey",
+          type: "string",
+          optional: true,
+          default: '"guided-questions"',
+          description:
+            "Anwendungsstatus-Schlüssel, den das Agenten-Panel abfragt.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      'Der gewählte `value` (oder `value[]` bei `allowMultiple`), der eingetippte "Andere"-Text des Mitarbeiters oder `null`, wenn er überspringt. Bleibt ausstehend, bis geantwortet wird. Erfordert, dass das Agenten-Panel gemountet ist, was in jeder Vorlage der Fall ist.',
+  }}
+/>
+
+Diese Funktion stellt dem Benutzer aus App-Code eine Multiple-Choice-Frage, rendert sie inline im Agenten-Panel und wartet auf die Antwort. Verwenden Sie sie, wenn die UI vor dem Start der Agentenarbeit eine kleine Entscheidung mit zwei bis vier Optionen benötigt, statt ein benutzerdefiniertes Modal zu bauen.
+
+Im folgenden Beispiel fragt eine Schaltfläche "Antwort entwerfen" auf einer Ticket-Seite den Mitarbeiter, wie er antworten möchte, bevor etwas an den Agenten gesendet wird:
+
+```ts
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+
+const answer = await askUserQuestion({
+  question: "How would you like to respond to this ticket?",
+  header: "Response", // optionaler kurzer Chip/Titel (≈12 Zeichen)
+  options: [
+    { label: "Offer a refund", value: "refund" },
+    { label: "Offer a reprint", value: "reprint" },
+  ],
+});
+```
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+<Signature
+  id="doc-block-client-agent-chat-4"
+  name="useAgentChatGenerating"
+  params={[]}
+  returns={{
+    type: "[boolean, (opts: AgentChatMessage) => string]",
+    description:
+      "Ein `[isGenerating, send]`-Tupel. `isGenerating` ist `true`, ab dem Moment, in dem `send()` aufgerufen wird, bis der Agent-Chat-Lauf meldet, dass er gestoppt hat. `send(opts)` hat dieselbe Signatur wie `sendToAgentChat()` und gibt die Tab-Id zurück, an die gesendet wurde.",
+  }}
+/>
+
+Dieser React-Hook umschließt `sendToAgentChat()` mit Ladezustandsverfolgung.
+
+1. Das erste Argument, `isGenerating`, wird beim Aufruf `true` und setzt sich zurück auf `false`, sobald der Agent die Generierung beendet hat.
+
+2. Das zweite Argument, `send()`, spiegelt die Funktion `sendToAgentChat()`.
+
+`isGenerating` setzt sich erst zurück, sobald ein Lauf tatsächlich startet und meldet, dass er gestoppt hat. Ein Aufruf mit `submit: false` füllt einen Entwurf vorab aus, ohne einen Lauf zu starten, sodass `isGenerating` danach für immer `true` bleibt. Verwenden Sie diesen Hook nur für Sendungen mit `submit: true`; rufen Sie `sendToAgentChat()` direkt für reine Vorabausfüllungen auf.
+
+Die Kombination davon mit dem `askUserQuestion()`-Beispiel oben vervollständigt den Handler der Schaltfläche:
+
+<AnnotatedCode
+  id="doc-block-client-agent-chat-2"
+  title="Den Draft-Response-Handler vervollständigen"
+  language="tsx"
+  code={
+    'import {\n  askUserQuestion,\n  useAgentChatGenerating,\n} from "@agent-native/core/client/agent-chat";\n\nfunction useDraftResponseButton(ticket: { id: string; subject: string }) {\n  const [isDrafting, sendDraftRequest] = useAgentChatGenerating();\n\n  async function requestDraft() {\n    const answer = await askUserQuestion({\n      question: "How would you like to respond to this ticket?",\n      header: "Response",\n      options: [\n        { label: "Offer a refund", value: "refund" },\n        { label: "Offer a reprint", value: "reprint" },\n      ],\n    });\n    if (!answer || Array.isArray(answer)) return;\n\n    const intent =\n      answer === "refund"\n        ? "offering a refund"\n        : answer === "reprint"\n          ? "offering a reprint"\n          : `taking this direction from the rep: "${answer}"`;\n\n    sendDraftRequest({\n      message: `Draft a reply to this ticket ${intent}. Place it in the reply composer with draft-ticket-reply for ticket ${ticket.id}, don\'t send it.`,\n      context: `Ticket ${ticket.id}: "${ticket.subject}"`,\n      submit: true,\n      openSidebar: true,\n    });\n  }\n\n  return { isDrafting, requestDraft };\n}\n\nfunction DraftResponseButton({\n  ticket,\n}: {\n  ticket: { id: string; subject: string };\n}) {\n  const { isDrafting, requestDraft } = useDraftResponseButton(ticket);\n\n  return (\n    <button disabled={isDrafting} onClick={requestDraft}>\n      {isDrafting ? "Drafting..." : "Draft Response"}\n    </button>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "Ladezustand + Senden, zusammen",
+      note: "`useAgentChatGenerating()` gibt dieselbe Tupel-Form wie ein bloßer `sendToAgentChat()`-Aufruf zurück, fügt aber `isDrafting` hinzu, damit sich die Schaltfläche selbst deaktivieren kann, während die Anfrage läuft.",
+    },
+    {
+      lines: "10-17",
+      label: "Wiederverwendung des Frage-Schritts",
+      note: "Dies ist genau der `askUserQuestion()`-Aufruf aus dem Abschnitt oben, jetzt im eigenen Handler der Schaltfläche.",
+    },
+    {
+      lines: "18",
+      label: "Vor Verwendung der Antwort einschränken",
+      note: "Der Rückgabetyp erlaubt wegen `allowMultiple` immer auch `string[]`, daher ist diese Prüfung nötig, auch wenn dieser Aufruf es nie setzt.",
+    },
+    {
+      lines: "20-25",
+      label: "Aus der Auswahl einen Satz machen",
+      note: "Ordnet den ausgewählten Wert oder den eigenen eingetippten Text des Mitarbeiters der Formulierung zu, die der Prompt unten natürlich liest.",
+    },
+    {
+      lines: "27-32",
+      label: "Action und Absicht benennen",
+      note: "Die Nachricht sagt dem Agenten genau, welche Action aufgerufen werden soll (`draft-ticket-reply`), und erinnert ihn daran, die Antwort nicht direkt zu senden. `openSidebar: true` sorgt dafür, dass die entworfene Antwort sichtbar ist, selbst wenn die Seitenleiste geschlossen war.",
+    },
+    {
+      lines: "46-48",
+      label: "isDrafting steuert die Schaltfläche",
+      note: "Nur deaktiviert und umbenannt, während `sendDraftRequest()` läuft. Die Schaltfläche bleibt klickbar, während `askUserQuestion()` auf den Mitarbeiter wartet, da das passiert, bevor `sendDraftRequest()` überhaupt aufgerufen wird.",
+    },
+  ]}
+/>
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+Sendet eine Nachricht an den Agent-Chat über `postMessage`. Dies ist die niedrigere Primitive, die `useAgentChatGenerating()` oben umschließt, nützlich, wenn eine UI-Interaktion keine eigene Ladezustandsverfolgung benötigt. Übergeben Sie `context` für zusätzliche Details, die die Nachricht allein nicht trägt. Er wird derselben sichtbaren Nachricht angehängt, eingeschlossen in `<context>`-Tags. Er ist nicht vor dem Benutzer verborgen. Übergeben Sie `submit: true`, um sofort zu senden, oder `submit: false`, um einen Entwurf vorab auszufüllen, den der Benutzer zuerst überprüft.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+// Automatisches Senden eines Prompts mit angehängtem Kontext
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Vorab ausfüllen ohne Senden (Benutzer prüft zuerst)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+### AgentChatMessage {#agentchatmessage}
+
+| Option        | Typ        | Beschreibung                                                                                                                    |
+| ------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | Der an den Chat gesendete Prompt. `context`, falls gesetzt, wird derselben sichtbaren Nachricht angehängt                       |
+| `context`     | `string?`  | Zusätzliche Details, angehängt an die sichtbare Nachricht, eingeschlossen in `<context>`-Tags. Nicht vor dem Benutzer verborgen |
+| `submit`      | `boolean?` | true = automatisches Senden, false = nur Vorabausfüllung                                                                        |
+| `newTab`      | `boolean?` | Einen separaten Chat-Thread für diesen Prompt erstellen                                                                         |
+| `openSidebar` | `boolean?` | Auf false setzen, um zu senden/vorab auszufüllen, ohne die Seitenleiste zu öffnen                                               |
+
+Das Ausführen davon aus einem eingebetteten MCP-App-Frame heraus, oder das Ausführen im Hintergrund ohne Öffnen der Seitenleiste, wird beides in [Fortgeschritten](/docs/client-advanced#background-send) behandelt.
+
+## Dynamische Vorschläge {#dynamic-suggestions}
+
+Bevor eine Konversation beginnt, zeigen `<AgentSidebar>`, `<AgentPanel>` und `<AssistantChat>` Prompt-Chips im leeren Chat. Standardmäßig sind das nicht nur Ihre feste `suggestions`-Liste: Das Framework liest `navigation`, `selection`, `pending-selection-context` und die aktuelle URL aus dem Anwendungsstatus und mischt Chips ein, die zu dem passen, was tatsächlich auf dem Bildschirm ist.
+
+Dabei werden zwei Prüfungen durchgeführt. Wenn etwas ausgewählt ist, werden generische Chips wie "Diese Auswahl zusammenfassen" hinzugefügt. Getrennt davon wird `navigation` auf Feldnamen untersucht, die bestehende Apps bereits verwenden, wie `threadId`/`emailId` für einen E-Mail-Thread oder `dashboardId`/`chartId` für ein Diagramm, und Chips hinzugefügt, die auf diese Art von Bildschirm zugeschnitten sind, etwa "Eine Antwort entwerfen" für einen Thread oder "Anomalien in diesen Daten finden" für ein Diagramm. Was dabei herauskommt, wird mit Ihren statischen `suggestions` zusammengeführt, dedupliziert und bei `max` gekappt.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+Wenn der aktuelle Bildschirm zu nichts passt, was die Heuristik erkennt, und nichts ausgewählt ist, trägt sie keine Chips bei, und der leere Chat greift allein auf Ihre statischen `suggestions` zurück. Setzen Sie `dynamicSuggestions={false}`, um nur statische Chips zu behalten. Wenn die Navigationsform Ihrer App nicht zur eingebauten Heuristik passt, oder Sie vollständig deterministische, app-spezifische Chips möchten, siehe [Fortgeschritten](/docs/client-advanced#custom-suggestions).
+
+## openAgentSettings(section?) {#openagentsettings}
+
+Verwenden Sie `openAgentSettings()`, wenn eine App-Einstellungsseite oder eine Setup-Karte
+den Tab "Einstellungen" der Agenten-Seitenleiste öffnen soll. Übergeben Sie eine Abschnitts-Id wie `"llm"`, `"secrets"`,
+`"automations"`, `"voice"` oder `"limits"`, um einen bestimmten Abschnitt zu öffnen.
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client/navigation";
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+Bevorzugen Sie diesen Helfer gegenüber dem direkten Versand von `agent-panel:open-settings`.
+
+## Agent-Chat-Kontextstatus {#agent-chat-context-state}
+
+Die Kontextstatus-APIs sind optionale Verkabelung für UI, die eine bidirektionale Synchronisierung mit bereitgestellten Kontext-Chips benötigt: das Rendern der aktuell bereitgestellten Elemente außerhalb des Composers, das Anzeigen, ob ein Element bereits angehängt ist, oder das Bereitstellen expliziter Entfernen-/Löschen-Steuerelemente.
+
+Greifen Sie für einfache "Dies an den Agenten senden"- oder "Diesen Entwurf zur Überprüfung vorab ausfüllen"-Abläufe nicht zu diesen Helfern. Verwenden Sie [`sendToAgentChat()`](#sendtoagentchat) mit `context` und `submit` dafür.
+
+| API                               | Wann verwenden                                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | Eine React-Komponente benötigt die live bereitgestellte Kontextliste                                 |
+| `setAgentChatContextItem(item)`   | Imperativer Code sollte ein Schlüsselkontextelement bereitstellen oder ersetzen                      |
+| `listAgentChatContext()`          | Nicht-React-Code benötigt einen einmaligen Snapshot des bereitgestellten Kontexts                    |
+| `removeAgentChatContextItem(key)` | UI sollte ein bereitgestelltes Kontextelement über seinen stabilen `key` entfernen                   |
+| `clearAgentChatContext()`         | UI sollte den gesamten bereitgestellten Kontext löschen, etwa nach einem Ansichts- oder Moduswechsel |
+| `refreshAgentChatContext()`       | Imperativer Code sollte den neuesten persistierten Kontext-Snapshot erneut lesen                     |
+
+`useAgentChatContext()` gibt `{ items, set, remove, clear, refresh }` zurück.
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
+
+function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-ticket:${ticket.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Ticket",
+          context: JSON.stringify(ticket, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` ist für imperativen Code gedacht, der die aktuell bereitgestellten Elemente nur einmal einsehen muss. `clearAgentChatContext()` ist absichtlich breit gefasst. Verwenden Sie `removeAgentChatContextItem(key)`, wenn sich nur eine Auswahl geändert hat.
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| Option        | Typ        | Beschreibung                                                                            |
+| ------------- | ---------- | --------------------------------------------------------------------------------------- |
+| `key`         | `string`   | Stabile Kennung, die verwendet wird, um ein vorhandenes Nugget zu ersetzen              |
+| `title`       | `string`   | Kurzbezeichnung, angezeigt im Composer-Chip                                             |
+| `context`     | `string`   | Versteckter Kontext, der der nächsten gesendeten Aufforderung beigelegt wird            |
+| `openSidebar` | `boolean?` | Standardmäßig true. Übergeben Sie false, um den Kontext stillschweigend bereitzustellen |
+
+## Was kommt als nächstes?
+
+- [**Überblick**](/docs/client-overview) — wo diese Helfer in `app/` hineinpassen
+- [**Daten & Sync**](/docs/client-data) — die Action-Hooks und `useDbSync`, die die UI selbst aktuell halten
+- [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentSidebar>`/`<AgentPanel>` mounten, damit diese Helfer etwas haben, worin sie rendern können
+- [**Fortgeschritten**](/docs/client-advanced) — Hintergrundsendungen, benutzerdefinierte Vorschlags-Chips und die MCP-App-Host-Bridge
+- [**Generative UI**](/docs/generative-ui) — reichhaltigere Inline-Chat-Steuerelemente jenseits von `askUserQuestion` bauen

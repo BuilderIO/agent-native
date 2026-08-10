@@ -233,7 +233,7 @@ Benachrichtigen me that run {{runId}} has failed.
 ## Wie es funktioniert {#internals}
 
 - **Owner Scoping** – jede Zeile hat eine `owner`-Spalte; Jede Abfrage filtert danach. Benutzer sehen nur ihre eigenen Läufe.
-- **Umfrageintegration** – jede Mutation ruft `recordChange()` auf, sodass Vorlagen, die [`useDbSync`](/docs/client) verwenden, ohne zusätzliche Verkabelung automatisch ungültig werden.
+- **Umfrageintegration** – jede Mutation ruft `recordChange()` auf, sodass Vorlagen, die [`useDbSync`](/docs/client-data#usedbsync) verwenden, ohne zusätzliche Verkabelung automatisch ungültig werden.
 - **Tabellenname** – das Framework verfügt außerdem über eine `agent_runs`-Tabelle für die interne Nachverfolgung des Agent-Chat-Turn-Lebenszyklus. Das Fortschrittsprimitiv verwendet `progress_runs`, um die beiden Anliegen getrennt zu halten.
 - **Prozent-Klammerung** – Werte werden auf `[0, 100]` geklemmt und beim Schreiben auf eine Ganzzahl gerundet.
 
@@ -241,4 +241,4 @@ Benachrichtigen me that run {{runId}} has failed.
 
 - [**Notifications**](/docs/notifications) – koppeln Sie es mit `manage-progress` (`action=complete`), um dem Benutzer mitzuteilen, wann die Arbeit beendet ist
 - [**Automations**](/docs/automations) – langsamer Watchdog läuft über `run.progress.updated`
-- [**Client**](/docs/client) – `useDbSync` für Echtzeit-Cache-Ungültigmachung
+- [**Daten & Sync**](/docs/client-data) – `useDbSync` für Echtzeit-Cache-Ungültigmachung

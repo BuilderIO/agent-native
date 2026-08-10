@@ -1,7 +1,6 @@
 ---
 title: "Overview"
 description: "The app/ and public/ directories: where you build the display of an agent-native app, and the browser APIs it uses to stay in sync with the agent."
-draft: true
 ---
 
 # Overview
@@ -111,7 +110,7 @@ This page covers the directories you build in and the pieces of the browser runt
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | **`app/root.tsx`**                                  | The HTML shell and provider stack — see [The Browser Shell](#app-shell) below                                     |
 | **`app/entry.client.tsx` / `app/entry.server.tsx`** | Hydration and SSR bootstrap — see [Entry Points](/docs/client-entry-points)                                       |
-| **`app/routes.ts` + `app/routes/`**                 | File-based pages and navigation — see [Routing](/docs/routing)                                                    |
+| **`app/routes.ts` + `app/routes/`**                 | File-based pages and navigation — see [Routing](/docs/client-routing)                                             |
 | **`app/components/`**                               | Your UI: shadcn-style primitives plus app-specific components — see [shadcn/ui](/docs/shadcn-ui)                  |
 | **`app/hooks/`**                                    | Data, sync, and agent-chat hooks — see [Data & Sync](/docs/client-data) and [Agent Chat](/docs/client-agent-chat) |
 | **`app/lib/`**                                      | Shared client utilities (app config, tab id, `cn`) — see [Utilities](#utilities) below                            |
@@ -201,7 +200,7 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**Advanced**](/docs/client-advanced) — application state, background chat sends, and the MCP App host bridge
 - [**Sync Internals**](/docs/client-sync-internals) — `useChangeVersion` for syncing a raw `useQuery`
 - [**Entry Points**](/docs/client-entry-points) — SSR bootstrap customization
-- [**Routing**](/docs/routing) — file-based pages, dynamic params, and navigation
+- [**Routing**](/docs/client-routing) — file-based pages, dynamic params, and navigation
 - [**Actions**](/docs/actions) — the `defineAction` surface behind every data hook
 - [**Custom Design Systems**](/docs/custom-design-system) — swapping in your own component library via `app/design-system.ts`
 - [**Authentication**](/docs/authentication) — the session checks `AppProviders` runs on private paths

@@ -1499,7 +1499,6 @@ const zhCN = {
     serverPlugins: "插件",
     serverRoutes: "路由",
     client: "客户端",
-    clientNext: "客户端（新）",
     clientOverview: "概览",
     clientDataSync: "数据与同步",
     clientAgentChat: "Agent 聊天",

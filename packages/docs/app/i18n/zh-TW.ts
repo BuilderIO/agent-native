@@ -1497,7 +1497,6 @@ const messages = {
     serverPlugins: "外掛",
     serverRoutes: "路由",
     client: "用戶端",
-    clientNext: "用戶端（新）",
     clientOverview: "總覽",
     clientDataSync: "資料與同步",
     clientAgentChat: "Agent 聊天",

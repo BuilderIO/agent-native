@@ -1523,7 +1523,6 @@ const ptBR = {
     serverPlugins: "Plugins",
     serverRoutes: "Rotas",
     client: "Cliente",
-    clientNext: "Cliente (novo)",
     clientOverview: "Visão geral",
     clientDataSync: "Dados e sincronização",
     clientAgentChat: "Chat do Agent",

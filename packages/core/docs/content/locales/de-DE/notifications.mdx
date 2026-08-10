@@ -363,7 +363,7 @@ Automatisierungen können dies verketten – z.B. _"Wenn eine kritische Benachri
 ## Wie es funktioniert {#internals}
 
 - **Owner Scoping** – jede Zeile hat eine `owner`-Spalte; jede Abfrage filtert danach; Jede Route verwendet die E-Mail-Adresse der authentifizierten Sitzung. Benutzer sehen nie die Benachrichtigungen der anderen.
-- **Umfrageintegration** – jede Mutation ruft `recordChange()` auf, sodass Vorlagen, die [`useDbSync`](/docs/client) verwenden, ohne zusätzliche Verkabelung automatisch ungültig werden.
+- **Umfrageintegration** – jede Mutation ruft `recordChange()` auf, sodass Vorlagen, die [`useDbSync`](/docs/client-data#usedbsync) verwenden, ohne zusätzliche Verkabelung automatisch ungültig werden.
 - **Best-Effort-Fanout** – Kanalfehler werden abgefangen und protokolliert; Ein ausgefallener Kanal blockiert nicht andere oder das Schreiben in den Posteingang.
 - **Fire-and-Forget** – `notify()` kehrt zurück, nachdem der Posteingangsschreibvorgang abgeschlossen ist; Benutzerdefinierte Kanäle werden im Hintergrund ausgeführt.
 

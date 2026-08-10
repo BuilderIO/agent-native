@@ -1,0 +1,206 @@
+---
+title: "概要"
+description: "app/ と public/ ディレクトリ: agent-native アプリの表示を組み立てる場所と、エージェントとの同期を保つブラウザ API。"
+---
+
+# 概要
+
+`app/` は、agent-native アプリの実際の表示を組み立てる場所です。ページ、レイアウト、コンポーネント、スタイルなど。 `public/` には、アイコン、マニフェスト、ブランド マークなど、それと一緒に配信される静的アセットが格納されています。これは典型的な React Router v8 アプリであり、特別なエージェント専用のサーフェスではありません。開発時間の大半はここに費やされます。
+
+典型的なフロントエンドとのアーキテクチャ上の唯一の違いは、このレイヤーには独自のバックエンド フォー フロントエンドがないことです。エージェントが呼び出すのと同じアクションを通じてデータを読み書きするため、ここで構築されたものは自動的にエージェントも実行できる機能になります。
+
+<Diagram id="doc-block-client-overview-1" title="従来のフロントエンド vs. Agent Native" summary="従来のフロントエンドは、それ専用の API 層を呼び出します。Agent Native では、app/ とエージェントの両方が同じアクションを呼び出すため、ここで構築されるすべての機能が無料でエージェント呼び出し可能になります。">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">従来</div>
+    <div class="diagram-node">app/ (React フロントエンド)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API 層</strong>
+      <small class="diagram-muted">フロントエンドだけが呼び出せる</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>データベース</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (React フロントエンド)</div>
+      <div class="diagram-node">エージェント</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">対等なパートナー、同じ操作</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL データベース</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## クライアントが担う役割 {#role}
+
+ブラウザからのリクエスト、エージェント ループ、外部 API クライアントは、すべて同じアクションと同じ SQL データベースに解決されます。このレイヤーがエージェントの手が届かない「アプリのバックエンド」に別途話しかけることはありません。ここで機能を構築するということは、エージェントが既に持っている操作の上に UI を構築すること、または新しいアクションを定義して同時にその UI も手に入れることを意味します。この契約の操作側については [Actions](/docs/actions) を参照してください。
+
+このページでは、`app/` の中で作業するディレクトリと、他のどこにも文書化されていないブラウザ ランタイムの部分 (`root.tsx`、`public/`) を扱います。コンポーネントをアクションやエージェントに接続する React フックは、それぞれ専用のページで扱っています。
+
+| ページ                                              | 内容                                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **[データと同期](/docs/client-data)**               | `useActionQuery`、`useActionMutation`、`callAction`、`useDbSync`                                                                |
+| **[Agent チャット](/docs/client-agent-chat)**       | `sendToAgentChat`、`askUserQuestion`、`openAgentSettings`、動的な提案、ステージングされたエージェント チャット コンテキスト状態 |
+| **[高度](/docs/client-advanced)**                   | `application_state` への直接アクセス、バックグラウンドでのチャット送信、カスタム提案チップ、MCP アプリ ホスト ブリッジ          |
+| **[同期の内部](/docs/client-sync-internals)**       | 生の `useQuery` を同期するための `useChangeVersion`/`useChangeVersions`                                                         |
+| **[エントリーポイント](/docs/client-entry-points)** | `app/entry.client.tsx`/`app/entry.server.tsx` と SSR のカスタマイズ                                                             |
+
+## app/ と public/ の内容 {#project-directories}
+
+| パス                                                | 内容                                                                                                                                |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **`app/root.tsx`**                                  | HTML シェルとプロバイダー スタック — 下記の [ブラウザ シェル](#app-shell) を参照                                                    |
+| **`app/entry.client.tsx` / `app/entry.server.tsx`** | ハイドレーションと SSR のブートストラップ — [エントリーポイント](/docs/client-entry-points) を参照                                  |
+| **`app/routes.ts` + `app/routes/`**                 | ファイルベースのページとナビゲーション — [Routing](/docs/client-routing) を参照                                                     |
+| **`app/components/`**                               | 自分の UI: shadcn スタイルのプリミティブとアプリ固有のコンポーネント — [shadcn/ui](/docs/shadcn-ui) を参照                          |
+| **`app/hooks/`**                                    | データ、同期、エージェント チャットのフック — [データと同期](/docs/client-data) と [Agent チャット](/docs/client-agent-chat) を参照 |
+| **`app/lib/`**                                      | 共有クライアント ユーティリティ (アプリ設定、タブ id、`cn`) — 下記の [ユーティリティ](#utilities) を参照                            |
+| **`app/design-system.ts`**                          | オプションのカスタム デザイン システム アダプター — [カスタム デザイン システム](/docs/custom-design-system) を参照                 |
+| **`app/i18n/`**                                     | ローカライズされた UI 文言のカタログ — [Internationalization](/docs/internationalization) を参照                                    |
+| **`app/global.css`**                                | 基本スタイルと Tailwind のエントリーポイント                                                                                        |
+| **`public/`**                                       | そのまま配信される静的アセット — 下記の [静的アセット](#public-directory) を参照                                                    |
+
+## ブラウザ シェル: root.tsx と AppProviders {#app-shell}
+
+`app/root.tsx` は React ツリーの最上位です。HTML ドキュメント シェル (`<html>`、`<head>`、`<Meta>`、`<Links>`、`<Scripts>`) と、すべてのルートがその内側でレンダリングされるプロバイダー スタックです。
+
+```tsx filename="app/root.tsx"
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import { useState } from "react";
+import { Outlet } from "react-router";
+import { i18nCatalog } from "./i18n";
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+
+  return (
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <Outlet />
+    </AppProviders>
+  );
+}
+```
+
+`AppProviders` は、次のものを配線する単一のラッパーです。
+
+- `useActionQuery`/`useActionMutation` が使用する React Query クライアント ([データと同期](/docs/client-data#fetching-mutating) を参照)。
+- `i18n.catalog` として渡される i18n カタログ ([Internationalization](/docs/internationalization) を参照)。
+- クライアント側のセッション チェック: プライベート パスでは、匿名の訪問者はプライベート UI がマウントされる前にサインインへリダイレクトされます。パブリック/SEO ルートには `isPublicPath` を、MCP 埋め込みトークンなど別の方法で認証されるサーフェスには `sessionBypass` を渡します。[Authentication](/docs/authentication) を参照してください。
+
+多くのアプリはここで `<AgentSidebar>` または `<AgentPanel>` もマウントし、すべてのルートで無料でエージェント パネルを利用できるようにします。[Drop-in Agent](/docs/drop-in-agent#sidebar) を参照してください。
+
+## 静的アセット: public/ {#public-directory}
+
+`public/` の内容はすべて、ビルドで処理されずにサイトのルートでそのまま配信されます。すべてのテンプレートに次が含まれます。
+
+```text
+public/
+  favicon.svg           -> browser tab icon
+  icon-180.svg           -> apple-touch-icon
+  icon-192.svg, icon-512.svg -> PWA icons referenced from manifest.json
+  manifest.json          -> web app manifest (name, theme color, icons)
+  *-logo-*.svg, *-icon-*.svg -> brand marks used in the default UI
+```
+
+`manifest.json` は、訪問者がアプリをホーム画面やアプリ ドックにインストールした場合に表示される内容 (名前、短い名前、テーマ/背景色、アイコン セット) を制御します。
+
+```json filename="public/manifest.json"
+{
+  "name": "My App",
+  "short_name": "My App",
+  "theme_color": "#18181B",
+  "icons": [
+    { "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }
+  ]
+}
+```
+
+これらのファイルを置き換えて `manifest.json` と、それらを参照する `root.tsx` 内の `<link rel="icon">`/`<link rel="apple-touch-icon">` タグを更新するだけでアプリをリブランドできます。別途の登録手順はありません。既存のサイトから完全なブランド システム (色、フォント、favicon) を取得する場合は、これらのファイルを手作業で編集する代わりに [Brand Systems and Figma](/docs/template-design-brand-and-figma) を参照してください。
+
+## ユーティリティ: cn {#utilities}
+
+```ts
+import { cn } from "@agent-native/toolkit/utils";
+
+<div className={cn(
+  "px-4 py-2 rounded",
+  isActive && "bg-primary text-primary-foreground",
+  className
+)} />
+```
+
+`cn` はクラス名をマージします (clsx + tailwind-merge)。これは、`app/components/` 全体で条件付きの Tailwind クラスを組み合わせる標準的な方法です。
+
+## 次は何ですか
+
+- [**データと同期**](/docs/client-data) — アクション フックと `useDbSync`
+- [**Agent チャット**](/docs/client-agent-chat) — `sendToAgentChat`、`askUserQuestion`、動的な提案
+- [**高度**](/docs/client-advanced) — アプリケーション状態、バックグラウンドでのチャット送信、MCP アプリ ホスト ブリッジ
+- [**同期の内部**](/docs/client-sync-internals) — 生の `useQuery` を同期する `useChangeVersion`
+- [**エントリーポイント**](/docs/client-entry-points) — SSR ブートストラップのカスタマイズ
+- [**Routing**](/docs/client-routing) — ファイルベースのページ、動的パラメータ、ナビゲーション
+- [**Actions**](/docs/actions) — すべてのデータ フックの背後にある `defineAction` サーフェス
+- [**カスタム デザイン システム**](/docs/custom-design-system) — `app/design-system.ts` で独自のコンポーネント ライブラリに切り替える
+- [**Authentication**](/docs/authentication) — `AppProviders` がプライベート パスで実行するセッション チェック

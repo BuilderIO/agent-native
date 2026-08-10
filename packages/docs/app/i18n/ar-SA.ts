@@ -1515,7 +1515,6 @@ const arSA = {
     serverPlugins: "الإضافات",
     serverRoutes: "المسارات",
     client: "Client",
-    clientNext: "Client (جديد)",
     clientOverview: "نظرة عامة",
     clientDataSync: "البيانات والمزامنة",
     clientAgentChat: "محادثة الوكيل",

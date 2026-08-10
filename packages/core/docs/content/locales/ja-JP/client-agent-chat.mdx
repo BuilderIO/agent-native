@@ -1,0 +1,312 @@
+---
+title: "Agent チャット"
+description: "エージェント チャットへのクライアント側のエントリーポイント: sendToAgentChat、openAgentSettings、askUserQuestion、動的な提案、useAgentChatGenerating、ステージングされたエージェント チャット コンテキスト状態。"
+---
+
+# Agent チャット
+
+アプリケーションのクライアントは、小さなクライアント ヘルパーのセットを通じてエージェントと話すことができます。プロンプトの送信、非表示コンテキストのステージング、ユーザーへのブロッキングな質問、エージェント パネルのオープンをカバーします。
+
+以下の例では、**Draft response** ボタンがエージェントにユーザーへの質問を促します。ユーザーが回答すると、エージェントは現在のページのコンテキストとユーザーの回答を念頭に置いて返信の作成を進めます。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc3c9ccac6c6404f99fc27336b78a6d8?alt=media&token=d7aa0f72-eec3-4495-99c2-0d9bea11022e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="実行履歴サイドバーを示す Dispatch アプリのスクリーンショット。"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Dispatch の実行履歴サイドバー。"
+/>
+
+## 仕組み
+
+Agent-Native が提供するクライアント ヘルパー メソッドを使用することで、UI はさまざまな方法でエージェントにユーザーとのやり取りを促すことができます。下の図は、ユーザーがクリックする "Draft response" ボタンが、応答を生成する前にエージェントにユーザーとのやり取りを促す様子を示しています。
+
+<Image
+  src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59e297f868244e39ba5ad9c62a32281e?width=500&height=500"
+  alt="「who owns each step」というタイトルのシーケンス図。App Code、UI、Agent の 3 つのライフラインを示す。ユーザーが「draft response」をクリックすると askUserQuestion() がトリガーされる。これはエージェント パネル内にインラインでレンダリングされることを説明する注記がある。ユーザーが返答すると、Agent 上で sendDraftRequest() が呼び出され、draft-ticket-reply を呼び出して、作成された返信を UI のコンポーザーに返す。"
+  align="full"
+  width={600}
+  caption="「Draft response」ボタンのフローを可視化したシーケンス図。"
+/>
+
+ユーザー エクスペリエンスは次のとおりです。
+
+1. ユーザーが **Draft response** ボタンをクリックすると、`askUserQuestion()` 関数が呼び出されます。質問はエージェント パネル内にインラインで表示され回答されます。
+
+1. ユーザーが **Offer a refund** を選ぶと、`sendDraftRequest()` がプロンプトとチケットのコンテキストをエージェントに送信します。
+
+1. エージェントが `draft-ticket-reply` [アクション](/docs/actions) を呼び出し、作成された返信が返信コンポーザーに表示されます。
+
+## askUserQuestion(opts) {#ask-user-question}
+
+<Signature
+  id="doc-block-client-agent-chat-3"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "質問、その選択肢、それがどのように振る舞うか。",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description: "完全な質問文。明確で具体的、疑問符で終わる。",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description: '非常に短いチップ/見出し。約 12 文字、例 `"Response"`。',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description:
+            "2〜4 個の異なる選択肢。各項目は `{ label, value?, description?, preview?, recommended? }`。`value` はデフォルトで `label` になります。",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            '自由記述の "Other" 選択肢を追加し、担当者が入力できるようにします。',
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "単一選択の代わりに複数選択にします。",
+        },
+        {
+          name: "stateKey",
+          type: "string",
+          optional: true,
+          default: '"guided-questions"',
+          description:
+            "エージェント パネルがポーリングするアプリケーション状態のキー。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      "選択された `value` (`allowMultiple` の場合は `value[]`)、担当者が入力した「Other」テキスト、またはスキップした場合は `null`。回答するまで保留状態のままです。エージェント パネルがマウントされている必要があります (すべてのテンプレートでマウントされています)。",
+  }}
+/>
+
+この関数は、アプリのコードからユーザーに多肢選択の質問をし、それをエージェント パネル内にインラインでレンダリングし、回答を待ちます。UI がエージェントの作業を開始する前に、2〜4 個の選択肢を持つ 1 つの小さな決定を必要とする場合に、カスタム モーダルを構築する代わりに使用します。
+
+以下の例では、チケット ページの「Draft Response」ボタンが、何かをエージェントに送信する前に、担当者にどう返信したいかを尋ねます。
+
+```ts
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+
+const answer = await askUserQuestion({
+  question: "How would you like to respond to this ticket?",
+  header: "Response", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Offer a refund", value: "refund" },
+    { label: "Offer a reprint", value: "reprint" },
+  ],
+});
+```
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+<Signature
+  id="doc-block-client-agent-chat-4"
+  name="useAgentChatGenerating"
+  params={[]}
+  returns={{
+    type: "[boolean, (opts: AgentChatMessage) => string]",
+    description:
+      "`[isGenerating, send]` タプル。`isGenerating` は `send()` を呼び出した瞬間から、エージェント チャットの実行が停止を報告するまで `true` です。`send(opts)` は `sendToAgentChat()` と同じシグネチャを持ち、送信先のタブ id を返します。",
+  }}
+/>
+
+この React フックは、読み込み状態の追跡を加えて `sendToAgentChat()` をラップします。
+
+1. 1 番目の引数 `isGenerating` は、呼び出すと true になり、エージェントが生成を完了すると false にリセットされます。
+
+2. 2 番目の引数 `send()` は、`sendToAgentChat()` 関数を反映します。
+
+`isGenerating` は、実行が実際に開始し、停止を報告した場合にのみリセットされます。`submit: false` の呼び出しは、実行を開始せずにドラフトを事前入力するだけなので、その後は `isGenerating` が永久に `true` のままになります。このフックは `submit: true` の送信にのみ使用してください。事前入力のみの送信には `sendToAgentChat()` を直接呼び出してください。
+
+上記の `askUserQuestion()` の例とこれを組み合わせると、ボタンのハンドラーが完成します。
+
+<AnnotatedCode
+  id="doc-block-client-agent-chat-2"
+  title="Draft Response ハンドラーを完成させる"
+  language="tsx"
+  code={
+    'import {\n  askUserQuestion,\n  useAgentChatGenerating,\n} from "@agent-native/core/client/agent-chat";\n\nfunction useDraftResponseButton(ticket: { id: string; subject: string }) {\n  const [isDrafting, sendDraftRequest] = useAgentChatGenerating();\n\n  async function requestDraft() {\n    const answer = await askUserQuestion({\n      question: "How would you like to respond to this ticket?",\n      header: "Response",\n      options: [\n        { label: "Offer a refund", value: "refund" },\n        { label: "Offer a reprint", value: "reprint" },\n      ],\n    });\n    if (!answer || Array.isArray(answer)) return;\n\n    const intent =\n      answer === "refund"\n        ? "offering a refund"\n        : answer === "reprint"\n          ? "offering a reprint"\n          : `taking this direction from the rep: "${answer}"`;\n\n    sendDraftRequest({\n      message: `Draft a reply to this ticket ${intent}. Place it in the reply composer with draft-ticket-reply for ticket ${ticket.id}, don\'t send it.`,\n      context: `Ticket ${ticket.id}: "${ticket.subject}"`,\n      submit: true,\n      openSidebar: true,\n    });\n  }\n\n  return { isDrafting, requestDraft };\n}\n\nfunction DraftResponseButton({\n  ticket,\n}: {\n  ticket: { id: string; subject: string };\n}) {\n  const { isDrafting, requestDraft } = useDraftResponseButton(ticket);\n\n  return (\n    <button disabled={isDrafting} onClick={requestDraft}>\n      {isDrafting ? "Drafting..." : "Draft Response"}\n    </button>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "読み込み状態 + 送信をひとつに",
+      note: "`useAgentChatGenerating()` は単純な `sendToAgentChat()` 呼び出しと同じタプル形状を返しますが、リクエストが処理中の間ボタンを無効化するための `isDrafting` を追加します。",
+    },
+    {
+      lines: "10-17",
+      label: "ask ステップを再利用",
+      note: "これは上のセクションとまったく同じ `askUserQuestion()` の呼び出しで、今回はボタン自身のハンドラー内にあります。",
+    },
+    {
+      lines: "18",
+      label: "使用前に絞り込む",
+      note: "戻り値の型は `allowMultiple` による `string[]` を常に許容するため、この呼び出しではそれを設定していなくてもこのチェックは必要です。",
+    },
+    {
+      lines: "20-25",
+      label: "選択を文章に変換",
+      note: "選択された値、または担当者自身が入力したテキストを、下のプロンプトが自然に読める言い回しにマッピングします。",
+    },
+    {
+      lines: "27-32",
+      label: "アクションと意図を名指しする",
+      note: "メッセージは、エージェントが正確にどのアクションを呼び出すべきか (`draft-ticket-reply`) を伝え、返信をそのまま送信しないよう念押しします。`openSidebar: true` は、サイドバーが閉じていた場合でも作成された返信が確実に見えるようにします。",
+    },
+    {
+      lines: "46-48",
+      label: "isDrafting がボタンを駆動する",
+      note: "`sendDraftRequest()` が処理中の間だけ無効化・再ラベル化されます。`askUserQuestion()` が担当者の回答を待っている間は、ボタンはクリック可能なままです。それは `sendDraftRequest()` が呼び出されるより前に発生するためです。",
+    },
+  ]}
+/>
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+`postMessage` 経由でエージェント チャットにメッセージを送信します。これは `useAgentChatGenerating()` がラップしている、より低レベルのプリミティブで、UI のやり取りが自前の読み込み状態の追跡を必要としない場合に便利です。メッセージだけでは伝わらない追加の詳細には `context` を渡します。これは同じ表示メッセージに `<context>` タグで囲んで追加されます。ユーザーから隠されるわけではありません。すぐに送信するには `submit: true` を、ユーザーが最初にレビューするドラフトを事前入力するには `submit: false` を渡します。
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+// Auto-submit a prompt with appended context
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+### AgentChatMessage {#agentchatmessage}
+
+| オプション    | タイプ     | 説明                                                                                                 |
+| ------------- | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | チャットに送信されるプロンプト。設定されている場合、`context` はこの同じ表示メッセージに追加されます |
+| `context`     | `string?`  | 表示メッセージに `<context>` タグで囲んで追加される追加の詳細。ユーザーから隠されない                |
+| `submit`      | `boolean?` | true = 自動送信、false = 事前入力のみ                                                                |
+| `newTab`      | `boolean?` | このプロンプト用に別のチャット スレッドを作成する                                                    |
+| `openSidebar` | `boolean?` | サイドバーを開かずに送信/事前入力するには false を設定                                               |
+
+MCP アプリ埋め込み内からこれを実行する場合や、サイドバーを開かずに実行をバックグラウンドに送る方法は、いずれも [高度](/docs/client-advanced#background-send) で扱っています。
+
+## 動的な提案 {#dynamic-suggestions}
+
+会話が始まる前、`<AgentSidebar>`、`<AgentPanel>`、`<AssistantChat>` は空のチャットにプロンプト チップを表示します。デフォルトでは、これらは固定の `suggestions` リストだけではありません。フレームワークはアプリケーション状態から `navigation`、`selection`、`pending-selection-context`、現在の URL を読み取り、実際に画面に表示されているものに一致するチップをマージします。
+
+これは 2 つのチェックで行われます。何かが選択されている場合は、「Summarize this selection」のような汎用的なチップを追加します。それとは別に、多くのアプリが既に使用しているフィールド名 (メール スレッドの `threadId`/`emailId` や、チャートの `dashboardId`/`chartId` など) を `navigation` から探し、そのような画面に合わせたチップ (スレッドなら「Draft a reply」、チャートなら「Find anomalies in this data」など) を追加します。生成された結果は、静的な `suggestions` とマージされ、重複が除去され、`max` で上限が設けられます。
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+現在の画面がヒューリスティックが認識するものに一致せず、何も選択されていない場合、チップは追加されず、空のチャットは静的な `suggestions` だけにフォールバックします。静的チップのみを保持するには `dynamicSuggestions={false}` を設定してください。アプリのナビゲーションの形が組み込みのヒューリスティックに一致しない場合、または完全に決定論的なアプリ固有のチップが欲しい場合は、[高度](/docs/client-advanced#custom-suggestions) を参照してください。
+
+## openAgentSettings(section?) {#openagentsettings}
+
+アプリの設定ページやセットアップ カードがエージェント サイドバーの設定タブを開くべきときは、`openAgentSettings()` を使用します。特定のセクションを開くには、`"llm"`、`"secrets"`、`"automations"`、`"voice"`、`"limits"` などのセクション id を渡します。
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client/navigation";
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+`agent-panel:open-settings` を直接ディスパッチするより、このヘルパーを優先してください。
+
+## Agent チャット コンテキスト状態 {#agent-chat-context-state}
+
+コンテキスト状態の API は、ステージングされたコンテキスト チップと双方向に同期する必要がある UI のためのオプションの配線です。コンポーザーの外で現在ステージングされている項目をレンダリングしたり、項目が既に添付されているかどうかを反映したり、明示的な削除/クリア操作を提供したりする場合に使います。
+
+単純な「これをエージェントに送信する」や「レビュー用にこのドラフトを事前入力する」フローには、これらのヘルパーに手を出さないでください。それらには [`sendToAgentChat()`](#sendtoagentchat) を `context` と `submit` と一緒に使用してください。
+
+| API                               | 使用する場合                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | React コンポーネントがステージングされたコンテキストのライブ リストを必要とする場合         |
+| `setAgentChatContextItem(item)`   | 命令型のコードが 1 つのキー付きコンテキスト項目をステージングまたは置換すべき場合           |
+| `listAgentChatContext()`          | 非 React コードがステージングされたコンテキストの一度限りのスナップショットを必要とする場合 |
+| `removeAgentChatContextItem(key)` | UI が安定した `key` によって 1 つのステージング済みコンテキスト項目を削除すべき場合         |
+| `clearAgentChatContext()`         | ビューやモードのリセット後など、UI がステージングされたコンテキストをすべてクリアすべき場合 |
+| `refreshAgentChatContext()`       | 命令型のコードが最新の永続化されたコンテキスト スナップショットを再読み込みすべき場合       |
+
+`useAgentChatContext()` は `{ items, set, remove, clear, refresh }` を返します。
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
+
+function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-ticket:${ticket.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Ticket",
+          context: JSON.stringify(ticket, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` は、現在ステージングされている項目を一度だけ確認する必要がある命令型のコード向けです。`clearAgentChatContext()` は意図的に広い範囲に対応します。選択が 1 つだけ変わった場合は `removeAgentChatContextItem(key)` を使用してください。
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| オプション    | タイプ     | 説明                                                                           |
+| ------------- | ---------- | ------------------------------------------------------------------------------ |
+| `key`         | `string`   | 既存のナゲットを置き換えるために使用される安定した識別子                       |
+| `title`       | `string`   | コンポーザーのチップに表示される短いラベル                                     |
+| `context`     | `string`   | 次に送信されるプロンプトに含まれる非表示のコンテキスト                         |
+| `openSidebar` | `boolean?` | デフォルトは true。コンテキストをサイレントにステージングするには false を渡す |
+
+## 次は何ですか
+
+- [**概要**](/docs/client-overview) — これらのヘルパーが `app/` の中でどこに位置するか
+- [**データと同期**](/docs/client-data) — UI 自体を最新に保つアクション フックと `useDbSync`
+- [**Drop-in Agent**](/docs/drop-in-agent) — これらのヘルパーがレンダリングされる場所を用意する `<AgentSidebar>`/`<AgentPanel>` のマウント
+- [**高度**](/docs/client-advanced) — バックグラウンド送信、カスタム提案チップ、MCP アプリ ホスト ブリッジ
+- [**Generative UI**](/docs/generative-ui) — `askUserQuestion` を超えたインライン チャット コントロールの構築
+  </content>

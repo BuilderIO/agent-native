@@ -1,0 +1,314 @@
+---
+title: "एजेंट चैट"
+description: "एजेंट चैट में क्लाइंट-साइड एंट्री पॉइंट: sendToAgentChat, openAgentSettings, askUserQuestion, डायनामिक सुझाव, useAgentChatGenerating, और स्टेज्ड एजेंट चैट कॉन्टेक्स्ट स्थिति।"
+---
+
+# एजेंट चैट
+
+आपके एप्लिकेशन का क्लाइंट क्लाइंट हेल्पर्स के एक छोटे सेट के माध्यम से एजेंट से बात कर सकता है। यह प्रॉम्प्ट भेजना, छिपा हुआ कॉन्टेक्स्ट स्टेज करना, उपयोगकर्ता से एक ब्लॉकिंग प्रश्न पूछना, और एजेंट पैनल खोलना कवर करता है।
+
+नीचे दिए गए उदाहरण में, एक **Draft response** बटन एजेंट को उपयोगकर्ता से एक प्रश्न पूछने के लिए प्रॉम्प्ट करता है। एक बार उपयोगकर्ता उत्तर दे देता है, एजेंट वर्तमान पेज कॉन्टेक्स्ट और उपयोगकर्ता के उत्तर को ध्यान में रखते हुए रिस्पॉन्स ड्राफ्ट करने लगता है।
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc3c9ccac6c6404f99fc27336b78a6d8?alt=media&token=d7aa0f72-eec3-4495-99c2-0d9bea11022e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Dispatch ऐप का स्क्रीनशॉट जो रन हिस्ट्री साइडबार दिखा रहा है"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Dispatch की रन हिस्ट्री साइडबार।"
+/>
+
+## यह कैसे काम करता है
+
+Agent-Native द्वारा प्रदान किए गए क्लाइंट हेल्पर मेथड का उपयोग करके, आपका UI एजेंट को उपयोगकर्ता के साथ विभिन्न तरीकों से इंटरैक्ट करने के लिए प्रॉम्प्ट कर सकता है। नीचे दिया गया डायग्राम दिखाता है कि उपयोगकर्ता द्वारा क्लिक किए गए "Draft response" बटन एजेंट को रिस्पॉन्स जनरेट करने से पहले उपयोगकर्ता के साथ इंटरैक्ट करने के लिए कैसे प्रॉम्प्ट कर सकता है।
+
+<Image
+  src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59e297f868244e39ba5ad9c62a32281e?width=500&height=500"
+  alt="'who owns each step' शीर्षक वाला सीक्वेंस डायग्राम, तीन लाइफलाइन: App Code, UI, और Agent। 'draft response' पर क्लिक askUserQuestion() ट्रिगर करता है (एजेंट पैनल में इनलाइन रेंडर होता है)। जवाब के बाद sendDraftRequest() draft-ticket-reply को कॉल करता है और UI कंपोज़र को रिप्लाई लौटाता है।"
+  align="full"
+  width={600}
+  caption="'Draft response' बटन फ्लो को विज़ुअलाइज़ करने वाला सीक्वेंस डायग्राम।"
+/>
+
+उपयोगकर्ता का अनुभव इस प्रकार है:
+
+1. उपयोगकर्ता **Draft response** बटन पर क्लिक करता है, जिससे `askUserQuestion()` फ़ंक्शन कॉल होता है। प्रश्न का उत्तर एजेंट पैनल में इनलाइन दिया जाता है।
+
+1. उपयोगकर्ता **Offer a refund** चुनता है, जिससे `sendDraftRequest()` प्रॉम्प्ट और टिकट कॉन्टेक्स्ट को एजेंट को भेजता है।
+
+1. एजेंट `draft-ticket-reply` [action](/docs/actions) को कॉल करता है, और ड्राफ्ट रिप्लाई रिप्लाई कंपोज़र में दिखाई देता है।
+
+## askUserQuestion(opts) {#ask-user-question}
+
+<Signature
+  id="doc-block-client-agent-chat-3"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "प्रश्न, इसके विकल्प, और इसे कैसे व्यवहार करना चाहिए।",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description:
+            "पूरा प्रश्न। स्पष्ट, विशिष्ट, प्रश्न चिह्न के साथ समाप्त होता है।",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description:
+            'बहुत छोटा चिप/शीर्षक, लगभग 12 अक्षर, जैसे `"Response"`।',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description:
+            "2-4 अलग-अलग विकल्प। हर एक `{ label, value?, description?, preview?, recommended? }` है। `value` डिफ़ॉल्ट रूप से `label` होता है।",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            'एक फ़्री-टेक्स्ट "Other" विकल्प जोड़ता है जिसमें रेप टाइप कर सकता है।',
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "सिंगल-सिलेक्ट के बजाय मल्टी-सिलेक्ट।",
+        },
+        {
+          name: "stateKey",
+          type: "string",
+          optional: true,
+          default: '"guided-questions"',
+          description: "एप्लिकेशन-स्टेट key जिसे एजेंट पैनल पोल करता है।",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      'चुना गया `value` (या `allowMultiple` होने पर `value[]`), रेप का टाइप किया गया "Other" टेक्स्ट, या यदि वे स्किप करते हैं तो `null`। उनके उत्तर देने तक पेंडिंग रहता है। एजेंट पैनल को माउंट होना ज़रूरी है, जो हर टेम्पलेट में होता है।',
+  }}
+/>
+
+यह फ़ंक्शन ऐप कोड से उपयोगकर्ता से एक बहुविकल्पीय प्रश्न पूछता है, इसे एजेंट पैनल में इनलाइन रेंडर करता है, और उनके उत्तर की प्रतीक्षा करता है। इसका उपयोग तब करें जब UI को एजेंट का काम शुरू करने से पहले दो से चार विकल्पों के साथ एक छोटे निर्णय की आवश्यकता हो, कस्टम मॉडल बनाने के बजाय।
+
+नीचे दिए गए उदाहरण में, किसी टिकट पेज पर "Draft Response" बटन कुछ भी एजेंट को भेजने से पहले रेप से पूछता है कि वे कैसे जवाब देना चाहेंगे:
+
+```ts
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+
+const answer = await askUserQuestion({
+  question: "How would you like to respond to this ticket?",
+  header: "Response", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Offer a refund", value: "refund" },
+    { label: "Offer a reprint", value: "reprint" },
+  ],
+});
+```
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+<Signature
+  id="doc-block-client-agent-chat-4"
+  name="useAgentChatGenerating"
+  params={[]}
+  returns={{
+    type: "[boolean, (opts: AgentChatMessage) => string]",
+    description:
+      "एक `[isGenerating, send]` ट्यूपल। `isGenerating` तब `true` होता है जब से `send()` कॉल किया जाता है जब तक एजेंट चैट रन यह रिपोर्ट नहीं कर देता कि वह रुक गया है। `send(opts)` का सिग्नेचर `sendToAgentChat()` जैसा ही है, और यह वह tab id लौटाता है जिसे उसने डिस्पैच किया।",
+  }}
+/>
+
+यह React हुक `sendToAgentChat()` को लोडिंग स्थिति ट्रैकिंग के साथ रैप करता है।
+
+1. पहला आर्ग्युमेंट, `isGenerating`, जब आप इसे कॉल करते हैं तो true हो जाता है, फिर जब एजेंट जनरेट करना समाप्त कर देता है तो false पर रीसेट हो जाता है।
+
+2. दूसरा आर्ग्युमेंट, `send()`, `sendToAgentChat()` फ़ंक्शन को दर्शाता है।
+
+`isGenerating` केवल तब रीसेट होता है जब कोई रन वास्तव में शुरू होता है और रिपोर्ट करता है कि वह रुक गया है। एक `submit: false` कॉल एक रन शुरू किए बिना एक ड्राफ्ट को प्रीफिल करता है, इसलिए एक के बाद `isGenerating` हमेशा के लिए `true` रहता है। इस हुक का उपयोग केवल `submit: true` सेंड के लिए करें; प्रीफिल-ओनली के लिए सीधे `sendToAgentChat()` को कॉल करें।
+
+ऊपर दिए गए `askUserQuestion()` उदाहरण के साथ इसे जोड़ने पर बटन का हैंडलर पूरा हो जाता है:
+
+<AnnotatedCode
+  id="doc-block-client-agent-chat-2"
+  title="Draft Response हैंडलर को पूरा करना"
+  language="tsx"
+  code={
+    'import {\n  askUserQuestion,\n  useAgentChatGenerating,\n} from "@agent-native/core/client/agent-chat";\n\nfunction useDraftResponseButton(ticket: { id: string; subject: string }) {\n  const [isDrafting, sendDraftRequest] = useAgentChatGenerating();\n\n  async function requestDraft() {\n    const answer = await askUserQuestion({\n      question: "How would you like to respond to this ticket?",\n      header: "Response",\n      options: [\n        { label: "Offer a refund", value: "refund" },\n        { label: "Offer a reprint", value: "reprint" },\n      ],\n    });\n    if (!answer || Array.isArray(answer)) return;\n\n    const intent =\n      answer === "refund"\n        ? "offering a refund"\n        : answer === "reprint"\n          ? "offering a reprint"\n          : `taking this direction from the rep: "${answer}"`;\n\n    sendDraftRequest({\n      message: `Draft a reply to this ticket ${intent}. Place it in the reply composer with draft-ticket-reply for ticket ${ticket.id}, don\'t send it.`,\n      context: `Ticket ${ticket.id}: "${ticket.subject}"`,\n      submit: true,\n      openSidebar: true,\n    });\n  }\n\n  return { isDrafting, requestDraft };\n}\n\nfunction DraftResponseButton({\n  ticket,\n}: {\n  ticket: { id: string; subject: string };\n}) {\n  const { isDrafting, requestDraft } = useDraftResponseButton(ticket);\n\n  return (\n    <button disabled={isDrafting} onClick={requestDraft}>\n      {isDrafting ? "Drafting..." : "Draft Response"}\n    </button>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "लोडिंग स्थिति + सेंड, एक साथ",
+      note: "`useAgentChatGenerating()` एक बेयर `sendToAgentChat()` कॉल जैसा ही ट्यूपल आकार लौटाता है, लेकिन `isDrafting` जोड़ता है ताकि बटन रिक्वेस्ट के इन-फ़्लाइट रहते हुए खुद को डिसेबल कर सके।",
+    },
+    {
+      lines: "10-17",
+      label: "ask स्टेप का पुनः उपयोग",
+      note: "यह ऊपर दिए गए सेक्शन का वही `askUserQuestion()` कॉल है, अब बटन के अपने हैंडलर के भीतर।",
+    },
+    {
+      lines: "18",
+      label: "उत्तर का उपयोग करने से पहले नैरो करें",
+      note: "रिटर्न टाइप हमेशा `allowMultiple` से `string[]` की अनुमति देता है, इसलिए यह जांच आवश्यक है भले ही यह कॉल इसे कभी सेट नहीं करती।",
+    },
+    {
+      lines: "20-25",
+      label: "चुनाव को एक वाक्य बनाएं",
+      note: "चुने गए value, या रेप के अपने टाइप किए गए टेक्स्ट को, ऐसे वाक्यांश में मैप करता है जिसे नीचे दिया प्रॉम्प्ट स्वाभाविक रूप से पढ़ता है।",
+    },
+    {
+      lines: "27-32",
+      label: "action और इंटेंट को नाम दें",
+      note: "मैसेज एजेंट को बताता है कि किस action को कॉल करना है (`draft-ticket-reply`) और उसे याद दिलाता है कि रिप्लाई बिल्कुल न भेजे। `openSidebar: true` सुनिश्चित करता है कि ड्राफ्ट रिप्लाई दिखाई दे भले ही साइडबार बंद हो।",
+    },
+    {
+      lines: "46-48",
+      label: "isDrafting बटन को चलाता है",
+      note: "केवल `sendDraftRequest()` के इन-फ़्लाइट रहते हुए डिसेबल और रीलेबल किया जाता है। जब `askUserQuestion()` रेप का इंतज़ार कर रहा हो तो बटन क्लिक करने योग्य बना रहता है, क्योंकि यह `sendDraftRequest()` कॉल होने से पहले होता है।",
+    },
+  ]}
+/>
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+`postMessage` के माध्यम से एजेंट चैट पर एक मैसेज भेजें। यह वह लोअर-लेवल प्रिमिटिव है जिसे ऊपर दिया `useAgentChatGenerating()` रैप करता है, यह उपयोगी है जब किसी UI इंटरैक्शन को खुद की लोडिंग-स्टेट ट्रैकिंग की आवश्यकता नहीं होती। अतिरिक्त विवरण के लिए `context` पास करें जो मैसेज खुद नहीं बताता। यह उसी दिखने वाले मैसेज में जुड़ जाता है, `<context>` टैग में रैप्ड। यह उपयोगकर्ता से छिपा नहीं है। तुरंत भेजने के लिए `submit: true` पास करें, या एक ड्राफ्ट प्रीफिल करने के लिए `submit: false` पास करें जिसे उपयोगकर्ता पहले रिव्यू करता है।
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+// Auto-submit a prompt with appended context
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+### AgentChatMessage {#agentchatmessage}
+
+| विकल्प        | प्रकार     | विवरण                                                                                            |
+| ------------- | ---------- | ------------------------------------------------------------------------------------------------ |
+| `message`     | `string`   | चैट पर भेजा गया प्रॉम्प्ट। यदि सेट है, तो `context` इसी दिखने वाले मैसेज में जुड़ जाता है        |
+| `context`     | `string?`  | दिखने वाले मैसेज में जुड़ा अतिरिक्त विवरण, `<context>` टैग में रैप्ड। उपयोगकर्ता से छिपा नहीं है |
+| `submit`      | `boolean?` | true = ऑटो-सबमिट, false = केवल प्रीफिल                                                           |
+| `newTab`      | `boolean?` | इस प्रॉम्प्ट के लिए एक अलग चैट थ्रेड बनाएं                                                       |
+| `openSidebar` | `boolean?` | साइडबार खोले बिना सबमिट/प्रीफिल करने के लिए false सेट करें                                       |
+
+इसी रूट को MCP App के रूप में एम्बेड करने से, या साइडबार खोले बिना रन को बैकग्राउंड में ले जाने से जुड़ी बातें [उन्नत](/docs/client-advanced#background-send) में कवर की गई हैं।
+
+## डायनामिक सुझाव {#dynamic-suggestions}
+
+किसी बातचीत के शुरू होने से पहले, `<AgentSidebar>`, `<AgentPanel>`, और `<AssistantChat>` खाली चैट पर प्रॉम्प्ट चिप्स दिखाते हैं। डिफ़ॉल्ट रूप से वे केवल आपकी फ़िक्स्ड `suggestions` सूची नहीं हैं: फ्रेमवर्क एप्लिकेशन स्टेट से `navigation`, `selection`, `pending-selection-context`, और वर्तमान URL पढ़ता है, और स्क्रीन पर वास्तव में जो है उससे मेल खाने वाले चिप्स मर्ज करता है।
+
+यह इसे दो जांचों के साथ करता है। यदि कुछ चुना गया है, तो यह सामान्य चिप्स जैसे "Summarize this selection" जोड़ता है। अलग से, यह `navigation` में उन कॉमन फ़ील्ड नामों को देखता है जिनका उपयोग ऐप्स पहले से करते हैं, जैसे किसी ईमेल थ्रेड के लिए `threadId`/`emailId` या किसी चार्ट के लिए `dashboardId`/`chartId`, और उस तरह की स्क्रीन के अनुरूप चिप्स जोड़ता है, जैसे थ्रेड के लिए "Draft a reply" या चार्ट के लिए "Find anomalies in this data"। यह जो भी लेकर आता है वह आपकी स्टैटिक `suggestions` के साथ मर्ज किया जाता है, डिडुप्लिकेट किया जाता है, और `max` पर कैप्ड किया जाता है।
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+यदि वर्तमान स्क्रीन बिल्ट-इन हेयुरिस्टिक की पहचान की गई किसी चीज़ से मेल नहीं खाती और कुछ भी चुना नहीं गया है, तो यह कोई चिप्स नहीं जोड़ता, और खाली चैट केवल आपकी स्टैटिक `suggestions` पर वापस आ जाती है। केवल स्टैटिक चिप्स रखने के लिए `dynamicSuggestions={false}` सेट करें। यदि आपके ऐप की नेविगेशन शेप बिल्ट-इन हेयुरिस्टिक से मेल नहीं खाती, या आप पूरी तरह से नियतात्मक ऐप-विशिष्ट चिप्स चाहते हैं, तो [उन्नत](/docs/client-advanced#custom-suggestions) देखें।
+
+## openAgentSettings(section?) {#openagentsettings}
+
+`openAgentSettings()` का उपयोग तब करें जब किसी ऐप सेटिंग्स पेज या सेटअप कार्ड को
+एजेंट साइडबार का Settings टैब खोलना चाहिए। किसी विशिष्ट सेक्शन को खोलने के लिए
+`"llm"`, `"secrets"`, `"automations"`, `"voice"`, या `"limits"` जैसा एक सेक्शन id पास करें।
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client/navigation";
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+सीधे `agent-panel:open-settings` डिस्पैच करने के बजाय इस हेल्पर को प्राथमिकता दें।
+
+## एजेंट चैट कॉन्टेक्स्ट स्थिति {#agent-chat-context-state}
+
+कॉन्टेक्स्ट-स्टेट APIs स्टेज्ड कॉन्टेक्स्ट चिप्स के साथ दो-तरफ़ा सिंक की आवश्यकता वाले UI के लिए वैकल्पिक प्लंबिंग हैं: कंपोज़र के बाहर वर्तमान स्टेज्ड आइटम को रेंडर करना, यह दर्शाना कि कोई आइटम पहले से अटैच है या नहीं, या स्पष्ट रिमूव/क्लियर कंट्रोल प्रदान करना।
+
+सरल "इसे एजेंट को भेजें" या "इस ड्राफ्ट को रिव्यू के लिए प्रीफिल करें" फ्लो के लिए इन हेल्पर्स तक न पहुंचें। उनके लिए `context` और `submit` के साथ [`sendToAgentChat()`](#sendtoagentchat) का उपयोग करें।
+
+| API                               | कब उपयोग करें                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | एक React घटक को लाइव स्टेज्ड कॉन्टेक्स्ट सूची की आवश्यकता है                      |
+| `setAgentChatContextItem(item)`   | इंपेरेटिव कोड को एक keyed कॉन्टेक्स्ट आइटम को स्टेज या रिप्लेस करना चाहिए         |
+| `listAgentChatContext()`          | नॉन-React कोड को स्टेज्ड कॉन्टेक्स्ट के एक बार के स्नैपशॉट की आवश्यकता है         |
+| `removeAgentChatContextItem(key)` | UI को अपने स्थिर `key` से एक स्टेज्ड कॉन्टेक्स्ट आइटम हटा देना चाहिए              |
+| `clearAgentChatContext()`         | UI को सभी स्टेज्ड कॉन्टेक्स्ट साफ़ करना चाहिए, जैसे किसी व्यू या मोड रीसेट के बाद |
+| `refreshAgentChatContext()`       | इंपेरेटिव कोड को नवीनतम परसिस्टेड कॉन्टेक्स्ट स्नैपशॉट को फिर से पढ़ना चाहिए      |
+
+`useAgentChatContext()`, `{ items, set, remove, clear, refresh }` लौटाता है।
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
+
+function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-ticket:${ticket.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Ticket",
+          context: JSON.stringify(ticket, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` उस इंपेरेटिव कोड के लिए है जिसे केवल वर्तमान स्टेज्ड आइटम को एक बार निरीक्षण करने की आवश्यकता है। `clearAgentChatContext()` जानबूझकर व्यापक है। जब केवल एक सिलेक्शन बदला हो तो `removeAgentChatContextItem(key)` का उपयोग करें।
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| विकल्प        | प्रकार     | विवरण                                                                           |
+| ------------- | ---------- | ------------------------------------------------------------------------------- |
+| `key`         | `string`   | मौजूदा नगेट को रिप्लेस करने के लिए उपयोग किया जाने वाला स्थिर पहचानकर्ता        |
+| `title`       | `string`   | कंपोज़र चिप में दिखाया गया छोटा लेबल                                            |
+| `context`     | `string`   | अगले सबमिट किए गए प्रॉम्प्ट के साथ शामिल छिपा हुआ कॉन्टेक्स्ट                   |
+| `openSidebar` | `boolean?` | डिफ़ॉल्ट रूप से true। कॉन्टेक्स्ट को साइलेंटली स्टेज करने के लिए false पास करें |
+
+## आगे क्या
+
+- [**अवलोकन**](/docs/client-overview) - `app/` में यह हेल्पर्स कहां फिट होते हैं
+- [**डेटा और सिंक**](/docs/client-data) - action हुक और `useDbSync` जो खुद UI को करेंट रखते हैं
+- [**ड्रॉप-इन एजेंट**](/docs/drop-in-agent) - `<AgentSidebar>`/`<AgentPanel>` माउंट करना ताकि इन हेल्पर्स के पास रेंडर करने के लिए कुछ हो
+- [**उन्नत**](/docs/client-advanced) - बैकग्राउंड सेंड, कस्टम सुझाव चिप्स, और MCP App होस्ट ब्रिज
+- [**Generative UI**](/docs/generative-ui) - `askUserQuestion` से आगे इन-चैट कंट्रोल्स बनाना

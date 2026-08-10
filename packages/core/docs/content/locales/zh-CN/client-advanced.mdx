@@ -1,0 +1,177 @@
+---
+title: "高级"
+description: "更底层的 app/ 原语与逃生舱：直接访问应用程序状态、后台聊天发送、自定义建议芯片，以及 MCP App 主桥。"
+---
+
+# 高级
+
+概览、数据与同步、Agent 聊天和路由这几页涵盖的是典型场景：大多数页面所需要的钩子和辅助函数。本页涵盖它们底层更细粒度的原语和更窄的逃生舱。大多数应用永远不需要直接接触这些。当您要构建比默认钩子所支持的更定制化的东西时——例如自定义选择同步或一个内嵌的 MCP App——才需要用到它们。若要用手写的 key 同步一个原始的 `useQuery`，请改看 [同步内部机制](/docs/client-sync-internals)。
+
+## 应用程序状态 {#application-state}
+
+`application_state` 是一个由 SQL 支持的键/值存储，代理通过读取它来了解 UI 当前正在看什么，包括导航、选择，以及其他被聚焦对象的上下文（见 [Context Awareness](/docs/context-awareness)）。`useAgentRouteState` 和 `useSemanticNavigationState`（同样在 Context Awareness 中介绍）已经为常见的导航场景包装了这些内容。当您要同步它们没有覆盖的内容——例如自定义选择，或从组件渲染之外进行写入——时，才直接使用下面这些原语。
+
+### readClientAppState {#read-client-app-state}
+
+读取某个 key 的当前值。解析为该 key 最后一次写入的内容，如果该 key 从未被写入过，则为 `null`。
+
+```ts
+import { readClientAppState } from "@agent-native/core/client/hooks";
+
+const selection = await readClientAppState("selection");
+// selection is exactly what was last written to that key, e.g.:
+// { kind: "tickets.rows", ids: ["tik_182", "tik_209"] }
+//
+// or, if nothing has written "selection" yet:
+// null
+```
+
+### writeClientAppState {#write-client-app-state}
+
+为某个 key 写入一个值。与下面的 `setClientAppState` 不同，它总是会写入，即使您传入 `null` 也是如此。传入 `undefined` 则会抛出异常，因为 `undefined` 不是合法的 JSON。使用 `setClientAppState(key, undefined)` 或 `deleteClientAppState()` 来清除一个 key。
+
+```ts
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+
+await writeClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+```
+
+### setClientAppState {#set-client-app-state}
+
+大多数 UI 代码应该使用的便捷封装：写入该值，或者当您传入 `null`/`undefined` 时删除该 key。除非某个调用点确实需要“始终写入，从不删除”，否则都应使用它而不是 `writeClientAppState`。
+
+```ts
+import { setClientAppState } from "@agent-native/core/client/hooks";
+
+await setClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+await setClientAppState("selection", null); // clears the key, same as deleteClientAppState
+```
+
+### deleteClientAppState {#delete-client-app-state}
+
+彻底移除一个 key。
+
+```ts
+import { deleteClientAppState } from "@agent-native/core/client/hooks";
+
+await deleteClientAppState("pending-selection-context");
+```
+
+### readClientAppStateMany {#read-client-app-state-many}
+
+在一次请求中读取多个 key。返回 `{ values, missing }`。`values` 为服务器上有记录的每个 key 保存一个条目，包括被显式写入为 `null` 的 key。`missing` 列出那些从未被写入过的 key。这样“从未写入”就能与“写入为 null”区分开来。
+
+```ts
+import { readClientAppStateMany } from "@agent-native/core/client/hooks";
+
+const { values, missing } = await readClientAppStateMany([
+  "selection",
+  "pending-selection-context",
+]);
+```
+
+超过 100 个 key 的请求会自动被分块。`readClientAppState()` 本身就是构建在这个机制之上的：在同一个 tick 中发出的调用会在后台被合并成一个批量请求，因此在一次渲染过程中多次调用它，成本只是一次往返，而不是每次调用一次往返。
+
+### 选项 {#application-state-options}
+
+上面这五个函数都接受 `signal`，用于取消进行中的调用。`requestSource` 和 `keepalive` 只适用于三个写入函数，因为它们对读取没有意义。
+
+| 选项            | 类型           | 适用于                                                             | 描述                                                                                |
+| --------------- | -------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `requestSource` | `string?`      | `writeClientAppState`、`setClientAppState`、`deleteClientAppState` | 用一个 id 标记该写入，使匹配的 `useDbSync({ ignoreSource })` 可以跳过对它的重新获取 |
+| `keepalive`     | `boolean?`     | `writeClientAppState`、`setClientAppState`、`deleteClientAppState` | 让请求能在页面卸载之后继续存活。用于清理性写入，例如清除选择                        |
+| `signal`        | `AbortSignal?` | 全部五个函数                                                       | 取消该请求                                                                          |
+
+### 失败行为 {#failure-behavior}
+
+这五个函数在请求失败、响应非 2xx，或响应体无法解析时都会抛出异常。当服务器有响应时，抛出的 `Error` 会带有一个 `.status` 属性，方便调用方在需要时基于 HTTP 状态分支处理。用 `try`/`catch` 包裹调用，或让它像任何其他网络调用一样传播到错误边界。
+
+### TAB_ID 是什么 {#tab-id}
+
+`requestSource` 通常会被设为 `TAB_ID`，这是每个模板都从 `app/lib/tab-id.ts` 导出的一个普通常量：一个在标签页生命周期内保持不变、且不同标签页之间互不相同的短随机字符串。在写入端配对 `requestSource: TAB_ID`，在读取端配对 `useDbSync({ ignoreSource: TAB_ID })`，正是一个标签页避免重新获取自己写入的内容、同时仍能响应其他所有人的方式。完整讲解见 [Context Awareness](/docs/context-awareness#jitter-prevention)。
+
+## sendToAgentChat：后台发送 {#background-send}
+
+当一个 UI 操作应该启动真正的代理工作、但不打开或聚焦侧边栏时，使用 `background: true`。这仍然会创建一个正常的聊天线程/运行，使用代理的工具/actions/上下文，并让这项工作可以通过运行托盘观察到。它不是一次原始的一次性模型调用。
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` 设计上应与 `newTab` 配对使用，这样隐藏的工作就不会覆盖用户当前活跃的对话。如果 UI 后续需要关联状态或深链到该运行，请使用返回的 `tabId`。
+
+除了 [Agent 聊天](/docs/client-agent-chat#agentchatmessage) 中介绍的选项之外，`AgentChatMessage` 还有几个选项，主要用于嵌入式或下游集成场景：
+
+| 选项                  | 类型        | 描述                                                                      |
+| --------------------- | ----------- | ------------------------------------------------------------------------- |
+| `background`          | `boolean?`  | 配合 `newTab`，在不聚焦该标签页的情况下运行，并在 `RunsTray` 中显示该运行 |
+| `projectSlug`         | `string?`   | 用于结构化上下文的可选项目 slug                                           |
+| `preset`              | `string?`   | 供下游消费者使用的可选预设名称                                            |
+| `referenceImagePaths` | `string[]?` | 可选的参考图片路径                                                        |
+
+## MCP App 主桥 {#mcp-app-host-bridge}
+
+以 MCP App 形式嵌入的路由应该遵循 URL 优先原则：从路径/查询参数加载当前工件，渲染真正的 React 路由或一个聚焦的共享组件，并只在涉及主机自身行为时才使用主桥。`@agent-native/core/client` 导出了这些被嵌入路由调用的辅助函数：
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client/agent-chat";
+```
+
+`getMcpAppHostContext()` 读取最近一次推送的主机上下文快照。`useMcpAppHostContext()` 让 React 组件订阅其变化。这些请求类辅助函数（`openMcpAppHostLink`、`requestMcpAppDisplayMode`、`updateMcpAppModelContext`）在嵌入式 MCP App frame 之外返回 `false`，在 frame 内部则返回 `Promise<boolean>`。
+
+`sendToAgentChat()`（见 [Agent 聊天](/docs/client-agent-chat#sendtoagentchat)）对来自嵌入式路由的自动提交提示，使用的是同一个主桥。在用 `embedApp()` 创建的 MCP App embed 内部，自动提交的消息（`submit` 省略或为 `true`）会被转发给主桥，由主桥要求容纳它的主机添加隐藏上下文并发送可见的用户回合。`context` 对模型保持可见，但不会作为面向用户的聊天内容发出。`submit: false` 保留本地的预填充/审阅行为，因为 MCP Apps 并没有定义标准的草稿预填充 API。在内部，这是有时会以 `agentNative.submitChat` 形式出现的已提交聊天路径。应用代码仍应调用 `sendToAgentChat()`，而不要直接发出该事件。
+
+主桥本身、`ui/*` JSON-RPC 消息、`agentNative.mcpHost.*` 包装器中继、移植与受控帧渲染、主机上下文，以及显示模式请求，均归 [External Agents](/docs/external-agents#mcp-app-bridge) 所有。完整协议见 [MCP Apps](/docs/mcp-apps)。
+
+## 自定义建议芯片 {#custom-suggestions}
+
+`<AgentSidebar>` 的 `dynamicSuggestions`（见 [Agent 聊天](/docs/client-agent-chat#dynamic-suggestions)）已经将静态 `suggestions` 与框架自身的上下文感知启发式规则合并在一起。当应用希望从同一份 `application_state` 上下文中计算出确定性的、领域专属的芯片，而不是使用框架的默认启发式规则时，改为传入 `getSuggestions`。
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  getSuggestions={(state) =>
+    state.navigation?.view === "inbox"
+      ? [`Summarize ${state.navigation.label ?? "this"} label`]
+      : []
+  }
+>
+  <App />
+</AgentSidebar>
+```
+
+`getSuggestions` 接收到的，与内置启发式规则读取的是同一份 `navigation`/`selection`/`pending-selection-context` 快照，因此自定义实现可以对与默认实现完全相同的状态做出反应，只是使用应用专属的规则，而不是通用规则。
+
+## 下一步
+
+- [**概览**](/docs/client-overview) — 这些原语所在的 `app/` 与 `public/` 目录布局
+- [**数据与同步**](/docs/client-data) — 大多数页面应改用的默认 action 钩子和 `useDbSync`
+- [**同步内部机制**](/docs/client-sync-internals) — `useChangeVersion`/`useChangeVersions`，以及重新获取可能经过的两条延迟路径
+- [**Agent 聊天**](/docs/client-agent-chat) — 大多数 UI 应改用的默认 `sendToAgentChat`/`askUserQuestion` 辅助函数，以及暂存的代理聊天上下文状态 API
+- [**入口点**](/docs/client-entry-points) — `app/entry.client.tsx`/`app/entry.server.tsx` 与 SSR 流式自定义
+- [**Context Awareness**](/docs/context-awareness) — 构建在 `application_state` 之上的 `navigation`/`selection` 语义，以及 `TAB_ID`/抖动预防讲解
+- [**Generative UI**](/docs/generative-ui) — 超越 `askUserQuestion` 的更丰富内联聊天控件
+- [**External Agents**](/docs/external-agents#mcp-app-bridge) — 完整的 MCP App 主桥内部机制

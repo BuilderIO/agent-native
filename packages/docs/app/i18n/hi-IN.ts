@@ -1517,7 +1517,6 @@ const hiIN = {
     serverPlugins: "प्लगइन्स",
     serverRoutes: "रूट्स",
     client: "Client",
-    clientNext: "Client (नया)",
     clientOverview: "अवलोकन",
     clientDataSync: "डेटा और सिंक",
     clientAgentChat: "एजेंट चैट",

@@ -1527,7 +1527,6 @@ const esES = {
     serverPlugins: "Plugins",
     serverRoutes: "Rutas",
     client: "Cliente",
-    clientNext: "Cliente (nuevo)",
     clientOverview: "Resumen",
     clientDataSync: "Datos y sincronización",
     clientAgentChat: "Chat del Agent",

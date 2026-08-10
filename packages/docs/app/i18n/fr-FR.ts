@@ -1528,7 +1528,6 @@ const frFR = {
     serverPlugins: "Plugins",
     serverRoutes: "Routes",
     client: "Client",
-    clientNext: "Client (nouveau)",
     clientOverview: "Vue d’ensemble",
     clientDataSync: "Données et synchronisation",
     clientAgentChat: "Chat de l’Agent",

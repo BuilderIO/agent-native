@@ -116,57 +116,47 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
           },
         ],
       },
-      { id: "client", labelKey: "client", slug: "client" },
       {
         id: "client-section",
-        labelKey: "clientNext",
-        draft: true,
+        labelKey: "client",
         children: [
           {
             id: "client-overview",
             labelKey: "clientOverview",
             slug: "client-overview",
-            draft: true,
           },
           {
             id: "client-data",
             labelKey: "clientDataSync",
             slug: "client-data",
-            draft: true,
           },
           {
             id: "client-agent-chat",
             labelKey: "clientAgentChat",
             slug: "client-agent-chat",
-            draft: true,
           },
           {
             id: "client-routing",
             labelKey: "routing",
             slug: "client-routing",
-            draft: true,
           },
           {
             id: "client-advanced",
             labelKey: "clientAdvanced",
             slug: "client-advanced",
-            draft: true,
           },
           {
             id: "client-sync-internals",
             labelKey: "clientSyncInternals",
             slug: "client-sync-internals",
-            draft: true,
           },
           {
             id: "client-entry-points",
             labelKey: "clientEntryPoints",
             slug: "client-entry-points",
-            draft: true,
           },
         ],
       },
-      { id: "routing", labelKey: "routing", slug: "routing" },
       { id: "actions", labelKey: "actions", slug: "actions" },
       {
         id: "human-approval",

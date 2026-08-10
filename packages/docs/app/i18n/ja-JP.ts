@@ -1524,7 +1524,6 @@ const jaJP = {
     serverPlugins: "プラグイン",
     serverRoutes: "ルート",
     client: "クライアント",
-    clientNext: "クライアント（新）",
     clientOverview: "概要",
     clientDataSync: "データと同期",
     clientAgentChat: "Agent チャット",

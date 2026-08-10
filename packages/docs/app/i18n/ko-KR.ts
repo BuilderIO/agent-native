@@ -1520,7 +1520,6 @@ const koKR = {
     serverPlugins: "플러그인",
     serverRoutes: "라우트",
     client: "클라이언트",
-    clientNext: "클라이언트 (신규)",
     clientOverview: "개요",
     clientDataSync: "데이터 및 동기화",
     clientAgentChat: "Agent 채팅",

@@ -1,0 +1,121 @@
+---
+title: "라우팅"
+description: "React Router v8을 사용하는 에이전트 네이티브 앱의 파일 기반 라우팅: 페이지, 동적 매개변수, 내비게이션."
+---
+
+# 라우팅
+
+에이전트 네이티브 앱은 `@react-router/fs-routes`의 `flatRoutes()`를 통한 파일 기반 라우팅과 함께 **React Router v8**을 사용합니다. `app/routes/`의 모든 파일이 URL이 됩니다. 템플릿은 점 표기법 규칙을 사용합니다. 점은 하나의 파일 이름 안에서 URL 세그먼트를 구분합니다.
+
+이 페이지는 클라이언트 경로, 즉 `app/routes/`에서 브라우저에 렌더링되는 페이지를 다룹니다. 서버 경로는 별도의 시스템입니다: `server/routes/` 아래의 Nitro 파일 경로와, 프레임워크 자체의 `/_agent-native/*` 엔드포인트입니다. 이들은 [Routes](/docs/server-routes) 페이지에 있습니다. 이 둘은 디렉터리도, 명명 규칙도, 라우터도 공유하지 않으므로, `server/routes/`의 파일이 여기서 페이지가 되는 일도 없고 `app/routes/`의 파일이 서버 엔드포인트가 되는 일도 없습니다.
+
+<Diagram id="doc-block-client-routing-1" title={"파일 이름 → URL"} summary={"app/routes/의 각 파일은 URL이 됩니다. 점은 슬래시가 되고, $ 세그먼트는 동적 매개변수가 됩니다."}>
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 파일 기반 라우팅 {#file-based-routing}
+
+### 파일 → URL 매핑
+
+| 파일                       | URL                    | 참고                                                                                   |
+| -------------------------- | ---------------------- | -------------------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | 인덱스 경로                                                                            |
+| `dashboard.tsx`            | `/dashboard`           | 단순한 페이지                                                                          |
+| `extensions.$id.tsx`       | `/extensions/:id`      | `extensions.tsx`의 `<Outlet/>` 안에 중첩됩니다. `$`는 동적 매개변수입니다              |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | 뒤에 붙은 `_`는 `dashboard.tsx` 아래 중첩되는 것을 건너뛰므로 이는 독립된 페이지입니다 |
+| `_app.tsx`                 | (URL 세그먼트 없음)    | 경로 없는 레이아웃입니다. `_`를 접두사로 붙입니다                                      |
+| `inbox/route.tsx`          | `/inbox`               | 폴더 형식입니다. `route.tsx`가 인덱스입니다                                            |
+
+동적 매개변수는 세그먼트에 `$`를 접두사로 붙이세요. 경로 없는 레이아웃 경로(URL 세그먼트 없음)로 만들려면 `_`를 접두사로 붙이거나, 중첩된 것처럼 보이는 경로를 부모의 레이아웃 아래 중첩에서 제외하려면 점 앞에 `_`를 붙이세요. 템플릿은 `flatRoutes()`를 사용합니다. 위의 점 표기법 파일 형식이 기본입니다. 중첩 폴더 형식 `inbox/route.tsx`도 동작합니다.
+
+## 새 페이지 추가하기 {#adding-a-page}
+
+파일을 만들고 기본 컴포넌트를 내보내세요.
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+이것으로 끝입니다. React Router가 별도의 등록 없이 자동으로 이를 인식합니다.
+
+## 동적 매개변수 {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+점 앞에 붙은 `_`는 이 페이지가 `dashboard.tsx`의 `<Outlet/>` 안에 중첩되지 않도록 막아주므로, 티켓 대기열 레이아웃 안에 나타나는 대신 `/dashboard/:ticketId`에서 독립된 전체 페이지로 렌더링됩니다.
+
+## 내비게이션 {#navigation}
+
+클라이언트 측 내비게이션에는 `<Link>`를, 프로그래매틱 내비게이션에는 `useNavigate()`를 사용하세요.
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+이 둘 중 어느 것도 사용자가 지금 무엇을 보고 있는지를 스스로 에이전트에게 알려주지는 않습니다. 이는 별도의 관심사로, `useAgentRouteState()`가 현재 경로를 애플리케이션 상태에 기록함으로써 처리됩니다. [Context Awareness](/docs/context-awareness)를 참조하세요.
+
+## 다음 단계
+
+- [**개요**](/docs/client-overview) — `app/routes/`가 `app/`과 `public/`의 나머지 부분 사이에서 차지하는 위치
+- [**데이터 및 동기화**](/docs/client-data) — 경로 안에서 데이터를 읽고 쓰기
+- [**Agent 채팅**](/docs/client-agent-chat) — 경로에서 프롬프트를 전송하고 컨텍스트를 준비하기
+- [**Routes**](/docs/server-routes) — 별도의 서버 라우팅 시스템: `server/routes/` 아래의 파일 경로와 프레임워크의 `/_agent-native/` 네임스페이스
+- [**Context Awareness**](/docs/context-awareness) — 에이전트가 현재 경로와 선택 상태를 알게 되는 방법

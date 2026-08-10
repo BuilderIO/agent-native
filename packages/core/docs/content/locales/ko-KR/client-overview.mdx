@@ -1,0 +1,206 @@
+---
+title: "개요"
+description: "app/ 및 public/ 디렉터리: 에이전트 네이티브 앱의 화면을 만드는 곳, 그리고 에이전트와 동기화된 상태를 유지하기 위해 사용하는 브라우저 API."
+---
+
+# 개요
+
+`app/`는 에이전트 네이티브 앱의 실제 화면 — 페이지, 레이아웃, 컴포넌트, 스타일 — 을 만드는 곳입니다. `public/`은 그 옆에서 함께 제공되는 정적 자산 — 아이콘, 매니페스트, 브랜드 마크 — 을 담고 있습니다. 이것은 일반적인 React Router v8 앱이며, 에이전트 전용의 특별한 표면이 아닙니다. 대부분의 개발 시간이 여기에 쓰입니다.
+
+일반적인 프런트엔드와의 유일한 아키텍처상 차이점은 이 레이어에는 자체적인 backend-for-frontend가 없다는 것입니다. 이 레이어는 에이전트가 호출하는 것과 동일한 actions를 통해 데이터를 읽고 쓰므로, 여기서 연결한 모든 것은 자동으로 에이전트도 수행할 수 있는 작업이 됩니다.
+
+<Diagram id="doc-block-client-overview-1" title={"전통적인 프런트엔드 vs. Agent Native"} summary={"전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다."}>
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">전통적인 방식</div>
+    <div class="diagram-node">app/ (React 프런트엔드)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API 레이어</strong>
+      <small class="diagram-muted">프런트엔드만 호출 가능</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>데이터베이스</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (React 프런트엔드)</div>
+      <div class="diagram-node">에이전트</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">동등한 파트너, 동일한 작업</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 데이터베이스</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 클라이언트가 맡는 역할 {#role}
+
+브라우저 요청, 에이전트 루프, 외부 API 클라이언트는 모두 동일한 actions와 동일한 SQL 데이터베이스로 귀결됩니다. 에이전트가 접근할 수 없는 별도의 "앱 백엔드"는 이 레이어가 대화할 상대로 존재하지 않습니다. 여기서 기능을 만든다는 것은 에이전트가 이미 가지고 있는 작업 위에 UI를 얹거나, 새로운 action을 정의하면서 동시에 그 UI도 얻는다는 뜻입니다. 이 계약의 작업(operation) 쪽은 [Actions](/docs/actions)를 참조하세요.
+
+이 페이지는 여러분이 작업하는 디렉터리와, 다른 곳에서 다루지 않는 브라우저 런타임의 부분들(`root.tsx`, `public/`)을 다룹니다. 컴포넌트를 actions 및 에이전트와 연결하는 React 후크는 각각 초점이 맞춰진 별도 페이지에 있습니다.
+
+| 페이지                                         | 다루는 내용                                                                                              |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **[데이터 및 동기화](/docs/client-data)**      | `useActionQuery`, `useActionMutation`, `callAction`, `useDbSync`                                         |
+| **[Agent 채팅](/docs/client-agent-chat)**      | `sendToAgentChat`, `askUserQuestion`, `openAgentSettings`, 동적 제안, 단계적 에이전트 채팅 컨텍스트 상태 |
+| **[고급](/docs/client-advanced)**              | `application_state` 직접 접근, 백그라운드 채팅 전송, 맞춤 제안 칩, MCP 앱 호스트 브리지                  |
+| **[동기화 내부](/docs/client-sync-internals)** | 원시 `useQuery`를 동기화하기 위한 `useChangeVersion`/`useChangeVersions`                                 |
+| **[엔트리 포인트](/docs/client-entry-points)** | `app/entry.client.tsx`/`app/entry.server.tsx`와 SSR 커스터마이징                                         |
+
+## app/와 public/의 구성 {#project-directories}
+
+| 경로                                                | 다루는 내용                                                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **`app/root.tsx`**                                  | HTML 셸과 provider 스택 — 아래 [브라우저 셸](#app-shell) 참조                                                            |
+| **`app/entry.client.tsx` / `app/entry.server.tsx`** | 하이드레이션 및 SSR 부트스트랩 — [엔트리 포인트](/docs/client-entry-points) 참조                                         |
+| **`app/routes.ts` + `app/routes/`**                 | 파일 기반 페이지와 내비게이션 — [Routing](/docs/client-routing) 참조                                                     |
+| **`app/components/`**                               | 여러분의 UI: shadcn 스타일 프리미티브와 앱 전용 컴포넌트 — [shadcn/ui](/docs/shadcn-ui) 참조                             |
+| **`app/hooks/`**                                    | 데이터, 동기화, 에이전트 채팅 후크 — [데이터 및 동기화](/docs/client-data) 및 [Agent 채팅](/docs/client-agent-chat) 참조 |
+| **`app/lib/`**                                      | 공유 클라이언트 유틸리티(앱 구성, 탭 id, `cn`) — 아래 [유틸리티](#utilities) 참조                                        |
+| **`app/design-system.ts`**                          | 선택적 커스텀 디자인 시스템 어댑터 — [커스텀 디자인 시스템](/docs/custom-design-system) 참조                             |
+| **`app/i18n/`**                                     | 지역화된 UI 문구 카탈로그 — [국제화](/docs/internationalization) 참조                                                    |
+| **`app/global.css`**                                | 기본 스타일과 Tailwind 진입점                                                                                            |
+| **`public/`**                                       | 그대로 제공되는 정적 자산 — 아래 [정적 자산](#public-directory) 참조                                                     |
+
+## 브라우저 셸: root.tsx와 AppProviders {#app-shell}
+
+`app/root.tsx`는 React 트리의 최상단입니다: HTML 문서 셸(`<html>`, `<head>`, `<Meta>`, `<Links>`, `<Scripts>`)과, 모든 경로가 그 안에서 렌더링되는 provider 스택입니다.
+
+```tsx filename="app/root.tsx"
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import { useState } from "react";
+import { Outlet } from "react-router";
+import { i18nCatalog } from "./i18n";
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+
+  return (
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <Outlet />
+    </AppProviders>
+  );
+}
+```
+
+`AppProviders`는 다음을 한 번에 연결해 주는 단일 래퍼입니다.
+
+- `useActionQuery`/`useActionMutation`이 사용하는 React Query 클라이언트([데이터 및 동기화](/docs/client-data#fetching-mutating) 참조).
+- `i18n.catalog`로 전달되는 i18n 카탈로그([국제화](/docs/internationalization) 참조).
+- 클라이언트 측 세션 검사: 비공개 경로에서는 익명 방문자가 어떤 비공개 UI도 마운트되기 전에 로그인 화면으로 리디렉션됩니다. 공개/SEO 경로에는 `isPublicPath`를, MCP 임베드 토큰처럼 다른 방식으로 인증되는 표면에는 `sessionBypass`를 전달하세요. [Authentication](/docs/authentication) 참조.
+
+대부분의 앱은 여기에 `<AgentSidebar>` 또는 `<AgentPanel>`도 마운트하여 모든 경로가 별도의 작업 없이 에이전트 패널을 갖게 합니다. [드롭인 에이전트](/docs/drop-in-agent#sidebar) 참조.
+
+## 정적 자산: public/ {#public-directory}
+
+`public/`에 있는 모든 것은 빌드에서 가공되지 않은 채로 사이트 루트에서 그대로 제공됩니다. 모든 템플릿은 다음을 포함합니다.
+
+```text
+public/
+  favicon.svg           -> 브라우저 탭 아이콘
+  icon-180.svg           -> apple-touch-icon
+  icon-192.svg, icon-512.svg -> manifest.json에서 참조하는 PWA 아이콘
+  manifest.json          -> 웹 앱 매니페스트(이름, 테마 색상, 아이콘)
+  *-logo-*.svg, *-icon-*.svg -> 기본 UI에서 사용하는 브랜드 마크
+```
+
+`manifest.json`은 방문자가 앱을 홈 화면이나 앱 독에 설치할 때 표시되는 내용 — 이름, 짧은 이름, 테마/배경 색상, 아이콘 세트 — 을 제어합니다.
+
+```json filename="public/manifest.json"
+{
+  "name": "My App",
+  "short_name": "My App",
+  "theme_color": "#18181B",
+  "icons": [
+    { "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }
+  ]
+}
+```
+
+이 파일들을 교체하고 `manifest.json`과 `root.tsx`에서 이를 참조하는 `<link rel="icon">`/`<link rel="apple-touch-icon">` 태그를 업데이트하는 것으로 앱을 리브랜딩할 수 있습니다. 별도의 등록 절차는 없습니다. 이런 파일들을 직접 편집하는 대신 기존 사이트에서 전체 브랜드 시스템(색상, 폰트, 파비콘)을 가져오려면 [브랜드 시스템과 Figma](/docs/template-design-brand-and-figma)를 참조하세요.
+
+## 유틸리티: cn {#utilities}
+
+```ts
+import { cn } from "@agent-native/toolkit/utils";
+
+<div className={cn(
+  "px-4 py-2 rounded",
+  isActive && "bg-primary text-primary-foreground",
+  className
+)} />
+```
+
+`cn`은 클래스 이름을 병합합니다(clsx + tailwind-merge). `app/components/` 전반에서 조건부 Tailwind 클래스를 조합하는 표준적인 방법입니다.
+
+## 다음 단계
+
+- [**데이터 및 동기화**](/docs/client-data) — action 후크와 `useDbSync`
+- [**Agent 채팅**](/docs/client-agent-chat) — `sendToAgentChat`, `askUserQuestion`, 동적 제안
+- [**고급**](/docs/client-advanced) — 애플리케이션 상태, 백그라운드 채팅 전송, MCP 앱 호스트 브리지
+- [**동기화 내부**](/docs/client-sync-internals) — 원시 `useQuery`를 동기화하기 위한 `useChangeVersion`
+- [**엔트리 포인트**](/docs/client-entry-points) — SSR 부트스트랩 커스터마이징
+- [**Routing**](/docs/client-routing) — 파일 기반 페이지, 동적 매개변수, 내비게이션
+- [**Actions**](/docs/actions) — 모든 데이터 후크 뒤에 있는 `defineAction` 표면
+- [**커스텀 디자인 시스템**](/docs/custom-design-system) — `app/design-system.ts`를 통해 나만의 컴포넌트 라이브러리로 교체하기
+- [**Authentication**](/docs/authentication) — `AppProviders`가 비공개 경로에서 수행하는 세션 검사

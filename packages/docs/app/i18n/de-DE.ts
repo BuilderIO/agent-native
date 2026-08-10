@@ -1527,7 +1527,6 @@ const deDE = {
     serverPlugins: "Plugins",
     serverRoutes: "Routen",
     client: "Client",
-    clientNext: "Client (neu)",
     clientOverview: "Überblick",
     clientDataSync: "Daten & Synchronisierung",
     clientAgentChat: "Agent-Chat",

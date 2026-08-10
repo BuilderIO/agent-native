@@ -363,7 +363,7 @@ As automações podem encadear isso - por exemplo. _"se uma notificação críti
 ## Como funciona {#internals}
 
 - **Escopo do proprietário** — cada linha tem uma coluna `owner`; cada consulta é filtrada; cada rota usa o email da sessão autenticada. Os usuários nunca veem as notificações uns dos outros.
-- **Integração de pesquisa** — cada mutação chama `recordChange()` para que os modelos que usam [`useDbSync`](/docs/client) sejam invalidados automaticamente sem qualquer conexão extra.
+- **Integração de pesquisa** — cada mutação chama `recordChange()` para que os modelos que usam [`useDbSync`](/docs/client-data#usedbsync) sejam invalidados automaticamente sem qualquer conexão extra.
 - **Distribuição de melhor esforço** — erros de canal são detectados e registrados; um canal com falha não bloqueia outros ou a gravação da caixa de entrada.
 - **Disparar e esquecer** — `notify()` retorna após a conclusão da gravação da caixa de entrada; canais personalizados são executados em segundo plano.
 
