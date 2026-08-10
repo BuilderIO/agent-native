@@ -13,7 +13,8 @@ describe("OAuth token release migrations", () => {
       "oauth-tokens-owner-column",
       "oauth-tokens-display-name-column",
       "oauth-tokens-owner-backfill",
-      "oauth-tokens-updated-at-bigint",
+      "oauth-tokens-revision-column",
+      "oauth-tokens-revision-backfill",
     ]);
     expect(OAUTH_TOKEN_MIGRATIONS[0]?.sql).toContain(
       "CREATE TABLE IF NOT EXISTS oauth_tokens",
@@ -24,8 +25,11 @@ describe("OAuth token release migrations", () => {
     expect(OAUTH_TOKEN_MIGRATIONS[2]?.sql).toContain(
       "ADD COLUMN IF NOT EXISTS display_name",
     );
-    expect(OAUTH_TOKEN_MIGRATIONS[4]?.sql).toEqual({
-      postgres: "ALTER TABLE oauth_tokens ALTER COLUMN updated_at TYPE BIGINT",
-    });
+    expect(OAUTH_TOKEN_MIGRATIONS[4]?.sql).toContain(
+      "ADD COLUMN IF NOT EXISTS revision BIGINT",
+    );
+    expect(OAUTH_TOKEN_MIGRATIONS[5]?.sql).toContain(
+      "SET revision = updated_at WHERE revision IS NULL",
+    );
   });
 });

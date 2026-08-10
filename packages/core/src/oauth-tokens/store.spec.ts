@@ -44,9 +44,7 @@ const mockDb = {
     }
 
     if (
-      /SELECT owner, tokens, updated_at FROM (?:public\.)?oauth_tokens/i.test(
-        sql,
-      )
+      /SELECT owner, tokens, revision FROM (?:public\.)?oauth_tokens/i.test(sql)
     ) {
       return {
         rows: existingOwner
@@ -54,7 +52,7 @@ const mockDb = {
               {
                 owner: existingOwner,
                 tokens: JSON.stringify(existingTokens ?? {}),
-                updated_at: existingRevision,
+                revision: existingRevision,
               },
             ]
           : [],
@@ -206,7 +204,7 @@ describe("oauth token store", () => {
     const conditionalUpdate = execCalls.find((call) =>
       /^UPDATE\s+(?:public\.)?oauth_tokens/i.test(call.sql),
     );
-    expect(conditionalUpdate?.sql).toContain("AND updated_at = ?");
+    expect(conditionalUpdate?.sql).toContain("AND revision = ?");
     expect(conditionalUpdate?.args.slice(-4)).toEqual([
       "builder",
       "managed-ai",
@@ -236,7 +234,7 @@ describe("oauth token store", () => {
     const conditionalDelete = execCalls.find((call) =>
       /^DELETE\s+FROM\s+(?:public\.)?oauth_tokens/i.test(call.sql),
     );
-    expect(conditionalDelete?.sql).toContain("AND updated_at = ?");
+    expect(conditionalDelete?.sql).toContain("AND revision = ?");
     expect(conditionalDelete?.args).toEqual([
       "builder",
       "managed-ai",
@@ -302,7 +300,7 @@ describe("oauth token store", () => {
     );
 
     expect(lastInsert().sql).toContain(
-      "updated_at=MAX(oauth_tokens.updated_at + 1, excluded.updated_at)",
+      "revision=MAX(oauth_tokens.revision + 1, excluded.revision)",
     );
   });
 

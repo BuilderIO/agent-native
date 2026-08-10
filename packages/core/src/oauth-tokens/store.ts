@@ -1,6 +1,5 @@
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
@@ -62,6 +61,7 @@ async function ensureTable(): Promise<void> {
           owner TEXT,
           tokens TEXT NOT NULL,
           updated_at ${intType()} NOT NULL,
+          revision ${intType()} NOT NULL,
           PRIMARY KEY (provider, account_id)
         )
       `;
@@ -93,15 +93,18 @@ async function ensureTable(): Promise<void> {
           "display_name",
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS display_name TEXT`,
         );
+        await ensureColumnExists(
+          "oauth_tokens",
+          "revision",
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS revision BIGINT`,
+        );
         // Backfill: set owner = account_id for existing rows without an owner
         await client.execute(
           `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
         );
-        // Older deployments have a 32-bit `updated_at`; on Postgres the
-        // `Date.now()` written on every token save overflows int4. Widen in place
-        // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
-        // to the `public` schema.
-        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
+        await client.execute(
+          `UPDATE ${table} SET revision = updated_at WHERE revision IS NULL`,
+        );
         return;
       }
 
@@ -121,15 +124,20 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Column already exists
       }
+      try {
+        await client.execute(
+          `ALTER TABLE ${table} ADD COLUMN revision INTEGER`,
+        );
+      } catch {
+        // Column already exists
+      }
       // Backfill: set owner = account_id for existing rows without an owner
       await client.execute(
         `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
       );
-      // Older deployments have a 32-bit `updated_at`; on Postgres the
-      // `Date.now()` written on every token save overflows int4. Widen in place
-      // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
-      // to the `public` schema.
-      await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
+      await client.execute(
+        `UPDATE ${table} SET revision = updated_at WHERE revision IS NULL`,
+      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -176,14 +184,14 @@ export async function getOAuthTokenSnapshot(
   const client = getDbExec();
   const table = oauthTokensTable();
   const { rows } = await client.execute({
-    sql: `SELECT owner, tokens, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ?`,
+    sql: `SELECT owner, tokens, revision FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ?`,
     args: [provider, accountId, owner],
   });
   if (rows.length === 0) return null;
   return {
     tokens: parseStoredTokens(rows[0].tokens as string),
     owner: (rows[0].owner as string) ?? null,
-    revision: Number(rows[0].updated_at),
+    revision: Number(rows[0].revision),
   };
 }
 
@@ -204,10 +212,11 @@ export async function replaceOAuthTokensIfRevision(
   const table = oauthTokensTable();
   const nextRevision = Math.max(Date.now(), expectedRevision + 1);
   const result = await client.execute({
-    sql: `UPDATE ${table} SET tokens = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND updated_at = ?`,
+    sql: `UPDATE ${table} SET tokens = ?, revision = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND revision = ?`,
     args: [
       serializeTokens(tokens),
       nextRevision,
+      Math.floor(Date.now() / 1_000),
       provider,
       accountId,
       owner,
@@ -228,7 +237,7 @@ export async function deleteOAuthTokensIfRevision(
   const client = getDbExec();
   const table = oauthTokensTable();
   const result = await client.execute({
-    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND updated_at = ?`,
+    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND revision = ?`,
     args: [provider, accountId, owner, expectedRevision],
   });
   return result.rowsAffected === 1;
@@ -335,14 +344,15 @@ export async function saveOAuthTokens(
 
   const result = await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=GREATEST(${table}.updated_at + 1, EXCLUDED.updated_at) WHERE ${table}.owner = EXCLUDED.owner`
-      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=MAX(${table}.updated_at + 1, excluded.updated_at) WHERE ${table}.owner = excluded.owner`,
+      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(${table}.revision + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner`
+      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=excluded.updated_at, revision=MAX(${table}.revision + 1, excluded.revision) WHERE ${table}.owner = excluded.owner`,
     args: [
       provider,
       accountId,
       resolvedOwner,
       existingDisplayName,
       serializeTokens(tokensToStore),
+      Math.floor(Date.now() / 1_000),
       Date.now(),
     ],
   });

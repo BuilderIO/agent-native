@@ -31,9 +31,12 @@ export const OAUTH_TOKEN_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 5,
-    name: "oauth-tokens-updated-at-bigint",
-    sql: {
-      postgres: `ALTER TABLE oauth_tokens ALTER COLUMN updated_at TYPE BIGINT`,
-    },
+    name: "oauth-tokens-revision-column",
+    sql: `ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS revision BIGINT`,
+  },
+  {
+    version: 6,
+    name: "oauth-tokens-revision-backfill",
+    sql: `UPDATE oauth_tokens SET revision = updated_at WHERE revision IS NULL`,
   },
 ];
