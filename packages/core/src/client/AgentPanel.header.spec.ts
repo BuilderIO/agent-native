@@ -263,6 +263,22 @@ describe("AgentPanel header overflow actions", () => {
   });
 });
 
+describe("AgentSidebar wide drawer layout", () => {
+  it("does not reserve the drawer placeholder after the panel closes", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const placeholderStart = source.indexOf("const drawerPlaceholder");
+    const placeholderEnd = source.indexOf("return (", placeholderStart);
+    const placeholder = source.slice(placeholderStart, placeholderEnd);
+
+    expect(placeholder).toContain(
+      "wideDrawerEnabled && !presentationMode && panelOpen ? (",
+    );
+    expect(placeholder).not.toContain("shouldRenderPanel");
+  });
+});
+
 describe("AgentChatSurface chrome defaults", () => {
   it("hides the legacy header and chat tab row by default", () => {
     const surface = AgentChatSurface({ mode: "page" });

@@ -3590,7 +3590,7 @@ export function AgentSidebar({
   ) : null;
 
   const drawerPlaceholder =
-    wideDrawerEnabled && !presentationMode && shouldRenderPanel ? (
+    wideDrawerEnabled && !presentationMode && panelOpen ? (
       <div
         aria-hidden="true"
         className="agent-sidebar-drawer-placeholder shrink-0"
