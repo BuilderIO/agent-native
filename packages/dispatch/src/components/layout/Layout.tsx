@@ -1408,14 +1408,18 @@ export function Layout({
         : null,
     [activeChatFirstSurfaceTab, chatFirstAppRegistrations],
   );
-  const activeChatFirstApp = activeChatFirstAppRegistration
-    ? {
-        id: activeChatFirstAppRegistration.id,
-        name:
-          activeChatFirstAppRegistration.name ??
-          activeChatFirstAppRegistration.id,
-      }
-    : null;
+  const activeChatFirstApp = useMemo(
+    () =>
+      activeChatFirstAppRegistration
+        ? {
+            id: activeChatFirstAppRegistration.id,
+            name:
+              activeChatFirstAppRegistration.name ??
+              activeChatFirstAppRegistration.id,
+          }
+        : null,
+    [activeChatFirstAppRegistration],
+  );
   const chatFirstAgentActivities = useMemo<ChatFirstAgentActivity[]>(
     () =>
       (chatFirstAgentsQuery.data?.threads ?? []).map((thread) => ({
