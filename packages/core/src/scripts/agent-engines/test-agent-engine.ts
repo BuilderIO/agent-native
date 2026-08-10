@@ -66,26 +66,18 @@ async function resolveAgentEngineSecret(
 async function resolveAgentEngineEndpoint(
   key: string,
 ): Promise<string | undefined> {
-  try {
-    const value = await resolveSecret(key);
-    if (value) {
-      return validateProviderBaseUrl(value, {
-        allowLocalOllama:
-          key === OLLAMA_BASE_URL_ENV_VAR &&
-          process.env.NODE_ENV === "development",
-      });
-    }
-  } catch (error) {
-    if (!canUseDeployCredentialFallbackForRequest(key)) throw error;
-    console.warn(
-      "[test-agent-engine] Saved endpoint unavailable; using deploy configuration.",
-      { key, error },
-    );
+  const value = await resolveSecret(key);
+  if (value) {
+    return validateProviderBaseUrl(value, {
+      allowLocalOllama:
+        key === OLLAMA_BASE_URL_ENV_VAR &&
+        process.env.NODE_ENV === "development",
+    });
   }
   if (!canUseDeployCredentialFallbackForRequest(key)) return undefined;
-  const value = readDeployCredentialEnv(key);
-  return value
-    ? validateProviderBaseUrl(value, { allowPrivate: true })
+  const deployValue = readDeployCredentialEnv(key);
+  return deployValue
+    ? validateProviderBaseUrl(deployValue, { allowPrivate: true })
     : undefined;
 }
 

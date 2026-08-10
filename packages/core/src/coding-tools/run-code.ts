@@ -869,6 +869,9 @@ function isAllowedToolOrchestrationCall(
     // boundary for the read-only workspace surface.
     return isCallableWithoutApproval(entry) && isReadOnlyWorkspaceRequest(args);
   }
+  if (toolName === "provider-api-request") {
+    return isReadOnlyProviderApiRequest(args, entry);
+  }
   return isReadOnlyOrchestrationAction(args, entry);
 }
 
@@ -882,6 +885,26 @@ function isCallableWithoutApproval(entry: ActionEntry): boolean {
 function isReadOnlyWorkspaceRequest(args: Record<string, unknown>): boolean {
   const action = typeof args.action === "string" ? args.action : "";
   return action === "read" || action === "list" || action === "grep";
+}
+
+function isReadOnlyProviderApiRequest(
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (
+    !entry.tool ||
+    !isCallableWithoutApproval(entry) ||
+    entry.agentTool === false ||
+    entry.allowInPlanMode === false
+  ) {
+    return false;
+  }
+  const method = String(args.method ?? "GET").toUpperCase();
+  return (
+    (method === "GET" || method === "HEAD") &&
+    args.stageAs == null &&
+    args.saveToFile == null
+  );
 }
 
 function isReadOnlyOrchestrationAction(
@@ -960,18 +983,19 @@ function boundToolOrchestrationArgs(
   const requestedMaxPages = Number(
     (fetchAllPages as Record<string, unknown>).maxPages,
   );
-  if (!Number.isFinite(requestedMaxPages) || requestedMaxPages <= 0) {
-    return args;
-  }
+  const maxPages =
+    Number.isInteger(requestedMaxPages) && requestedMaxPages > 0
+      ? Math.min(
+          Math.floor(requestedMaxPages),
+          TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES,
+        )
+      : TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES;
 
   return {
     ...args,
     fetchAllPages: {
       ...(fetchAllPages as Record<string, unknown>),
-      maxPages: Math.min(
-        Math.floor(requestedMaxPages),
-        TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES,
-      ),
+      maxPages,
     },
   };
 }

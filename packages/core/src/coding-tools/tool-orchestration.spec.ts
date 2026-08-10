@@ -83,6 +83,7 @@ describe("tool-orchestration bridge", () => {
     const actions: Record<string, ActionEntry> = {
       "provider-api-request": {
         tool,
+        toolCallable: false,
         planMode: {
           effect: (args: Record<string, unknown>): "read" | "write" => {
             const method = String(args.method ?? "GET").toUpperCase();
@@ -145,6 +146,27 @@ describe("tool-orchestration bridge", () => {
               },
             },
           ],
+          [
+            "provider-api-request",
+            {
+              method: "GET",
+              fetchAllPages: {
+                cursorPath: "paging.next",
+                cursorParam: "cursor",
+              },
+            },
+          ],
+          [
+            "provider-api-request",
+            {
+              method: "GET",
+              fetchAllPages: {
+                cursorPath: "paging.next",
+                cursorParam: "cursor",
+                maxPages: "not-a-number",
+              },
+            },
+          ],
           ["web-request", { method: "HEAD" }],
           ["web-request", { method: "POST" }],
           ["web-request", { saveToFile: "scratch/page.html" }],
@@ -159,7 +181,7 @@ describe("tool-orchestration bridge", () => {
         }
         console.log(JSON.stringify(outputs));
       `,
-      maxToolCalls: 8,
+      maxToolCalls: 10,
       timeoutMs: 30_000,
     });
 
@@ -169,6 +191,22 @@ describe("tool-orchestration bridge", () => {
     expect(result).toContain("not permitted by tool-orchestration");
     expect(providerCalls).toEqual([
       { method: "GET" },
+      {
+        method: "GET",
+        fetchAllPages: {
+          cursorPath: "paging.next",
+          cursorParam: "cursor",
+          maxPages: 20,
+        },
+      },
+      {
+        method: "GET",
+        fetchAllPages: {
+          cursorPath: "paging.next",
+          cursorParam: "cursor",
+          maxPages: 20,
+        },
+      },
       {
         method: "GET",
         fetchAllPages: {

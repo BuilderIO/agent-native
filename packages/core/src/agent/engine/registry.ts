@@ -653,22 +653,18 @@ function engineCreateConfig(
 async function resolveProviderBaseUrl(
   envVar: string,
 ): Promise<string | undefined> {
-  let raw: string | null | undefined = null;
-  let allowPrivate = false;
-  try {
-    raw = await resolveSecret(envVar);
-  } catch {
-    raw = null;
-  }
+  const raw = await resolveSecret(envVar);
 
   if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
-    raw = readDeployCredentialEnv(envVar);
-    allowPrivate = true;
+    const deployValue = readDeployCredentialEnv(envVar);
+    if (!deployValue) return undefined;
+    return validateProviderBaseUrl(deployValue, {
+      allowPrivate: true,
+    });
   }
 
   return raw
     ? validateProviderBaseUrl(raw, {
-        allowPrivate,
         allowLocalOllama:
           envVar === OLLAMA_BASE_URL_ENV_VAR &&
           process.env.NODE_ENV === "development",
