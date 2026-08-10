@@ -257,9 +257,26 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain(
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
+    expect(overflowMenu).toContain("setTimeout(() => toggleHistory(), 0)");
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
+  });
+});
+
+describe("AgentSidebar wide drawer layout", () => {
+  it("does not reserve the drawer placeholder after the panel closes", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const placeholderStart = source.indexOf("const drawerPlaceholder");
+    const placeholderEnd = source.indexOf("return (", placeholderStart);
+    const placeholder = source.slice(placeholderStart, placeholderEnd);
+
+    expect(placeholder).toContain(
+      "wideDrawerEnabled && !presentationMode && panelOpen ? (",
+    );
+    expect(placeholder).not.toContain("shouldRenderPanel");
   });
 });
 

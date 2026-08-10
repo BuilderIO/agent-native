@@ -276,6 +276,14 @@ export const markdownComponents = {
       </a>
     );
   },
+  table(props: React.TableHTMLAttributes<HTMLTableElement>) {
+    const { children, ...rest } = props;
+    return (
+      <div className="agent-markdown-table-wrap">
+        <table {...rest}>{children}</table>
+      </div>
+    );
+  },
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
     if (React.isValidElement(children)) {

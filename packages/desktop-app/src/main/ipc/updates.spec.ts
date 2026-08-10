@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const electronState = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
@@ -69,6 +69,10 @@ let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(async () => {
     vi.clearAllMocks();
     electronState.ipcMain.handlers.clear();
@@ -177,5 +181,27 @@ describe("desktop updates", () => {
 
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
     expect(refreshApplicationMenu).not.toHaveBeenCalled();
+  });
+
+  it("disables auto-updates for a locally packaged development build", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__", "dev");
+    vi.resetModules();
+    const updates = await import("./updates.js");
+
+    updates.registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+
+    expect(updates.getCurrentUpdateStatus()).toEqual({
+      state: "unsupported",
+      reason: "Auto-update is disabled in development",
+    });
+    await expect(updates.checkForAppUpdates()).resolves.toEqual({
+      state: "unsupported",
+      reason: "Auto-update is disabled in development",
+    });
+    expect(updaterState.setFeedURL).not.toHaveBeenCalled();
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
   });
 });

@@ -130,13 +130,33 @@ async function createContext(
   });
   await context.addInitScript((chatFirstEnabled) => {
     localStorage.clear();
-    if (chatFirstEnabled) {
-      localStorage.setItem("agent-native:chat-first-mode:v1", "true");
-    }
+    localStorage.setItem(
+      "agent-native:chat-first-mode:v1",
+      String(chatFirstEnabled),
+    );
   }, enabled);
   const page = await context.newPage();
   const embedRequests: Array<Record<string, unknown>> = [];
   if (enabled) {
+    await page.route("**/_agent-native/application-state*", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      const url = new URL(route.request().url());
+      const keys = (url.searchParams.get("keys") ?? "")
+        .split(",")
+        .filter(Boolean);
+      if (!keys.includes("chat-first-pane")) {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ values: {}, missing: keys }),
+      });
+    });
     await page.route("**/_agent-native/actions/list-workspace-apps*", (route) =>
       route.fulfill({
         status: 200,
@@ -151,6 +171,28 @@ async function createContext(
             archived: false,
           },
         ]),
+      }),
+    );
+    await page.route("**/_agent-native/actions/list_apps*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          workspace: true,
+          gateway: "dispatch",
+          apps: [
+            {
+              id: "analytics",
+              name: "Analytics",
+              url: "https://analytics.example.test",
+              running: true,
+              source: "dispatch-mcp-grant",
+            },
+          ],
+          message: JSON.stringify({
+            apps: [{ id: "analytics", name: "Analytics" }],
+          }),
+        }),
       }),
     );
     await page.route(
@@ -262,14 +304,57 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.locator("[data-chat-first-app-pane]").waitFor({
       state: "visible",
     });
+    await on.page.locator("[data-dispatch-chat-first-app-frame]").waitFor({
+      state: "attached",
+    });
     assert.deepEqual(
       on.embedRequests.at(-1),
       { app: "mail", path: "/mail/inbox", chrome: "minimal" },
       "app-relative embeds must mint a session for the registered app",
     );
+    assert.equal(
+      (await snapshot(on.page, "05-chat-first-app")).tabs,
+      0,
+      "first-party app panes must not show a surface tab bar",
+    );
     await saveScreenshot(on.page, "05-chat-first-app");
-    await on.page.getByRole("button", { name: "Close Mail" }).click();
+    await on.page.getByRole("button", { name: "Hide side surface" }).click();
+    await on.page.locator("[data-chat-first-surface-panel]").waitFor({
+      state: "detached",
+    });
 
+    await on.page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:openApp", {
+          detail: { app: "analytics", path: "/adhoc/q2" },
+        }),
+      );
+    });
+    await on.page.locator("[data-chat-first-app-pane]").waitFor({
+      state: "visible",
+    });
+    await on.page.locator("[data-dispatch-chat-first-app-frame]").waitFor({
+      state: "attached",
+    });
+    assert.deepEqual(
+      on.embedRequests.at(-1),
+      { app: "analytics", path: "/adhoc/q2", chrome: "minimal" },
+      "granted first-party apps must preserve arbitrary routes",
+    );
+    assert.equal(
+      (await snapshot(on.page, "05-chat-first-analytics")).tabs,
+      0,
+      "Analytics app panes must not show a surface tab bar",
+    );
+    await on.page.getByRole("button", { name: "Hide side surface" }).click();
+    await on.page.locator("[data-chat-first-surface-panel]").waitFor({
+      state: "detached",
+    });
+
+    // App-only panes intentionally hide the tab strip. Start a fresh surface
+    // store before testing the tabbed side-surface picker below.
+    await on.page.reload({ waitUntil: "domcontentloaded" });
+    await on.page.waitForTimeout(7_000);
     await on.page.locator("[data-chat-first-surface-toggle]").click();
     await on.page.getByRole("button", { name: "Open activity" }).click();
     const agents = await snapshot(on.page, "06-chat-first-agents");
@@ -556,6 +641,12 @@ async function runElectronSmoke(): Promise<void> {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(5_000);
 
+    await page.evaluate(async () => {
+      await window.electronAPI.frame.update({ chatFirstMode: false });
+      location.reload();
+    });
+    await page.waitForTimeout(5_000);
+
     await openElectronAgentSurface(page);
     const off = await electronSnapshot(
       page,
@@ -646,6 +737,34 @@ async function runElectronSmoke(): Promise<void> {
       1,
       `Electron chat-first top navigation should use one neutral text color (${topNavColors.join(", ")})`,
     );
+
+    await page.locator('[data-chat-first-app][data-app-id="mail"]').click();
+    await page.locator("[data-chat-first-app-pane]").waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
+    await page.locator(".app-webview").waitFor({
+      state: "attached",
+      timeout: 15_000,
+    });
+    const appSurface = await electronSnapshot(
+      page,
+      "electron-03-chat-first-app",
+      electronApp,
+    );
+    assert.equal(
+      appSurface.tabs,
+      0,
+      "Electron first-party app panes must not show a surface tab bar",
+    );
+    assert.ok(
+      appSurface.chatWidth < empty.chatWidth - 1,
+      "Electron app panes should leave the full-page chat visible beside them",
+    );
+    await page.getByRole("button", { name: "Hide side surface" }).click();
+    await page.locator("[data-chat-first-surface-panel]").waitFor({
+      state: "detached",
+    });
 
     await installElectronAppCreationSmokeMock(electronApp);
     const createAppButton = page.locator(
@@ -786,6 +905,15 @@ async function runElectronSmoke(): Promise<void> {
       "Chat-first app creation should stay in the chat instead of opening a separate workbench",
     );
 
+    // App-only panes intentionally hide the tab strip. Reset the surface store
+    // before exercising the tabbed side-surface picker below.
+    await page.evaluate(() => {
+      localStorage.removeItem("agent-native:chat-first-surface-tabs:v1");
+      localStorage.removeItem("agent-native:chat-first-surface-panel:v1");
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(5_000);
+    await openElectronAgentSurface(page);
     const closePreview = page.getByRole("button", { name: "Close browser" });
     if (await closePreview.count()) await closePreview.click();
     const electronToggle = page.locator("[data-chat-first-surface-toggle]");

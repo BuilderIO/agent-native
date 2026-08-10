@@ -1215,6 +1215,14 @@ export function shouldShowAssistantWorkSummary({
   return isComplete || !isLast;
 }
 
+export function getAssistantWorkSummaryDurationMs(
+  durationMs: number | null | undefined,
+  groupStartIndex: number,
+  firstWorkPartIndex: number,
+): number | null | undefined {
+  return groupStartIndex === firstWorkPartIndex ? durationMs : null;
+}
+
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
   const partRuntime = useMessagePartRuntime();
@@ -1741,6 +1749,14 @@ export function AssistantMessage() {
         (p.type !== "tool-call" || p.activity !== true) &&
         isCollapsibleAssistantWorkPart(p),
     );
+  const firstWorkPartIndex = Array.isArray(msgContent)
+    ? msgContent.findIndex(
+        (p, index) =>
+          !isCallAgentToolCallShadowed(msgContent, index) &&
+          (p.type !== "tool-call" || p.activity !== true) &&
+          isCollapsibleAssistantWorkPart(p),
+      )
+    : -1;
   const shadowedToolCallIds = Array.isArray(msgContent)
     ? shadowedCallAgentToolCallIds(msgContent)
     : new Set<string>();
@@ -1772,7 +1788,11 @@ export function AssistantMessage() {
                   if (!showSummary) return <>{children}</>;
                   return (
                     <WorkedForSummary
-                      durationMs={capturedDurationMs ?? persistedDurationMs}
+                      durationMs={getAssistantWorkSummaryDurationMs(
+                        capturedDurationMs ?? persistedDurationMs,
+                        part.indices[0] ?? -1,
+                        firstWorkPartIndex,
+                      )}
                       defaultOpen={hasCustomUi}
                       autoCollapse={animateCollapse && !hasCustomUi}
                     >

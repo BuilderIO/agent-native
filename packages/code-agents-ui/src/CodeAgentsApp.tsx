@@ -178,6 +178,7 @@ export interface CodeAgentsHost {
     request?: CodeAgentTerminalRequest,
   ) => Promise<CodeAgentTerminalResult>;
   openCodexLogin?: () => Promise<CodeAgentTerminalResult>;
+  openClaudeLogin?: () => Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus?: () => Promise<CodeAgentRemoteConnectorStatus>;
   setRemoteConnectorEnabled?: (
     enabled: boolean,
@@ -277,6 +278,8 @@ export interface CodeAgentsAppProps {
   railWorkspaceSlot?: ReactNode;
   /** Optional actions pinned to the bottom of the rail. */
   railFooterSlot?: ReactNode;
+  /** Optional content shown below the empty new-chat composer. */
+  overviewFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
   newSessionExtension?: CodeAgentsNewSessionExtension;
   openDetailRequest?: { detailId: string; nonce: number };
@@ -286,6 +289,8 @@ export interface CodeAgentsAppProps {
   chatFirstMode?: boolean;
   /** Selected primary chat kind in the opt-in chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
+  /** Hide host transport-unavailable copy while the chat-first shell is booting. */
+  suppressChatFirstUnavailableNotice?: boolean;
   /** Select the primary chat kind in the opt-in chat-first shell. */
   onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
   /** Host-rendered shared Agent-Native chat surface for chat-first mode. */
@@ -441,11 +446,12 @@ const CODE_AGENT_REASONING_EFFORTS: Array<{
 
 const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   {
-    engine: "auto",
-    engineLabel: "Auto",
-    model: "auto",
-    label: "Default model",
-    description: "Use the connected provider and saved default.",
+    engine: "ai-sdk:openai",
+    engineLabel: "OpenAI",
+    model: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    description: "Model list is loading.",
+    configured: false,
   },
 ];
 
@@ -454,6 +460,13 @@ const CODE_AGENT_VIEWED_RUN_IDS_KEY = "agent-native-code:viewed-run-ids";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
 const HOST_CALL_TIMEOUT_MIN_MS = 10_000;
+
+type RailItemCacheEntry = {
+  title: string | null;
+  pinned: boolean;
+  timestampKey: string;
+  item: ChatHistoryItem;
+};
 
 function getHostCallTimeoutMs(pollIntervalMs: number): number {
   return Math.max(HOST_CALL_TIMEOUT_MIN_MS, pollIntervalMs * 4);
@@ -522,12 +535,14 @@ export default function CodeAgentsApp({
   railNavigationSlot,
   railWorkspaceSlot,
   railFooterSlot,
+  overviewFooterSlot,
   renderAppSurface,
   newSessionExtension,
   openDetailRequest,
   activeChatFirstSurfaceKind,
   chatFirstMode = false,
   chatFirstMainKind = "code",
+  suppressChatFirstUnavailableNotice = false,
   onChatFirstMainKindChange,
   renderChatFirstMainSurface,
   chatFirstNavigation,
@@ -541,11 +556,27 @@ export default function CodeAgentsApp({
   const [runs, setRuns] = useState<CodeAgentRun[]>([]);
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
   const watchedSession = useChatFirstSessionWatch();
   const watchedSessionTarget = watchedSession.target;
+  const watchedSessionTargetRef = useRef(watchedSessionTarget);
+  watchedSessionTargetRef.current = watchedSessionTarget;
   const watchedSessionTargetSessionId = watchedSessionTarget?.sessionId ?? null;
   const watchedSessionTargetKind = watchedSessionTarget?.kind ?? null;
   const watchedSessionTargetGoalId = watchedSessionTarget?.goalId ?? null;
+  const selectedRunIdRef = useRef(selectedRunId);
+  selectedRunIdRef.current = selectedRunId;
+  const chatFirstModeRef = useRef(chatFirstMode);
+  chatFirstModeRef.current = chatFirstMode;
+  const onChatFirstMainKindChangeRef = useRef(onChatFirstMainKindChange);
+  onChatFirstMainKindChangeRef.current = onChatFirstMainKindChange;
+  const toggleRunPinnedRef = useRef<(run: CodeAgentRun) => Promise<void>>(
+    async () => undefined,
+  );
+  const renameRunRef = useRef<
+    (run: CodeAgentRun, newTitle: string) => Promise<void>
+  >(async () => undefined);
   const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
     string | null
   >(null);
@@ -717,31 +748,58 @@ export default function CodeAgentsApp({
   const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(
     () => new Set(initialViewedRunIdsRef.current!.ids),
   );
-  const railItems = useMemo<ChatHistoryItem[]>(
-    () =>
-      sortRunsForRail(runs).map((run) => ({
+  const railItemCacheRef = useRef(new Map<string, RailItemCacheEntry>());
+  const railItems = useMemo<ChatHistoryItem[]>(() => {
+    const nextCache = new Map<string, RailItemCacheEntry>();
+    const nextItems = sortRunsForRail(runs).map((run) => {
+      const title = getRunTitle(run);
+      const pinned = isRunPinned(run);
+      const active = isRunActive(run);
+      const unread = !active && !viewedRunIds.has(run.id);
+      const timestampKey = active
+        ? "active"
+        : unread
+          ? "unread"
+          : formatRelativeTime(run.updatedAt);
+      const previous = railItemCacheRef.current.get(run.id);
+      if (
+        previous &&
+        previous.title === title &&
+        previous.pinned === pinned &&
+        previous.timestampKey === timestampKey
+      ) {
+        nextCache.set(run.id, previous);
+        return previous.item;
+      }
+
+      const item: ChatHistoryItem = {
         id: run.id,
-        title: getRunTitle(run),
-        titleText: getRunTitle(run) ?? undefined,
-        pinned: isRunPinned(run),
-        timestamp: isRunActive(run) ? (
+        title,
+        titleText: title ?? undefined,
+        pinned,
+        timestamp: active ? (
           <span
             className="code-agents-run-status-spinner"
             aria-label="Running"
             title="Running"
           />
-        ) : !viewedRunIds.has(run.id) ? (
+        ) : unread ? (
           <span
             className="code-agents-run-status-dot"
             aria-label="Done — unread"
             title="Done"
           />
         ) : (
-          formatRelativeTime(run.updatedAt)
+          timestampKey
         ),
-      })),
-    [runs, viewedRunIds],
-  );
+      };
+      const entry = { title, pinned, timestampKey, item };
+      nextCache.set(run.id, entry);
+      return item;
+    });
+    railItemCacheRef.current = nextCache;
+    return nextItems;
+  }, [runs, viewedRunIds]);
 
   const markRunsViewed = useCallback((runIds: string[]) => {
     const ids = runIds.filter(Boolean);
@@ -764,7 +822,7 @@ export default function CodeAgentsApp({
 
   const loadRuns = useCallback(
     async (_busy = false) => {
-      setRunsLoaded(false);
+      if (_busy) setRunsLoaded(false);
       try {
         const result = await withHostCallTimeout(
           host.listRuns(selectedGoal.id),
@@ -772,7 +830,11 @@ export default function CodeAgentsApp({
         );
         setStatus(result.status);
         setError(result.error ?? null);
-        setRuns(result.runs);
+        setRuns((current) =>
+          areCodeAgentRunListsEqual(current, result.runs)
+            ? current
+            : result.runs,
+        );
         if (result.status === "ok") setRunsLoaded(true);
         if (result.status === "ok" && !viewedRunIdsInitializedRef.current) {
           const initialIds = result.runs.map((run) => run.id);
@@ -783,7 +845,7 @@ export default function CodeAgentsApp({
       } catch (err) {
         setStatus("unavailable");
         setError(err instanceof Error ? err.message : String(err));
-        setRuns([]);
+        setRuns((current) => (current.length === 0 ? current : []));
       } finally {
         setLoading(false);
       }
@@ -1047,8 +1109,13 @@ export default function CodeAgentsApp({
 
   const connectLocalRuntime = useCallback(
     async (engine: string) => {
-      if (engine !== "codex-cli") return;
-      if (!host.openCodexLogin) {
+      const openLogin =
+        engine === "claude-cli"
+          ? host.openClaudeLogin
+          : engine === "codex-cli"
+            ? host.openCodexLogin
+            : undefined;
+      if (!openLogin) {
         toast("Local sign-in is only available in Agent Native Desktop", {
           description: "Open Settings to manage hosted providers instead.",
         });
@@ -1056,18 +1123,23 @@ export default function CodeAgentsApp({
         return;
       }
       try {
-        const result = await host.openCodexLogin();
+        const result = await openLogin();
         if (!result.ok) {
-          toast("Codex sign-in was not opened", {
-            description: result.error,
-          });
+          toast(
+            `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+            {
+              description: result.error,
+            },
+          );
           return;
         }
-        toast("Codex sign-in opened", {
-          description:
-            "Finish the ChatGPT sign-in in Terminal. The runtime picker will refresh when it is ready.",
-          duration: 4800,
-        });
+        toast(
+          `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in opened`,
+          {
+            description: `Finish the ${engine === "claude-cli" ? "Claude" : "ChatGPT"} sign-in in Terminal. The runtime picker will refresh when it is ready.`,
+            duration: 4800,
+          },
+        );
 
         let attempts = 0;
         const refresh = async (): Promise<void> => {
@@ -1084,12 +1156,15 @@ export default function CodeAgentsApp({
             if (
               modelResult.models.some(
                 (option) =>
-                  option.engine === "codex-cli" && option.configured === true,
+                  option.engine === engine && option.configured === true,
               )
             ) {
-              toast("ChatGPT subscription connected", {
-                description: "This computer is ready for local Agent tasks.",
-              });
+              toast(
+                `${engine === "claude-cli" ? "Claude" : "ChatGPT"} connected`,
+                {
+                  description: "This computer is ready for local Agent tasks.",
+                },
+              );
               return;
             }
           }
@@ -1098,9 +1173,12 @@ export default function CodeAgentsApp({
         };
         void refresh();
       } catch (err) {
-        toast("Codex sign-in was not opened", {
-          description: err instanceof Error ? err.message : String(err),
-        });
+        toast(
+          `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+          {
+            description: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     },
     [host, onOpenSettings],
@@ -1145,12 +1223,12 @@ export default function CodeAgentsApp({
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
-  // `listModels` only includes Codex when the local CLI is installed. Keep
-  // sign-in hidden until that capability has been confirmed by the host so a
-  // fresh install does not offer a command that cannot launch.
-  const codexCliAvailable = modelOptions.some(
-    (option) => option.engine === "codex-cli",
-  );
+  // `listModels` only includes local runtimes when their CLI is installed.
+  // Keep sign-in hidden until the host has confirmed the capability.
+  const localRuntimeEngine = modelOptions.find(
+    (option) => option.engine === "codex-cli" || option.engine === "claude-cli",
+  )?.engine;
+  const localRuntimeAvailable = Boolean(localRuntimeEngine);
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -1234,7 +1312,10 @@ export default function CodeAgentsApp({
           return;
         }
         setModelOptions(result.models);
-        if (!modelSelection.model && result.selected) {
+        if (
+          (!modelSelection.model || modelSelection.model === "auto") &&
+          result.selected
+        ) {
           setModelSelection(result.selected);
         }
       })
@@ -1873,6 +1954,97 @@ export default function CodeAgentsApp({
     }
   }
 
+  toggleRunPinnedRef.current = toggleRunPinned;
+  renameRunRef.current = renameRun;
+
+  const handleRailSelect = useCallback(
+    (id: string) => {
+      onChatFirstMainKindChangeRef.current?.("code");
+      markRunsViewed([id]);
+      setSelectedExtensionDetailId(null);
+      setSelectedRunId(id);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
+    },
+    [markRunsViewed],
+  );
+
+  const handleRailOpen = useCallback(
+    (id: string) => {
+      onChatFirstMainKindChangeRef.current?.("code");
+      markRunsViewed([id]);
+      setSelectedExtensionDetailId(null);
+      setSelectedRunId(id);
+      setWorkbenchOpen(true);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
+    },
+    [markRunsViewed],
+  );
+
+  const handleRailTogglePin = useCallback((id: string) => {
+    const run = runsRef.current.find((item) => item.id === id);
+    if (run) void toggleRunPinnedRef.current(run);
+  }, []);
+
+  const handleRailRename = useCallback((id: string, nextTitle: string) => {
+    const run = runsRef.current.find((item) => item.id === id);
+    if (run) void renameRunRef.current(run, nextTitle);
+  }, []);
+
+  const handleRailAdditionalRowActions = useCallback(
+    (item: ChatHistoryItem, closeMenu: () => void) => (
+      <>
+        <button
+          type="button"
+          role="menuitem"
+          className="an-chat-history-row__menu-item"
+          onClick={() => {
+            closeMenu();
+            void writeClipboardText(item.id).then((copied) => {
+              toast(
+                copied ? "Session ID copied" : "Could not copy session ID",
+                { duration: 1800 },
+              );
+            });
+          }}
+        >
+          <IconCopy size={13} strokeWidth={1.8} />
+          <span>Copy session ID</span>
+        </button>
+        {chatFirstModeRef.current ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="an-chat-history-row__menu-item"
+            onClick={() => {
+              closeMenu();
+              const run = runsRef.current.find(
+                (candidate) => candidate.id === item.id,
+              );
+              if (!run) return;
+              emitChatFirstSessionWatch({
+                sessionId: item.id,
+                title: getRunTitle(run) ?? "Untitled session",
+                kind: "code-agent",
+                goalId: run.goalId,
+                sourceSessionId: selectedRunIdRef.current ?? undefined,
+              });
+            }}
+          >
+            <IconEye size={13} strokeWidth={1.8} />
+            <span>
+              {watchedSessionTargetRef.current?.sessionId === item.id
+                ? "Keep watching session"
+                : "Watch and message session"}
+            </span>
+          </button>
+        ) : null}
+      </>
+    ),
+    [],
+  );
+
   const showingSelectedRunDetail =
     !workbenchOpen &&
     !mobilePanelOpen &&
@@ -1970,82 +2142,11 @@ export default function CodeAgentsApp({
           loading={loading}
           loadingLabel={<RunListSkeleton />}
           emptyLabel="No chats yet."
-          onSelect={(id) => {
-            onChatFirstMainKindChange?.("code");
-            markRunsViewed([id]);
-            setSelectedExtensionDetailId(null);
-            setSelectedRunId(id);
-            setSearchPanelOpen(false);
-            setMobilePanelOpen(false);
-          }}
-          onOpen={(id) => {
-            onChatFirstMainKindChange?.("code");
-            markRunsViewed([id]);
-            setSelectedExtensionDetailId(null);
-            setSelectedRunId(id);
-            setWorkbenchOpen(true);
-            setSearchPanelOpen(false);
-            setMobilePanelOpen(false);
-          }}
-          onTogglePin={(id) => {
-            const run = runs.find((item) => item.id === id);
-            if (run) toggleRunPinned(run);
-          }}
-          onRename={(id, nextTitle) => {
-            const run = runs.find((item) => item.id === id);
-            if (run) renameRun(run, nextTitle);
-          }}
-          renderAdditionalRowActions={(item, closeMenu) => (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="an-chat-history-row__menu-item"
-                onClick={() => {
-                  closeMenu();
-                  void writeClipboardText(item.id).then((copied) => {
-                    toast(
-                      copied
-                        ? "Session ID copied"
-                        : "Could not copy session ID",
-                      { duration: 1800 },
-                    );
-                  });
-                }}
-              >
-                <IconCopy size={13} strokeWidth={1.8} />
-                <span>Copy session ID</span>
-              </button>
-              {chatFirstMode ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="an-chat-history-row__menu-item"
-                  onClick={() => {
-                    closeMenu();
-                    const run = runs.find(
-                      (candidate) => candidate.id === item.id,
-                    );
-                    if (!run) return;
-                    emitChatFirstSessionWatch({
-                      sessionId: item.id,
-                      title: getRunTitle(run) ?? "Untitled session",
-                      kind: "code-agent",
-                      goalId: run.goalId,
-                      sourceSessionId: selectedRunId ?? undefined,
-                    });
-                  }}
-                >
-                  <IconEye size={13} strokeWidth={1.8} />
-                  <span>
-                    {watchedSession.target?.sessionId === item.id
-                      ? "Keep watching session"
-                      : "Watch and message session"}
-                  </span>
-                </button>
-              ) : null}
-            </>
-          )}
+          onSelect={handleRailSelect}
+          onOpen={handleRailOpen}
+          onTogglePin={handleRailTogglePin}
+          onRename={handleRailRename}
+          renderAdditionalRowActions={handleRailAdditionalRowActions}
           className="code-agents-run-list"
         />
         {railFooterSlot ? (
@@ -2173,7 +2274,12 @@ export default function CodeAgentsApp({
                       <OverviewSkeleton />
                     ) : (
                       <>
-                        {status !== "ok" && (
+                        {status !== "ok" &&
+                        !(
+                          chatFirstMode &&
+                          suppressChatFirstUnavailableNotice &&
+                          status === "unavailable"
+                        ) ? (
                           <div
                             className={`code-agents-callout code-agents-callout--${status}`}
                           >
@@ -2185,7 +2291,7 @@ export default function CodeAgentsApp({
                                   `${selectedGoal.surfaceLabel} is not reporting chats yet.`)}
                             </span>
                           </div>
-                        )}
+                        ) : null}
 
                         {activeNewSessionExtension &&
                         selectedExtensionDetailId &&
@@ -2221,14 +2327,14 @@ export default function CodeAgentsApp({
                             onOpenSettings={onOpenSettings}
                             onConnectProvider={connectBuilderProvider}
                             onConnectLocalRuntime={
-                              !chatFirstMode && codexCliAvailable
+                              !chatFirstMode && localRuntimeAvailable
                                 ? connectLocalRuntime
                                 : undefined
                             }
                           />
                         ) : (
                           <div className="code-agents-start">
-                            <h2>What outcome do you want?</h2>
+                            <h2>What should we do today?</h2>
                             {!activeNewSessionExtension &&
                               providerGate.blocked && (
                                 <ProviderGateNotice
@@ -2238,9 +2344,11 @@ export default function CodeAgentsApp({
                                   onConnectBuilder={connectBuilderProvider}
                                   onOpenSettings={onOpenSettings}
                                   onConnectLocalRuntime={
-                                    !chatFirstMode && codexCliAvailable
+                                    !chatFirstMode && localRuntimeAvailable
                                       ? () =>
-                                          void connectLocalRuntime("codex-cli")
+                                          void connectLocalRuntime(
+                                            localRuntimeEngine ?? "codex-cli",
+                                          )
                                       : undefined
                                   }
                                 />
@@ -2291,7 +2399,7 @@ export default function CodeAgentsApp({
                               onConnectLocalRuntime={
                                 !chatFirstMode &&
                                 !activeNewSessionExtension &&
-                                codexCliAvailable
+                                localRuntimeAvailable
                                   ? connectLocalRuntime
                                   : undefined
                               }
@@ -2308,6 +2416,11 @@ export default function CodeAgentsApp({
                                 onChoose={chooseProjectFolder}
                               />
                             )}
+                            {overviewFooterSlot ? (
+                              <div className="code-agents-overview-footer">
+                                {overviewFooterSlot}
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </>
@@ -2869,12 +2982,18 @@ function CodeAgentComposer({
       modeControl={modeControl}
       actionButton={stopButton}
       showModelSelector={showModelSelector}
+      showAutoModelOption={false}
       availableModels={showModelSelector ? availableModels : undefined}
       selectedModel={
-        showModelSelector ? (normalizedModel.model ?? "auto") : undefined
+        showModelSelector
+          ? (normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model)
+          : undefined
       }
       selectedEngine={
-        showModelSelector ? (normalizedModel.engine ?? "auto") : undefined
+        showModelSelector
+          ? (normalizedModel.engine ??
+            DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine)
+          : undefined
       }
       selectedEffort={showModelSelector ? normalizedModel.effort : undefined}
       onModelChange={(model, engine) =>
@@ -2947,7 +3066,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Builder.io (free tier available), sign in with your ChatGPT subscription, or add an API key.",
+        "Connect Builder.io (free tier available), sign in with ChatGPT or Claude, or add an API key.",
     };
   }
   return {
@@ -3052,7 +3171,7 @@ function CodeProviderNotice({
   );
 }
 
-function normalizeModelSelection(
+export function normalizeModelSelection(
   value: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
@@ -3061,11 +3180,6 @@ function normalizeModelSelection(
     models.find(
       (model) => model.engine === value.engine && model.model === value.model,
     ) ?? first;
-  if (selected.engine === "auto" && selected.model === "auto") {
-    return {
-      effort: normalizeReasoningEffort(value.effort ?? "auto"),
-    };
-  }
   return {
     engine: selected.engine,
     model: selected.model,
@@ -3073,7 +3187,7 @@ function normalizeModelSelection(
   };
 }
 
-function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
+export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
   const groups = new Map<
     string,
     {
@@ -3081,6 +3195,8 @@ function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
       label: string;
       models: string[];
       configured: boolean;
+      statusLabel?: string;
+      isSubscription?: boolean;
     }
   >();
   for (const option of models) {
@@ -3091,6 +3207,8 @@ function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
       label: option.engineLabel,
       models: [],
       configured,
+      ...(option.statusLabel ? { statusLabel: option.statusLabel } : {}),
+      ...(option.isSubscription ? { isSubscription: true } : {}),
     };
     if (!group.models.includes(option.model)) group.models.push(option.model);
     groups.set(key, group);
@@ -3300,6 +3418,18 @@ function normalizePromptForSelectedGoal(
 
 function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
+}
+
+function areCodeAgentRunListsEqual(
+  current: CodeAgentRun[],
+  next: CodeAgentRun[],
+): boolean {
+  return (
+    current.length === next.length &&
+    current.every(
+      (run, index) => JSON.stringify(run) === JSON.stringify(next[index]),
+    )
+  );
 }
 
 function sortRunsForRail(runs: CodeAgentRun[]): CodeAgentRun[] {
@@ -3977,6 +4107,21 @@ function RunDetailCard({
     : false;
   const showApprovalBanner =
     Boolean(pendingApproval) && !hasInlineApprovalAffordance;
+  const localRuntimeOption =
+    modelOptions.find(
+      (option) =>
+        option.engine === modelSelection.engine &&
+        (option.engine === "codex-cli" || option.engine === "claude-cli"),
+    ) ??
+    modelOptions.find(
+      (option) =>
+        option.engine === "codex-cli" || option.engine === "claude-cli",
+    );
+  const localRuntimeEngine = localRuntimeOption?.engine;
+  const localRuntimeLabel =
+    localRuntimeEngine === "claude-cli"
+      ? "Sign in with Claude"
+      : "Sign in with ChatGPT";
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
@@ -3986,17 +4131,17 @@ function RunDetailCard({
           title="Provider needed"
           description={
             builderConnectMessage ??
-            "Connect Builder.io (free tier available), run codex login for Codex CLI, or add your own API key."
+            "Connect Builder.io (free tier available), sign in with ChatGPT or Claude, or add your own API key."
           }
           primaryActionLabel={
             builderConnecting ? "Waiting..." : "Connect Builder.io"
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
-          localRuntimeActionLabel="Sign in with ChatGPT"
+          localRuntimeActionLabel={localRuntimeLabel}
           onConnectLocalRuntime={
-            onConnectLocalRuntime
-              ? () => onConnectLocalRuntime("codex-cli")
+            onConnectLocalRuntime && localRuntimeEngine
+              ? () => onConnectLocalRuntime(localRuntimeEngine)
               : undefined
           }
           secondaryActionLabel="API keys"
@@ -4109,8 +4254,10 @@ function TranscriptPanel({
   onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
-  const selectedModel = normalizedModel.model ?? "auto";
-  const selectedEngine = normalizedModel.engine ?? "auto";
+  const selectedModel =
+    normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model;
+  const selectedEngine =
+    normalizedModel.engine ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine;
   const selectedEffort = normalizeReasoningEffort(
     normalizedModel.effort ?? "auto",
   );
@@ -4124,9 +4271,9 @@ function TranscriptPanel({
   const permissionModeRef = useRef<string | undefined>(permissionMode);
   permissionModeRef.current = permissionMode;
   const modelRef = useRef<string | undefined>(selectedModel);
-  modelRef.current = selectedModel === "auto" ? undefined : selectedModel;
+  modelRef.current = selectedModel;
   const engineRef = useRef<string | undefined>(selectedEngine);
-  engineRef.current = selectedEngine === "auto" ? undefined : selectedEngine;
+  engineRef.current = selectedEngine;
   const effortRef = useRef<CodeAgentReasoningEffort | undefined>(
     selectedEffort,
   );

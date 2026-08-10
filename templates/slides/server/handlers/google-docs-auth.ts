@@ -23,6 +23,7 @@ import {
   getGoogleDocsAccessToken,
   getGoogleDocsAuthUrl,
   getGooglePickerConfig,
+  hasGoogleDriveExportScope,
   isGoogleDocsOAuthConfigured,
   listGoogleDocsAccounts,
 } from "../lib/google-docs-oauth.js";
@@ -163,6 +164,9 @@ export const getGoogleDocsStatus = defineEventHandler(
       return {
         configured: await isGoogleDocsOAuthConfigured(owner),
         connected: accounts.length > 0,
+        googleSlidesUrlImportReady: accounts.some((account) =>
+          hasGoogleDriveExportScope(account.scope),
+        ),
         accounts,
         pickerConfigured: !!(picker.apiKey && picker.appId),
         pickerApiKey: picker.apiKey,

@@ -35,8 +35,8 @@ ladder.
   native inline summary/table and an "Open editor" expansion path.
 - For an anonymous feedback form or survey, create all fields in one
   `create-form` call with `status: "published"`, verify the persisted form, and
-  return the action's exact public `/f/<slug>` response URL rather than only
-  the private editor link.
+  copy the returned `publicUrl` verbatim. Never derive the link from `slug` or
+  omit the public `/f/<slug>` route segment.
 - To email the form owner when someone submits a response, set
   `settings.emailOnNewResponses: true` through `create-form` or `update-form`.
   Delivery uses the configured framework email provider (`RESEND_API_KEY` or

@@ -276,7 +276,7 @@ demo 负责。
 npx @agent-native/core@latest create my-platform
 ```
 
-您将获得一个多选选择器。选择一个应用程序（独立）或多个应用程序（工作区 - 应用程序共享身份验证、品牌、代理配置和数据库）。每个挑选的应用都与您需要的每个文件一起构建到 `apps/<name>/` 中。对于没有浏览器 UI 的自动化应用，而不是应用 UI，请使用 `npx @agent-native/core@latest create my-agent --headless`。
+CLI 会先询问 **如何开始？**。选择 **Chat** 可创建包含 Chat 和 Dispatch 的最小工作区，选择 **First-party template(s)** 可打开多选选择器。Community 和 Headless 是独立应用的入口。工作区应用共享身份验证、品牌、代理配置和数据库；每个应用都会连同所需的全部文件构建到 `apps/<name>/` 中。对于没有浏览器 UI 的自动化应用，而不是应用 UI，请使用 `npx @agent-native/core@latest create my-agent --headless`。
 
 填写`.env`（主要是`ANTHROPIC_API_KEY`和`DATABASE_URL`）、`pnpm install`、`pnpm dev`，就可以了。没有“TODO：实现登录”，没有占位符路由。
 

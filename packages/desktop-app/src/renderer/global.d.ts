@@ -68,6 +68,8 @@ type CodeAgentModelOption = {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 };
 
 type CodeAgentModelListResult = {
