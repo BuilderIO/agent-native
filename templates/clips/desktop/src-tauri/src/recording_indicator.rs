@@ -9,7 +9,7 @@
 //!
 //! Two visual modes (driven entirely from the React side via the URL hash):
 //!
-//!   - `meeting`  — meeting-aware pill with mic + speaker waveforms.
+//!   - `meeting`  — meeting-aware pill with a combined audio meter.
 //!   - `clip`     — solid-mic pill for non-meeting recording sessions.
 //!
 //! The pill is used by meeting-aware recordings and Wispr-style voice
@@ -68,10 +68,13 @@ static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 /// expanded form stretches horizontally to fit the live-transcript area.
 const PILL_W_LOGICAL: u32 = 38;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
-/// Meeting mode expands wider so the live transcript and the notes editor sit
-/// side by side without either column feeling cramped.
-const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 720;
-const PILL_H_LOGICAL: u32 = 92;
+/// Meeting mode uses the same focused transcript width as other recordings;
+/// live notes are intentionally kept out of this compact overlay.
+const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
+/// Keep this close to the rendered capsule's height. The window frame is what
+/// hover is polled against, so slack here makes the pill light up while the
+/// cursor is still nowhere near it.
+const PILL_H_LOGICAL: u32 = 60;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
@@ -83,7 +86,8 @@ const PILL_DETACHED_W_LOGICAL: u32 = 180;
 const PILL_DETACHED_H_LOGICAL: u32 = 40;
 const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
-const PILL_RIGHT_MARGIN_LOGICAL: u32 = 24;
+/// Gap between the visible capsule and the right screen edge, logical px.
+const PILL_RIGHT_MARGIN_LOGICAL: u32 = 28;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -102,6 +106,15 @@ fn scale_factor(app: &AppHandle) -> f64 {
 
 fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
     (OVERLAY_SHADOW_GUTTER_LOGICAL * scale_factor(app).max(1.0)).round() as u32
+}
+
+/// Screen-edge margin for the *visible* capsule. The window is padded out with
+/// a transparent shadow gutter, so that gutter comes off the window margin —
+/// measured from the window frame the pill floats a whole gutter further from
+/// the edge than the constant says.
+fn edge_margin_physical(app: &AppHandle, logical: u32) -> i32 {
+    let margin = (logical as f64 * scale_factor(app)) as i32;
+    (margin - overlay_shadow_gutter_physical(app) as i32).max(0)
 }
 
 /// Persist the last-known pill position so the next `show` re-opens at the
@@ -130,20 +143,32 @@ fn pill_detached_position_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("pill-position-detached.json"))
 }
 
-fn load_meeting_position(app: &AppHandle) -> Option<(i32, i32)> {
-    let path = pill_meeting_position_path(app)?;
-    let bytes = std::fs::read(&path).ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    let x = value.get("x")?.as_i64()? as i32;
-    let y = value.get("y")?.as_i64()? as i32;
-    Some((x, y))
+#[derive(Deserialize)]
+struct MeetingPillPosition {
+    x: i32,
+    y: i32,
+    #[serde(default)]
+    anchor: Option<String>,
+    #[serde(default)]
+    width: Option<u32>,
 }
 
-fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32) {
+fn load_meeting_position(app: &AppHandle) -> Option<MeetingPillPosition> {
+    let path = pill_meeting_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32, width: u32) {
     let Some(path) = pill_meeting_position_path(app) else {
         return;
     };
-    let body = match serde_json::to_vec(&serde_json::json!({ "x": x, "y": y })) {
+    let body = match serde_json::to_vec(&serde_json::json!({
+        "x": x + width as i32,
+        "y": y,
+        "anchor": "right",
+        "width": width,
+    })) {
         Ok(b) => b,
         Err(_) => return,
     };
@@ -220,14 +245,17 @@ fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     (x, y)
 }
 
-fn default_center_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
-    let scale = scale_factor(app);
-    let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
+fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
+    let right_margin = edge_margin_physical(app, PILL_RIGHT_MARGIN_LOGICAL);
     let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
     let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
-    // Anchor Y to expanded height so header stays fixed on expand.
+    // Center whatever is actually on screen — meetings now open collapsed, so
+    // reserving the expanded height here would strand the capsule high up.
+    // Expanding pins this top edge and grows downward (see `anchored_rect`),
+    // clamped below so a tall panel still fits.
     let (_, h_exp) = pill_size_physical(app, true);
-    let y = (my + (mh as i32 - h_exp as i32) / 2).max(my);
+    let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
+    let y = (my + (mh as i32 - h as i32) / 2).clamp(my, max_y_exp);
     (x, y)
 }
 
@@ -240,9 +268,8 @@ fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let (w_log, h_log) = if detached {
         (PILL_DETACHED_W_LOGICAL, PILL_DETACHED_H_LOGICAL)
     } else if expanded {
-        // Meeting mode (right-side anchor) expands wide enough for the
-        // transcript + notes split; plain clip recordings keep the narrower
-        // transcript-only width.
+        // Meeting mode (right-side anchor) keeps a focused transcript-only
+        // panel; plain clip recordings use the same width today.
         let w = if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
             PILL_W_EXPANDED_MEETING_LOGICAL
         } else {
@@ -265,9 +292,8 @@ fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
 
 /// Default top-right anchor (physical px) for detached mode.
 fn default_top_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
-    let scale = scale_factor(app);
-    let top_margin = (PILL_DETACHED_TOP_MARGIN_LOGICAL as f64 * scale) as i32;
-    let right_margin = (PILL_DETACHED_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
+    let top_margin = edge_margin_physical(app, PILL_DETACHED_TOP_MARGIN_LOGICAL);
+    let right_margin = edge_margin_physical(app, PILL_DETACHED_RIGHT_MARGIN_LOGICAL);
     let (mx, my, mw, _mh) = tray_monitor_physical_rect(app);
     let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
     let y = (my + top_margin).max(my);
@@ -314,7 +340,28 @@ fn anchored_rect(
         let (_, h_exp) = pill_size_physical(app, true);
         let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
         let (x, y) = match load_meeting_position(app) {
-            Some((sx, sy)) => (sx.clamp(mx, max_x), sy.clamp(my, max_y_exp)),
+            Some(position) if position.anchor.as_deref() == Some("right") => {
+                let saved_width = position.width.unwrap_or(w);
+                (
+                    (position.x - saved_width as i32).clamp(mx, max_x),
+                    position.y.clamp(my, max_y_exp),
+                )
+            }
+            Some(position) => {
+                let (expanded_w, _) = pill_size_physical(app, true);
+                let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale_factor(app)) as i32;
+                let legacy_right_edge = position.x + expanded_w as i32;
+                let monitor_right = mx + mw as i32;
+                if (legacy_right_edge - (monitor_right - right_margin)).abs() <= 4 {
+                    save_meeting_position_to_disk(app, position.x, position.y, expanded_w);
+                    (
+                        (legacy_right_edge - w as i32).clamp(mx, max_x),
+                        position.y.clamp(my, max_y_exp),
+                    )
+                } else {
+                    (position.x.clamp(mx, max_x), position.y.clamp(my, max_y_exp))
+                }
+            }
             None => default_center_right(app, w, h),
         };
         return (w, h, x, y);
@@ -359,15 +406,14 @@ pub async fn recording_pill_show(
     );
 
     if let Some(existing) = app.get_webview_window(PILL_LABEL) {
-        // Already alive — re-emit context and bring it back into view.
-        let prev_size = existing.outer_size().ok();
-        let prev_pos = existing.outer_position().ok();
-        let previous = match (prev_pos, prev_size) {
-            (Some(p), Some(s)) => Some((p.x, p.y, s.width, s.height)),
-            _ => None,
-        };
+        // Already alive — re-emit context and bring it back into view. Re-anchor
+        // from the saved/default position for this mode, never from where the
+        // window happens to sit: the pill window is reused across sessions, so
+        // carrying the previous rect over pins a meeting pill to the last clip
+        // recording's bottom-center spot. `previous` exists for expand/collapse,
+        // where the anchor must not move.
         let expanded = PILL_EXPANDED.load(Ordering::Relaxed);
-        let (w, h, x, y) = anchored_rect(&app, expanded, previous);
+        let (w, h, x, y) = anchored_rect(&app, expanded, None);
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         use tauri::Emitter;
@@ -426,7 +472,9 @@ pub async fn recording_pill_show(
 
 /// True when the global cursor sits inside the pill window's frame. Cursor and
 /// frame both come from Tauri (physical px, desktop top-left origin), so the
-/// test is a plain point-in-rect with no AppKit hop.
+/// test is a plain point-in-rect with no AppKit hop. The frame is inset by the
+/// transparent shadow gutter the renderer pads out, so the polled hover state
+/// matches the capsule the user actually sees.
 fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     let (Ok(c), Ok(p), Ok(s)) = (
         window.cursor_position(),
@@ -435,10 +483,12 @@ fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     ) else {
         return false;
     };
-    c.x >= p.x as f64
-        && c.x <= (p.x + s.width as i32) as f64
-        && c.y >= p.y as f64
-        && c.y <= (p.y + s.height as i32) as f64
+    let gutter = overlay_shadow_gutter_physical(window.app_handle()) as i32;
+    let left = p.x + gutter;
+    let top = p.y + gutter;
+    let right = p.x + s.width as i32 - gutter;
+    let bottom = p.y + s.height as i32 - gutter;
+    c.x >= left as f64 && c.x <= right as f64 && c.y >= top as f64 && c.y <= bottom as f64
 }
 
 /// Start polling the cursor against the pill frame and emitting
@@ -493,35 +543,28 @@ pub async fn recording_pill_expand(app: AppHandle, expanded: bool) -> Result<(),
 pub async fn recording_pill_hide(app: AppHandle) -> Result<(), String> {
     stop_pill_hover_tracking();
     if let Some(w) = app.get_webview_window(PILL_LABEL) {
-        // Snapshot current position before close so the next show re-opens
-        // at the user's chosen spot.
-        if let Ok(pos) = w.outer_position() {
-            if PILL_DETACHED.load(Ordering::Relaxed) {
-                save_detached_position_to_disk(&app, pos.x, pos.y);
-            } else if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
-                save_meeting_position_to_disk(&app, pos.x, pos.y);
-            } else {
-                save_pill_position_to_disk(&app, pos.x, pos.y);
-            }
-        }
         let _ = w.close();
     }
     Ok(())
 }
 
-/// Persist the pill's current position. Called by the React side after the
-/// user drag-moves it (mouseup) so the next `show` reopens at the chosen
-/// spot.
 #[tauri::command]
-pub async fn recording_pill_save_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
-    // Persist to the right slot — detached drags shouldn't overwrite the
-    // user's preferred bottom-center position and vice versa.
+pub async fn recording_pill_save_position(app: AppHandle) -> Result<(), String> {
+    let Some(window) = app.get_webview_window(PILL_LABEL) else {
+        return Ok(());
+    };
+    let Ok(position) = window.outer_position() else {
+        return Ok(());
+    };
+
     if PILL_DETACHED.load(Ordering::Relaxed) {
-        save_detached_position_to_disk(&app, x, y);
+        save_detached_position_to_disk(&app, position.x, position.y);
     } else if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
-        save_meeting_position_to_disk(&app, x, y);
+        if let Ok(size) = window.outer_size() {
+            save_meeting_position_to_disk(&app, position.x, position.y, size.width);
+        }
     } else {
-        save_pill_position_to_disk(&app, x, y);
+        save_pill_position_to_disk(&app, position.x, position.y);
     }
     Ok(())
 }

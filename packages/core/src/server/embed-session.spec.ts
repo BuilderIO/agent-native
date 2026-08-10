@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
   requestMatchesEmbedTarget,
@@ -76,6 +77,12 @@ describe("normalizeEmbedTargetPath", () => {
         "https://app.example.com",
       ),
     ).toBe("/inbox?threadId=t1");
+  });
+
+  it("rejects auth entry paths even when they include the configured base path", () => {
+    process.env.APP_BASE_PATH = "/mail";
+    expect(normalizeEmbedTargetPath("/mail/login")).toBeNull();
+    expect(normalizeEmbedTargetPath("/mail/signup")).toBeNull();
   });
 
   it("rejects same-origin absolute URLs outside the current APP_BASE_PATH", () => {
@@ -400,5 +407,78 @@ describe("requestMatchesEmbedTarget", () => {
       targetPath: "/picker?mediaType=image",
     });
     expect(requestHasEmbedAuthMarker(event)).toBe(true);
+  });
+
+  it("binds capability sessions to their visual-edit target on data requests", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/visual-edit/design-1?editorView=overview",
+      scope: "capability:visual-edit:design:design-1",
+      ttlSeconds: 60,
+    });
+    const matchingTarget = encodeURIComponent(
+      "/visual-edit/design-1?editorView=overview&embedded=1",
+    );
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent(
+          `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${matchingTarget}`,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      scope: "capability:visual-edit:design:design-1",
+      targetPath: "/visual-edit/design-1?editorView=overview",
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent(
+          `/_agent-native/actions/get-design?__an_embed_token=${token}&${EMBED_TARGET_QUERY_PARAM}=${encodeURIComponent("/design/design-1")}`,
+        ),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/_agent-native/actions/get-design", {
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/design/design-1", {
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("allows capability-authenticated static modules without widening app routes", async () => {
+    process.env.OAUTH_STATE_SECRET = "embed-test-secret";
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/visual-edit/design-1",
+      scope: "capability:visual-edit:design:design-1",
+      ttlSeconds: 60,
+    });
+
+    await expect(
+      resolveEmbedSessionFromRequest(
+        fakeEvent("/@vite/client", {
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      scope: "capability:visual-edit:design:design-1",
+    });
+    expect(
+      requestHasEmbedAuthMarker(
+        fakeEvent("/_agent-native/actions/get-design", {
+          cookie: `${EMBED_SESSION_COOKIE}=${token}`,
+        }),
+      ),
+    ).toBe(false);
   });
 });

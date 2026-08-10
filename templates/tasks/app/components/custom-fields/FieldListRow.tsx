@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconTrash } from "@tabler/icons-react";
 
 import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
@@ -7,47 +8,48 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { FieldDefinition, FieldType } from "@/hooks/use-custom-fields";
 
-const FIELD_TYPE_LABELS: Record<FieldType, string> = {
-  text: "Text",
-  rich_text: "Rich text",
-  number: "Number",
-  percent: "Percent",
-  currency: "Currency",
-  single_select: "Single-select",
-  multi_select: "Multi-select",
-  date: "Date",
-};
+import { FIELD_TYPE_LABEL_KEYS } from "./field-types";
 
-function fieldTypeLabel(type: FieldType) {
-  return FIELD_TYPE_LABELS[type] ?? type;
+type Translate = ReturnType<typeof useT>;
+
+function fieldTypeLabel(t: Translate, type: FieldType) {
+  const key = FIELD_TYPE_LABEL_KEYS[type];
+  return key ? t(key) : type;
 }
 
-function fieldDescription(field: FieldDefinition) {
-  if (field.type === "currency") return `Currency ${field.config.symbol}`;
+function fieldDescription(t: Translate, field: FieldDefinition) {
+  if (field.type === "currency") {
+    return t("fields.currencyDescription", { symbol: field.config.symbol });
+  }
   if (field.type === "number") {
     const parts: string[] = [];
-    parts.push(`${field.config.precision ?? 0} decimals`);
-    if (field.config.positiveOnly) parts.push("positive only");
+    parts.push(
+      t("fields.decimalsDescription", { count: field.config.precision ?? 0 }),
+    );
+    if (field.config.positiveOnly) parts.push(t("fields.positiveOnlySuffix"));
     return parts.join(" · ");
   }
   if (field.type === "percent") {
-    return `${field.config.precision ?? 0} decimals`;
+    return t("fields.decimalsDescription", {
+      count: field.config.precision ?? 0,
+    });
   }
   if (field.type === "single_select" || field.type === "multi_select") {
     const options = "options" in field.config ? field.config.options : [];
-    return `${options.length} options`;
+    return t("fields.optionsCountDescription", { count: options.length });
   }
-  return fieldTypeLabel(field.type);
+  return fieldTypeLabel(t, field.type);
 }
 
 function FieldRowMetadata({ field }: { field: FieldDefinition }) {
+  const t = useT();
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
       <Badge variant="secondary" className="px-1.5 py-0 text-xs font-normal">
-        {fieldTypeLabel(field.type)}
+        {fieldTypeLabel(t, field.type)}
       </Badge>
       <span className="truncate text-xs text-muted-foreground">
-        {fieldDescription(field)}
+        {fieldDescription(t, field)}
       </span>
     </div>
   );
@@ -68,6 +70,7 @@ export function FieldListRow({
   onOpenDetails,
   onRequestDelete,
 }: FieldListRowProps) {
+  const t = useT();
   return (
     <ListRow
       sortable={sortable}
@@ -99,7 +102,9 @@ export function FieldListRow({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label={`Delete ${item.title}`}
+            aria-label={t("fields.deleteFieldAriaLabel", {
+              title: item.title,
+            })}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();

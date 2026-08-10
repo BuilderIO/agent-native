@@ -67,7 +67,7 @@ import {
 } from "../../components/workspace-resource-impact-preview";
 
 export function meta() {
-  return [{ title: "Workspace Resources — Dispatch" }];
+  return [{ title: "Agent Resources — Dispatch" }];
 }
 
 const KIND_CONFIG = {
@@ -252,10 +252,10 @@ function EditResourceDialog({
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Edit workspace resource</DialogTitle>
+          <DialogTitle>Edit agent resource</DialogTitle>
           <DialogDescription>
-            Updates apply immediately anywhere this workspace resource is
-            inherited. App shared or personal resources can override it locally.
+            Updates apply immediately anywhere this agent resource is inherited.
+            App shared or personal resources can override it locally.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -364,10 +364,11 @@ function AddResourceDialog() {
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add workspace resource</DialogTitle>
+          <DialogTitle>Add agent resource</DialogTitle>
           <DialogDescription>
-            Create a skill, instruction, agent profile, reference resource, or
-            MCP server that can be shared across workspace apps.
+            Create an agent resource—a skill, instruction, agent profile,
+            reference resource, or MCP server—that can be shared across
+            workspace apps.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -715,7 +716,7 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
   const activeGrants = grants.filter((g) => g.status === "active");
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg bg-card">
       <button
         type="button"
         className="flex w-full items-center gap-3 px-4 py-3 text-left cursor-pointer"
@@ -943,7 +944,7 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
           const exists = !!resource;
           const global = resource?.scope === "all";
           return (
-            <div key={item.path} className="rounded-lg border bg-card p-4">
+            <div key={item.path} className="rounded-lg bg-card p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -1055,10 +1056,7 @@ export default function WorkspaceRoute() {
       return (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div
-              key={index}
-              className="rounded-lg border bg-card px-5 py-4 space-y-2"
-            >
+            <div key={index} className="rounded-lg bg-card px-5 py-4 space-y-2">
               <Skeleton className="h-4 w-1/3" />
               <Skeleton className="h-3 w-2/3" />
             </div>
@@ -1088,8 +1086,8 @@ export default function WorkspaceRoute() {
 
   return (
     <DispatchShell
-      title="Workspace Resources"
-      description="Manage inherited workspace skills, guardrail instructions, agent profiles, reference resources, and MCP servers. All-app resources are available to every app without syncing."
+      title="Agent Resources"
+      description="Manage inherited skills, guardrail instructions, agent profiles, reference resources, and MCP servers. All-app resources are available to every app without syncing."
     >
       {resourcesQuery.isError || grantsQuery.isError ? (
         <ActionQueryError
@@ -1141,21 +1139,21 @@ export default function WorkspaceRoute() {
           <TabsContent value="skills" className="mt-4">
             <ResourceList
               items={skills}
-              emptyText="No workspace skills yet. Add a skill to share agent guidance across apps."
+              emptyText="No skills yet. Add a skill to share agent guidance across apps."
             />
           </TabsContent>
 
           <TabsContent value="instructions" className="mt-4">
             <ResourceList
               items={instructions}
-              emptyText="No workspace instructions yet. Add instructions to set behavioral rules across apps."
+              emptyText="No instructions yet. Add instructions to set behavioral rules across apps."
             />
           </TabsContent>
 
           <TabsContent value="agents" className="mt-4">
             <ResourceList
               items={agents}
-              emptyText="No workspace agents yet. Add a reusable agent profile to share specialist agents across apps."
+              emptyText="No agent profiles yet. Add a reusable profile to share specialist agents across apps."
             />
           </TabsContent>
 
@@ -1169,7 +1167,7 @@ export default function WorkspaceRoute() {
           <TabsContent value="mcp" className="mt-4">
             <ResourceList
               items={mcpServers}
-              emptyText="No workspace MCP servers yet. Add an HTTP MCP server to share external tools across apps."
+              emptyText="No MCP servers yet. Add an HTTP MCP server to share external tools across apps."
             />
           </TabsContent>
         </Tabs>

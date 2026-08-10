@@ -81,6 +81,36 @@ describe("Notion content calendar", () => {
     ]);
     expect(fetchMock).toHaveBeenCalledOnce();
   });
+
+  it("explains unshared-page access failures without claiming the integration label is this workspace", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ message: "Could not find database with ID: abc" }),
+            { status: 404 },
+          ),
+      ),
+    );
+    const { getContentCalendarSchema } = await import("./notion");
+
+    await expect(getContentCalendarSchema("explicit-db")).rejects.toThrow(
+      /Connections → add the integration/,
+    );
+  });
+
+  it("leaves non-access failures without the sharing hint", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("rate limited", { status: 429 })),
+    );
+    const { getContentCalendarSchema } = await import("./notion");
+
+    await expect(getContentCalendarSchema("explicit-db")).rejects.toThrow(
+      /^Notion API error 429: rate limited$/,
+    );
+  });
 });
 
 function jsonResponse(body: unknown): Response {

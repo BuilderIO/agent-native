@@ -6,10 +6,18 @@ import {
   isLocalMcpEmbedOrigin,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
+  mcpEmbedStaticAssetRouteRules,
   shouldAllowMcpEmbedCredentials,
 } from "./mcp-embed-headers.js";
 
 describe("MCP embed headers", () => {
+  it("sets nosniff on CDN-served static assets", () => {
+    // The h3 security-headers middleware never runs for these paths.
+    for (const rule of Object.values(mcpEmbedStaticAssetRouteRules())) {
+      expect(rule.headers["X-Content-Type-Options"]).toBe("nosniff");
+    }
+  });
+
   it("allows frontend action-client headers from embedded apps", () => {
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Frontend");
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(

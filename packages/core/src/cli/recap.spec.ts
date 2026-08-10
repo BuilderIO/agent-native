@@ -1553,6 +1553,24 @@ describe("recap comment body", () => {
     expect(body).not.toContain("javascript:");
   });
 
+  it("does not embed a partial theme pair when screenshot capture was incomplete", () => {
+    const token = "a".repeat(64);
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_LIGHT_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
+      RECAP_SHOT_OK: "false",
+      RECAP_SHOT_REASON: "dark: page.waitForSelector: Timeout 30000ms exceeded",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — screenshot failed");
+    expect(body).toContain(
+      "dark: page.waitForSelector: Timeout 30000ms exceeded",
+    );
+    expect(body).not.toContain("<picture>");
+  });
+
   it("drops a recap-image URL whose token is too short for the image route", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -1945,6 +1963,48 @@ describe("recap screenshot capture", () => {
         reason: "missing [data-plan-document]",
       });
     } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("retries once when the recap document readiness wait times out", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.waitForSelector
+      .mockRejectedValueOnce(
+        new Error(
+          "page.waitForSelector: Timeout 30000ms exceeded while waiting for locator('[data-plan-document]')",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-retry",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.goto).toHaveBeenCalledTimes(2);
+      expect(page.waitForSelector).toHaveBeenCalledTimes(2);
+      expect(page.screenshot).toHaveBeenCalledWith({ path: out });
+      expect(stderr).toHaveBeenCalledWith(
+        "[recap shot] recap document did not become ready; retrying once\n",
+      );
+    } finally {
+      stderr.mockRestore();
       stdout.mockRestore();
       fs.rmSync(dir, { force: true, recursive: true });
     }
@@ -2883,7 +2943,10 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Publish recap source");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap publish");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review, closed]",
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "VISUAL_RECAP_REQUIRED_LABELS",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("closed without merge");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
@@ -3019,6 +3082,9 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--image-cache-key");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_PLAYWRIGHT");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("[recap shot] ${label}");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "const hasAllImages = shots.every",
+    );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );
@@ -3396,7 +3462,7 @@ describe("reusable caller workflow builder", () => {
     const yml = buildReusableCallerWorkflow();
     // Trigger: same event types as the canonical workflow.
     expect(yml).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review, closed]",
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
     );
     // Uses the reusable workflow in the agent-native repo.
     expect(yml).toContain(
@@ -3416,6 +3482,9 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(yml).toContain(
       "VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}",
+    );
+    expect(yml).toContain(
+      "required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}",
     );
     expect(yml).toContain(
       "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
@@ -3718,6 +3787,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
       "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );
@@ -4075,6 +4145,7 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
       "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );

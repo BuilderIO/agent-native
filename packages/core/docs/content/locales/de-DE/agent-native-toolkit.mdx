@@ -31,12 +31,12 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="So passen Kits zusammen" summary={"Die Framework-Laufzeit liefert dauerhafte Garantien. Toolkit macht daraus wiederverwendbare Produktsysteme. Apps ergänzen Domänendaten, Routen und visuelle Identität."}>
+<Diagram id="doc-block-toolkits-boundary" title="So passen die drei Ebenen zusammen" summary={"Core ist die Framework-Grundlage. Toolkit bietet optionale wiederverwendbare Infrastruktur und UI. Templates sind optionale Apps auf Core, die häufig Toolkit nutzen."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     Aktionen, SQL, Authentifizierung, App-Zustand, Zugriffskontrollen,
     Echtzeittransport
   </div>
@@ -47,7 +47,7 @@ being rebuilt in slightly different ways every time.
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     Domänenschema, Routen, Aktionen, Marke, spezialisierte Abläufe
   </div>
 </div>
@@ -72,6 +72,8 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
+Core ist das Framework. Toolkit ist ein optionaler Vorrat wiederverwendbarer Framework-Bausteine. Templates sind optionale Apps auf Core; sie können Toolkit verwenden und als vollständige Ausgangspunkte geforkt werden. Eine App kann Core auch direkt ohne Toolkit oder Template nutzen.
+
 ## Katalog {#catalog}
 
 | Bereich                     | Einstieg                                               | Inhalt                                                                             |
@@ -86,19 +88,19 @@ being rebuilt in slightly different ways every time.
 
 ## Produkt-Kits {#product-kits}
 
-| Kit                                                      | Verwende es für                                                                                      |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| [Sharing](/docs/toolkit-sharing)                         | Besitzbare Ressourcen, Teilen-Dialoge/-Aktionen, Sichtbarkeit und öffentlicher/privater/Org-Zugriff. |
-| [Collaboration](/docs/toolkit-collaboration)             | Echtzeitbearbeitung, Präsenz, Live-Cursor, letzte Änderungen und gemeinsames Rückgängig.             |
-| [Settings](/docs/toolkit-settings)                       | Standardseiten/-tabs für App- und Agent-/Provider-Einstellungen an einem vorhersehbaren Ort.         |
-| [Org & Team](/docs/toolkit-org-team)                     | Teamseiten, Org-Wechsel, Einladungen, Org-Domänen, Rollen und App-Wechsel.                           |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, Secrets, Workspace-Verbindungen, OAuth/Provider-Bereitschaft und Builder Connect.        |
-| [Command & Navigation](/docs/toolkit-command-navigation) | Befehlsmenü, Deep Links, Standardrouten sowie Sidebar- und Shell-Muster.                             |
-| [Resources](/docs/toolkit-resources)                     | Ressourcenbäume/-editoren, Dateiauswahl/-suche, Anhänge und lokaler Dateimodus.                      |
-| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, Modellauswahl, Kontext-Chips, Freigaben, Wiederherstellung und Run-Leiste.                 |
-| [History](/docs/toolkit-history)                         | Versionierte Ressourcen, Snapshots, Verlauf, Audit, Undo/Redo, Wiederherstellung und Änderungen.     |
-| [Comments & Review](/docs/toolkit-comments-review)       | Prüfbare Ressourcen, Kommentare, Feedback-Warteschlangen, Threads, Erwähnungen und Review-Status.    |
-| [Observability](/docs/toolkit-observability)             | Nutzung, Ausgaben, Feedback, Replay, Fehler und Laufdiagnosen.                                       |
+| Kit                                                      | Verwende es für                                                                                                             |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| [Sharing](/docs/toolkit-sharing)                         | Besitzbare Ressourcen, Teilen-Dialoge/-Aktionen, Sichtbarkeit und öffentlicher/privater/Org-Zugriff.                        |
+| [Collaboration](/docs/toolkit-collaboration)             | Echtzeitbearbeitung, Präsenz, Live-Cursor, letzte Änderungen und gemeinsames Rückgängig.                                    |
+| [Settings](/docs/toolkit-settings)                       | Standardseiten/-tabs für App- und Agent-/Provider-Einstellungen an einem vorhersehbaren Ort.                                |
+| [Org & Team](/docs/toolkit-org-team)                     | Teamseiten, Org-Wechsel, Einladungen, Org-Domänen, Rollen und App-Wechsel.                                                  |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, Secrets, Workspace-Verbindungen, OAuth/Provider-Bereitschaft und Builder Connect (kostenloser Tarif verfügbar). |
+| [Command & Navigation](/docs/toolkit-command-navigation) | Befehlsmenü, Deep Links, Standardrouten sowie Sidebar- und Shell-Muster.                                                    |
+| [Resources](/docs/toolkit-resources)                     | Ressourcenbäume/-editoren, Dateiauswahl/-suche, Anhänge und lokaler Dateimodus.                                             |
+| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, Modellauswahl, Kontext-Chips, Freigaben, Wiederherstellung und Run-Leiste.                                        |
+| [History](/docs/toolkit-history)                         | Versionierte Ressourcen, Snapshots, Verlauf, Audit, Undo/Redo, Wiederherstellung und Änderungen.                            |
+| [Comments & Review](/docs/toolkit-comments-review)       | Prüfbare Ressourcen, Kommentare, Feedback-Warteschlangen, Threads, Erwähnungen und Review-Status.                           |
+| [Observability](/docs/toolkit-observability)             | Nutzung, Ausgaben, Feedback, Replay, Fehler und Laufdiagnosen.                                                              |
 
 ## Paket-Reife und Ownership {#package-maturity-and-ownership}
 
@@ -106,6 +108,17 @@ being rebuilt in slightly different ways every time.
 - Design ist ein **Template-Muster** mit wiederverwendbaren `design-tweaks`, kein vollständiger Drop-in-Editor oder Canvas.
 - Blocks und die Context-X-Ray-Engine bleiben in dieser Phase **Core-owned**; die wiederverwendbare Context-X-Ray-Darstellung gehört zu Toolkit.
 - Creative Context, Scheduling und Pinpoint sind **Toolkit-Fähigkeitsmodule**, die bei Bedarf installiert werden; sie behalten separate npm-Pakete und Lifecycle-Manifeste. Dispatch bleibt ein separates Produkt.
+
+## Dashboard-Kit {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` ist eine auswerfbare reine Darstellungseinheit
+für Kennzahlen- und Statistik-Karten, Tabellen, Datumsbereich, Panel-Reihenfolge
+und -Layout sowie generische Charts. Die App liefert Zeilen und Callbacks; das
+Kit lädt weder Daten noch verwaltet es Dashboard-Zustand oder Credentials.
+Instanziiere `@agent-native/core/dashboard-storage` pro App mit eigenem Schema
+und Zugriff; die Standardquelle `program` führt ein app-eigenes Datenprogramm aus.
+Führe vor der Übernahme `agent-native eject inspect toolkit/dashboard` aus.
+Provider-Resolver bleiben in der App, die die Verbindung und Abfragerichtlinie besitzt.
 
 ## Implementierungsgrenze {#implementation-boundary}
 

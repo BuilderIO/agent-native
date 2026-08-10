@@ -158,8 +158,13 @@ via the media endpoint, not retrying the same `filename`.
 ## What Actually Happens on Send
 
 `send-email` requires explicit user intent to send — it is `needsApproval:
-true` and pauses for human approval before the real Gmail call happens. It
-branches on whether the user has a connected Google account:
+true` and pauses for human approval before the real Gmail call happens. This is
+the canonical, intentionally rare use of the human-in-the-loop gate in this
+framework. An authenticated A2A caller may carry the user's exact chat
+authorization for one matching send; otherwise the loop pauses for approval.
+Drafting and queueing are unaffected by the gate.
+
+It branches on whether the user has a connected Google account:
 
 - **Connected:** resolves an access token (refreshing if the account's
   `expiry_date` is within 60s), resolves reply threading (`inReplyTo` /
@@ -182,6 +187,25 @@ branches on whether the user has a connected Google account:
   picks the sender; when replying, it also tries each connected account until
   one can fetch the original message, and uses that account as the sender if
   `account` wasn't explicit.
+
+## Scheduled Sends
+
+Scheduled sends use job ids prefixed `scheduled-`; `send-scheduled-email-now`
+and `cancel-scheduled-email` both strip that prefix internally before looking
+up the job — pass the id as shown to the user either way.
+
+## Snippets
+
+`manage-snippets` lists, creates, updates, and deletes saved reply snippets.
+Users insert them from the compose slash menu, so a snippet the agent saves
+becomes available there immediately.
+
+## Aliases Are Settings-UI Only
+
+Aliases (Settings → Aliases) are managed only through raw `/api/*` routes from
+the Settings UI — there is no `manage-aliases` action, so the agent cannot add,
+edit, or remove an alias on the user's behalf. Point the user at Settings →
+Aliases instead.
 
 ## Important Notes
 

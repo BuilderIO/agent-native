@@ -52,6 +52,8 @@ import {
   EXTENSIONS_OWNER_INDEX_SQL,
   EXTENSIONS_ORG_INDEX_SQL,
   EXTENSIONS_UPDATED_INDEX_SQL,
+  EXTENSIONS_ARCHIVED_AT_COLUMN_SQL,
+  EXTENSIONS_ARCHIVED_AT_INDEX_SQL,
   EXTENSIONS_HIDDEN_AT_COLUMN_SQL,
   EXTENSIONS_HIDDEN_BY_COLUMN_SQL,
   EXTENSIONS_HIDDEN_AT_INDEX_SQL,
@@ -102,6 +104,11 @@ export async function ensureExtensionsTables(): Promise<void> {
         await ensureIndexExists(
           "tools_updated_at_idx",
           EXTENSIONS_UPDATED_INDEX_SQL,
+        );
+        await ensureExtensionsArchivedColumn(client, pg);
+        await ensureIndexExists(
+          "tools_archived_at_idx",
+          EXTENSIONS_ARCHIVED_AT_INDEX_SQL,
         );
         await ensureExtensionsGlobalHideColumns(client, pg); // ADD COLUMN — guarded inside
         await ensureIndexExists(
@@ -176,6 +183,10 @@ export async function ensureExtensionsTables(): Promise<void> {
       await retryOnDdlRace(() => client.execute(EXTENSIONS_OWNER_INDEX_SQL));
       await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
       await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
+      await ensureExtensionsArchivedColumn(client, pg);
+      await retryOnDdlRace(() =>
+        client.execute(EXTENSIONS_ARCHIVED_AT_INDEX_SQL),
+      );
       await ensureExtensionsGlobalHideColumns(client, pg);
       await retryOnDdlRace(() =>
         client.execute(EXTENSIONS_HIDDEN_AT_INDEX_SQL),
@@ -346,6 +357,31 @@ async function ensureExtensionsGlobalHideColumns(
   await addCol(EXTENSIONS_HIDDEN_BY_COLUMN_SQL, "hidden_by", "TEXT");
 }
 
+async function ensureExtensionsArchivedColumn(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+): Promise<void> {
+  if (pg) {
+    await ensureColumnExists(
+      "tools",
+      "archived_at",
+      EXTENSIONS_ARCHIVED_AT_COLUMN_SQL,
+    );
+    return;
+  }
+  await client
+    .execute("ALTER TABLE tools ADD COLUMN archived_at TEXT")
+    .catch((err: any) => {
+      if (
+        !String(err?.message ?? err)
+          .toLowerCase()
+          .includes("duplicate")
+      ) {
+        throw err;
+      }
+    });
+}
+
 export function registerExtensionsShareable() {
   registerShareableResource({
     type: "extension",
@@ -373,6 +409,7 @@ export interface ExtensionRow {
   icon: string | null;
   createdAt: string;
   updatedAt: string;
+  archivedAt: string | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
   ownerEmail: string;
@@ -881,9 +918,10 @@ export async function listExtensions(
   // on repeated `.where()` calls, so combine the access filter and the
   // global-hidden filter into one condition.
   const base = accessFilter(extensions, extensionShares);
+  const visible = and(base, isNull(extensions.archivedAt));
   const where = options.includeGloballyHidden
-    ? base
-    : and(base, isNull(extensions.hiddenAt));
+    ? visible
+    : and(visible, isNull(extensions.hiddenAt));
   const rows = (await db
     .select()
     .from(extensions)
@@ -899,7 +937,8 @@ export async function listExtensions(
 export async function getExtension(id: string): Promise<ExtensionRow | null> {
   await ensureExtensionsTables();
   const access = await resolveAccess("extension", id);
-  return (access?.resource as ExtensionRow | undefined) ?? null;
+  const resource = access?.resource as ExtensionRow | undefined;
+  return resource?.archivedAt ? null : (resource ?? null);
 }
 
 export interface ListExtensionHistoryOptions {
@@ -983,7 +1022,7 @@ export async function restoreExtensionHistoryVersion(
     .from(extensions)
     .where(eq(extensions.id, id));
   const existing = existingRows[0] as ExtensionRow | undefined;
-  if (!existing) return null;
+  if (!existing || existing.archivedAt) return null;
 
   await ensureExtensionHistoryBaseline(existing);
   const target = await getPersistedHistoryEntry(id, version, true);
@@ -1045,6 +1084,7 @@ export async function createExtension(
     icon: data.icon ?? null,
     createdAt: now,
     updatedAt: now,
+    archivedAt: null,
     hiddenAt: null,
     hiddenBy: null,
     ownerEmail: userEmail,
@@ -1098,6 +1138,7 @@ export async function findRecentDuplicateExtension(data: {
         eq(extensions.description, description),
         icon === null ? isNull(extensions.icon) : eq(extensions.icon, icon),
         gte(extensions.createdAt, fiveMinutesAgo),
+        isNull(extensions.archivedAt),
         isNull(extensions.hiddenAt),
       ),
     )
@@ -1146,7 +1187,7 @@ export async function updateExtension(
     .from(extensions)
     .where(eq(extensions.id, id));
   const existing = existingRows[0] as ExtensionRow | undefined;
-  if (!existing) return null;
+  if (!existing || existing.archivedAt) return null;
   await ensureExtensionHistoryBaseline(existing);
   await db.update(extensions).set(updates).where(eq(extensions.id, id));
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
@@ -1200,7 +1241,9 @@ export async function updateExtensionContent(
     .select()
     .from(extensions)
     .where(eq(extensions.id, id));
-  if (!existingRows[0]) return null;
+  if (!existingRows[0] || (existingRows[0] as ExtensionRow).archivedAt) {
+    return null;
+  }
   const existing = existingRows[0] as ExtensionRow;
   const existingContent = existing.content;
   await ensureExtensionHistoryBaseline(existing);
@@ -1234,20 +1277,13 @@ export async function deleteExtension(id: string): Promise<boolean> {
   const rows = await db.select().from(extensions).where(eq(extensions.id, id));
   const row = rows[0] as ExtensionRow | undefined;
   if (!row) return false;
+  if (row.archivedAt) return true;
   const targets = await extensionChangeTargetsForRow(row);
-  await db.delete(extensionShares).where(eq(extensionShares.resourceId, id));
-  await db.delete(extensionHides).where(eq(extensionHides.extensionId, id));
-  await getDbExec().execute({
-    sql: `DELETE FROM tool_data WHERE tool_id = ?`,
-    args: [id],
-  });
-  await getDbExec().execute({
-    sql: `DELETE FROM tool_history WHERE tool_id = ?`,
-    args: [id],
-  });
-  const { cascadeDeleteExtensionSlots } = await import("./slots/store.js");
-  await cascadeDeleteExtensionSlots(id);
-  await db.delete(extensions).where(eq(extensions.id, id));
+  const archivedAt = new Date().toISOString();
+  await db
+    .update(extensions)
+    .set({ archivedAt, updatedAt: archivedAt })
+    .where(eq(extensions.id, id));
   await notifyExtensionChanged(targets);
   return true;
 }

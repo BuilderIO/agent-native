@@ -292,6 +292,11 @@ folding framework chrome into the product UI.
   `content.prototype`, and rely on the top visual tabs to switch between them.
   When both surfaces are present, open the Wireframes tab by default; the
   prototype remains available as the interactive follow-up view.
+- **Default to wireframes.** A clean, minimal UI, a high UX bar, or references
+  to Linear/Vercel describe the content and density bar; they do not request
+  full-fidelity design mode. Use renderer-owned wireframes unless the user
+  explicitly asks for branded, pixel-accurate, production-like, or full visual
+  design. This keeps every canvas screen inspectable and its full content visible.
 - **Prototype-first** when the user asks to operate the UI or when interaction is
   the main question. Use `create-prototype-plan`, which still preserves static
   mocks where useful.
@@ -300,6 +305,18 @@ For mixed canvas + prototype plans, reuse the same real labels, app statuses,
 and screen ids across both surfaces. The canvas is the inspectable static reference;
 the prototype is the interactive version of that same flow, not a separate
 design direction.
+
+Treat “higher fidelity,” “pixel-accurate,” “polished mockup,” “production-like,”
+“real design,” and “not a sketch/wireframe” as design-first language even when
+the request also says “mockup.” For a new plan, use `create-plan-design`. For
+an existing plan, keep the same plan id and call `update-visual-plan` with a
+`set-visual-render-mode` patch using `renderMode: "design"` plus the upgraded
+screen HTML/CSS in the same update. Ground the result in the real app shell,
+tokens, typography, spacing, and states, and add stable `data-design-id`
+targets. Put scoped styles in each screen's `css` field, never in a `<style>`
+tag. The viewer-local Clean toggle only changes one browser's wireframe
+preference; it is not a fidelity upgrade. Do not create a duplicate plan to
+handle a fidelity follow-up.
 
 ## Wireframe quality — read `references/wireframe.md`
 
@@ -342,6 +359,28 @@ For a worked example of the bar — a great UI-first plan and `/visual-plan`, pl
 the anti-patterns to avoid — READ `references/exemplar.md` in this skill
 directory before authoring a plan.
 
+## Authoring invariants
+
+Treat these as data-integrity checks, not optional polish:
+
+- `content` is a complete replacement. Pass either `content` or the mode's
+  convenience arrays (`screens`/`transitions` or `states`/`components`),
+  never both. The create actions reject mixed sources so a second payload cannot
+  silently discard CSS, frames, or document blocks.
+- A design screen's scoped `css` is part of the artifact. Keep it on both the
+  prototype screen and its matching canvas frame, and use renderer-owned
+  `--wf-*` tokens for portable color and typography.
+- Rich-text `data.markdown` must contain actual runtime line breaks. Do not
+  hand a plan a one-line Markdown value containing literal `\n` escape text,
+  which renders the whole section as one heading. Escaped newlines are fine in
+  code examples when the surrounding Markdown still has real line breaks.
+- Canvas artboards do not scroll. Keep wireframe HTML in natural flow and set a
+  larger frame `height` when a screen exceeds the surface preset; preserve the
+  surface width and inspect the bottom edge at default zoom before handoff.
+- After every hosted write, re-read the structured content and inspect the live
+  Plan surface. A valid JSON payload is not proof that CSS loaded or Markdown
+  rendered into the intended heading, paragraph, and list structure.
+
 ## Tool Guidance
 
 - `create-visual-plan`: start one structured visual plan per agent task/run, or
@@ -349,7 +388,9 @@ directory before authoring a plan.
   visual surface, canvas only, or canvas + prototype.
 - `create-ui-plan`: start a UI-first plan when the work is primarily product UI.
 - `create-prototype-plan`: start a prototype-first plan with a functional top
-  review surface.
+  review surface. If the interaction itself must also be high fidelity, set each
+  screen's `renderMode` to `design` and pass scoped styles through `css`;
+  otherwise use `create-plan-design` for design-first review.
 - `create-plan-design`: start a full-fidelity branded Design-tab plan with an
   optional matching Prototype tab.
 - `convert-visual-plan-to-prototype`: convert an existing HTML wireframe canvas
@@ -357,7 +398,10 @@ directory before authoring a plan.
 - `create-visual-questions`: use only when the user explicitly asks for a visual
   intake questionnaire, not as `/visual-plan` preflight.
 - `update-visual-plan`: revise content, status, or comments with targeted
-  `contentPatches` (see Core Workflow steps 6-7). `replace-blocks` and full
+  `contentPatches` (see Core Workflow steps 6-7). Use
+  `set-visual-render-mode` with `renderMode: "design"` when promoting an
+  existing plan to high fidelity, together with deliberate screen HTML/CSS;
+  render mode alone only removes sketch treatment. `replace-blocks` and full
   `content` replacement require `expectedUpdatedAt` from a fresh
   `get-visual-plan` call.
 - `read-visual-plan-source`: read the normalized plan as `plan.mdx`,

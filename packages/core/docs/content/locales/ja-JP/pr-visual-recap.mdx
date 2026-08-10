@@ -180,7 +180,7 @@ npx @agent-native/recap-cli@latest recap doctor
 - **より安価なモデルを固定します。** Claude の場合、シンプルまたは小規模なリポジトリには `VISUAL_RECAP_MODEL=claude-haiku-4-5` を設定してください — 最も安価な Claude ティアです。`claude-sonnet-5` (デフォルト) はバランス型のティアです。
 - **より安価なモデルで Codex に切り替えます。** `VISUAL_RECAP_AGENT=codex` と `VISUAL_RECAP_MODEL=gpt-5.6-luna` (最も安価な GPT-5.6 ティア) または `gpt-5.6-terra` (中間ティア) を設定し、推論トークンの消費をさらに削減するには `VISUAL_RECAP_REASONING=low` を設定してください。推論の深さは Codex にのみ適用されます。
 - **より安価な OpenAI 互換プロバイダーを指定します。** `VISUAL_RECAP_AGENT=openai-compatible` を、DeepSeek、Kimi、またはその他の OpenAI 互換エンドポイントを対象とする `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` とともに設定してください。
-- **要約の頻度を減らします。** インストール済みワークフローの `on.pull_request.types` を `[opened, synchronize, reopened, ready_for_review, closed]` から `[opened, ready_for_review, closed]` に編集すると、プッシュのたびにではなく、PR が開かれたときとマージされたときにのみ要約されるようになります。
+- **要約の頻度を減らします。** インストール済みワークフローの `on.pull_request.types` を `[opened, synchronize, reopened, ready_for_review, labeled, closed]` から `[opened, ready_for_review, closed]` に編集すると、プッシュのたびにではなく、PR が開かれたときとマージされたときにのみ要約されるようになります。
 
 各実行は実際に消費した内容を記録します。ワークフローの `recap usage` ステップが、公開されたプランにトークンとコストの使用状況を添付するため、推測ではなく実際の消費量を実行ごとに確認できます。
 
@@ -477,10 +477,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -500,6 +501,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

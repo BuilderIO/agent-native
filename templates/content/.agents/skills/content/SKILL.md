@@ -193,6 +193,10 @@ guesswork:
   writing. If a named person cannot be resolved unambiguously, clarify in the
   originating Slack thread; never omit, downgrade, or silently drop the person.
 
+### Cross-App A2A / Slack Artifact Rule
+
+Create or update the document through the normal action path (never a bespoke route) so the artifact stays visible and shareable. When a request arrives from Slack, Dispatch, or another app via A2A, the caller cannot see Content's local UI or navigation state: reply with the concrete document ID and URL/path only after the action succeeds. Use `/page/<id>` for private app documents (or `/p/<id>` only for documents you explicitly made public). Never say a document is ready without including the exact ID or URL/path returned by the action.
+
 ## Local Folder Sources
 
 Install into an existing repo with:
@@ -236,6 +240,11 @@ Content never stores an absolute local path or raw file body in source metadata.
 File access still requires a local Content app, Agent Native Desktop, or another
 trusted bridge. Disconnecting a folder leaves the SQL pages and disk files in
 place. Concurrent edits and missing source files require explicit review.
+
+See **`references/local-file-mode.md`** for the full folder-source Pull/Check/Push
+workflow, the manifest/CLI launch commands, Builder Symbols and Builder
+source-component preservation rules, picked-folder/Desktop component
+previews, and the agent component-edit workflow.
 
 ## MDX And Components
 

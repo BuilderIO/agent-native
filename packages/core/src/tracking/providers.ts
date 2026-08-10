@@ -13,6 +13,7 @@
  * automatically by the core-routes plugin).
  */
 
+import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
@@ -67,7 +68,16 @@ function enqueue(
 ): void {
   const queue = getQueue();
   queue.push({ url, body, headers });
-  if (options?.flushImmediately || queue.length >= MAX_BATCH_SIZE) {
+  // The batch timer is unref'd so it never keeps a long-lived server alive —
+  // but on Netlify/Vercel/Lambda the execution environment can freeze the
+  // moment the event loop looks empty, which is exactly when an unref'd timer
+  // doesn't count. Without a signal, a warm container freezing between
+  // invocations never fires that timer, silently dropping every provider's
+  // queued events for a request that ends in a crash. Default to flushing
+  // synchronously with the response in that environment; a caller (e.g.
+  // Agent Native Analytics' flush-mode override) can still force either way.
+  const flushImmediately = options?.flushImmediately ?? isServerlessRuntime();
+  if (flushImmediately || queue.length >= MAX_BATCH_SIZE) {
     void drainQueue();
   } else if (!getTimer()) {
     const timer = setTimeout(() => {
@@ -162,25 +172,60 @@ function isPostHogAiObservabilityEvent(eventName: string): boolean {
   return eventName.startsWith("$ai_");
 }
 
-function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
+/**
+ * `$ai_*` and `$exception` are ingested through PostHog's dedicated endpoint
+ * rather than `/capture/`, and `$exception` additionally has to carry
+ * `$exception_list` — the framework's own `captureException()` emits camelCase
+ * fields that PostHog would otherwise render as an empty, ungroupable issue.
+ */
+function createPostHogProvider(
+  apiKey: string,
+  host: string,
+  errorTracking: boolean,
+): TrackingProvider {
+  const sendToEventsEndpoint = (
+    event: TrackingEvent,
+    properties: Record<string, unknown> | undefined,
+    distinctId: string,
+  ): void => {
+    enqueue(
+      `${host}/i/v0/e/`,
+      JSON.stringify({
+        api_key: apiKey,
+        event: event.name,
+        properties: {
+          distinct_id: distinctId,
+          ...properties,
+          ...(event.sessionId ? { $session_id: event.sessionId } : {}),
+          timestamp: event.timestamp,
+        },
+      }),
+    );
+  };
+
   return {
     name: "posthog",
     track(event: TrackingEvent) {
       const distinctId = event.userId || "anonymous";
       if (isPostHogAiObservabilityEvent(event.name)) {
-        enqueue(
-          `${host}/i/v0/e/`,
-          JSON.stringify({
-            api_key: apiKey,
-            event: event.name,
-            properties: {
-              distinct_id: distinctId,
-              ...event.properties,
-              timestamp: event.timestamp,
-            },
-          }),
-        );
+        sendToEventsEndpoint(event, event.properties, distinctId);
         return;
+      }
+
+      if (event.name === "$exception") {
+        // `POSTHOG_ERROR_TRACKING=false` keeps product analytics flowing while
+        // another backend owns crashes. Drop rather than downgrade to
+        // `/capture/`: a malformed exception is what this branch exists to
+        // prevent.
+        if (!errorTracking) return;
+        const reshaped = reshapeTrackedExceptionProperties(event.properties);
+        if (reshaped) {
+          sendToEventsEndpoint(event, reshaped, distinctId);
+          return;
+        }
+        // No recognizable exception fields. Fall through to `/capture/` so the
+        // event is still recorded as-is rather than becoming an issue with
+        // nothing in it.
       }
 
       enqueue(
@@ -191,6 +236,7 @@ function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
           distinct_id: distinctId,
           properties: {
             ...event.properties,
+            ...(event.sessionId ? { $session_id: event.sessionId } : {}),
             timestamp: event.timestamp,
           },
         }),
@@ -213,6 +259,42 @@ function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
   };
 }
 
+/**
+ * Send one event to PostHog only, bypassing the provider fan-out.
+ *
+ * For payloads whose *shape* is PostHog-specific and whose *content* other
+ * backends must not receive. `track()` broadcasts to every configured provider,
+ * so a PostHog-only integration (e.g. enabling a survey id) would otherwise
+ * start exporting that integration's content — including user-authored text —
+ * to Mixpanel, Amplitude, webhooks, and Agent Native Analytics as a side
+ * effect nobody opted into.
+ *
+ * Returns `false` when PostHog is not configured, so callers can tell "not
+ * sent" from "sent".
+ */
+export function sendPostHogEvent(
+  name: string,
+  properties: Record<string, unknown>,
+  distinctId: string,
+): boolean {
+  const apiKey = process.env.POSTHOG_API_KEY;
+  if (!apiKey) return false;
+  const host = (process.env.POSTHOG_HOST || POSTHOG_DEFAULT_HOST).replace(
+    /\/+$/,
+    "",
+  );
+  enqueue(
+    `${host}/capture/`,
+    JSON.stringify({
+      api_key: apiKey,
+      event: name,
+      distinct_id: distinctId,
+      properties: { ...properties, timestamp: new Date().toISOString() },
+    }),
+  );
+  return true;
+}
+
 // ─── Mixpanel ──────────────────────────────────────────────────────────────
 
 function createMixpanelProvider(token: string): TrackingProvider {
@@ -228,6 +310,9 @@ function createMixpanelProvider(token: string): TrackingProvider {
             ? new Date(event.timestamp).getTime() / 1000
             : undefined,
           ...event.properties,
+          // Mixpanel's own `$session_id` is numeric and assigned by its SDK, so
+          // the browser session lands as a plain property here.
+          ...(event.sessionId ? { session_id: event.sessionId } : {}),
         },
       };
       enqueue("https://api.mixpanel.com/track", JSON.stringify([data]));
@@ -258,7 +343,11 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
           {
             event_type: event.name,
             user_id: event.userId || "anonymous",
-            event_properties: event.properties,
+            // Amplitude's top-level `session_id` must be a numeric epoch, so
+            // the browser session ships as an event property instead.
+            event_properties: event.sessionId
+              ? { ...event.properties, session_id: event.sessionId }
+              : event.properties,
             time: event.timestamp
               ? new Date(event.timestamp).getTime()
               : undefined,
@@ -302,6 +391,7 @@ function createWebhookProvider(
           event: event.name,
           properties: event.properties,
           userId: event.userId,
+          sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),
         extra,
@@ -342,6 +432,8 @@ function createAgentNativeAnalyticsProvider(
           event: event.name,
           properties: event.properties ?? {},
           userId: event.userId,
+          anonymousId: event.anonymousId,
+          sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),
         undefined,
@@ -382,7 +474,13 @@ export function registerBuiltinProviders(): void {
       /\/+$/,
       "",
     );
-    registerTrackingProvider(createPostHogProvider(posthogKey, host));
+    registerTrackingProvider(
+      createPostHogProvider(
+        posthogKey,
+        host,
+        process.env.POSTHOG_ERROR_TRACKING?.trim().toLowerCase() !== "false",
+      ),
+    );
   }
 
   const mixpanelToken = process.env.MIXPANEL_TOKEN;

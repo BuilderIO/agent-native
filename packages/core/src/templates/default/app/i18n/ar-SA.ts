@@ -74,6 +74,23 @@ const messages = {
       suggestionGrantKey: "منح مفتاح OpenAI الخاص بي لهذا التطبيق",
     },
     pages: {
+      browserChatUnavailableTitle: "جلسة دردشة المتصفح غير متاحة",
+      browserChatUnavailableDescription:
+        "أعد الاتصال من إضافة Agent-Native للمتصفح.",
+      browserChatPlaceholder: "اسأل عن هذه الصفحة…",
+      browserChatAttachedPlaceholder: "اسأل عن {{page}}…",
+      browserConnectTitle: "ربط دردشة المتصفح",
+      browserConnectDescription:
+        "اسمح لإضافة Agent-Native في Chrome بفتح جلسة Dispatch هذه. يستخدم الاتصال تذكرة قصيرة الأجل لمرة واحدة.",
+      browserConnectInvalid:
+        "طلب الاتصال هذا غير صالح. ابدأ مرة أخرى من الإضافة.",
+      browserConnectConnected:
+        "تم ربط دردشة المتصفح. يمكنك إغلاق علامة التبويب هذه.",
+      browserConnectConnecting: "جارٍ الاتصال…",
+      browserConnectButton: "اتصال",
+      browserConnectOpenFromExtension:
+        "افتح هذه الصفحة من إضافة Agent-Native في Chrome.",
+      browserConnectFailed: "لم تتصل إضافة المتصفح.",
       appsDescription:
         "افتح تطبيقات مساحة العمل وابدأ في إنشاء تطبيق جديد من Dispatch.",
       appsDescriptionWithWorkspace:
@@ -92,19 +109,19 @@ const messages = {
       curatedTemplates: "قوالب منسقة",
       curatedTemplatesDescription:
         "ابدأ من شكل تطبيق تمت مراجعته، ثم اجعله خاصًا بك.",
-      remix: "إعادة المزج",
-      remixTemplate: "إعادة مزج {{name}}",
+      remix: "إنشاء من قالب",
+      remixTemplate: "إنشاء تطبيق {{name}}",
       remixAppIdLabel: "معرّف التطبيق الجديد",
-      remixStarted: "بدأت إعادة مزج {{name}}",
+      remixStarted: "بدأ إنشاء {{name}}",
       viewLiveApp: "عرض التطبيق المباشر",
       alreadyInWorkspace: "موجود بالفعل في مساحة العمل",
       remixAppIdDescription:
         "اختر معرّفًا آمنًا لعنوان URL لتطبيق مساحة العمل الجديد.",
       integrationSetup: "إعداد التكامل",
       source: "المصدر",
-      remixing: "جارٍ إعادة المزج…",
-      remixSuccess: "بدأت إعادة مزج القالب.",
-      remixError: "تعذرت إعادة مزج هذا القالب",
+      remixing: "جارٍ إنشاء التطبيق…",
+      remixSuccess: "بدأ إنشاء التطبيق من القالب.",
+      remixError: "تعذر إنشاء تطبيق من هذا القالب",
       appIdRequired: "معرّف التطبيق مطلوب.",
       hide: "إخفاء",
       show: "Show",
@@ -215,6 +232,8 @@ const messages = {
     newTerminal: "محطة جديدة",
     panelOptions: "خيارات لوحة الوكيل",
     collapseSidebar: "طي الشريط الجانبي",
+    widenChat: "توسيع الدردشة إلى 75٪",
+    returnChatToLayout: "إعادة الدردشة إلى تخطيط الصفحة",
     hideChats: "إخفاء الدردشات",
     allChats: "جميع الدردشات",
     settings: "الإعدادات",
@@ -330,7 +349,7 @@ const messages = {
     codeChangeBadge: "تغيير الكود",
     connectBuilderTitle: "اتصال Builder.io",
     connectBuilderDescription:
-      "قم بتوصيل Builder لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
+      "قم بتوصيل Builder (free tier available) لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
     setupRequired: "الإعداد مطلوب",
     branchCreated: "تم إنشاء الفرع",
     close: "إغلاق",
@@ -359,24 +378,33 @@ const messages = {
     hideEveryone: "إخفاء من الجميع",
     localFileDescription:
       "This extension is backed by {{entryPath}}. Edit or remove it from the workspace.",
-    deleteQuestion: "Delete {{name}}?",
+    deleteQuestion: "هل تريد أرشفة {{name}}؟",
     removeQuestion: "Remove {{name}}?",
     hideForYouDescription:
       "يؤدي هذا إلى إخفائه من قائمة الإضافات الخاصة بك دون حذفه لأي شخص آخر.",
     removeEverywhereDescription:
-      "يؤدي هذا إلى إزالته في كل مكان تتم مشاركته فيه.",
+      "يؤدي هذا إلى أرشفته في كل مكان تتم مشاركته فيه.",
     cancel: "إلغاء",
     remove: "إزالة",
     removing: "جارٍ الإزالة...",
-    delete: "حذف",
-    deleting: "جار الحذف...",
+    delete: "أرشفة",
+    deleting: "جارٍ الأرشفة...",
     openFullView: "فتح عرض كامل",
     removeFromWidgetArea: "إزالة من منطقة القطعة هذه",
-    deleteExtensionEllipsis: "حذف الامتداد...",
+    customBlockSandboxed: "كتلة مخصصة · معزولة",
+    sandboxedCustomBlock: "كتلة SQL مخصصة ومعزولة",
+    sandboxedCustomBlockCreatedBy: "كتلة SQL مخصصة ومعزولة أنشأها {{email}}",
+    promoteToAppCode: "الترقية إلى رمز التطبيق",
+    historyShowsSourceVersions: "يعرض السجل إصدارات المصدر",
+    createdByHistoryShowsSourceVersions:
+      "أنشأها {{email}}. يعرض السجل إصدارات المصدر.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "أنشأها {{email}} · يعرض السجل إصدارات المصدر",
+    deleteExtensionEllipsis: "أرشفة الامتداد...",
     removeFromMyListEllipsis: "إزالة من قائمتي...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
     deleteEverywhereConfirmation:
-      "يؤدي هذا إلى إزالة الامتداد في كل مكان، لكل شخص تمت مشاركته معه.",
+      "يؤدي هذا إلى أرشفة الامتداد في كل مكان، لكل شخص تمت مشاركته معه.",
     addWidget: "إضافة القطعة",
     loading: "جار التحميل...",
     noWidgetsAvailable: "لا توجد أدوات متاحة لهذه الفتحة حتى الآن.",
@@ -461,6 +489,10 @@ const messages = {
     noMembers: "لا يوجد أعضاء بعد.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "ترقيم قائمة الأعضاء",
+    previousMemberPage: "الانتقال إلى صفحة الأعضاء السابقة",
+    nextMemberPage: "الانتقال إلى صفحة الأعضاء التالية",
+    memberPageStatus: "الصفحة {{page}} من {{totalPages}}",
     memberCount_zero: "{{count}} members",
     memberCount_two: "{{count}} members",
     memberCount_few: "{{count}} members",
@@ -472,6 +504,14 @@ const messages = {
     remove: "إزالة",
     save: "حفظ",
     loading: "جار التحميل...",
+    dangerZone: "منطقة الخطر",
+    deleteOrg: "حذف المنظمة",
+    deleteOrgDescription:
+      "يؤدي هذا إلى حذف هذه المنظمة وأعضائها ودعواتها المعلقة نهائيًا. ستصبح البيانات المملوكة للمنظمة غير قابلة للوصول. لا يمكن التراجع عن هذا الإجراء.",
+    deleteOrgConfirmPrompt: "اكتب {{name}} للتأكيد.",
+    deleteOrgConfirmPlaceholder: "اسم المنظمة",
+    deleteOrgConfirmCta: "حذف المنظمة",
+    deleteOrgPending: "جارٍ الحذف...",
   },
   integrations: {
     webhookUrl: "ويب هوك URL",
@@ -485,7 +525,7 @@ const messages = {
     back: "رجوع",
     agentEngineRequired: "مطلوب محرك الوكيل",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "افتح LLM",
     setup: "Setup",
     shareDocumentsWith: "مشاركة المستندات مع",

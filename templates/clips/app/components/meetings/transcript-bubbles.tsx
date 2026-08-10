@@ -29,8 +29,6 @@ export interface TranscriptSegment {
 interface TranscriptBubblesProps {
   segments: TranscriptSegment[];
   isLive: boolean;
-  recordingId?: string | null;
-  onSeek: (ms: number) => void;
   /**
    * Imperative ref hook: parent can scroll a particular segment into view.
    * Receives a function (segmentIndex) => void.
@@ -93,8 +91,6 @@ function groupConsecutive(segments: TranscriptSegment[]): BubbleGroup[] {
 export function TranscriptBubbles({
   segments,
   isLive,
-  recordingId,
-  onSeek,
   registerScrollTo,
 }: TranscriptBubblesProps) {
   const t = useT();
@@ -329,7 +325,6 @@ export function TranscriptBubbles({
                 </div>
                 <div className="space-y-0.5">
                   {group.segments.map(({ seg, index }) => {
-                    const clickable = !!recordingId;
                     return (
                       <Tooltip key={index}>
                         <TooltipTrigger asChild>
@@ -337,23 +332,7 @@ export function TranscriptBubbles({
                             ref={(el) => {
                               segmentRefs.current[index] = el;
                             }}
-                            role={clickable ? "button" : undefined}
-                            tabIndex={clickable ? 0 : -1}
-                            onClick={() => clickable && onSeek(seg.startMs)}
-                            onKeyDown={(e) => {
-                              if (
-                                clickable &&
-                                (e.key === "Enter" || e.key === " ")
-                              ) {
-                                e.preventDefault();
-                                onSeek(seg.startMs);
-                              }
-                            }}
-                            className={cn(
-                              "group/segment -mx-1 rounded-md px-1 py-1 text-left text-sm leading-relaxed text-foreground transition-colors",
-                              clickable &&
-                                "cursor-pointer hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            )}
+                            className="group/segment -mx-1 rounded-md px-1 py-1 text-left text-sm leading-relaxed text-foreground transition-colors"
                           >
                             {seg.speaker && !isMe && (
                               <span className="me-2 text-[11px] font-medium text-muted-foreground">

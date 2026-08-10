@@ -180,7 +180,7 @@ So senken Sie die Kosten:
 - **Pinnen Sie ein günstigeres Modell.** Setzen Sie für Claude `VISUAL_RECAP_MODEL=claude-haiku-4-5` bei einfachen oder kleinen Repositorys – das ist die günstigste Claude-Stufe; `claude-sonnet-5` (die Standardeinstellung) ist die ausgewogene Stufe.
 - **Wechseln Sie zu Codex mit einem günstigeren Modell.** Setzen Sie `VISUAL_RECAP_AGENT=codex` zusammen mit `VISUAL_RECAP_MODEL=gpt-5.6-luna` (die günstigste GPT-5.6-Stufe) oder `gpt-5.6-terra` (mittlere Stufe), und setzen Sie `VISUAL_RECAP_REASONING=low`, um die Ausgaben für Argumentations-Token weiter zu senken. Die Argumentationstiefe gilt nur für Codex.
 - **Nutzen Sie einen günstigeren OpenAI-kompatiblen Anbieter.** Setzen Sie `VISUAL_RECAP_AGENT=openai-compatible` zusammen mit `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`, die auf DeepSeek, Kimi oder einen anderen OpenAI-kompatiblen Endpunkt verweisen.
-- **Fassen Sie seltener zusammen.** Bearbeiten Sie `on.pull_request.types` des installierten Workflows von `[opened, synchronize, reopened, ready_for_review, closed]` zu `[opened, ready_for_review, closed]`, sodass nur beim Öffnen und beim Mergen eines PR zusammengefasst wird, statt bei jedem Push.
+- **Fassen Sie seltener zusammen.** Bearbeiten Sie `on.pull_request.types` des installierten Workflows von `[opened, synchronize, reopened, ready_for_review, labeled, closed]` zu `[opened, ready_for_review, closed]`, sodass nur beim Öffnen und beim Mergen eines PR zusammengefasst wird, statt bei jedem Push.
 
 Jeder Lauf zeichnet auf, was er tatsächlich gekostet hat: Der `recap usage`-Schritt des Workflows fügt dem veröffentlichten Plan Token- und Kostennutzung hinzu, sodass Sie die tatsächlichen Ausgaben pro Lauf einsehen können, statt zu raten.
 
@@ -479,10 +479,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -502,6 +503,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

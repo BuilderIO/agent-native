@@ -224,7 +224,11 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -235,7 +239,8 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 若有界的暫時狀態讀取無法使用，`ask_app_status` 可傳回
 `status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、原始的
 `app` 與 `taskId`，以及 `pollAfterMs` / `poll`。這表示狀態讀取無法使用，並不表示
-持久任務失敗。請以完全相同的 `app` 與 `taskId` 重試 `ask_app_status`；切勿為了復原而
+持久任務失敗。請以完全相同的傳回 `poll.arguments`（若存在則包括 `taskHandle`）重試
+`ask_app_status`；沒有控制代碼的舊版結果必須重用相同的 `app` 與 `taskId`。切勿為了復原而
 重新提交 `ask_app`，因為提交可能重複工作。永久性的驗證、找不到與通訊協定錯誤仍然是錯誤。
 
 ## 驗證 {#authentication}

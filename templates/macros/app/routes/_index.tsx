@@ -131,7 +131,7 @@ export default function IndexPage() {
           >
             <IconChevronLeft className="h-5 w-5 sm:h-4 sm:w-4 rtl:-scale-x-100" />
           </Button>
-          <div className="min-w-[140px] sm:min-w-[160px] text-center px-3 sm:px-4 py-2 rounded-full bg-card border border-border">
+          <div className="min-w-[140px] sm:min-w-[160px] text-center px-3 sm:px-4 py-2 rounded-full bg-card">
             <span className="text-sm font-medium text-foreground">
               {isSameDay(date, new Date())
                 ? t("entry.today")

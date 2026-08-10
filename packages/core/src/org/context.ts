@@ -1,10 +1,18 @@
 import type { H3Event } from "h3";
 
-import { getDbExec } from "../db/client.js";
+import { warnAgent } from "../agent/action-warnings.js";
+import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
 import { getSetting } from "../settings/store.js";
-import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+import { getUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
+import { isFreeEmailProvider } from "./free-email-providers.js";
+import {
+  cachedMemberships,
+  invalidateMemberOrgCaches,
+  requestMemberOrgIds,
+} from "./request-org-cache.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
 const EMPTY_CONTEXT: OrgContext = {
@@ -14,18 +22,66 @@ const EMPTY_CONTEXT: OrgContext = {
   role: null,
 };
 
+/**
+ * The single way to read `org_members`, so no two call sites can pick opposite
+ * defaults for the same failure. A transient database failure is NOT an answer
+ * and propagates: a caller that turns it into "no memberships" silently drops
+ * org scope, which hides every org-scoped credential behind a
+ * permanent-sounding "not configured".
+ *
+ * `null` is every non-transient failure, not only the intended one (org tables
+ * absent on a fresh install before migrations). A permanently unreadable table
+ * — a role without SELECT, say — still reports as "no rows" here. Narrowing
+ * that further means classifying "no database configured" as readable-absent,
+ * which is load-bearing for CLI/script/test contexts that legitimately run
+ * without a store; see `assertCredentialStoreReadable`.
+ */
+export async function queryOrgMembers(query: {
+  sql: string;
+  args: unknown[];
+}): Promise<Record<string, unknown>[] | null> {
+  try {
+    const { rows } = await getDbExec().execute(query);
+    return rows as Record<string, unknown>[];
+  } catch (err) {
+    if (isTransientDatabaseError(err)) throw err;
+    return null;
+  }
+}
+
 function normalizeOrgRole(value: unknown): OrgRole | null {
   return value === "owner" || value === "admin" || value === "member"
     ? value
     : null;
 }
 
-function isLikelyPersonalWorkspace(
-  membership: { orgName: string },
-  email: string,
-  session: { name?: string } | null,
-): boolean {
-  return membership.orgName.trim() === defaultOrgName(email, session);
+function emailDomainOf(email: string): string | null {
+  return email.split("@")[1]?.toLowerCase() || null;
+}
+
+/**
+ * A workspace the user owns that nobody else has joined is a default/personal
+ * workspace whatever it happens to be named, so moving the user into their
+ * company org is safe. An org with other members is a team they deliberately
+ * belong to — join the domain org in the background but leave them there.
+ */
+async function isSoloOwnedWorkspace(
+  exec: ReturnType<typeof getDbExec>,
+  orgId: string,
+  memberships: MembershipRow[],
+): Promise<boolean> {
+  const membership = memberships.find((m) => m.orgId === orgId);
+  if (!membership || membership.role !== "owner") return false;
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT COUNT(*) AS "memberCount" FROM org_members WHERE org_id = ?`,
+      args: [orgId],
+    });
+    const row = rows[0] as any;
+    return Number(row?.memberCount ?? row?.membercount ?? 0) <= 1;
+  } catch {
+    return false;
+  }
 }
 
 function autoCreateDefaultOrgEnabled(): boolean {
@@ -58,10 +114,22 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   const ctx = event.context as {
     __anOrgContextCache?: Promise<OrgContext>;
   };
-  return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event));
+  // Evict on failure. A memoized failure would otherwise answer every later
+  // caller in this request with the wrong org.
+  return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event).catch(
+    (err) => {
+      delete ctx.__anOrgContextCache;
+      throw err;
+    },
+  ));
 }
 
-type MembershipRow = { orgId: string; role: OrgRole; orgName: string };
+type MembershipRow = {
+  orgId: string;
+  role: OrgRole;
+  orgName: string;
+  allowedDomain: string | null;
+};
 
 const MEMBERSHIPS_CACHE_KEY = "__anOrgMembershipsCache";
 const ACTIVE_ORG_SETTING_CACHE_KEY = "__anActiveOrgSettingCache";
@@ -101,7 +169,6 @@ function loadActiveOrgSettingForEvent(
  */
 function loadMembershipsForEvent(
   event: H3Event,
-  exec: ReturnType<typeof getDbExec>,
   email: string,
 ): Promise<MembershipRow[] | null> {
   const ctx = event.context as Record<string, unknown>;
@@ -114,7 +181,12 @@ function loadMembershipsForEvent(
     >())) as Map<string, Promise<MembershipRow[] | null>>;
   let promise = cache.get(email);
   if (!promise) {
-    promise = loadMemberships(exec, email);
+    // A failed read is evicted rather than memoized: caching it would make one
+    // transient error answer every later lookup in this request.
+    promise = loadMemberships(email).catch((err) => {
+      cache.delete(email);
+      throw err;
+    });
     cache.set(email, promise);
   }
   return promise;
@@ -144,7 +216,28 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
-  let memberships = await loadMembershipsForEvent(event, exec, email);
+  // Started before the memberships await so the two round trips overlap; the
+  // `catch` only covers the early returns below, the later `await` still
+  // propagates a real failure.
+  const activeOrgSettingPromise = loadActiveOrgSettingForEvent(event, email);
+  activeOrgSettingPromise.catch(() => {});
+
+  let memberships: MembershipRow[] | null;
+  try {
+    memberships = await loadMembershipsForEvent(event, email);
+  } catch (err) {
+    // A transient membership read must not downgrade an authenticated request
+    // to a private/solo scope when the session already carries its org.
+    if (sessionOrgId && isTransientDatabaseError(err)) {
+      return {
+        email,
+        orgId: sessionOrgId,
+        orgName: null,
+        role: sessionOrgRole,
+      };
+    }
+    throw err;
+  }
   if (memberships === null) {
     if (sessionOrgId) {
       return {
@@ -157,17 +250,31 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
+  const activeOrgSetting = await activeOrgSettingPromise;
+  const explicitPersonal = activeOrgSetting?.orgId === null;
+
+  const emailDomain = emailDomainOf(email);
+  // Membership in a domain-matched org is the only durable "already joined"
+  // signal. Recognizing the personal workspace by its *name* instead breaks the
+  // moment the provider display name or the workspace name changes, which
+  // strands an existing user in Personal with no way into their company org.
+  // `isFreeEmailProvider` short-circuits before the round trip rather than
+  // relying on the negative cache inside `autoJoinDomainMatchingOrgs`: a
+  // consumer-email domain can NEVER match (see `org/handlers.ts`, which refuses
+  // to set `allowed_domain` to a free provider), so it needs no TTL at all.
   const shouldTryDomainAutoJoin =
-    memberships.length === 0 ||
-    (memberships.length === 1 &&
-      isLikelyPersonalWorkspace(memberships[0], email, session));
-  const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
-  if (activeOrgSetting?.orgId === null) {
-    return { email, orgId: null, orgName: null, role: null };
-  }
-  if (activeOrgSetting?.orgId) {
+    !explicitPersonal &&
+    emailDomain !== null &&
+    !isFreeEmailProvider(emailDomain) &&
+    !memberships.some((m) => m.allowedDomain?.toLowerCase() === emailDomain);
+
+  if (
+    !explicitPersonal &&
+    activeOrgSetting?.orgId &&
+    !shouldTryDomainAutoJoin
+  ) {
     const active = memberships.find((m) => m.orgId === activeOrgSetting.orgId);
-    if (active && !shouldTryDomainAutoJoin) {
+    if (active) {
       return {
         email,
         orgId: active.orgId,
@@ -182,27 +289,60 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     : null;
 
   if (shouldTryDomainAutoJoin) {
+    const membershipsBeforeJoin = memberships;
     const joined = await autoJoinDomainMatchingOrgs(email, {
-      activateJoinedOrg: "always",
+      activateJoinedOrg: "never",
     });
-    if (joined.joined.length > 0) {
-      const refreshed = await loadMemberships(exec, email);
+    const joinedOrgId = joined.joined[0]?.orgId ?? null;
+    if (joinedOrgId) {
+      const refreshed = await loadMemberships(email);
       if (refreshed !== null) {
         memberships = refreshed;
         updateMembershipsForEvent(event, email, refreshed);
       }
-    }
 
-    if (joined.activeOrgId) {
-      const active = memberships.find((m) => m.orgId === joined.activeOrgId);
-      if (active) {
-        return {
-          email,
-          orgId: active.orgId,
-          orgName: active.orgName,
-          role: active.role,
-        };
+      const currentOrgId =
+        activeOrgSetting?.orgId ??
+        sessionOrgId ??
+        membershipsBeforeJoin[0]?.orgId ??
+        null;
+      const shouldActivate =
+        !explicitPersonal &&
+        (currentOrgId === null ||
+          (await isSoloOwnedWorkspace(
+            exec,
+            currentOrgId,
+            membershipsBeforeJoin,
+          )));
+
+      if (shouldActivate) {
+        await setActiveOrgId(email, joinedOrgId, "joined domain-matched org");
+        const active = memberships.find((m) => m.orgId === joinedOrgId);
+        if (active) {
+          return {
+            email,
+            orgId: active.orgId,
+            orgName: active.orgName,
+            role: active.role,
+          };
+        }
       }
+    }
+  }
+
+  if (explicitPersonal) {
+    return { email, orgId: null, orgName: null, role: null };
+  }
+
+  if (activeOrgSetting?.orgId) {
+    const active = memberships.find((m) => m.orgId === activeOrgSetting.orgId);
+    if (active) {
+      return {
+        email,
+        orgId: active.orgId,
+        orgName: active.orgName,
+        role: active.role,
+      };
     }
   }
 
@@ -244,64 +384,80 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   };
 }
 
-async function loadMemberships(
-  exec: ReturnType<typeof getDbExec>,
+/**
+ * Ordering for every membership lookup that falls back to "first membership".
+ * Without it the fallback is whatever order the plan happens to return, so a
+ * multi-org user's active org can change between two identical requests — and
+ * `getSession` then freezes that arbitrary answer into `session.orgId`.
+ * `org_id` breaks ties so two memberships joined in the same millisecond still
+ * resolve identically.
+ */
+const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
+
+async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
+  return cachedMemberships(email, () => loadMembershipsUncached(email));
+}
+
+async function loadMembershipsUncached(
   email: string,
-): Promise<Array<{
-  orgId: string;
-  role: OrgRole;
-  orgName: string;
-}> | null> {
-  try {
-    const { rows } = await exec.execute({
-      sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
-            FROM org_members m
-            INNER JOIN organizations o ON m.org_id = o.id
-            WHERE LOWER(m.email) = ?`,
-      args: [email.toLowerCase()],
-    });
-    return rows.map((r: any) => ({
-      orgId: String(r.orgId ?? r.org_id),
-      role: String(r.role) as OrgRole,
-      orgName: String(r.orgName ?? r.org_name),
-    }));
-  } catch {
-    // Tables may not exist yet on first boot before migrations finish.
-    return null;
-  }
+): Promise<MembershipRow[] | null> {
+  const rows = await queryOrgMembers({
+    sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
+                 o.allowed_domain AS "allowedDomain"
+          FROM org_members m
+          INNER JOIN organizations o ON m.org_id = o.id
+          WHERE LOWER(m.email) = ?
+          ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
+    args: [email.toLowerCase()],
+  });
+  return (
+    rows?.map((r: any) => {
+      const domain = r.allowedDomain ?? r.allowed_domain;
+      return {
+        orgId: String(r.orgId ?? r.org_id),
+        role: String(r.role) as OrgRole,
+        orgName: String(r.orgName ?? r.org_name),
+        allowedDomain: domain ? String(domain) : null,
+      };
+    }) ?? null
+  );
 }
 
 /**
  * Resolve the active org ID for a given email — for non-HTTP contexts like
  * the integration webhook handler where we have an email but no event/session.
  * Picks the user's active-org-id setting if set, including explicit Personal,
- * otherwise the first membership.
+ * otherwise the oldest membership.
  * Returns null if the user has no memberships.
  */
 export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
-  const exec = getDbExec();
-  if (!exec) return null;
-  try {
-    const { rows } = await exec.execute({
-      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
+  const idsPromise = requestMemberOrgIds(email, async () => {
+    const rows = await queryOrgMembers({
+      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?
+            ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
       args: [email.toLowerCase()],
     });
-    if (rows.length === 0) return null;
-    const ids = rows.map((r: any) => String(r.org_id));
-    const activeOrgSetting = (await getUserSetting(
-      email,
-      "active-org-id",
-    )) as ActiveOrgSetting;
-    if (activeOrgSetting?.orgId === null) return null;
-    if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
-      return activeOrgSetting.orgId;
-    }
-    return ids[0];
-  } catch {
-    return null;
+    return rows?.map((r: any) => String(r.org_id)) ?? null;
+  });
+  // Both reads depend only on the email, so they overlap instead of queueing.
+  // The `catch` only keeps the early return below from surfacing an unhandled
+  // rejection; the `await` further down still propagates the failure.
+  const settingPromise = getUserSetting(
+    email,
+    "active-org-id",
+  ) as Promise<ActiveOrgSetting>;
+  settingPromise.catch(() => {});
+
+  const ids = await idsPromise;
+  if (!ids?.length) return null;
+  const activeOrgSetting = await settingPromise;
+  if (activeOrgSetting?.orgId === null) return null;
+  if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
+    return activeOrgSetting.orgId;
   }
+  return ids[0];
 }
 
 /**
@@ -314,23 +470,21 @@ export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,
 ): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    if (!exec) return null;
-    const memberships = await loadMembershipsForEvent(event, exec, email);
-    if (!memberships || memberships.length === 0) return null;
-    const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
-    if (activeOrgSetting?.orgId === null) return null;
-    if (
-      activeOrgSetting?.orgId &&
-      memberships.some((m) => m.orgId === activeOrgSetting.orgId)
-    ) {
-      return activeOrgSetting.orgId;
-    }
-    return memberships[0].orgId;
-  } catch {
-    return null;
+  // Overlapped, not queued: each is a separate round trip and this pair runs
+  // on the session-backfill path of every authenticated request.
+  const settingPromise = loadActiveOrgSettingForEvent(event, email);
+  settingPromise.catch(() => {});
+  const memberships = await loadMembershipsForEvent(event, email);
+  if (!memberships || memberships.length === 0) return null;
+  const activeOrgSetting = await settingPromise;
+  if (activeOrgSetting?.orgId === null) return null;
+  if (
+    activeOrgSetting?.orgId &&
+    memberships.some((m) => m.orgId === activeOrgSetting.orgId)
+  ) {
+    return activeOrgSetting.orgId;
   }
+  return memberships[0].orgId;
 }
 
 /**
@@ -367,10 +521,65 @@ export async function createOrganization(
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
     args: [nanoid(), id, email, role, createdAt],
   });
+  invalidateMemberOrgCaches();
 
-  await putUserSetting(email, "active-org-id", { orgId: id });
+  await warnOnAdditionalOrganization(exec, email, id, trimmedName);
+
+  await setActiveOrgId(email, id, `created organization "${trimmedName}"`);
 
   return { id, name: trimmedName, role, a2aSecret, createdAt };
+}
+
+/**
+ * A second organization is the single most expensive accident in this codebase:
+ * vault credentials are scoped per organization, so creating one and activating
+ * it orphans every key synced under the previous org, and the only symptom is a
+ * missing-env-var error somewhere else entirely. The UI warns humans before
+ * they click (`org.createOrgVaultNotice`); this covers the path that actually
+ * did the damage — app code or a migration action calling `createOrganization`
+ * directly, where no notice is ever rendered.
+ */
+async function warnOnAdditionalOrganization(
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+  newOrgId: string,
+  newOrgName: string,
+): Promise<void> {
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT 1 FROM org_members WHERE LOWER(email) = ? AND org_id <> ? LIMIT 1`,
+      args: [email.toLowerCase(), newOrgId],
+    });
+    if (rows.length === 0) return;
+  } catch {
+    // "Couldn't tell" is not "it didn't" — swallowing the failed probe here made
+    // the function whose entire job is to not be silent, silent.
+    warnAgent({
+      severity: "critical",
+      code: "org-additional-org-membership-unreadable",
+      message:
+        `Created an organization "${newOrgName}" (${newOrgId}) and made it the account's active org, ` +
+        `but could not read whether that account already belonged to another organization. If it did, ` +
+        `every vault credential synced under the previous organization is now unreadable for it, and ` +
+        `requests will fail with missing-credential errors that name the key rather than this org ` +
+        `change. Confirm the account's memberships before continuing; if this came from a roster, ` +
+        `identity, or user-list migration, add the members to the EXISTING organization instead.`,
+    });
+    return;
+  }
+
+  warnAgent({
+    severity: "critical",
+    code: "org-additional-organization",
+    message:
+      `Created an ADDITIONAL organization "${newOrgName}" (${newOrgId}) ` +
+      `for an account that already belongs to another organization, and made it their active org. ` +
+      `Vault credentials are scoped per organization and are NOT shared between them: every API key ` +
+      `synced under the previous organization is now unreadable for this account until it is re-saved ` +
+      `in "${newOrgName}". Requests will fail with missing-credential errors that name the key rather ` +
+      `than this org change. If this came from a roster, identity, or user-list migration, add the ` +
+      `members to the EXISTING organization instead of creating a new one.`,
+  });
 }
 
 function defaultOrgName(
@@ -497,8 +706,9 @@ async function tryCreateDefaultOrg(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), orgId, email, "owner", now],
     });
+    invalidateMemberOrgCaches();
 
-    await putUserSetting(email, "active-org-id", { orgId });
+    await setActiveOrgId(email, orgId, "auto-created default organization");
 
     return { email, orgId, orgName, role: "owner" };
   } catch {

@@ -96,10 +96,18 @@ export default defineAction({
           "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
         );
       }
-      if (
-        /BigQuery (API|poll) error/i.test(msg) ||
-        /BigQuery query timed out/i.test(msg)
-      ) {
+      // A timeout means the SQL was valid but slow. Routing it through the schema-error
+      // branch below told the model to go re-inspect the schema and rerun, which turns
+      // one slow query into a loop of 60-second attempts.
+      if (/BigQuery query timed out/i.test(msg)) {
+        return {
+          error: "bigquery_query_timeout",
+          message: extractBigQueryMessage(msg),
+          recoverable: true,
+          hint: "The SQL was valid but exceeded the 60-second warehouse budget. Do NOT inspect the schema and do NOT rerun this query as-is. Make it cheaper: narrow the date range, add a LIMIT, aggregate in SQL instead of returning raw rows, or filter on a partition/cluster column. If the full scan is genuinely required, run it through run-code with background: true instead of retrying here.",
+        };
+      }
+      if (/BigQuery (API|poll) error/i.test(msg)) {
         // Recoverable: hand the real error back to the model so it can inspect
         // the schema and self-correct, instead of force-ending the turn.
         return {

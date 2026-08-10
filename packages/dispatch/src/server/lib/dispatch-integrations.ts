@@ -5,15 +5,12 @@ import {
   getActiveIntegrationInstallationByKey,
   getIntegrationScope,
   resolveIntegrationTokenBundle,
+  resolveSlackBotTokenForIncoming,
   saveIntegrationScope,
   slackInstallationKey,
 } from "@agent-native/core/integrations";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
-import {
-  readDeployCredentialEnv,
-  resolveSecret,
-  withConfiguredAppBasePath,
-} from "@agent-native/core/server";
+import { withConfiguredAppBasePath } from "@agent-native/core/server";
 import type {
   IncomingMessage,
   IntegrationExecutionContext,
@@ -171,11 +168,7 @@ async function resolveSlackSenderProfile(
   if (incoming.platform !== "slack") {
     return { email: null, name: null, trust: "unknown" };
   }
-  const managedToken = await resolveManagedSlackToken(incoming);
-  const token =
-    managedToken ??
-    (await resolveSecret("SLACK_BOT_TOKEN")) ??
-    readDeployCredentialEnv("SLACK_BOT_TOKEN");
+  const token = await resolveSlackBotTokenForIncoming(incoming);
   const userId = contextString(incoming.senderId);
   const teamId = contextString(incoming.platformContext.teamId);
   if (!token || !userId) {

@@ -87,7 +87,7 @@ Actions 是您的應用所做的任何事情的唯一事實來源。使用 `defi
 
 如果 UI 和代理都需要做某事，請採取行動 - 而不是自訂
 路由。對於何時路由型協議才是正確的呼叫，請參閱[首選 Actions
-對於應用程式操作](/docs/server#actions-first)。
+對於應用程式操作](/docs/server-overview#actions-first)。
 
 ## 從一個動作開始 {#hello-action}
 
@@ -249,7 +249,7 @@ export default defineAction({
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — 預設 `POST`。 `GET` actions 會自動標記為 `readOnly`，因此成功的呼叫不會觸發 UI 輪詢重新整理。
 - **`http: { path: "..." }`** — 覆蓋 `/_agent-native/actions/` 下安裝的 URL。預設為檔名。 **路徑覆蓋僅針對直接 HTTP 呼叫方更改 URL** — 無論此覆蓋如何，`useActionQuery`、`useActionMutation` 和 `callAction` 始終呼叫 `/_agent-native/actions/<name>`，因此覆蓋路徑會使這些掛鉤 404。僅對外部 HTTP 呼叫方使用路徑覆蓋。另請注意，覆蓋路徑中的 `:param` 路由段**不會**解析為 `run()` 參數 - 只有查詢字串參數和 JSON 內文欄位。
 - **`http: false`** — 完全停用 HTTP 端點。僅限代理 + CLI。
-- **`readOnly: true`** — 即使對於不變異的 POST actions 也顯式跳過輪詢重新整理。
+- **`readOnly: true`** — 即使對於不變異的 POST actions 也顯式跳過輪詢重新整理。 它**不是**存取控制：它不會限制誰可以呼叫該 action，也不會影響 `useActionQuery`、`useActionMutation` 或任何用戶端 hook。它唯一的作用是抑制呼叫後的重新整理事件，並讓該 action 不參與寫入稽核。要對模型隱藏某個 action，請使用 `agentTool: false`；要限制呼叫方，請使用上面的驗證/存取選項。
 - **`parallelSafe: true`** — 允許變異操作與其他同回合工具呼叫同時執行。僅當操作內部並發安全且與順序無關時才設定此項；預設情況下改變 actions 序列化。
 
 ### 保持操作面較小 {#small-surface}
@@ -374,12 +374,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

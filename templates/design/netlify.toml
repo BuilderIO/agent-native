@@ -1,11 +1,12 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs design"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter design build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter design build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter design migrate:production; fi"
 publish = "templates/design/dist"
 functions = "templates/design/.netlify/functions-internal"
 
 [build.environment]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AGENT_CHAT_DURABLE_BACKGROUND = "true"

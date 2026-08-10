@@ -1,0 +1,70 @@
+---
+title: "Votre première fonctionnalité dans Chat"
+description: "Le seul fichier qui affiche l'écran de démarrage de Chat, ce que font ses props réels, et un guide complet pour ajouter une fonctionnalité de bout en bout."
+---
+
+# Votre première fonctionnalité dans Chat
+
+Cette page s'adresse aux développeurs qui étendent le [modèle de discussion](/docs/template-chat). Elle couvre le seul fichier qui affiche l'écran de chat de démarrage, puis parcourt tout ce que l'agent touche généralement lorsque vous demandez une véritable fonctionnalité.
+
+## Premier code à inspecter {#first-code}
+
+- `actions/hello.ts` est le comportement de démarrage que l'agent peut appeler. Remplacez-le ou
+  ajoutez actions à côté.
+- `app/routes/_index.tsx` affiche la surface de discussion en pleine page. Ajustez le
+  suggestions, état vide, compositeur ou mise en page environnante ici.
+- `AGENTS.md` indique à l'agent intégré comment travailler dans cette application.
+
+<FileTree
+  id="doc-block-vb34d0"
+  title={"Structure du modèle Chat"}
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "L'action d'exemple ; remplacez-la ou ajoutez des actions à côté",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Action de contexte standard que l'agent lit",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Action de navigation standard",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Rend la surface de chat pleine page ; modifiez suggestions, état vide et composer",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "réexporte _index.tsx afin que /chat/:threadId affiche la même surface avec un id de fil dans l'URL",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Guidage orienté chat lu par l'agent intégré",
+    },
+  ]}
+/>
+
+Le véritable fichier de démarrage est plus qu'un simple `<AgentChatSurface />` ; consultez `app/routes/_index.tsx` pour la synchronisation d'URL du fil, l'identité d'onglet et la mise en page hero du composer.
+
+## Utilisez votre propre backend d'agent {#own-agent-backend}
+
+Le modèle utilise par défaut la boucle app-agent intégrée. Pour connecter un backend personnalisé, échangez le runtime de chat derrière le plugin de chat d'agent au lieu de réécrire le UI. La route de discussion doit rester un mince moteur de rendu autour de la surface de discussion partagée ; le choix du backend appartient à l'adaptateur de plugin/runtime du serveur.
+
+Utilisez cette option lorsque votre orchestration de modèles réside déjà ailleurs, mais que vous souhaitez toujours une application avec authentification, threads, état actions, UI et pages déployables.
+
+## Premières modifications {#first-edits}
+
+Après l'échafaudage, demandez à l'agent :
+
+> Ajoutez un modèle de données pour `notes`. Une note a un identifiant, un titre, un corps et un propriétaire. Affichez une page de notes sur `/notes`, ajoutez créer/lister actions et gardez le chat capable de créer des notes.
+
+L'agent doit ajouter un schéma Drizzle, un actions, un itinéraire, une navigation et des instructions. Ensuite, vous pouvez utiliser la fonction de notes depuis le UI ou le chat.
+
+## Quelle est la prochaine étape
+
+- [**Modèle de discussion**](/docs/template-chat) — ce qui est livré par défaut et quand le choisir
+- [**Chat — surfaces d'exécution et d'administration**](/docs/template-chat-developers) — tables principales, auth et les pages d'administration
+- [**Actions**](/docs/actions) — le chat du système d'action et UI appellent tous deux
+- [**Native Interface de chat**](/docs/native-chat-ui) – primitives de la surface de discussion et options d'exécution

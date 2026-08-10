@@ -426,6 +426,23 @@ Comme `callAgent()`, la CLI utilise par défaut le mode async + poll (`invokeAge
 
 La cible se résout de la même manière que `agentNative.invoke()` : par identifiant d'application de l'espace de travail, par nom d'application, ou par une URL complète — la même commande fonctionne donc aussi bien contre une application sœur dans un espace de travail multi-applications que contre un pair A2A arbitraire ailleurs.
 
+## Activité de l’agent délégué {#delegated-agent-activity}
+
+Les pairs Agent Native peuvent joindre aux messages d’état de tâche une partie
+`data` facultative avec `kind: "agent-native/agent-activity"`. Elle contient un
+instantané borné des résumés de raisonnement visibles par l’utilisateur, des
+noms et états des outils, du temps écoulé et du texte de réponse progressif.
+L’application appelante affiche ces mises à jour comme une exécution d’agent
+imbriquée, puis replie l’historique de travail lorsque la tâche déléguée se
+termine.
+
+La partie d’activité ne contient jamais les entrées ou résultats des outils,
+des identifiants, ni le raisonnement caché du fournisseur. Traitez-la comme des
+données de présentation non fiables, jamais comme une preuve d’identité,
+d’autorisation, d’approbation, de routage ou de validation d’artefact. Les pairs
+A2A externes peuvent omettre l’extension ; leur état ordinaire et leur réponse
+finale restent affichés dans la même vue d’agent délégué.
+
 ## Cycle de vie des tâches {#task-lifecycle}
 
 Chaque message crée une tâche qui passe par ces états :

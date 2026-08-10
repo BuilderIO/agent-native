@@ -1,218 +1,107 @@
 # Clips — Agent Guide
 
-Clips is an agent-native screen-recording, transcript, meetings, and video
-sharing app. The agent assists with recordings, transcripts, summaries, chapters,
-comments, folders/spaces, meetings, dictation, and sharing through actions.
+Clips is an agent-native screen recording, transcript, meetings, dictation, and
+video sharing app. The agent and the UI share the same SQL data and actions.
 
-Detailed media, meeting, dictation, editing, and sharing rules live in
-`.agents/skills/`.
+## Skills
 
 Before building common workspace or agent UI, read `agent-native-toolkit` to
 inventory existing public kits and installed package seams. Use
 `customizing-agent-native` for the configure → compose → eject → propose seam
 ladder.
 
+Read the matching skill before deeper work in that area:
+
+- `recording` — capture, upload, playback, Loom import, mobile, folders and bulk
+  moves, Chrome extension.
+- `ai-video-tools` — transcription, cleanup, titles, summaries, chapters,
+  `voiceContext`, AI setup and Builder credits.
+- `video-editing` — `editsJson`, trim/split/cut/speed/blur, export.
+- `video-sharing` — visibility, passwords, expiry, embeds, Slack unfurls,
+  agent-readable clips, discovery limits, view counting.
+- `meetings`, `dictate` — calendar meetings, live notes, dictation.
+- `brain-export` — `export-to-brain` exports, cursors, sweeps.
+- `crm-call-evidence` — `prepare-crm-call-evidence` and CRM recipes.
+- `screen-memory` — local-only desktop screen/app context.
+- `bug-reports` — embedded `/bug-report` launcher and intake limits.
+- `external-integrations` — Slack install, Atlassian/Jira, provider-API limits.
+- `actions`, `security`, `storing-data`, `frontend-design`, `shadcn-ui` as
+  needed.
+
 ## Core Rules
 
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- Keep large payloads out of SQL: no video/audio, images, PDFs, thumbnails,
+  base64, or `data:` URLs in app tables, `application_state`, `settings`, or
+  `resources` — persist URLs, ids, or handles and keep bytes in configured
+  file/blob storage. Hosted uploads require storage; never fall back to video
+  bytes in SQL (local dev scratch chunks excepted).
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
+  Builder/internal data, customer data, or credential-looking literals. Use
+  secrets/OAuth/runtime config and obvious placeholders.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
-  comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
-- Organization admins can use `set-organization-branding` with
-  `defaultVisibility=public|org|private` to choose the visibility applied when
-  new recordings omit an explicit visibility. The default remains `public`, and
-  explicit visibility wins (for example, bug-report recordings use `org`).
-- Use `move-recording` for both single and bulk folder moves. Pass `id` for one
-  clip or `ids` for selected clips, and `folderId: null` to move them to the
-  library or space root.
-- Recording start/stop/pause are UI gestures because browser media capture needs
-  user activation; navigate the user to the recording view instead of trying a
-  server action.
-- Screen Memory is a local-only desktop buffer, not a hosted Clips recording.
-  Users enable/pause/export/clear it from the desktop tray settings. External
-  local agents can read recent app/window context through
-  `agent-native mcp screen-memory`; do not upload raw Screen Memory segments or
-  treat them as shareable Clips unless the user explicitly exports/imports them.
-- Use `import-loom-recording` for Loom share/embed URLs. It downloads Loom's
-  public MP4, reuploads it to Clips storage, creates a ready playable
-  Clips-hosted recording, and imports Loom's public transcript when the share
-  page exposes one. If Loom does not expose a downloadable MP4, ask the user to
-  download the original from Loom and use "Upload video".
-- Native transcript first. Cleanup and transcript-backed title/summary
-  generation run in the durable post-finalize path; do not hide a usable native
-  transcript behind failed metadata work, and keep heuristic titles replaceable
-  until the agent refinement lands.
-- Desktop native transcripts merge microphone and system-audio streams while
-  removing overlapping duplicate speech and low-speech Whisper hallucinations;
-  keep system audio enabled when the meeting audio comes from another app.
-- Use `request-transcript --recordingId=<id> --force=true` to retry a failed
-  transcript. Pass `--regenerate=true` to replace an existing ready transcript
-  from the stored recording media; if regeneration fails, keep the prior ready
-  transcript available.
-- Use `export-to-brain --recordingId=<id>` for one ready transcript. For a
-  bounded historical import, omit `recordingId` and pass `lookbackDays`,
-  `limit`, and `concurrency`; when `nextCursor` is non-null, pass it as
-  `cursor` on the next call until `nextCursor` is null. The cursor keeps the
-  original lookback snapshot and advances by recording creation time plus id,
-  so pages cannot reselect the same recordings or expand forever as new clips
-  arrive. The action only selects
-  current-user recordings with ready transcripts in the active organization
-  and reports exported, quarantined, skipped, and failed counts. Both
-  `BRAIN_INGEST_URL` and `BRAIN_INGEST_TOKEN` must be available as scoped Clips
-  secrets.
-- The transcript embedded by `view-screen` is a bounded preview. If
-  `previewTruncated` is true, it may end mid-sentence and does not show where
-  transcription ended. Call `get-recording-player-data` before judging
-  completeness or quoting the full transcript.
-- Mobile captures originate in the Agent Native iOS/Android app. The phone
-  persists each audio/video file before network work, creates the recording
-  with `sourceAppName: "Agent Native Mobile"`, and resumes bounded chunk
-  uploads from its durable queue. Do not ask users to keep a capture screen
-  open or re-record after a transient upload failure; reconnect Clips and retry
-  the saved job from mobile Home.
-- Mobile meeting capture is microphone-only. It can record an in-person room or
-  audio playing from another device, but iOS and Android do not expose another
-  phone app's Zoom/Meet/Teams call audio to this flow. Do not claim mobile
-  attendee attribution has the desktop mic-plus-system-audio fidelity.
-- Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
-  bounded `voiceContext` to the shared cleanup/transcription path when active
-  app context, learned vocabulary, user notes, or AGENTS.md preferences are
-  available.
-- Cloud transcription is fallback-only for Clips recordings and should use the
-  configured Builder/Gemini or Groq paths, not OpenAI.
-- AI setup must be visible and paid-account-backed: lead with Builder.io Connect
-  for managed credits, object storage, uploads, and transcription. BYOK belongs
-  in the agent sidebar's API Keys & Connections panel; template settings may
-  signpost that panel but should not create a second credential vault.
-  Anthropic/OpenAI power the agent chat; Gemini powers cleanup, titles, and
-  meeting notes; Groq powers backup speech-to-text.
-- Hosted/shared recording uploads require configured storage. Do not preserve
-  video bytes in SQL as a production fallback; only local SQLite/dev flows may
-  keep scratch chunks while a user connects Builder.io or S3-compatible storage.
+  comments, spaces/folders, meetings, and sharing. Never bypass access helpers.
+- Recording start/stop/pause are UI gestures — browser capture needs user
+  activation. Navigate the user to the recording view instead of a server action.
+- Native transcript first; cloud transcription is fallback-only. Never hide a
+  usable native transcript behind failed metadata work.
+- Use `import-loom-recording` for Loom or direct MP4/WebM URLs. Loom media and
+  public transcripts import in the background; direct videos need
+  `request-transcript` afterward.
+- Internal transactional-email actions claim bounded two-Clip summary work and
+  complete it with one plain-text sentence after reviewing both context packets.
+- The `view-screen` transcript is a bounded preview: when `previewTruncated` is
+  true it may end mid-sentence and says nothing about where transcription
+  ended. Call `get-recording-player-data` before judging completeness or
+  quoting.
+- Public clips are unlisted-by-link, not a searchable catalog. Only inspect
+  recordings the user owns, has viewed, or gave a share URL/id for. Never use
+  `list-recordings` or `search-recordings` to find someone else's clip, answer a
+  date question about the clip in context, or recover from a failed lookup —
+  report the failure instead.
+- Use framework sharing actions. Password and expiry only tighten visibility
+  and share grants.
+- Screen Memory is local-only, disabled by default, and never a hosted or
+  shareable Clips recording.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
-- Calendar-sourced meeting actions are shortcuts, but do not add raw
-  `provider-api-request` for Google Calendar until the provider API runtime can
-  resolve Clips `calendar_accounts` through sharing/access checks and read their
-  encrypted `app_secrets` token refs. Clips calendar grants are not stored in
-  core `oauth_tokens`, and bypassing that model would break the account
-  sharing/status boundary.
-- Use framework sharing actions for recordings. Password and expiry are extra
-  controls on top of visibility/share grants.
-- Meeting share links include the summary, key points, and action items. The
-  full transcript is an explicit, default-off setting: call `update-meeting`
-  with `shareTranscript=true|false` only when the owner or a share admin asks
-  to change what the meeting link exposes. This does not change the linked
-  recording's visibility or expose its media.
-- Use `list-recordings --view=shared` for the current user's "Shared with me"
-  collection. It returns recordings admitted by sharing access that are owned
-  by someone else; public-link-only clips remain out of this list.
-- Public recordings expose AI-readable URLs for external agents:
-  `/api/agent-context.json?id=<recordingId>` for metadata, transcript, and frame
-  API discovery; `/api/agent-transcript.json?id=<recordingId>` for transcript
-  segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
-  frame at a timestamp. Password-protected clips require the password once to
-  mint a short-lived token returned inside agent-context links.
-- If a public agent discovery/context/transcript payload reports
-  `agentReadiness.state` as `"preparing"` (the clip is `"uploading"` or
-  `"processing"`), wait 15 seconds and retry `agentContextUrl`; do not open the
-  share page, fetch frames, or draw conclusions until the recording status is
-  `"ready"`.
-  If `transcript.status` is `"pending"` after the clip is ready, wait 15-30
-  seconds and retry the context/transcript URL a few times, especially for long
-  recordings. Do not pivot straight to frames or tell the user there is no
-  transcript until the retry budget is exhausted.
-- If transcription failed because Builder transcription credits are exhausted,
-  tell the user that clearly and point them to Builder.io credits/upgrade or a
-  Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do
-  not transcribe Clips recordings.
-- Use `get-builder-credit-status` when the user asks whether Builder.io credit
-  limits are pausing backup transcription, transcript cleanup, summaries, or AI
-  title generation. Treat an exhausted status as an FYI/upgrade path, not an app
-  error.
-- Slack unfurls use `/api/slack/unfurl` for `link_shared` events and only
-  return playable `chat.unfurl` video blocks for ready public clips with no
-  password, no expiry hit, and no archive/trash marker. Private, org-only,
-  passworded, expired, or unfinished clips should fall back to normal link
-  metadata and require opening Clips.
-- Slack installs should go through the Clips Settings OAuth flow
-  (`connect-slack`, `/api/slack/oauth/callback`) so each Slack workspace gets
-  its own encrypted bot token in `app_secrets`. `SLACK_BOT_TOKEN` is only a
-  legacy single-workspace fallback and must remain behind the team allowlist.
-- Atlassian/Jira is available through the shared MCP integration catalog. It
-  uses Atlassian Rovo MCP OAuth; explain that an Atlassian organization admin
-  may need to allow the Clips app domain and enable the required Read, Write,
-  and Search permissions before the connection can complete.
-- Browser recordings can include redacted browser diagnostics captured during
-  the recording session. `save-browser-diagnostics` is UI/internal and stores
-  bounded console logs plus fetch/XHR method, URL path/query keys, status, and
-  duration; it never captures headers, bodies, cookies, or network URL query
-  values. Console text keeps useful non-secret values while redacting
-  credential-looking keys/headers. Use `get-recording-player-data` for full
-  diagnostics when you have editor access. Public agent context exposes the
-  redacted console stream (all levels) as `browserDiagnostics.consoleLogs` and
-  the fetch/XHR stream as `browserDiagnostics.networkRequests` (method,
-  sanitized URL with query values redacted, status, duration), plus
-  `consoleIssues` and `failedNetworkRequests` highlights. All bounded; page
-  URL, headers, bodies, and cookies stay omitted.
-- Embedded bug reports use `/bug-report` as an iframe-friendly launcher and
-  `/record?intent=bug-report` for the actual top-level capture flow. The
-  launcher stores redacted host metadata through `save-bug-report-context`; the
-  recording remains the canonical resource and defaults to workspace visibility.
-  Do not present this as anonymous customer intake until a signed intake/upload
-  token flow exists, because the current upload endpoints are owner-scoped.
-- The Chrome extension lives in `chrome-extension/`. It launches `/record` with
-  `clipsExtensionId` and `clipsCaptureSessionId`, then the recorder sends
-  `CLIPS_CAPTURE_START/STOP/CANCEL` back to the extension. The extension uses
-  the Chrome debugger API only on the tab the user launched from, only while a
-  recording is active, and returns the same redacted diagnostics shape saved by
-  `save-browser-diagnostics`.
-- The Chrome extension also enhances GitHub issue and PR markdown: a narrow
-  `github.com` content script detects Clips `/r/`, `/share/`, and `/embed/`
-  links, then renders the existing `/embed/:id` player in an extension-owned
-  preview iframe so the video is playable without leaving GitHub. Keep this
-  scoped to GitHub unless there is a deliberate permission review.
-- Screen Memory is a disabled-by-default, local-only desktop capability for
-  recent screen/app/window context. Use `get-screen-memory-status` before
-  relying on it, then `query-screen-memory-context` for bounded recent snippets
-  when local context files are present. If the local Screen Memory MCP built-in
-  is connected, the agent may also use `screen_memory_status`,
-  `screen_memory_recent_context`, and `screen_memory_recent_segments`; only
-  inspect or export segment file paths when the user explicitly asks. Never
-  describe Screen Memory as hosted, shared, exhaustive, or enabled by default.
-- After mutations, rely on the app refresh/polling path; do not invent a second
-  sync mechanism.
+- Never fabricate. Read real values through actions, verify writes with a
+  read-back, and rely on the app refresh/polling path after mutations.
 
 ## Application State
 
-- `navigation` exposes library, shared-with-me, recording, share, meeting,
-  dictation, settings, and transcript context. `selection` exposes selected
-  library recording ids when the user is in selection mode.
-- `navigate --view=shared` opens the shared-with-me collection, and
-  `view-screen` returns its currently visible recordings.
-- `recording-setup.import` exposes Loom import UI state while the `/record`
-  surface is open, without storing the pasted URL in ambient screen context.
-- `navigate` moves the UI to recording/library/meeting/share surfaces.
-- Use data actions for full transcripts and media metadata.
-- For the in-app Clips agent, prefer `get-recording-player-data` for full
-  private/authenticated recording context. When preparing a link for another
-  agent outside Clips, use `create-recording-agent-link`; it mints a two-hour
-  `agent_access` share URL without changing recording visibility.
-- Use `@agent-native/core/server` and `@agent-native/core/shared` agent-access
-  helpers for scoped token mint/verify and bot-visible URL construction. Keep
-  Clips-specific visibility, password, transcript, frame, and player behavior
-  in Clips. New URLs should use `agent_access`; existing agent API routes should
-  keep accepting legacy `t` tokens for copied links.
+- `navigation` — library, shared-with-me, recording, share, meeting, dictation,
+  settings, and transcript context. `navigate` opens those surfaces;
+  `navigate --view=shared` opens shared-with-me.
+- `selection` — selected library recording ids while in selection mode.
+- `recording-setup.import` — Loom import UI state while `/record` is open, never
+  the pasted URL.
+- `record-intent` — an agent-requested capture the recorder UI picks up, then
+  clears.
+- Read transcripts and media metadata through data actions, not screen context.
 
-## Skills
+## Actions
 
-Read the relevant skill before deeper work:
-
-- `recording` for recording lifecycle and transcript handling.
-- `video-editing` and `ai-video-tools` for edits, cleanup, titles, and summaries.
-- `video-sharing` for public links, passwords, expiry, embeds, and grants.
-- `meetings` and `dictate` for calendar-sourced meetings and dictation flows.
-- `actions`, `security`, `frontend-design`, and `shadcn-ui` as needed.
+| Action | Purpose |
+| --- | --- |
+| `view-screen`, `navigate` | Read context; open a surface |
+| `list-recordings`, `search-recordings` | Library, trash, `--view=shared` |
+| `get-recording-player-data` | Full transcript, chapters, diagnostics |
+| `create-recording`, `finalize-recording` | Create row; finish upload |
+| `import-loom-recording` | Import Loom or direct MP4/WebM URL |
+| `update-recording` | Title, password, expiry, visibility |
+| `move-recording` | Move `id` or `ids` to a folder or root |
+| `archive-`, `trash-`, `restore-recording` | Lifecycle |
+| `reprocess-recording` | Repair unseekable/frozen media |
+| `generate-filmstrip` | Editor timeline frame sprite; `all` backfills |
+| `request-transcript`, `cleanup-transcript` | Transcribe; `force`/`regenerate` |
+| `regenerate-title`, `-summary`, `-chapters` | AI metadata |
+| `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
+| `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
+| `list-dictations`, `cleanup-dictation` | Dictation history |
+| `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
+| `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |
+| `create-recording-agent-link` | Two-hour `agent_access` share URL |
+| `prepare-crm-call-evidence` | Opaque clip id plus `/r/<id>` for CRM |
+| `export-to-brain` | Send ready transcripts to Brain |
+| `get-builder-credit-status` | Whether credits pause AI work |
+| `tool-search` | Any other Clips action, e.g. screen-memory reads |

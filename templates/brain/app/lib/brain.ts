@@ -1,6 +1,5 @@
 import type { Icon } from "@tabler/icons-react";
 import {
-  IconBrain,
   IconBook2,
   IconChecks,
   IconDatabase,
@@ -550,8 +549,18 @@ export interface BrainConnectionProvider {
   configuredSourceCount: number;
   hasConfiguredSources: boolean;
   sourceProviderSupported: boolean;
+  configured?: boolean | null;
+  setupLink?: string;
   credentialHealth?: BrainCredentialHealth;
   providerHealth?: BrainProviderHealth;
+  rawProviderApi?: {
+    available: boolean;
+    actionNames: string[];
+    docsUrls: string[];
+    specUrls: string[];
+    auth: string | null;
+    examples: unknown[];
+  };
   workspaceConnection?: BrainWorkspaceConnectionSummary;
 }
 
@@ -1007,12 +1016,6 @@ export const navItems: Array<{
     href: "/settings",
     icon: IconSettings,
   },
-  {
-    view: "agent",
-    label: "Manage agent",
-    href: "/agent",
-    icon: IconBrain,
-  },
 ];
 
 export const defaultSettings: BrainSettings = {
@@ -1047,7 +1050,9 @@ export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/review")) return "review";
   if (pathname.startsWith("/sources")) return "sources";
   if (pathname.startsWith("/ops")) return "ops";
-  if (pathname.startsWith("/agent")) return "agent";
+  if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
+    return "agent";
+  }
   if (pathname.startsWith("/settings")) return "settings";
   return "ask";
 }
@@ -1067,7 +1072,7 @@ export function pathFromView(view?: string): string {
     case "ops":
       return "/ops";
     case "agent":
-      return "/agent";
+      return "/settings/agent";
     case "settings":
       return "/settings";
     case "ask":

@@ -7,6 +7,7 @@ import {
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
+  newDocumentPageChoiceIsDisabled,
   previewBodyHydrationIsPending,
   previewBodyHydrationIsTerminalError,
   previewDraftConflictsWithHydratedBody,
@@ -40,6 +41,17 @@ function documentWithHydration(
         version: null,
       },
     },
+    bodyHydration: {
+      provider: "builder",
+      sourceId: "builder-source",
+      databaseDocumentId: "database-page",
+      hydration: {
+        status,
+        attemptedAt: null,
+        error: null,
+        version: null,
+      },
+    },
   } satisfies Document;
 }
 
@@ -65,12 +77,12 @@ describe("body hydration editing gates", () => {
   it("detects terminal Builder body hydration errors separately from pending gates", () => {
     expect(
       builderBodyHydrationIsTerminalError(
-        documentWithHydration("error").databaseMembership?.bodyHydration,
+        documentWithHydration("error").bodyHydration?.hydration,
       ),
     ).toBe(true);
     expect(
       builderBodyHydrationIsTerminalError(
-        documentWithHydration("pending").databaseMembership?.bodyHydration,
+        documentWithHydration("pending").bodyHydration?.hydration,
       ),
     ).toBe(false);
   });
@@ -163,15 +175,37 @@ describe("body hydration editing gates", () => {
   it("treats source-backed empty documents with no body hydration as pending", () => {
     const document = {
       ...documentWithHydration("hydrated"),
-      databaseMembership: {
-        databaseId: "database",
-        databaseDocumentId: "database-page",
-        databaseTitle: "Content calendar",
-        position: 0,
+      bodyHydration: {
+        provider: "builder" as const,
         sourceId: "builder-source",
+        databaseDocumentId: "database-page",
+        hydration: undefined,
       },
     } satisfies Document;
 
+    expect(documentBodyHydrationIsPending(document)).toBe(true);
+  });
+
+  it("keeps current Database membership separate from Page body hydration", () => {
+    const document = {
+      ...documentWithHydration("pending"),
+      databaseMembership: {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+        databaseTitle: "Local projects",
+        position: 0,
+        sourceId: null,
+        bodyHydration: {
+          status: "hydrated" as const,
+          attemptedAt: null,
+          error: null,
+          version: null,
+        },
+      },
+    } satisfies Document;
+
+    expect(document.databaseMembership.sourceId).toBeNull();
+    expect(document.bodyHydration?.sourceId).toBe("builder-source");
     expect(documentBodyHydrationIsPending(document)).toBe(true);
   });
 
@@ -289,6 +323,40 @@ describe("body hydration editing gates", () => {
     expect(isEffectivelyEmptyDocumentContent("")).toBe(true);
     expect(isEffectivelyEmptyDocumentContent(" <empty-block/> ")).toBe(true);
     expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
+  });
+
+  it("keeps the page choice usable while collaboration connects", () => {
+    expect(
+      newDocumentPageChoiceIsDisabled({
+        canEdit: true,
+        bodyHydrationPending: false,
+        databaseCreationPending: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("disables the page choice for viewers, body hydration, or database conversion", () => {
+    expect(
+      newDocumentPageChoiceIsDisabled({
+        canEdit: false,
+        bodyHydrationPending: false,
+        databaseCreationPending: false,
+      }),
+    ).toBe(true);
+    expect(
+      newDocumentPageChoiceIsDisabled({
+        canEdit: true,
+        bodyHydrationPending: true,
+        databaseCreationPending: false,
+      }),
+    ).toBe(true);
+    expect(
+      newDocumentPageChoiceIsDisabled({
+        canEdit: true,
+        bodyHydrationPending: false,
+        databaseCreationPending: true,
+      }),
+    ).toBe(true);
   });
 
   it("ignores untouched empty preview normalization before it can dirty-save", () => {

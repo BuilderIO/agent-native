@@ -428,6 +428,23 @@ Wie `callAgent()` verwendet die CLI standardmäßig Async + Poll (`invokeAgent` 
 
 Das Ziel wird auf die gleiche Weise aufgelöst wie bei `agentNative.invoke()`: über die Workspace-App-ID, den App-Namen oder eine vollständige URL — sodass derselbe Befehl sowohl gegen eine Geschwister-App in einem Multi-App-Workspace als auch gegen einen beliebigen A2A-Peer anderswo funktioniert.
 
+## Aktivität delegierter Agents {#delegated-agent-activity}
+
+Agent-Native-Peers können Task-Statusmeldungen optional einen `data`-Teil mit
+`kind: "agent-native/agent-activity"` hinzufügen. Er enthält eine begrenzte
+Momentaufnahme der für Benutzer sichtbaren Denkzusammenfassungen, Werkzeugnamen
+und Abschlusszustände, der verstrichenen Zeit und des fortlaufenden
+Antworttexts. Aufrufende Apps zeigen diese Aktualisierungen als verschachtelten
+Agent-Lauf an und klappen den Arbeitsverlauf nach Abschluss der delegierten
+Aufgabe ein.
+
+Der Aktivitätsteil enthält niemals Werkzeugeingaben, Werkzeugergebnisse,
+Zugangsdaten oder verborgenes Provider-Reasoning. Behandle ihn als nicht
+vertrauenswürdige Darstellungsdaten, niemals als Grundlage für Identität,
+Autorisierung, Freigaben, Routing oder Artefaktprüfung. Externe A2A-Peers können
+die Erweiterung weglassen; ihr normaler Statustext und ihre endgültige Antwort
+werden weiterhin in derselben Delegationsansicht angezeigt.
+
 ## Aufgabenlebenszyklus {#task-lifecycle}
 
 Jede Nachricht erstellt eine Aufgabe, die diese Zustände durchläuft:

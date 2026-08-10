@@ -68,10 +68,6 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
 
-vi.mock("@agent-native/core/secrets", () => ({
-  readAppSecret: vi.fn(async () => null),
-}));
-
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
   getCredentialContext: vi.fn(() => null),
@@ -174,11 +170,13 @@ vi.mock("./lib/loom-transcript.js", () => ({
   loomTranscriptUnavailableMessage: () => "Loom transcript unavailable.",
 }));
 
+import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status";
 import {
   builderTranscriptionTimeoutMs,
   importLoomTranscriptForRecording,
   isSafeTranscriptCleanupReplacement,
   recordingMediaFetchTimeoutMs,
+  resolveCleanupSegmentsJson,
   transcribeWithBuilderModelFallback,
 } from "./request-transcript";
 import requestTranscript from "./request-transcript";
@@ -189,6 +187,42 @@ const existingSegments = JSON.stringify([
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe("resolveCleanupSegmentsJson", () => {
+  const measured = JSON.stringify([
+    { startMs: 0, endMs: 1_200, text: "hello there" },
+    { startMs: 1_200, endMs: 2_400, text: "second cue" },
+  ]);
+
+  it("keeps measured timings rather than re-synthesizing them", () => {
+    expect(
+      resolveCleanupSegmentsJson(measured, "Hello there. Second cue.", 120_000),
+    ).toBe(measured);
+  });
+
+  it("synthesizes cues only when no measured timings exist", () => {
+    for (const empty of [null, undefined, "", "[]"]) {
+      const out = JSON.parse(
+        resolveCleanupSegmentsJson(empty, "one two three four", 120_000),
+      );
+      expect(out.length).toBeGreaterThan(0);
+      expect(out[0].text).toBe("one two three four");
+    }
+  });
+
+  it("does not stretch a sparse transcript across the whole recording", () => {
+    // A 31-word transcript of a 2-minute clip used to be re-timed into cues
+    // ~4.3s apart, which looked like minute-long gaps of dropped speech.
+    const sparse = JSON.stringify([
+      { startMs: 0, endMs: 900, text: "I'm in the Builder desktop app," },
+      { startMs: 900, endMs: 1_800, text: "and I zipped a PNG file and" },
+    ]);
+    const kept = JSON.parse(
+      resolveCleanupSegmentsJson(sparse, "cleaned up text here", 135_000),
+    );
+    expect(kept[kept.length - 1].endMs).toBe(1_800);
+  });
 });
 
 describe("builderTranscriptionTimeoutMs", () => {
@@ -526,6 +560,135 @@ describe("requestTranscript regeneration", () => {
       preserved: true,
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Builder when native transcription is unavailable", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "Recovered from the spoken recording.",
+      language: "en",
+      segments: [
+        {
+          startMs: 0,
+          endMs: 1200,
+          text: "Recovered from the spoken recording.",
+        },
+      ],
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "failed",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_empty" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_empty" }],
+      [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_empty",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_empty",
+      status: "ready",
+      provider: "builder",
+    });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        fullText: "Recovered from the spoken recording.",
+        failureReason: null,
+      }),
+    );
+  });
+
+  it("keeps a still-running transcription marked live instead of going stale", async () => {
+    vi.useFakeTimers();
+    try {
+      let finishBuilder: (() => void) | undefined;
+      mockTranscribeWithBuilder.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishBuilder = () =>
+              resolve({
+                text: "Long recording transcript.",
+                language: "en",
+                segments: [
+                  {
+                    startMs: 0,
+                    endMs: 1200,
+                    text: "Long recording transcript.",
+                  },
+                ],
+              });
+          }),
+      );
+      mockSelectRows.queue = [
+        [
+          {
+            status: "failed",
+            fullText: "",
+            segmentsJson: "[]",
+            updatedAt: "2026-07-09T00:00:00.000Z",
+            language: "en",
+            retryCount: 0,
+          },
+        ],
+        [{ recordingId: "rec_slow" }],
+        [
+          {
+            videoUrl: "https://cdn.example.com/recording.webm",
+            videoFormat: "webm",
+            hasAudio: true,
+            durationMs: 45 * 60_000,
+            title: "Human title",
+          },
+        ],
+        [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+        [{ recordingId: "rec_slow" }],
+        [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+      ];
+
+      const runPromise = requestTranscript.run({
+        recordingId: "rec_slow",
+        force: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(
+        PENDING_TRANSCRIPT_HEARTBEAT_MS + 1_000,
+      );
+
+      expect(finishBuilder).toBeDefined();
+      expect(
+        mockUpdateSet.mock.calls.some(([patch]) => {
+          const keys = Object.keys(patch as Record<string, unknown>);
+          return keys.length === 1 && keys[0] === "updatedAt";
+        }),
+      ).toBe(true);
+
+      finishBuilder?.();
+      await runPromise;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

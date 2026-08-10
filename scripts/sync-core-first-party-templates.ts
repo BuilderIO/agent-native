@@ -46,6 +46,7 @@ mkdirSync(targetRoot, { recursive: true });
 
 for (const trackedPath of trackedFiles) {
   const relativePath = relative("templates/chat", trackedPath);
+  if (/\.(?:spec|test)\.(?:ts|tsx)$/.test(relativePath)) continue;
   const sourcePath = join(rootDir, trackedPath);
   const targetPath = join(targetRoot, relativePath);
   const stat = lstatSync(sourcePath);

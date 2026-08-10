@@ -18,10 +18,10 @@ import {
 } from "@/components/ui/popover";
 import {
   attemptOpenDesktopApp,
-  clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
   hasDownloadedDesktopApp,
   subscribeDownloaded,
+  useClipsChromeExtensionEnabled,
 } from "@/lib/capture-install-options";
 import { cn } from "@/lib/utils";
 
@@ -136,6 +136,7 @@ export function CaptureInstallButton({
   ...buttonProps
 }: CaptureInstallButtonProps) {
   const downloaded = useHasDownloadedDesktopApp();
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
   const label = downloaded ? (downloadedChildren ?? children) : children;
 
   if (downloaded) {
@@ -155,7 +156,7 @@ export function CaptureInstallButton({
     );
   }
 
-  if (!clipsChromeExtensionEnabled) {
+  if (!chromeExtensionEnabled) {
     return (
       <Button asChild className={className} {...buttonProps}>
         <a href={appPath(desktopHref)}>{label}</a>
@@ -187,6 +188,7 @@ export function CaptureInstallInlineLink({
   side = "bottom",
 }: CaptureInstallInlineLinkProps) {
   const downloaded = useHasDownloadedDesktopApp();
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
 
   const label = downloaded ? (downloadedChildren ?? children) : children;
 
@@ -202,7 +204,7 @@ export function CaptureInstallInlineLink({
     );
   }
 
-  if (!clipsChromeExtensionEnabled) {
+  if (!chromeExtensionEnabled) {
     return (
       <a href={appPath(desktopHref)} className={className}>
         {label}

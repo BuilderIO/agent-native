@@ -71,6 +71,12 @@ export {
 export { useAgentChatGenerating } from "../use-agent-chat.js";
 export { useSendToAgentChat } from "../use-send-to-agent-chat.js";
 export {
+  AGENT_SIDEBAR_DEFAULT_MAX_WIDTH,
+  AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_SIDEBAR_WIDE_WIDTH_RATIO,
+  clampAgentSidebarWidth,
+  getAgentSidebarMaxWidth,
+  getAgentSidebarWideWidth,
   requestAgentSidebarOpen,
   SIDEBAR_STATE_CHANGE_EVENT,
   setAgentSidebarOpenPreference,
@@ -101,6 +107,7 @@ export {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
   type ActionChatUIConfig,
 } from "../../action-ui.js";
 export {

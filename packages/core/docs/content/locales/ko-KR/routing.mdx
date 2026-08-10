@@ -83,7 +83,8 @@ export default function SettingsPage() {
 }
 ```
 
-그렇습니다. React 라우터가 자동으로 선택하므로 등록이 필요하지 않습니다.
+그렇습니다. 개발 서버는 시작할 때 라우트 파일을 읽습니다. `pnpm dev`가 이미
+실행 중이면 파일을 추가한 후 다시 시작하세요. 등록은 필요하지 않습니다.
 
 ## 동적 매개변수 {#dynamic-params}
 
@@ -115,4 +116,4 @@ navigate(`/inbox/${threadId}`);
 ## 다음 단계
 
 - [**Client**](/docs/client) — 에이전트 기반 브라우저 후크 및 유틸리티
-- [**Server**](/docs/server) — 파일 기반 서버 경로 및 `/_agent-native/` 네임스페이스
+- [**Server**](/docs/server-overview) — 파일 기반 서버 경로 및 `/_agent-native/` 네임스페이스

@@ -1,0 +1,199 @@
+---
+title: "라우트"
+description: "파일 기반 Nitro 서버 라우트, SSR catch-all, 명명 규칙, 그리고 커스텀 라우트를 인증된 사용자로 범위 지정하는 법."
+---
+
+# 라우트
+
+에이전트 기반 앱의 서버 라우팅은 두 가지 표면으로 나뉩니다.
+
+**프레임워크 라우트**는 `/_agent-native/*`에 있으며 프레임워크가 관리합니다. 에이전트 채팅 루프, 동기화 폴링, 액션 엔드포인트 및 그 밖의 핵심 기능을 노출합니다. 이 라우트들은 여러분이 만들거나 수정하지 않습니다.
+
+**커스텀 파일 라우트**는 `server/routes/`에 있으며, 여러분만의 엔드포인트를 추가하는 곳입니다. Nitro는 디렉터리 트리 안의 위치를 기준으로 이를 자동으로 인식합니다. 등록이나 별도 설정은 필요 없습니다. 파일 이름이 HTTP 메서드를 정하고, 디렉터리 경로가 URL 경로가 되며, 각 파일은 하나의 핸들러를 내보냅니다.
+
+## 프레임워크가 마운트하는 라우트 {#framework-routes}
+
+프레임워크는 `/_agent-native/` 네임스페이스를 자체 엔드포인트를 위해 예약해 둡니다. 이곳에는 절대 커스텀 라우트를 두지 마세요. 아래 표는 대표적인 예시일 뿐 전체 목록이 아닙니다.
+
+| 라우트 접두사                    | 목적                                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | 액션 HTTP 엔드포인트                                                                |
+| `/_agent-native/agent-chat`      | 에이전트 채팅 루프                                                                  |
+| `/_agent-native/poll`            | SQL 기반 UI 동기화                                                                  |
+| `/_agent-native/runs`            | 진행 상황 프리미티브. `RunsTray`가 이를 폴링합니다. [Progress](/docs/progress) 참조 |
+| `/_agent-native/resources/*`     | 워크스페이스 리소스                                                                 |
+| `/_agent-native/extensions/*`    | 런타임 확장 및 확장 프록시(레거시 별칭: `/_agent-native/tools/*`)                   |
+| `/_agent-native/integrations/*`  | 메시징/웹훅 통합                                                                    |
+| `/_agent-native/a2a`             | 에이전트 간(agent-to-agent) JSON-RPC                                                |
+| `/mcp`                           | MCP 엔드포인트                                                                      |
+| `/_agent-native/onboarding/*`    | 설정 체크리스트                                                                     |
+| `/_agent-native/observability/*` | 트레이스, 피드백, 평가, 실험                                                        |
+| `/_agent-native/file-upload`     | 파일 업로드 제공자 엔드포인트                                                       |
+
+커스텀 앱 라우트는 `/api/*`나 `/_agent-native/`와 충돌하지 않는 다른 경로에 두세요.
+
+## 커스텀 라우트를 사용해야 할 때 {#when-custom-routes}
+
+액션은 앱 작업의 대다수를 처리합니다. 액션으로 표현할 수 없는 무언가가 필요할 때만 `server/routes/`의 파일 라우트를 사용하세요.
+
+<Comparison>
+
+### 커스텀 라우트를 사용하는 경우 {#use-custom-route}
+
+- 파일 업로드 또는 멀티파트 폼 데이터
+- 스트리밍 응답 또는 서버 전송 이벤트(SSE)
+- 원시 바디 검증이 필요한 인바운드 웹훅
+- OAuth 콜백
+- 인증되지 않은 공개 페이지
+- 특정 URL 경로나 응답 형식이 필요한 외부 REST 계약
+
+### 대신 액션을 사용하는 경우 {#use-action-instead}
+
+- UI와 에이전트가 모두 필요로 하는 작업
+- 앱 데이터를 읽거나 쓰는 작업
+- HTTP 형태의 엔드포인트([Actions](/docs/actions)의 `http` 옵션 사용)
+- 에이전트 도구, MCP 도구, CLI 명령이 되어야 하는 모든 것
+- 표준 JSON 요청/응답 API
+
+</Comparison>
+
+### 예시: 인바운드 웹훅 {#example-webhook}
+
+웹훅은 커스텀 라우트가 명확하게 필요한 경우입니다. 외부 서비스는 요청 서명을 검증할 수 있도록 파싱하기 전에 바이트 그대로 읽어야 하는 원시 HTTP 바디를 보냅니다. 액션은 이미 파싱된 JSON을 받으며 원시 바디에 접근할 수 없으므로, 액션 내부에서는 서명 검증이 불가능합니다.
+
+아래 라우트는 `POST /api/webhooks/events`로 들어오는 인바운드 웹훅을 처리합니다. 원시 바디를 읽고, HMAC 서명을 검증한 다음, 페이로드를 처리합니다.
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro는 이 파일을 자동으로 `POST /api/webhooks/events`에 매핑합니다. `WEBHOOK_SECRET` 환경변수에는 외부 서비스가 제공한 서명 비밀 값을 설정해야 합니다.
+
+## 파일 기반 라우트 {#file-based-routes}
+
+디렉터리 경로가 URL 경로가 되고, 파일 이름의 접미사가 HTTP 메서드를 정합니다. `server/routes/api/items/[id].get.ts`에 있는 파일은 `GET /api/items/:id`에 매핑됩니다. `items/`는 디렉터리에서, `[id]`는 `:id` 매개변수가 되고, `.get`이 메서드를 설정합니다.
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR catch-all for public pages
+```
+
+`defineEventHandler`는 라우트를 작성하기 위한 H3 프리미티브입니다. 핸들러 함수를 감싸서 요청, 응답, 라우터 매개변수, 쿼리 문자열, 헤더, 바디를 담고 있는 `event` 객체에 접근할 수 있게 해줍니다. 핸들러에서 값을 반환하면 그것이 응답으로 전송됩니다. 일반 객체는 자동으로 JSON이 됩니다. `createError`를 던지면 적절한 HTTP 오류 상태가 전송됩니다.
+
+`[id]`와 같은 라우터 매개변수는 `getRouterParam`으로 `event`에서 읽습니다.
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### 명명 규칙 {#naming-conventions}
+
+| 파일 경로(`server/routes/` 기준 상대 경로) | HTTP 메서드 | URL 경로         |
+| ------------------------------------------ | ----------- | ---------------- |
+| `api/items/index.get.ts`                   | GET         | `/api/items`     |
+| `api/items/index.post.ts`                  | POST        | `/api/items`     |
+| `api/items/[id].get.ts`                    | GET         | `/api/items/:id` |
+| `api/items/[id].patch.ts`                  | PATCH       | `/api/items/:id` |
+| `api/items/[id].delete.ts`                 | DELETE      | `/api/items/:id` |
+| `api/items/[...slug].get.ts`               | GET         | `/api/items/*`   |
+
+## 요청 컨텍스트와 접근 권한 {#request-context}
+
+프레임워크가 마운트한 액션은 자동으로 요청 컨텍스트를 가지고 실행됩니다. 커스텀 라우트는 그렇지 않습니다. 커스텀 라우트가 소유 가능한 리소스를 읽거나 쓴다면, 세션을 불러와 작업을 감싸야 합니다.
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="커스텀 라우트를 요청 사용자로 범위 지정하기"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "커스텀 라우트에는 자동 컨텍스트가 없음",
+      note: "액션과 달리, 파일 라우트는 직접 세션을 불러와야 하며 인증된 사용자가 없을 때는 요청을 실패 처리해야 합니다.",
+    },
+    {
+      lines: "13",
+      label: "요청 컨텍스트 수립",
+      note: "`runWithRequestContext`는 작업이 진행되는 동안 범위 지정 도우미가 사용자/조직 정보를 사용할 수 있게 해줍니다.",
+    },
+    {
+      lines: "17-20",
+      label: "소유 가능한 읽기 범위 지정",
+      note: "`accessFilter`는 쿼리를 호출자가 볼 수 있는 행으로 제한합니다. 여기서 범위가 지정되지 않은 `db.select().from(ownableTable)`를 절대 실행하지 마세요.",
+    },
+  ]}
+/>
+
+`getDb`는 앱마다 `server/db/index.ts`의 `createGetDb(schema)`를 통해 생성되므로, 커스텀 라우트는 이를 `@agent-native/core/db`가 아니라 템플릿 경로(`../../db/index.js`)에서 가져옵니다. [데이터베이스](/docs/server-database#db-client)를 참조하세요.
+
+<Callout tone="warning">
+  커스텀 라우트에서 범위가 지정되지 않은 `db.select().from(ownableTable)`를
+  실행하지 마세요. 소유 가능한 데이터를 조회하기 전에는 항상
+  `runWithRequestContext`로 요청 컨텍스트를 수립하세요.
+</Callout>
+
+## SSR Catch-All {#ssr-catch-all}
+
+`server/routes/` 루트에 있는 `[...page].get.ts` 라우트는 공개 페이지를 위한 서버 사이드 렌더링을 처리합니다. `createH3SSRHandler`를 사용해 React Router 빌드로 작업을 넘깁니다.
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+모든 SSR 응답은 CDN에 캐시되는, 개인화되지 않은 공개 셸입니다. 이 핸들러에서는 쿠키, 세션 상태, 인증 분기를 절대 읽지 마세요. 개인화는 하이드레이션 이후 클라이언트 측에서 이루어집니다.
+
+## 다음 단계 {#whats-next}
+
+- [**Actions**](/docs/actions): 앱 작업을 위해 선호되는 표면입니다. 맞지 않을 때만 라우트를 사용하세요.
+- [**플러그인**](/docs/server-plugins): 시작 플러그인과 초기화 동작
+- [**미들웨어**](/docs/server-middleware): `/api/*`를 포함한 모든 라우트를 보호하는 인증 가드
+- [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess`와 전체 데이터 범위 지정 모델

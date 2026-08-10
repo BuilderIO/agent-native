@@ -29,7 +29,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently.
-const runMailMigrations = runMigrations(
+export const runMailMigrations = runMigrations(
   [
     {
       version: 1,

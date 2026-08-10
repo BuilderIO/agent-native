@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { docToNfm } from "@shared/nfm";
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   VISUAL_INDENT,
   parseNfmForEditor,
@@ -8,6 +8,7 @@ import {
 } from "@shared/notion-markdown";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
+import type { Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -22,18 +23,25 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
+import { insertMediaPlaceholder } from "./SlashCommandMenu";
 import {
   createVisualEditorExtensions,
+  didCommitMediaSource,
   EmptyLineParagraph,
   getRecentEditPresenceMarkerRect,
+  hasAncestorType,
   parseNfmForCollabReconcile,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
+  isUserInitiatedCollaborativeEditorUpdate,
   shouldApplyExternalContentSync,
   shouldPersistEffectivelyEmptyEditorUpdate,
+  shouldPersistCollaborativeEditorUpdate,
   shouldPersistLocalFileEditorUpdate,
+  shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
+  serializeEditorDraftForPersistence,
   VisualEditor,
 } from "./VisualEditor";
 
@@ -69,6 +77,247 @@ function createFullEditor(content = "") {
 function waitForDeferredCallback() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe("placeholder ancestry", () => {
+  it("clamps stale collaborative positions to the live document", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>Short paragraph</p>",
+    });
+    try {
+      expect(() => hasAncestorType(editor, 180, "blockquote")).not.toThrow();
+      expect(hasAncestorType(editor, 180, "blockquote")).toBe(false);
+      expect(() => hasAncestorType(editor, -180, "blockquote")).not.toThrow();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("collaborative update persistence", () => {
+  it("does not let an unfocused normalization borrow recent user intent", () => {
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: false,
+        explicitUserEdit: false,
+        recentUserEditIntent: true,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps exact transaction provenance and focused intent persistable", () => {
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: false,
+        explicitUserEdit: true,
+        recentUserEditIntent: false,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: false,
+        explicitUserEdit: false,
+        recentUserEditIntent: false,
+        transactionUiEvent: "input",
+      }),
+    ).toBe(true);
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: true,
+        explicitUserEdit: false,
+        recentUserEditIntent: true,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects unfocused normalization without user intent", () => {
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: true,
+        editorFocused: false,
+        userInitiated: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps focused commands and explicit user edits persistable", () => {
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: true,
+        editorFocused: true,
+        userInitiated: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: true,
+        editorFocused: false,
+        userInitiated: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not change non-collaborative persistence", () => {
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: false,
+        editorFocused: false,
+        userInitiated: false,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("media draft persistence", () => {
+  it("detects a media source enrichment but not unrelated media movement", () => {
+    const editor = createFullEditor();
+    const transactions: Transaction[] = [];
+    editor.on("transaction", ({ transaction }) =>
+      transactions.push(transaction),
+    );
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "video", attrs: { src: null } }],
+      });
+      editor.commands.setNodeSelection(0);
+      transactions.length = 0;
+
+      editor.commands.updateAttributes("video", {
+        src: "https://cdn.example.com/flower.mp4",
+      });
+      expect(transactions.some(didCommitMediaSource)).toBe(true);
+
+      transactions.length = 0;
+      const paragraph = editor.schema.nodes.paragraph.create(
+        null,
+        editor.schema.text("Before media"),
+      );
+      editor.view.dispatch(editor.state.tr.insert(0, paragraph));
+      expect(transactions.some(didCommitMediaSource)).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    ["image", "https://cdn.example.com/birds.png"],
+    ["video", "https://cdn.example.com/flower.mp4"],
+  ] as const)(
+    "suppresses the slash %s placeholder commit until its source is set",
+    (type, src) => {
+      const editor = createFullEditor();
+      const persisted: string[] = [];
+      const querySelectorAll = Element.prototype.querySelectorAll;
+      const querySelectorAllSpy = vi
+        .spyOn(Element.prototype, "querySelectorAll")
+        .mockImplementation(function (this: Element, selector: string) {
+          try {
+            return querySelectorAll.call(this, selector);
+          } catch {
+            const matches = selector.split(",").flatMap((part) => {
+              try {
+                return Array.from(querySelectorAll.call(this, part));
+              } catch {
+                return [];
+              }
+            });
+            return matches as unknown as NodeListOf<Element>;
+          }
+        });
+      const persistDraft = () => {
+        const draft = serializeEditorDraftForPersistence(editor);
+        if (draft !== null) persisted.push(draft);
+      };
+
+      try {
+        document.body.appendChild(editor.view.dom);
+        editor.commands.insertContent("/");
+        editor.commands.setTextSelection(2);
+        editor.commands.deleteRange({ from: 1, to: 2 });
+        insertMediaPlaceholder(editor, type);
+
+        if (type === "video") {
+          const video = editor
+            .getJSON()
+            .content?.find((node) => node.type === "video");
+          expect(video?.attrs?.sourcePanelOpen).toBe(true);
+        }
+
+        persistDraft();
+        expect(persisted).toEqual([]);
+
+        editor.commands.updateAttributes(type, { src });
+        persistDraft();
+
+        expect(persisted).toHaveLength(1);
+        expect(persisted[0]).toContain(src);
+      } finally {
+        querySelectorAllSpy.mockRestore();
+        editor.view.dom.remove();
+        editor.destroy();
+      }
+    },
+  );
+
+  it("holds a selected empty media placeholder until it has a source", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "image", attrs: { src: null, alt: "" } }],
+      });
+      editor.commands.setNodeSelection(0);
+
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(true);
+      expect(serializeEditorDraftForPersistence(editor)).toBeNull();
+
+      editor.commands.updateAttributes("image", {
+        src: "https://cdn.example.com/diagram.png",
+      });
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(false);
+      expect(serializeEditorDraftForPersistence(editor)).toBe(
+        "![](https://cdn.example.com/diagram.png)",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("holds pending drop and paste uploads even when selection moved", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "video",
+            attrs: { src: null, uploadId: "video-upload-test" },
+          },
+          { type: "paragraph", content: [{ type: "text", text: "After" }] },
+        ],
+      });
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(true);
+
+      editor.commands.setNodeSelection(0);
+      editor.commands.updateAttributes("video", {
+        src: "https://cdn.example.com/demo.mp4",
+        uploadId: null,
+      });
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 function triggerTextInput(editor: Editor, text: string) {
   const { from, to } = editor.state.selection;
@@ -226,6 +475,35 @@ describe("VisualEditor markdown round-tripping", () => {
     try {
       expect(editor.view.dom.querySelectorAll("th")).toHaveLength(0);
       expect(editor.view.dom.querySelectorAll("td")).toHaveLength(4);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("round-trips a newly inserted empty table through canonical NFM", () => {
+    const editor = createFullEditor();
+
+    try {
+      expect(
+        editor.commands.insertTable({
+          rows: 3,
+          cols: 3,
+          withHeaderRow: false,
+        }),
+      ).toBe(true);
+      const markdown = docToNfm(editor.getJSON() as any);
+
+      expect(markdown).toContain("<table>");
+      expect(markdown.match(/<tr>/g)).toHaveLength(3);
+      expect(markdown.match(/<td><\/td>/g)).toHaveLength(9);
+
+      const restored = nfmToDoc(markdown);
+      const table = restored.content.find((node) => node.type === "table");
+      expect(table).toBeDefined();
+      expect(table?.content).toHaveLength(3);
+      expect(table?.content?.flatMap((row) => row.content ?? [])).toHaveLength(
+        9,
+      );
     } finally {
       editor.destroy();
     }
@@ -830,6 +1108,51 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  it("mounts a fenced code block in the collaborative editor", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    try {
+      act(() => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(TooltipProvider, {
+              children: createElement(
+                QueryClientProvider,
+                { client: queryClient },
+                createElement(VisualEditor, {
+                  content: "```ts\nconst answer = 42\n```",
+                  contentUpdatedAt: "2026-07-24T00:00:00.000Z",
+                  onChange: () => {},
+                  ydoc,
+                  collabSynced: true,
+                  editable: true,
+                }),
+              ),
+            }),
+          ),
+        );
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+      expect(
+        container.querySelector("pre.notion-code-block code")?.textContent,
+      ).toBe("const answer = 42");
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      ydoc.destroy();
+      container.remove();
+    }
+  });
+
   it("does not clear awareness owned by the shared collab connection on unmount", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -1097,15 +1420,84 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("uses the Notion empty-line placeholder for focused paragraphs", () => {
+  it("only shows the Notion empty-line placeholder while the editor is focused", () => {
     const editor = createFullEditor();
+    let editorFocused = false;
+    Object.defineProperty(editor, "isFocused", {
+      configurable: true,
+      get: () => editorFocused,
+    });
 
     try {
+      editor.commands.setTextSelection(1);
+      expect(
+        editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
+      ).toBe("");
+
+      editorFocused = true;
       editor.commands.setTextSelection(1);
 
       expect(
         editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
-      ).toBe("Press ‘space’ for AI or ‘/’ for commands");
+      ).toBe("Press ‘/’ for commands");
+
+      editorFocused = false;
+      editor.commands.setTextSelection(1);
+      expect(
+        editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
+      ).toBe("");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps the empty-line placeholder on only the focused block", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph" },
+          { type: "paragraph" },
+          { type: "paragraph" },
+        ],
+      },
+    });
+
+    const placeholderParagraphs = () =>
+      Array.from(editor.view.dom.querySelectorAll("p"))
+        .map((paragraph, index) => ({ paragraph, index }))
+        .filter(
+          ({ paragraph }) =>
+            paragraph.getAttribute("data-placeholder") ===
+            "Press ‘/’ for commands",
+        )
+        .map(({ index }) => index);
+
+    try {
+      editor.commands.setTextSelection(1);
+      expect(placeholderParagraphs()).toEqual([]);
+
+      editor.view.dom.dispatchEvent(new FocusEvent("focus"));
+      expect(placeholderParagraphs()).toEqual([0]);
+
+      editor.commands.setTextSelection(3);
+      expect(placeholderParagraphs()).toEqual([1]);
+
+      editor.commands.setTextSelection(5);
+      expect(placeholderParagraphs()).toEqual([2]);
+
+      editor.commands.setTextSelection(3);
+      expect(placeholderParagraphs()).toEqual([1]);
+
+      editor.commands.setTextSelection(1);
+      expect(placeholderParagraphs()).toEqual([0]);
+
+      editor.view.dom.dispatchEvent(new FocusEvent("blur"));
+      expect(placeholderParagraphs()).toEqual([]);
+
+      editor.view.dom.dispatchEvent(new FocusEvent("focus"));
+      expect(placeholderParagraphs()).toEqual([0]);
     } finally {
       editor.destroy();
     }
@@ -1325,6 +1717,10 @@ describe("VisualEditor markdown round-tripping", () => {
         ],
       },
     });
+    Object.defineProperty(editor, "isFocused", {
+      configurable: true,
+      value: true,
+    });
 
     try {
       editor.commands.setTextSelection(2);
@@ -1335,7 +1731,7 @@ describe("VisualEditor markdown round-tripping", () => {
             "[data-notion-toggle-content] p, .notion-toggle__content p",
           )
           ?.getAttribute("data-placeholder"),
-      ).toBe("Press ‘space’ for AI or ‘/’ for commands");
+      ).toBe("Press ‘/’ for commands");
     } finally {
       editor.destroy();
     }

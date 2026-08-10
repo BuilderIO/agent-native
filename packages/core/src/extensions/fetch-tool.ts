@@ -189,6 +189,17 @@ export function createFetchToolEntry(
           required: ["url"],
         },
       },
+      planMode: {
+        effect: (args) => {
+          const method = String(args.method ?? "GET").toUpperCase();
+          if (method !== "GET" && method !== "HEAD") return "write";
+          return args.saveToFile == null ? "read" : "write";
+        },
+        allowedValues: { method: ["GET", "HEAD"] },
+        omittedProperties: ["saveToFile"],
+        description:
+          "Plan mode allows GET and HEAD requests that return their response without saving it.",
+      },
       run: async (args: Record<string, unknown>) => {
         const startTime = Date.now();
         const rawUrl = String(args.url ?? "");

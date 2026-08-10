@@ -14,5 +14,11 @@
     <string>Clips uses Accessibility to learn your preferred spellings from edits you make right after dictating, so future dictations get them right.</string>
     <key>CFBundleIconName</key>
     <string>agent-native</string>
+    <!-- Menu-bar-only. Without this the bundle launches as a regular app, so
+         macOS creates a Dock tile and only removes it once the deferred
+         Accessory activation policy lands after setup() — a Dock icon that
+         appears and vanishes on a timing that varies with launch speed. -->
+    <key>LSUIElement</key>
+    <true/>
 </dict>
 </plist>

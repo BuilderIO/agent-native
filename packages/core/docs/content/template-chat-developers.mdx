@@ -1,0 +1,88 @@
+---
+title: "Chat — runtime and admin surfaces"
+description: "The core SQL tables, auth setup, and the Database/Observability/Extensions admin pages that ship by default with the Chat template."
+---
+
+# Chat — runtime and admin surfaces
+
+This page is for developers who need to know what runs under the hood in [Chat](/docs/template-chat): the tables every template shares, how auth is configured, and the admin pages — Database, Observability, and Extensions — that ship in every Chat app whether or not you ever open them.
+
+## Core SQL tables and live sync {#tables}
+
+Chat adds no domain tables of its own (see [What's not in it](/docs/template-chat#not-in-it)). It runs entirely on the framework's core tables: chat threads and messages, `application_state`, `settings`, sessions, resources, and run history.
+
+`useDbSync()` is already wired into the app shell: when the agent (or anyone else) writes to SQL, the client receives the change over SSE, or the 2-second polling fallback, and invalidates the matching React Query caches — no manual refresh, no websocket you have to manage yourself. See [`useDbSync`](/docs/client#usedbsync) for the full hook API.
+
+`server/plugins/agent-chat.ts` is where the chat runtime itself is configured: it registers every action in `actions/` as a callable tool (`loadActionsFromStaticRegistry`), resolves the current org for scoping (`resolveOrgId`), sets the system prompt, and declares which tools the model sees on the very first turn (`initialToolNames`) — see [Your first feature in Chat](/docs/template-chat-first-edits#first-edits) for what that last part means when you add a new action.
+
+## Auth {#auth}
+
+Auth runs on Better Auth: login, signup, sessions, and organizations, configured in `server/plugins/auth.ts` via `createAuthPlugin`. The same flow runs locally and in production, except that development skips email verification so you can sign up and start building immediately. `createAuthPlugin` also takes the login page's marketing copy — app name, tagline, and feature bullets — as plain config in that same file. See [Authentication](/docs/authentication) for the full auth model (sessions, organizations, protected routes).
+
+## Admin surfaces that ship by default {#admin-surfaces}
+
+Three routes are mounted whether or not your app ever links to them:
+
+<Table
+  id="doc-block-chat6"
+  title="Chat's mounted routes"
+  columns={["Route", "Renders", "What it's for"]}
+  rows={[
+    [
+      "/",
+      "ChatRoute (app/routes/_index.tsx)",
+      "Full-page chat, the default view",
+    ],
+    [
+      "/chat/:threadId",
+      "same component, re-exported",
+      "Chat with the open thread synced into the URL",
+    ],
+    [
+      "/agent",
+      "AgentTabsPage (falls back to a plain chat surface on older core versions)",
+      "The full Agent page — Context, Files, Connections, Jobs, Access tabs",
+    ],
+    ["/database", "DbAdminPage", "Browse and edit every SQL table directly"],
+    [
+      "/observability",
+      "ObservabilityDashboard",
+      "Agent traces, cost, evals, and feedback",
+    ],
+    [
+      "/extensions",
+      "redirects to /settings/extensions",
+      "Extensions are managed from Settings, not a standalone list page",
+    ],
+    [
+      "/extensions/:id (or /extensions/:id/:slug)",
+      "ExtensionViewerPage",
+      "Runs one saved extension mini-app; the optional slug segment is just a friendlier URL for the same page",
+    ],
+    [
+      "/settings",
+      "SettingsTabsPage",
+      "Account, language, agent, team, and what's-new tabs",
+    ],
+    [
+      "/team",
+      "redirects to /settings/organization",
+      "Organization membership lives under Settings",
+    ],
+  ]}
+/>
+
+**Database** (`/database`) is the same `DbAdminPage` every template gets — a direct table browser/editor over the app's SQL database. See [Database](/docs/database) for the connection model behind it.
+
+**Observability** (`/observability`) is the same zero-config `ObservabilityDashboard` every template gets: traces, cost, evals, and feedback for every agent run, computed from data already in your own database. See [Agent Observability](/docs/observability).
+
+**Extensions** are sandboxed Alpine.js mini-apps your users can ask the agent to build inside the running app — a custom widget or checklist, no deploy required. Chat mounts the routes that view and run them (`/extensions/:id`) by default, even before you or your users create one; `/extensions` itself just redirects into the Extensions tab of Settings rather than showing its own list. See [Extensions](/docs/extensions) for what they can and cannot do.
+
+## What's next
+
+- [**Chat Template**](/docs/template-chat) — what ships by default and when to pick it
+- [**Your first feature in Chat**](/docs/template-chat-first-edits) — the starter chat route, annotated, plus a full feature walkthrough
+- [**Database**](/docs/database) — connecting a real database and the portable-SQL model
+- [**Agent Observability**](/docs/observability) — what the dashboard tracks and how
+- [**Extensions**](/docs/extensions) — building mini-apps inside a template
+- [**Authentication**](/docs/authentication) — sessions, organizations, and protected routes

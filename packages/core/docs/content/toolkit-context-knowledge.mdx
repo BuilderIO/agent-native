@@ -9,6 +9,15 @@ Context and knowledge are shared responsibilities: the runtime makes state and
 access durable, Toolkit presents reusable surfaces, and each app owns the
 domain records that make context useful.
 
+<WireframeBlock id="doc-block-toolkit-context-knowledge">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:24px;display:grid;grid-template-columns:1fr 260px;gap:16px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Context X-Ray</h2><div style='flex:1'></div><span class='wf-pill'>24.6K / 128K tokens</span></div><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='lock'></span><div style='flex:1'>System &middot; ordered, not evictable</div><small class='wf-muted'>6.1K</small></div><div class='wf-box' style='display:flex;align-items:center;gap:8px;border-color:var(--wf-accent)'><span data-icon='check'></span><div style='flex:1'>Pinned &middot; roadmap.md</div><small class='wf-muted'>1.2K</small></div><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Conversation &middot; last 12 turns</div><small class='wf-muted'>14.8K</small></div><div class='wf-box' style='display:flex;align-items:center;gap:8px;opacity:.55'><span data-icon='x'></span><div style='flex:1'>Evicted &middot; old tool output</div><small class='wf-muted'>2.5K</small></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Budget</strong><div style='height:120px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center'><strong>48%</strong></div><small class='wf-muted'>Share of the context window used by system, conversation, tool results, and evicted segments.</small><div style='flex:1'></div><button class='primary'>Pin selection</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
 ## Ownership boundary
 
 | Layer   | Owns                                                                                       |
@@ -21,10 +30,38 @@ The Context X-Ray engine remains Core-owned. Use Toolkit presentation to show
 that context consistently, but keep the actual app-state and access decisions
 on the Core/action surface.
 
-Import the controlled presentation views from `@agent-native/toolkit/context-ui`.
-Core's existing Context X-Ray components remain adapters that connect those
-views to runtime state and mutations. Both are documented in this Toolkit
-section because together they form one reusable product surface.
+## Pieces {#pieces}
+
+| Piece                                                        | Purpose                                                                 |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `<ContextXRayPanelView>`                                     | Complete panel: grouped segments, budget meter, pin/evict/restore rows. |
+| `<ContextMeterView>`                                         | Compact token-budget donut with a popover breakdown.                    |
+| `<ContextTreemapView>`                                       | Treemap of context usage by segment group and size.                     |
+| `<ContextSegmentRowView>` / `<SegmentProvenancePopoverView>` | One segment row and its provenance popover (source, tokens, status).    |
+| `formatContextTokens()`                                      | Shared token-count formatting (for example `24.6K`).                    |
+
+## Usage {#usage}
+
+Import the presentation views from `@agent-native/toolkit/context-ui` and feed
+them your own manifest data:
+
+```tsx
+import {
+  ContextMeterView,
+  ContextXRayPanelView,
+  formatContextTokens,
+} from "@agent-native/toolkit/context-ui";
+```
+
+Core wraps `ContextXRayPanelView` in its own `ContextXRayPanel`
+(`packages/core/src/client/context-xray/ContextXRayPanel.tsx`), which resolves
+the context window for the active model and wires pin/evict/restore to the
+`context-manifest-get`, `context-pin`, `context-evict`, and `context-restore`
+agent actions. That wrapper is not a published standalone import today — it
+renders only inside the built-in agent chat (`AssistantChat`). Build a custom
+context surface by composing the `context-ui` views directly against your own
+app-state reads and the same agent actions, rather than expecting a public
+Core adapter entry point.
 
 ## Build a useful context surface
 
@@ -38,9 +75,12 @@ For knowledge that comes from a provider, preserve provider credentials and
 resource access checks before exposing retrieval to the agent. Do not treat a
 presentation component as an authorization boundary.
 
-## Related docs
+## What's next
 
-- [Agent UX](/docs/toolkit-agent-ux) — composer context chips, approvals, and runs.
-- [Resources](/docs/toolkit-resources) — resource trees, search, and attachments.
-- [Context awareness](/docs/context-awareness) — application state shared with the agent.
-- [Security](/docs/security) — scoped access and credential handling.
+- [**Context Awareness**](/docs/context-awareness) — the navigation, selection,
+  and app-state contract these views present.
+- [**Agent UX**](/docs/toolkit-agent-ux) — composer context chips, approvals,
+  and the runs tray.
+- [**Resources**](/docs/toolkit-resources) — resource trees, search, and
+  attachments the agent can read.
+- [**Security**](/docs/security) — scoped access and credential handling.

@@ -61,6 +61,7 @@ export interface WebContentResult {
   siteName?: string;
   lang?: string;
   publishedTime?: string;
+  agentMetadata?: unknown[];
   content?: string;
   links?: WebContentLink[];
   matches?: WebContentMatch[];
@@ -77,6 +78,8 @@ const DEFAULT_MAX_MATCHES = 50;
 const MAX_MATCHES = 500;
 const DEFAULT_CONTEXT_CHARS = 160;
 const MAX_CONTEXT_CHARS = 1_000;
+const MAX_AGENT_METADATA_SCRIPTS = 10;
+const MAX_AGENT_METADATA_CHARS = 32_000;
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -260,6 +263,13 @@ export function formatWebContentResult(result: WebContentResult): string {
   ) {
     lines.push("", "Links:", formatLinks(result.links));
   }
+  if (result.agentMetadata?.length) {
+    lines.push(
+      "",
+      "Agent-readable metadata:",
+      JSON.stringify(result.agentMetadata, null, 2),
+    );
+  }
   if (result.matches?.length && result.mode !== "matches") {
     lines.push("", formatMatches(result));
   }
@@ -307,8 +317,11 @@ function extractHtml(
   siteName?: string;
   lang?: string;
   publishedTime?: string;
+  agentMetadata?: unknown[];
 } {
   const document = parseFullDocument(body);
+  const alternateLinks = collectAlternateLinks(document, url);
+  const agentMetadata = collectAgentMetadata(document);
   removeNonContentNodes(document);
   const pageTitle = textOrUndefined(document.title);
   const article =
@@ -335,14 +348,93 @@ function extractHtml(
     html: absoluteHtml,
     text: normalizeWhitespace(sourceText),
     markdown,
-    links: collectLinks(absoluteHtml, url),
+    links: mergeLinks(alternateLinks, collectLinks(absoluteHtml, url)),
     title: textOrUndefined(article?.title) ?? pageTitle,
     excerpt: textOrUndefined(article?.excerpt),
     byline: textOrUndefined(article?.byline),
     siteName: textOrUndefined(article?.siteName),
     lang: textOrUndefined(article?.lang),
     publishedTime: textOrUndefined(article?.publishedTime),
+    ...(agentMetadata.length ? { agentMetadata } : {}),
   };
+}
+
+function collectAgentMetadata(document: Document): unknown[] {
+  const metadata: unknown[] = [];
+  let totalChars = 0;
+  for (const script of [
+    ...document.querySelectorAll(
+      'script[type="application/agent-native+json"]',
+    ),
+  ]) {
+    if (metadata.length >= MAX_AGENT_METADATA_SCRIPTS) break;
+    const json = script.textContent?.trim() ?? "";
+    if (
+      !json ||
+      json.length > MAX_AGENT_METADATA_CHARS ||
+      totalChars + json.length > MAX_AGENT_METADATA_CHARS
+    ) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(json);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        continue;
+      }
+      metadata.push(parsed);
+      totalChars += json.length;
+    } catch {}
+  }
+  return metadata;
+}
+
+function collectAlternateLinks(
+  document: Document,
+  url: string,
+): WebContentLink[] {
+  const links: WebContentLink[] = [];
+  for (const element of [
+    ...document.querySelectorAll("a[href][rel], link[href][rel]"),
+  ]) {
+    const rel = element
+      .getAttribute("rel")
+      ?.toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (!rel?.includes("alternate")) continue;
+
+    const href = element.getAttribute("href");
+    if (!href) continue;
+    let absolute: string;
+    try {
+      absolute = new URL(href, url).href;
+    } catch {
+      continue;
+    }
+
+    const type = element.getAttribute("type")?.trim();
+    const text = normalizeWhitespace(element.textContent || "");
+    links.push({
+      text: text || (type ? `Alternate ${type}` : "Alternate resource"),
+      url: absolute,
+    });
+  }
+  return links;
+}
+
+function mergeLinks(
+  preferred: WebContentLink[],
+  remaining: WebContentLink[],
+): WebContentLink[] {
+  const links: WebContentLink[] = [];
+  const seen = new Set<string>();
+  for (const link of [...preferred, ...remaining]) {
+    if (seen.has(link.url)) continue;
+    seen.add(link.url);
+    links.push(link);
+    if (links.length >= 200) break;
+  }
+  return links;
 }
 
 function htmlToPlainText(html: string): string {
@@ -448,6 +540,9 @@ function metadataFromExtraction(
     ...(extracted.lang ? { lang: extracted.lang } : {}),
     ...(extracted.publishedTime
       ? { publishedTime: extracted.publishedTime }
+      : {}),
+    ...(extracted.agentMetadata?.length
+      ? { agentMetadata: extracted.agentMetadata }
       : {}),
   };
 }

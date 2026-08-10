@@ -12,6 +12,7 @@ import {
   ReconnectStreamMessage,
   ToolCallDisplay,
   ToolCallFallback,
+  ToolCallStackMotion,
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
   formatWorkedDuration,
   ReasoningCell,
@@ -22,6 +23,7 @@ import {
 import {
   clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
+  registerActionChatRenderer,
   registerToolRenderer,
   type ToolRendererProps,
 } from "./tool-render-registry.js";
@@ -111,6 +113,39 @@ describe("ToolCallDisplay native renderers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders the provider logo for catalog-backed MCP tools", async () => {
+    await act(async () => {
+      root.render(
+        <ToolCallDisplay
+          toolName="mcp__slack__search"
+          args={{}}
+          result="ok"
+          isRunning={false}
+        />,
+      );
+    });
+
+    const logo = container.querySelector("img");
+    expect(logo?.getAttribute("src")).toMatch(/^data:image\//);
+    expect(logo?.getAttribute("title")).toBe("Slack");
+  });
+
+  it("falls back to a generic icon for MCP tools with no catalog match", async () => {
+    await act(async () => {
+      root.render(
+        <ToolCallDisplay
+          toolName="mcp__acme-internal__lookup"
+          args={{}}
+          result="ok"
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
+  });
+
   it("renders explicit data widgets natively", async () => {
     await act(async () => {
       root.render(
@@ -162,6 +197,7 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
     expect(container.textContent).not.toContain("Responses by day");
+    expect(container.querySelector("[data-agent-native-custom-ui]")).toBeNull();
   });
 
   it("falls back for malformed widget payloads", () => {
@@ -196,7 +232,30 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
-  it("shows activity tool cards as running even between continuation posts", () => {
+  it("shows activity tool cards as running while the chat runs", () => {
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ToolCallFallback
+            toolName="generate-design"
+            args={{}}
+            argsText=""
+            activity
+            isActiveTail
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
+    ).toBe("true");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+  });
+
+  it("never spins an activity placeholder when no chat is running", () => {
     act(() => {
       root.render(
         <ChatRunningContext.Provider value={false}>
@@ -211,7 +270,501 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("generate design");
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(
+      container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
+    ).toBeNull();
+  });
+
+  it("reports an interrupted tool as unknown rather than failed", () => {
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ToolCallFallback
+            toolName="send-email"
+            args={{}}
+            argsText="{}"
+            result="Interrupted before this tool returned a result."
+            outcome="unknown"
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("may or may not have completed");
+    expect(container.querySelector(".text-destructive")).toBeNull();
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("does not animate a tool row that mounts already resolved", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          result="done"
+          isRunning={false}
+        />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBeNull();
+    expect(row?.className).not.toContain("agent-tool-call--entering");
+  });
+
+  it("animates and shimmers a resolved tool that is the active chat tail", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          result="done"
+          isRunning={false}
+          isActiveTail
+        />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBeNull();
+    expect(row?.getAttribute("data-active-tail")).toBeNull();
+    expect(row?.className).toContain("agent-tool-call--entering");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+  });
+
+  it("animates a tool row that mounts running", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay toolName="read-file" args={{}} isRunning={true} />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBe("true");
+    expect(row?.className).toContain("agent-tool-call--entering");
+  });
+
+  it("replays the entry when an existing row becomes the active tail", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          isRunning={false}
+          isActiveTail={false}
+        />,
+      );
+    });
+    expect(
+      container.querySelector(".agent-tool-call")?.className,
+    ).not.toContain("agent-tool-call--entering");
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          isRunning={false}
+          isActiveTail={true}
+        />,
+      );
+    });
+    expect(container.querySelector(".agent-tool-call")?.className).toContain(
+      "agent-tool-call--entering",
+    );
+  });
+
+  it("shimmers only the newest running reconnect tool", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "list-files",
+        argsText: "",
+        args: {},
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "read-file",
+        argsText: "",
+        args: {},
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const shimmer = container.querySelectorAll(".agent-running-shimmer");
+    expect(shimmer).toHaveLength(1);
+    expect(shimmer[0]?.textContent).toBe("read file");
+  });
+
+  it("shows only the richer agent progress row for call-agent delegations", () => {
+    vi.useFakeTimers();
+    try {
+      const content: ContentPart[] = [
+        {
+          type: "tool-call",
+          toolCallId: "call-analytics",
+          toolName: "call-agent",
+          argsText: JSON.stringify({
+            agent: "analytics",
+            message: "Count signups",
+          }),
+          args: { agent: "analytics", message: "Count signups" },
+        },
+        {
+          type: "tool-call",
+          toolCallId: "agent-analytics",
+          toolName: "agent:Analytics",
+          argsText: "",
+          args: {},
+          activity: true,
+        },
+      ];
+
+      act(() => {
+        root.render(
+          <ChatRunningContext.Provider value={true}>
+            <ReconnectStreamMessage content={content} />
+          </ChatRunningContext.Provider>,
+        );
+      });
+
+      expect(container.querySelectorAll(".agent-tool-call")).toHaveLength(1);
+      expect(container.querySelectorAll(".animate-spin")).toHaveLength(1);
+      expect(container.textContent).toContain("Asking Analytics...");
+      expect(container.textContent).not.toContain("call agent");
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(
+        container.textContent?.match(
+          /Still working\. Large updates can take a minute or two\./g,
+        ),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits the long-running hint from streamed delegated-agent tools", () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="agent:Analytics"
+            args={{}}
+            isRunning={true}
+            structuredMeta={{
+              agentActivity: {
+                kind: "agent-native/agent-activity",
+                version: 1,
+                sequence: 2,
+                startedAt: 1,
+                updatedAt: 2,
+                durationMs: 1,
+                activePhase: "tool",
+                reasoning: [],
+                toolCalls: [
+                  {
+                    id: "tool-1",
+                    name: "query-warehouse",
+                    status: "running",
+                  },
+                ],
+              },
+            }}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("Asking Analytics...");
+      expect(container.textContent).toContain("query warehouse");
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(container.textContent).not.toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the full final agent result visible over a bounded activity preview", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText="the complete downstream answer"
+          result="Done"
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "complete",
+              responseText: "bounded preview",
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("the complete downstream answer");
+    expect(container.textContent).not.toContain("bounded preview");
+    expect(container.querySelector(".max-h-48")).toBeNull();
+  });
+
+  it("interleaves remote reasoning segments with their following tool calls", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 5,
+              startedAt: 1,
+              updatedAt: 5,
+              durationMs: 4,
+              activePhase: "responding",
+              reasoning: ["Plan the query", "Interpret the result"],
+              toolCalls: [
+                {
+                  id: "tool-1",
+                  name: "query-warehouse",
+                  status: "completed",
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Plan the query")).toBeLessThan(
+      text.indexOf("query warehouse"),
+    );
+    expect(text.indexOf("query warehouse")).toBeLessThan(
+      text.indexOf("Interpret the result"),
+    );
+  });
+
+  it("keeps remote response text visible in order once another tool starts", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 6,
+              startedAt: 1,
+              updatedAt: 6,
+              durationMs: 5,
+              activePhase: "responding",
+              reasoning: [],
+              toolCalls: [
+                { id: "tool-1", name: "query-warehouse", status: "completed" },
+              ],
+              response: ["Checking the numbers first.", "Revenue grew 12%."],
+              responseText: "Revenue grew 12%.",
+            },
+          }}
+        />,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Checking the numbers first.");
+    expect(text.indexOf("Checking the numbers first.")).toBeLessThan(
+      text.indexOf("query warehouse"),
+    );
+  });
+
+  it("keeps summary-only remote tool activity non-expandable", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "tool",
+              reasoning: [],
+              toolCalls: [
+                {
+                  id: "tool-1",
+                  name: "query-warehouse",
+                  status: "completed",
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("query warehouse");
+    expect(
+      container.querySelector(
+        'button[aria-label="View query-warehouse output"]',
+      ),
+    ).toBeNull();
+    const expandableButtons = container.querySelectorAll(
+      "button[aria-expanded]",
+    );
+    expect(expandableButtons).toHaveLength(1);
+    expect(expandableButtons[0]?.textContent).toContain("Asking Analytics");
+  });
+
+  it("shows generic A2A progress until an activity snapshot arrives", () => {
+    const progress = {
+      state: "working",
+      elapsedSeconds: 30,
+      detail: "Querying the warehouse",
+    };
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{ agentProgress: progress }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="agent-call-progress"]')
+        ?.textContent,
+    ).toContain("Working · 30s elapsed · Querying the warehouse");
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentProgress: progress,
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 1,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "reasoning",
+              reasoning: ["Inspecting signups"],
+              toolCalls: [],
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="agent-call-progress"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("Thinking");
+  });
+
+  it("renders a reconnected raw call-agent result through the scroll-free agent cell", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        argsText: JSON.stringify({
+          agent: "Analytics",
+          message: "Count signups",
+        }),
+        args: { agent: "Analytics", message: "Count signups" },
+        result: "**42** signups",
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Asked Analytics");
+    expect(container.textContent).toContain("42 signups");
+    expect(container.querySelector(".max-h-48")).toBeNull();
+    expect(container.querySelector(".overflow-y-auto")).toBeNull();
+  });
+
+  it("keeps only the newest resolved reconnect tool active while the chat runs", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "list-files",
+        argsText: "",
+        args: {},
+        result: "done",
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "read-file",
+        argsText: "",
+        args: {},
+        result: "done",
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const activeLabels = container.querySelectorAll(".agent-running-shimmer");
+    expect(activeLabels).toHaveLength(1);
+    expect(activeLabels[0]?.textContent).toContain("read file");
+    expect(activeLabels[0]?.closest(".agent-tool-call")).not.toBeNull();
   });
 
   it("shows a subtle long-running hint after a running tool stays active", () => {
@@ -235,6 +788,10 @@ describe("ToolCallDisplay native renderers", () => {
       expect(container.textContent).toContain(
         "Still working. Large updates can take a minute or two.",
       );
+      expect(
+        container.querySelector(".agent-tool-call > div > div:last-child")
+          ?.className,
+      ).toContain("pb-2");
 
       act(() => {
         root.render(
@@ -310,6 +867,9 @@ describe("ToolCallDisplay native renderers", () => {
       });
 
       expect(container.textContent).toContain("App renderer wins");
+      expect(
+        container.querySelector("[data-agent-native-custom-ui]"),
+      ).toBeNull();
       expect(container.textContent).not.toContain(
         "Large updates can take a minute or two.",
       );
@@ -430,6 +990,33 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
+  it("does not spin frozen reconnect activity cards", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "activity-frozen-1",
+        toolName: "update-extension",
+        argsText: "",
+        args: {},
+        activity: true,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage
+            content={content}
+            allowActivitySpinner={false}
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("update extension");
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
   it("renders explicit native widgets ahead of MCP Apps metadata", async () => {
     await act(async () => {
       root.render(
@@ -548,6 +1135,11 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    const loadingSurface = container.querySelector(
+      "[data-agent-native-custom-ui]",
+    );
+    expect(loadingSurface).toBeTruthy();
+    expect(loadingSurface?.querySelector(".border")).toBeNull();
     await settleLazyRender();
 
     const frame = container.querySelector(
@@ -558,6 +1150,63 @@ describe("ToolCallDisplay native renderers", () => {
     expect(frame?.getAttribute("data-extension-mode")).toBe("transient");
     expect(container.textContent).toContain("Sensitivity controls");
     expect(container.textContent).not.toContain("render inline extension");
+    expect(container.querySelector('[aria-label="Open extension"]')).toBeNull();
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("my-3");
+    expect(surface?.className).toContain("rounded-lg");
+    expect(surface?.className).toContain("border");
+    expect(surface?.className).not.toContain("p-3");
+  });
+
+  it("pads app action UI inside the shared custom UI card", async () => {
+    registerActionChatRenderer({
+      id: "todo-list-inline",
+      renderer: "todo-demo.todo-list-inline",
+      Component: () => <button type="button">Add todo</button>,
+    });
+
+    await act(async () => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-todo-list-inline"
+          args={{}}
+          result={'{"ok":true}'}
+          chatUI={{ renderer: "todo-demo.todo-list-inline" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("p-3");
+    expect(container.querySelector("button")?.textContent).toBe("Add todo");
+  });
+
+  it("hides an empty action UI card while its renderer is still running", () => {
+    registerActionChatRenderer({
+      id: "todo-list-loading",
+      renderer: "todo-demo.todo-list-loading",
+      Component: ({ context }) =>
+        context.isRunning ? null : <div>Todo list</div>,
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-todo-list-inline"
+          args={{}}
+          chatUI={{ renderer: "todo-demo.todo-list-loading" }}
+          isRunning
+        />,
+      );
+    });
+
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("empty:hidden");
+    expect(surface?.childElementCount).toBe(0);
   });
 
   it("keeps built-in data widget renderer identities stable across resolves", () => {
@@ -1132,6 +1781,40 @@ describe("WorkedForSummary", () => {
 
     expect(container.textContent).toContain("Worked for 5m");
   });
+
+  it("starts open when completed work contains interactive UI", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={7_000} defaultOpen>
+          <div>Interactive todo list</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(container.textContent).toContain("Interactive todo list");
+  });
+
+  it("reopens when custom UI metadata arrives after the summary mounts", () => {
+    const renderSummary = (defaultOpen: boolean) => (
+      <WorkedForSummary durationMs={7_000} defaultOpen={defaultOpen}>
+        <div>Late interactive UI</div>
+      </WorkedForSummary>
+    );
+
+    act(() => root.render(renderSummary(false)));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    act(() => root.render(renderSummary(true)));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(container.textContent).toContain("Late interactive UI");
+  });
 });
 
 describe("RanToolsSummary", () => {
@@ -1169,6 +1852,182 @@ describe("RanToolsSummary", () => {
     });
 
     expect(container.textContent).toContain("Older tool call");
+  });
+
+  it("keeps the summary label in place when its count changes", () => {
+    const render = (toolCount: number) => (
+      <RanToolsSummary toolCount={toolCount}>
+        <div>Older tool call</div>
+      </RanToolsSummary>
+    );
+
+    act(() => root.render(render(1)));
+    const initialLabel = container.querySelector(".agent-tool-summary__label");
+    expect(initialLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(1)));
+    expect(container.querySelector(".agent-tool-summary__label")).toBe(
+      initialLabel,
+    );
+    expect(initialLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(2)));
+    const changedLabel = container.querySelector(".agent-tool-summary__label");
+    expect(changedLabel).toBe(initialLabel);
+    expect(changedLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(2)));
+    expect(container.querySelector(".agent-tool-summary__label")).toBe(
+      changedLabel,
+    );
+  });
+});
+
+describe("ToolCallStackMotion", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  let originalRect: PropertyDescriptor | undefined;
+  let originalAnimate: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    originalRect = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "getBoundingClientRect",
+    );
+    originalAnimate = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "animate",
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    if (originalRect) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+        originalRect,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "getBoundingClientRect");
+    }
+    if (originalAnimate) {
+      Object.defineProperty(HTMLElement.prototype, "animate", originalAnimate);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "animate");
+    }
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("moves retained rows and sends the oldest row into the summary", () => {
+    const layout = new Map<string, number>([
+      ["tool-a", 0],
+      ["tool-b", 24],
+      ["tool-c", 48],
+    ]);
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        const key =
+          this.dataset.agentToolCallId ??
+          (this.dataset.agentToolSummary
+            ? `summary:${this.dataset.agentToolSummary}`
+            : "");
+        const top = layout.get(key) ?? 0;
+        return {
+          top,
+          left: 0,
+          width: 240,
+          height: 24,
+          bottom: top + 24,
+          right: 240,
+          x: 0,
+          y: top,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    });
+    const animations: Array<{
+      element: HTMLElement;
+      keyframes: Keyframe[];
+      animation: {
+        cancel: () => void;
+        oncancel: (() => void) | null;
+        onfinish: (() => void) | null;
+      };
+    }> = [];
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value(this: HTMLElement, keyframes: Keyframe[]) {
+        const animation = {
+          cancel: vi.fn(),
+          oncancel: null,
+          onfinish: null,
+        };
+        animations.push({ element: this, keyframes, animation });
+        return animation as unknown as Animation;
+      },
+    });
+
+    const render = (ids: string[], includeSummary = false) => (
+      <ToolCallStackMotion>
+        {includeSummary && (
+          <div data-agent-tool-summary="summary">Ran 1 tool</div>
+        )}
+        {ids.map((id) => (
+          <div key={id} data-agent-tool-call-id={id}>
+            {id}
+          </div>
+        ))}
+      </ToolCallStackMotion>
+    );
+
+    act(() => root.render(render(["tool-a", "tool-b", "tool-c"])));
+
+    layout.set("summary:summary", 0);
+    layout.set("tool-b", 48);
+    layout.set("tool-c", 72);
+    layout.set("tool-d", 96);
+    act(() => root.render(render(["tool-b", "tool-c", "tool-d"], true)));
+
+    const retainedRowAnimation = animations.find(
+      ({ element }) => element.dataset.agentToolCallId === "tool-b",
+    );
+    expect(retainedRowAnimation?.keyframes[0]?.transform).toBe(
+      "translate3d(0px, -24px, 0)",
+    );
+    expect(retainedRowAnimation?.keyframes[1]?.transform).toBe(
+      "translate3d(0, 0, 0)",
+    );
+    expect(
+      container.querySelector('[data-agent-tool-call-id="tool-d"]')?.classList,
+    ).toContain("agent-tool-call--stack-entering");
+    expect(
+      container.querySelector("[data-agent-tool-summary]")?.classList,
+    ).not.toContain("agent-tool-summary--entering");
+    expect(
+      animations.some(
+        ({ element }) => element.dataset.agentToolSummary !== undefined,
+      ),
+    ).toBe(false);
+    expect(
+      document.querySelector(".agent-tool-call-stack__exit"),
+    ).not.toBeNull();
+
+    const exitAnimation = animations.find(({ element }) =>
+      element.classList.contains("agent-tool-call-stack__exit"),
+    );
+    expect(exitAnimation).toBeDefined();
+    exitAnimation?.animation.onfinish?.();
+    expect(document.querySelector(".agent-tool-call-stack__exit")).toBeNull();
   });
 });
 

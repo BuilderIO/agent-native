@@ -8,13 +8,15 @@
  *   1. Doctor: refuse or warn on framework overrides/patches
  *   2. Bump `@agent-native/*` deps to `latest` (unless file:/link:/workspace:)
  *   3. Install
- *   4. Refresh scaffold skills (`skills update scaffold --project`)
- *   5. Verify with typecheck when available
+ *   4. Pin `latest` back to the exact versions the install resolved
+ *   5. Refresh scaffold skills (`skills update scaffold --project`)
+ *   6. Verify with typecheck when available
  *
  * On failure: print the error and stop. Do not patch framework packages.
  */
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +24,11 @@ import type { MigrationCodemodResult } from "./migration-codemod.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
 const PINNABLE_VERSION = "latest";
+const PINNABLE_SECTIONS = [
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+] as const;
 
 export type UpgradeCommand = "run" | "check" | "help";
 
@@ -54,6 +61,7 @@ export interface PackageJsonLike {
   overrides?: Record<string, string>;
   resolutions?: Record<string, string>;
   scripts?: Record<string, string>;
+  workspaces?: string[] | { packages?: string[] };
 }
 
 export interface FrameworkOverrideFinding {
@@ -65,10 +73,25 @@ export interface FrameworkOverrideFinding {
 
 export interface AgentNativeDepBump {
   file: string;
-  section: "dependencies" | "devDependencies" | "optionalDependencies";
+  section: (typeof PINNABLE_SECTIONS)[number];
   name: string;
   from: string;
   to: string;
+}
+
+export interface AgentNativeDepPin {
+  file: string;
+  section: (typeof PINNABLE_SECTIONS)[number];
+  name: string;
+  version: string;
+}
+
+export interface AgentNativePinResult {
+  pins: AgentNativeDepPin[];
+  /** `<relative package.json> <package>` for every spec left floating. */
+  unresolved: string[];
+  /** `<relative package.json>: <parse error>` for manifests we could not read. */
+  unreadable: string[];
 }
 
 export interface UpgradeProject {
@@ -81,6 +104,8 @@ export interface UpgradeDoctorReport {
   project: UpgradeProject;
   findings: FrameworkOverrideFinding[];
   bumps: AgentNativeDepBump[];
+  /** `<relative package.json>: <parse error>` for manifests we could not read. */
+  unreadable: string[];
   installedCoreVersion: string | null;
   cliCoreVersion: string | null;
   scaffoldStaleHint: boolean;
@@ -200,11 +225,35 @@ export function printUpgradeHelp(io: Pick<UpgradeIo, "log"> = defaultIo): void {
   );
 }
 
-function readJsonFile(filePath: string): PackageJsonLike | null {
+type JsonFileRead =
+  | { ok: true; value: PackageJsonLike }
+  | { ok: false; reason: "missing" | "unreadable"; message: string };
+
+/**
+ * "Not there" and "there but unparseable" are different answers. Collapsing
+ * them into `null` drops the manifest a report most needs to name — the one
+ * whose contents nobody could check.
+ */
+function readJsonFile(filePath: string): JsonFileRead {
+  let text: string;
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as PackageJsonLike;
-  } catch {
-    return null;
+    text = fs.readFileSync(filePath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      ok: false,
+      reason: code === "ENOENT" ? "missing" : "unreadable",
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+  try {
+    return { ok: true, value: JSON.parse(text) as PackageJsonLike };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "unreadable",
+      message: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -267,12 +316,7 @@ function collectBumps(
   pkg: PackageJsonLike,
 ): AgentNativeDepBump[] {
   const bumps: AgentNativeDepBump[] = [];
-  const sections = [
-    "dependencies",
-    "devDependencies",
-    "optionalDependencies",
-  ] as const;
-  for (const section of sections) {
+  for (const section of PINNABLE_SECTIONS) {
     const deps = pkg[section];
     if (!deps) continue;
     for (const [name, version] of Object.entries(deps)) {
@@ -288,6 +332,55 @@ function collectBumps(
     }
   }
   return bumps;
+}
+
+/**
+ * Rewrite the `latest` specs this run just installed back to the exact
+ * versions the package manager resolved.
+ *
+ * `latest` left behind in a committed manifest is not a pin: every later
+ * install mints a fresh resolution while pnpm's orphan retention keeps the
+ * superseded ones, and each distinct `@agent-native/core` resolution is
+ * another ~175 MB physical copy in the virtual store.
+ */
+export function pinResolvedAgentNativeVersions(
+  project: UpgradeProject,
+): AgentNativePinResult {
+  const pins: AgentNativeDepPin[] = [];
+  const unresolved: string[] = [];
+  const unreadable: string[] = [];
+  for (const file of project.packageFiles) {
+    const read = readJsonFile(file);
+    if (!read.ok) {
+      if (read.reason === "unreadable") {
+        unreadable.push(`${relativeTo(project.root, file)}: ${read.message}`);
+      }
+      continue;
+    }
+    const pkg = read.value;
+    let changed = false;
+    for (const section of PINNABLE_SECTIONS) {
+      const deps = pkg[section];
+      if (!deps) continue;
+      for (const [name, version] of Object.entries(deps)) {
+        if (!isAgentNativePackageName(name)) continue;
+        if (version.trim() !== PINNABLE_VERSION) continue;
+        const resolved = resolveInstalledPackageVersion(
+          path.dirname(file),
+          name,
+        );
+        if (!resolved) {
+          unresolved.push(`${relativeTo(project.root, file)} ${name}`);
+          continue;
+        }
+        deps[name] = resolved;
+        pins.push({ file, section, name, version: resolved });
+        changed = true;
+      }
+    }
+    if (changed) writeJsonFile(file, pkg);
+  }
+  return { pins, unresolved, unreadable };
 }
 
 function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
@@ -306,16 +399,27 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
   while (true) {
     const pkgPath = path.join(dir, "package.json");
     if (fs.existsSync(pkgPath)) {
-      const pkg = readJsonFile(pkgPath);
+      const read = readJsonFile(pkgPath);
+      const pkg = read.ok ? read.value : undefined;
       const hasCore =
         Boolean(pkg?.dependencies?.["@agent-native/core"]) ||
         Boolean(pkg?.devDependencies?.["@agent-native/core"]);
       const workspaceYaml = path.join(dir, "pnpm-workspace.yaml");
-      const isWorkspace = fs.existsSync(workspaceYaml);
-      if (hasCore || isWorkspace) {
+      const hasWorkspaceYaml = fs.existsSync(workspaceYaml);
+      const workspacePatterns = packageWorkspacePatterns(pkg);
+      const isWorkspace = hasWorkspaceYaml || workspacePatterns.length > 0;
+      // A manifest we cannot parse cannot be ruled out as the project root:
+      // stop here so the doctor reports the parse error instead of walking past
+      // it and claiming no Agent Native project exists.
+      const unreadable = !read.ok && read.reason === "unreadable";
+      if (hasCore || isWorkspace || unreadable) {
         const packageFiles = [pkgPath];
-        if (isWorkspace) {
+        if (hasWorkspaceYaml) {
           packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
+        } else if (workspacePatterns.length > 0) {
+          packageFiles.push(
+            ...workspacePackageFilesForPatterns(dir, workspacePatterns),
+          );
         }
         return {
           root: dir,
@@ -331,8 +435,22 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
   return null;
 }
 
+function packageWorkspacePatterns(pkg: PackageJsonLike | undefined): string[] {
+  if (!pkg?.workspaces) return [];
+  return Array.isArray(pkg.workspaces)
+    ? pkg.workspaces
+    : (pkg.workspaces.packages ?? []);
+}
+
 function workspacePackageFiles(root: string, workspaceYaml: string): string[] {
   const patterns = parseWorkspacePackagePatterns(workspaceYaml);
+  return workspacePackageFilesForPatterns(root, patterns);
+}
+
+function workspacePackageFilesForPatterns(
+  root: string,
+  patterns: string[],
+): string[] {
   const included = new Set<string>();
   const excluded = new Set<string>();
   for (const rawPattern of patterns) {
@@ -418,6 +536,21 @@ function collectPackageFilesRecursive(dir: string): string[] {
   return files;
 }
 
+function isYarnPnpProject(projectRoot: string): boolean {
+  let dir = projectRoot;
+  while (true) {
+    if (
+      fs.existsSync(path.join(dir, ".pnp.cjs")) ||
+      fs.existsSync(path.join(dir, ".pnp.data.json"))
+    ) {
+      return true;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
 function resolveInstalledPackageVersion(
   projectRoot: string,
   packageName: string,
@@ -431,12 +564,63 @@ function resolveInstalledPackageVersion(
       "package.json",
     );
     if (fs.existsSync(candidate)) {
-      const pkg = readJsonFile(candidate);
-      return typeof pkg?.version === "string" ? pkg.version : null;
+      const read = readJsonFile(candidate);
+      // An installed manifest we cannot parse is reported by the caller the
+      // same way a missing version is: the spec stays floating on `latest`.
+      if (!read.ok) return null;
+      return typeof read.value.version === "string" ? read.value.version : null;
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
+  }
+
+  // Yarn Plug'n'Play has no node_modules tree. Its resolver is exposed through
+  // a require rooted at the project's manifest, so use that after retaining
+  // the filesystem walk for pnpm/npm projects.
+  //
+  // Only for a real PnP project: elsewhere this require answers from NODE_PATH
+  // or a global folder and reports a version the project never installed, which
+  // pins a spec to a package that is not there.
+  if (!isYarnPnpProject(projectRoot)) return null;
+  try {
+    const requireFromProject = createRequire(
+      path.join(projectRoot, "package.json"),
+    );
+    const packageJsonPath = requireFromProject.resolve(
+      `${packageName}/package.json`,
+    );
+    const read = readJsonFile(packageJsonPath);
+    return read.ok && typeof read.value.version === "string"
+      ? read.value.version
+      : null;
+  } catch {
+    // Package exports can hide package.json even when the package itself is
+    // resolvable. Resolve its entry point and walk back to its manifest.
+    try {
+      const requireFromProject = createRequire(
+        path.join(projectRoot, "package.json"),
+      );
+      let dir = path.dirname(requireFromProject.resolve(packageName));
+      while (true) {
+        const candidate = path.join(dir, "package.json");
+        if (fs.existsSync(candidate)) {
+          const read = readJsonFile(candidate);
+          if (
+            read.ok &&
+            read.value.name === packageName &&
+            typeof read.value.version === "string"
+          ) {
+            return read.value.version;
+          }
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+      }
+    } catch {
+      // Not running under a resolver that can find this package.
+    }
   }
   return null;
 }
@@ -445,8 +629,9 @@ function readCliCoreVersion(): string | null {
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, "../../package.json");
-    const pkg = readJsonFile(pkgPath);
-    return typeof pkg?.version === "string" ? pkg.version : null;
+    const read = readJsonFile(pkgPath);
+    if (!read.ok) return null;
+    return typeof read.value.version === "string" ? read.value.version : null;
   } catch {
     return null;
   }
@@ -471,11 +656,17 @@ export function buildUpgradeDoctorReport(
 ): UpgradeDoctorReport {
   const findings: FrameworkOverrideFinding[] = [];
   const bumps: AgentNativeDepBump[] = [];
+  const unreadable: string[] = [];
   for (const file of project.packageFiles) {
-    const pkg = readJsonFile(file);
-    if (!pkg) continue;
-    findings.push(...collectOverrideFindings(file, pkg));
-    bumps.push(...collectBumps(file, pkg));
+    const read = readJsonFile(file);
+    if (!read.ok) {
+      if (read.reason === "unreadable") {
+        unreadable.push(`${relativeTo(project.root, file)}: ${read.message}`);
+      }
+      continue;
+    }
+    findings.push(...collectOverrideFindings(file, read.value));
+    bumps.push(...collectBumps(file, read.value));
   }
   const installedCoreVersion = resolveInstalledPackageVersion(
     project.root,
@@ -483,13 +674,14 @@ export function buildUpgradeDoctorReport(
   );
   const cliCoreVersion = readCliCoreVersion();
   const skillsUpdateScript = project.packageFiles.some((file) => {
-    const pkg = readJsonFile(file);
-    return Boolean(pkg?.scripts?.["skills:update"]);
+    const read = readJsonFile(file);
+    return read.ok && Boolean(read.value.scripts?.["skills:update"]);
   });
   return {
     project,
     findings,
     bumps,
+    unreadable,
     installedCoreVersion,
     cliCoreVersion,
     scaffoldStaleHint: skillsUpdateScript || bumps.length > 0,
@@ -511,6 +703,12 @@ function formatDoctorHuman(report: UpgradeDoctorReport): string {
   }
   if (report.cliCoreVersion) {
     lines.push(`CLI package version: ${report.cliCoreVersion}`);
+  }
+  if (report.unreadable.length > 0) {
+    lines.push("Unreadable package.json (not checked):");
+    for (const entry of report.unreadable) {
+      lines.push(`  - ${entry}`);
+    }
   }
   if (report.findings.length === 0) {
     lines.push("Framework overrides/patches: none");
@@ -580,11 +778,13 @@ export async function runUpgrade(
   }
 
   const doctor = buildUpgradeDoctorReport(project);
+  // A manifest the doctor could not parse was never scanned, so a clean
+  // findings list says nothing about it.
+  const doctorOk =
+    doctor.findings.length === 0 && doctor.unreadable.length === 0;
   if (opts.command === "check") {
     if (opts.json) {
-      io.log(
-        JSON.stringify({ ok: doctor.findings.length === 0, doctor }, null, 2),
-      );
+      io.log(JSON.stringify({ ok: doctorOk, doctor }, null, 2));
     } else {
       io.log(formatDoctorHuman(doctor));
       if (doctor.findings.length > 0) {
@@ -592,7 +792,7 @@ export async function runUpgrade(
         io.err(FAILURE_GUIDANCE);
       }
     }
-    return doctor.findings.length > 0 ? 1 : 0;
+    return doctorOk ? 0 : 1;
   }
 
   const dryRun = Boolean(opts.dryRun || (opts.codemods && !opts.yes));
@@ -604,6 +804,21 @@ export async function runUpgrade(
     message: "",
     exitCode: 0,
   };
+
+  // --force means "continue past overrides", not "upgrade a manifest we cannot
+  // parse": a bump can neither be read nor written there.
+  if (doctor.unreadable.length > 0) {
+    result.ok = false;
+    result.exitCode = 1;
+    result.message = `Blocked: these package.json files could not be parsed, so their overrides and @agent-native/* specs were never checked: ${doctor.unreadable.join("; ")}`;
+    result.steps.push({
+      id: "doctor",
+      status: "failed",
+      detail: result.message,
+    });
+    emitResult(io, opts, result);
+    return result.exitCode;
+  }
 
   if (doctor.findings.length > 0 && !opts.force) {
     result.ok = false;
@@ -662,10 +877,12 @@ export async function runUpgrade(
       byFile.set(bump.file, list);
     }
     for (const [file, bumps] of byFile) {
-      const pkg = readJsonFile(file);
-      if (!pkg) continue;
-      applyBumps(pkg, bumps);
-      writeJsonFile(file, pkg);
+      // Only files the doctor parsed can produce bumps, and it blocks the run
+      // on any it could not.
+      const read = readJsonFile(file);
+      if (!read.ok) continue;
+      applyBumps(read.value, bumps);
+      writeJsonFile(file, read.value);
     }
     result.steps.push({
       id: "bump",
@@ -789,6 +1006,55 @@ export async function runUpgrade(
     result.steps.push({ id: "install", status: "ok", detail: `${pm} install` });
   }
 
+  // Pin.
+  if (opts.skipInstall) {
+    result.steps.push({
+      id: "pin",
+      status: "skipped",
+      detail: "--skip-install leaves specs unresolved",
+    });
+  } else if (dryRun) {
+    result.steps.push({
+      id: "pin",
+      status: "planned",
+      detail: "pin @agent-native/* to the installed versions",
+    });
+  } else {
+    const { pins, unresolved, unreadable } =
+      pinResolvedAgentNativeVersions(project);
+    if (unresolved.length > 0 || unreadable.length > 0) {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = [
+        unresolved.length > 0
+          ? `Install succeeded but no installed version could be read for: ${unresolved.join(", ")}.`
+          : "",
+        unreadable.length > 0
+          ? `These package.json files could not be parsed, so their specs were left untouched: ${unreadable.join("; ")}.`
+          : "",
+        'Those specs are still "latest", so the next install will resolve them again — pin them by hand or re-run upgrade.',
+      ]
+        .filter(Boolean)
+        .join(" ");
+      result.steps.push({
+        id: "pin",
+        status: "failed",
+        detail: result.message,
+      });
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+    const pinned = [...new Set(pins.map((p) => `${p.name}@${p.version}`))];
+    result.steps.push({
+      id: "pin",
+      status: pinned.length === 0 ? "skipped" : "ok",
+      detail:
+        pinned.length === 0
+          ? "No floating @agent-native/* specs"
+          : pinned.join(", "),
+    });
+  }
+
   if (codemodPlan && !dryRun) {
     const applied = codemodPlan.module.runMigrationCodemods({
       root: project.root,
@@ -884,7 +1150,8 @@ export async function runUpgrade(
     });
   } else {
     const rootPkg = readJsonFile(path.join(project.root, "package.json"));
-    const hasTypecheck = Boolean(rootPkg?.scripts?.typecheck);
+    const hasTypecheck =
+      rootPkg.ok && Boolean(rootPkg.value.scripts?.typecheck);
     if (!hasTypecheck) {
       result.steps.push({
         id: "verify",

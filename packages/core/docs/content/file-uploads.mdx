@@ -102,7 +102,7 @@ A one-time warning is logged when the fallback is used.
 
 ## Builder.io Hosting {#builder-hosting}
 
-When your app is connected to Builder.io, file uploads are automatically routed to Builder's asset hosting. Files are served from a CDN with no configuration needed. This is the recommended production setup.
+When your app is connected to Builder.io, file uploads are automatically routed to Builder's asset hosting. Builder.io's free tier includes this managed storage. Files are served from a CDN with no configuration needed. This is the recommended production setup.
 
 ## Custom Providers {#custom-providers}
 
@@ -186,6 +186,50 @@ if (result) {
   // No provider configured — handle SQL fallback yourself, or skip
 }
 ```
+
+## Resumable / Streaming Uploads {#resumable}
+
+A provider can optionally implement a `resumable` block on `FileUploadProvider` for uploads that need to stream to storage as data arrives instead of buffering the whole file first — the Clips template uses this to relay a recording to storage chunk-by-chunk while it is still being recorded, rather than assembling the full blob after the recorder stops.
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+When `resumable` is present, callers that stream data in (like a recorder) call `startSession` once, `relayChunk` repeatedly as bytes arrive, and `completeSession` when the stream ends — instead of the single buffered `upload()` call. A provider with no `resumable` block only ever sees the buffered path; implement it only when your storage backend has a native chunked/resumable upload API (S3 multipart, GCS resumable uploads, etc.) worth exposing.
 
 ## What's next
 

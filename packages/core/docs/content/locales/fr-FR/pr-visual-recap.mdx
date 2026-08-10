@@ -180,7 +180,7 @@ Pour réduire le coût :
 - **Épinglez un modèle moins cher.** Pour Claude, définissez `VISUAL_RECAP_MODEL=claude-haiku-4-5` pour les dépôts simples ou petits — c'est le niveau Claude le moins cher ; `claude-sonnet-5` (la valeur par défaut) est le niveau équilibré.
 - **Passez à Codex avec un modèle moins cher.** Définissez `VISUAL_RECAP_AGENT=codex` avec `VISUAL_RECAP_MODEL=gpt-5.6-luna` (le niveau GPT-5.6 le moins cher) ou `gpt-5.6-terra` (niveau intermédiaire), et définissez `VISUAL_RECAP_REASONING=low` pour réduire encore la dépense en jetons de raisonnement. La profondeur de raisonnement ne s'applique qu'à Codex.
 - **Pointez vers un fournisseur compatible OpenAI moins cher.** Définissez `VISUAL_RECAP_AGENT=openai-compatible` avec `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` ciblant DeepSeek, Kimi ou tout autre point de terminaison compatible OpenAI.
-- **Récapitulez moins souvent.** Modifiez le `on.pull_request.types` du flux de travail installé de `[opened, synchronize, reopened, ready_for_review, closed]` à `[opened, ready_for_review, closed]` afin qu'il ne récapitule que lorsqu'une PR s'ouvre et lorsqu'elle est fusionnée, au lieu de le faire à chaque poussée.
+- **Récapitulez moins souvent.** Modifiez le `on.pull_request.types` du flux de travail installé de `[opened, synchronize, reopened, ready_for_review, labeled, closed]` à `[opened, ready_for_review, closed]` afin qu'il ne récapitule que lorsqu'une PR s'ouvre et lorsqu'elle est fusionnée, au lieu de le faire à chaque poussée.
 
 Chaque exécution enregistre ce qu'elle a réellement dépensé : l'étape `recap usage` du flux de travail associe l'utilisation de jetons et de coût au plan publié, afin que vous puissiez consulter la dépense réelle par exécution plutôt que de deviner.
 
@@ -480,10 +480,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -503,6 +504,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

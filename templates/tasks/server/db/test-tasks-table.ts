@@ -51,11 +51,6 @@ CREATE INDEX IF NOT EXISTS idx_custom_field_values_owner_task
   ON custom_field_values (owner_email, task_id);
 CREATE INDEX IF NOT EXISTS idx_custom_field_values_owner_field
   ON custom_field_values (owner_email, field_id);
-CREATE TABLE IF NOT EXISTS user_config (
-  owner_email TEXT PRIMARY KEY,
-  task_card_field_ids_json TEXT NOT NULL DEFAULT '[]',
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
 `;
 
 // libsql, not better-sqlite3: its sync driver lets `.run()`/`.all()`/`.get()` pass here and fail in production.

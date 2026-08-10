@@ -16,7 +16,7 @@ export function isA2AProductionRuntime(): boolean {
     return true;
   }
   if (process.env.CF_PAGES === "1") return true;
-  if ("__cf_env" in globalThis) return true;
+  if ("__cf_env" in globalThis || "__env__" in globalThis) return true;
   if (process.env.VERCEL || process.env.VERCEL_ENV) return true;
   if (process.env.RENDER || process.env.FLY_APP_NAME || process.env.K_SERVICE) {
     return true;

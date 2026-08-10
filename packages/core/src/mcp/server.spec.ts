@@ -1,3 +1,7 @@
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import * as jose from "jose";
 /**
  * Regression coverage for the production blocker: `/_agent-native/mcp` must
@@ -23,6 +27,37 @@ const builtinToolMocks = vi.hoisted(() => ({
     status: "completed",
     response: "agent answer",
   })),
+}));
+
+const approvalStoreMocks = vi.hoisted(() => {
+  const grants = new Map<string, any>();
+  return {
+    grants,
+    create: vi.fn(async (grant: any) => {
+      if (grants.has(grant.nonce)) throw new Error("duplicate approval nonce");
+      grants.set(grant.nonce, { ...grant, consumed: false });
+    }),
+    consume: vi.fn(async (grant: any) => {
+      const existing = grants.get(grant.nonce);
+      if (
+        !existing ||
+        existing.consumed ||
+        existing.expiresAt < Date.now() ||
+        existing.callerKey !== grant.callerKey ||
+        existing.actionName !== grant.actionName ||
+        existing.argumentsHash !== grant.argumentsHash
+      ) {
+        return false;
+      }
+      existing.consumed = true;
+      return true;
+    }),
+  };
+});
+
+vi.mock("./approval-store.js", () => ({
+  createMcpApprovalGrant: approvalStoreMocks.create,
+  consumeMcpApprovalGrant: approvalStoreMocks.consume,
 }));
 
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
@@ -474,16 +509,98 @@ async function callWeb(
   return JSON.parse(text);
 }
 
+async function createModernClient(
+  serverConfig: Record<string, unknown> = config,
+  options: {
+    approvalDecision?: "approve" | "deny";
+    declineApproval?: boolean;
+    manualInputRequired?: boolean;
+    supportsElicitation?: boolean;
+    requestHeaders?: Record<string, string>;
+  } = {},
+): Promise<{
+  client: Client;
+  wireResponses: Array<Record<string, any>>;
+  wireContentTypes: string[];
+}> {
+  const wireResponses: Array<Record<string, any>> = [];
+  const wireContentTypes: string[] = [];
+  const transport = new StreamableHTTPClientTransport(
+    new URL("https://mail.agent-native.com/mcp"),
+    {
+      requestInit: {
+        headers: {
+          authorization: "Bearer test-access-token",
+          "x-agent-native-mcp-full-catalog": "1",
+          ...options.requestHeaders,
+        },
+      },
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body =
+          request.method === "POST"
+            ? JSON.parse(await request.clone().text())
+            : undefined;
+        const event = makeWebEvent({
+          method: request.method,
+          headers: Object.fromEntries(request.headers),
+          body,
+        });
+        const result = await handleMcpRequest(event, serverConfig as any);
+        if (!(result instanceof Response)) {
+          throw new Error("Expected MCP handler to return a Response");
+        }
+        const response = result as Response;
+        const contentType = response.headers.get("content-type") ?? "";
+        wireContentTypes.push(contentType);
+        if (contentType.includes("application/json")) {
+          wireResponses.push(await response.clone().json());
+        }
+        return response;
+      },
+    },
+  );
+  const client = new Client(
+    { name: "agent-native-server-spec", version: "1.0.0" },
+    {
+      versionNegotiation: { mode: "auto" },
+      ...(options.manualInputRequired
+        ? { inputRequired: { autoFulfill: false } }
+        : {}),
+    },
+  );
+  if (
+    options.supportsElicitation ||
+    options.approvalDecision ||
+    options.declineApproval
+  ) {
+    client.registerCapabilities({ elicitation: { form: {} } } as any);
+  }
+  if (options.approvalDecision || options.declineApproval) {
+    client.setRequestHandler("elicitation/create", async () =>
+      options.declineApproval
+        ? { action: "decline" as const }
+        : {
+            action: "accept" as const,
+            content: { decision: options.approvalDecision },
+          },
+    );
+  }
+  await client.connect(transport);
+  return { client, wireResponses, wireContentTypes };
+}
+
 async function mcpAppsAuthHeaders(
   options: {
     clientId?: string;
+    ownerEmail?: string;
     scope?: string;
   } = {},
 ) {
-  process.env.BETTER_AUTH_SECRET = "oauth-secret";
+  process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
   const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
   const token = await signMcpOAuthAccessToken({
-    ownerEmail: "oauth@example.com",
+    ownerEmail: options.ownerEmail ?? "oauth@example.com",
     clientId: options.clientId ?? "client-123",
     scope: options.scope ?? "mcp:read mcp:write mcp:apps",
     resource: "https://mail.agent-native.com/_agent-native/mcp",
@@ -522,6 +639,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
+    approvalStoreMocks.grants.clear();
     resolveOrgIdForEmailMock.mockReset();
     resolveOrgIdForEmailMock.mockResolvedValue(null);
   });
@@ -578,6 +696,360 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).toMatchObject({
       mimeTypes: ["text/html;profile=mcp-app"],
     });
+  });
+
+  it("negotiates 2026-07-28 and emits modern result and cache metadata", async () => {
+    const { client, wireResponses } = await createModernClient();
+    try {
+      expect(client.getNegotiatedProtocolVersion()).toBe("2026-07-28");
+      expect(client.getDiscoverResult()).toBeDefined();
+      expect(
+        (client.getDiscoverResult()?.capabilities.extensions as any)?.[
+          "io.modelcontextprotocol/tasks"
+        ],
+      ).toBeUndefined();
+
+      const result = await client.listTools();
+      expect(result.tools.map((tool) => tool.name)).toEqual(["echo-thing"]);
+
+      const discoverWire = wireResponses.find(
+        (response) => response.result?.capabilities,
+      );
+      expect(discoverWire?.result).toMatchObject({
+        resultType: "complete",
+        ttlMs: 0,
+        cacheScope: "private",
+      });
+
+      const toolsWire = wireResponses.find(
+        (response) => response.result?.tools,
+      );
+      expect(toolsWire?.result).toMatchObject({
+        resultType: "complete",
+        ttlMs: 0,
+        cacheScope: "private",
+      });
+
+      await expect(
+        client.readResource({ uri: "ui://mail/missing/shell-v64" }),
+      ).rejects.toMatchObject({ code: -32602 });
+      expect(wireResponses.at(-1)?.error).toMatchObject({
+        code: -32602,
+        data: { uri: "ui://mail/missing/shell-v64" },
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("executes an approval-gated action only after one exact accepted retry", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": {
+          tool: {
+            description: "Publish a draft",
+            parameters: {
+              type: "object" as const,
+              properties: { draftId: { type: "string" } },
+              required: ["draftId"],
+            },
+          },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+    });
+    try {
+      const first = (await client.callTool(
+        {
+          name: "publish-draft",
+          arguments: { draftId: "draft-1" },
+          // A caller cannot self-approve the first round by pre-populating
+          // inputResponses without a server-minted requestState.
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first).toMatchObject({
+        resultType: "input_required",
+        inputRequests: {
+          actionApproval: {
+            method: "elicitation/create",
+          },
+        },
+      });
+      expect(first.requestState).toEqual(expect.any(String));
+      expect(run).not.toHaveBeenCalled();
+
+      const approved = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+
+      const replay = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(replay.isError).toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("consumes denial without running or allowing a later accepted replay", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "delete-draft": {
+          tool: { description: "Delete a draft" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client, wireResponses } = await createModernClient(approvalConfig, {
+      approvalDecision: "deny",
+    });
+    try {
+      const denied = await client.callTool({
+        name: "delete-draft",
+        arguments: {},
+      });
+      expect(denied.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+
+      const requestState = wireResponses.find(
+        (response) => response.result?.resultType === "input_required",
+      )?.result?.requestState;
+      expect(requestState).toEqual(expect.any(String));
+      const replay = await client.callTool({
+        name: "delete-draft",
+        arguments: {},
+        requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(replay.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects tampered arguments and signed state without running", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "send-payment": {
+          tool: { description: "Send a payment" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+    });
+    try {
+      const first = (await client.callTool(
+        {
+          name: "send-payment",
+          arguments: { amount: 10 },
+        },
+        { allowInputRequired: true } as any,
+      )) as any;
+
+      const mismatched = await client.callTool({
+        name: "send-payment",
+        arguments: { amount: 1000 },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(mismatched.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+
+      await expect(
+        client.callTool({
+          name: "send-payment",
+          arguments: { amount: 10 },
+          requestState: `${first.requestState}tampered`,
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any),
+      ).rejects.toMatchObject({
+        code: -32602,
+        data: { reason: "invalid_request_state" },
+      });
+
+      const stateBody = JSON.parse(
+        Buffer.from(first.requestState.split(".")[1], "base64url").toString(
+          "utf8",
+        ),
+      );
+      approvalStoreMocks.grants.get(stateBody.p.nonce).expiresAt =
+        Date.now() - 1;
+      const expired = await client.callTool({
+        name: "send-payment",
+        arguments: { amount: 10 },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(expired.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("binds approval state to the authenticated MCP caller", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "share-record": {
+          tool: { description: "Share a record" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const callerA = await mcpAppsAuthHeaders({
+      ownerEmail: "caller-a@example.com",
+    });
+    const callerB = await mcpAppsAuthHeaders({
+      ownerEmail: "caller-b@example.com",
+    });
+    const { client: clientA } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: callerA,
+    });
+    const { client: clientB } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: callerB,
+    });
+    try {
+      const first = (await clientA.callTool(
+        { name: "share-record", arguments: { id: "record-1" } },
+        { allowInputRequired: true } as any,
+      )) as any;
+      await expect(
+        clientB.callTool({
+          name: "share-record",
+          arguments: { id: "record-1" },
+          requestState: first.requestState,
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any),
+      ).rejects.toMatchObject({
+        code: -32602,
+        data: { reason: "invalid_request_state" },
+      });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await clientA.close();
+      await clientB.close();
+    }
+  });
+
+  it("runs a false approval predicate normally and fails closed when it throws", async () => {
+    const ordinaryRun = vi.fn(async () => ({ ok: true }));
+    const throwingRun = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        ordinary: {
+          tool: { description: "Ordinary conditional action" },
+          needsApproval: () => false,
+          run: ordinaryRun,
+        },
+        throwing: {
+          tool: { description: "Throwing conditional action" },
+          needsApproval: () => {
+            throw new Error("predicate failed");
+          },
+          run: throwingRun,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig);
+    try {
+      const ordinary = await client.callTool({
+        name: "ordinary",
+        arguments: {},
+      });
+      expect(ordinary.isError).not.toBe(true);
+      expect(ordinaryRun).toHaveBeenCalledTimes(1);
+
+      await expect(
+        client.callTool({ name: "throwing", arguments: {} }),
+      ).rejects.toMatchObject({ code: -32021 });
+      expect(throwingRun).not.toHaveBeenCalled();
+      expect(client.getDiscoverResult()?.capabilities).not.toHaveProperty(
+        "elicitation",
+      );
+      expect(
+        (client.getDiscoverResult()?.capabilities.extensions as any)?.[
+          "io.modelcontextprotocol/tasks"
+        ],
+      ).toBeUndefined();
+    } finally {
+      await client.close();
+    }
   });
 
   it("resolves MCP server branding URLs under APP_BASE_PATH", async () => {
@@ -697,11 +1169,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(toolsOut.error).toBeUndefined();
     const names = toolsOut.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "list_apps",
-      "open_app",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "list_apps",
+      "open_app",
     ]);
     expect(names).not.toContain("echo-thing");
     expect(names).not.toContain("review-draft");
@@ -932,11 +1404,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "list_apps",
-      "open_app",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "list_apps",
+      "open_app",
     ]);
     expect(names).not.toContain("bloated-widget");
     expect(JSON.stringify(out)).not.toContain(
@@ -1004,8 +1476,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.tools.map((t: any) => t.name)).toEqual([
       "echo-thing",
-      "review-draft",
       "private-widget",
+      "review-draft",
     ]);
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
 
@@ -1025,8 +1497,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
       "ui://mail/echo-thing/shell-v64",
-      "ui://mail/review-draft/shell-v64",
       "ui://mail/private-widget/shell-v64",
+      "ui://mail/review-draft/shell-v64",
     ]);
 
     const templatesOut = await callWeb(
@@ -1047,8 +1519,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       templatesOut.result.resourceTemplates.map((r: any) => r.uriTemplate),
     ).toEqual([
       "ui://mail/echo-thing/shell-v64",
-      "ui://mail/review-draft/shell-v64",
       "ui://mail/private-widget/shell-v64",
+      "ui://mail/review-draft/shell-v64",
     ]);
 
     const readOut = await callWeb(
@@ -1291,11 +1763,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(toolsOut.error).toBeUndefined();
     const names = toolsOut.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "list_apps",
-      "open_app",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "list_apps",
+      "open_app",
     ]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("bloated-widget");
@@ -1477,6 +1949,101 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       async: true,
       maxWaitMs: 0,
     });
+  });
+
+  it("keeps ask_app polling metadata visible to text-fallback callers", async () => {
+    builtinToolMocks.askAppRun.mockResolvedValueOnce({
+      app: "content",
+      routedVia: "a2a",
+      taskId: "task-1",
+      taskHandle: "opaque-task-handle",
+      status: "working",
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: {
+          app: "content",
+          taskId: "task-1",
+          taskHandle: "opaque-task-handle",
+        },
+      },
+      message:
+        "ask_app is still working. Call ask_app_status with the returned taskHandle to retrieve the final response.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2921,
+        method: "tools/call",
+        params: {
+          name: "ask_app",
+          arguments: { app: "content", message: "Read the document." },
+        },
+      },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      app: "content",
+      routedVia: "a2a",
+      taskId: "task-1",
+      taskHandle: "opaque-task-handle",
+      poll: {
+        tool: "ask_app_status",
+        arguments: {
+          app: "content",
+          taskId: "task-1",
+          taskHandle: "opaque-task-handle",
+        },
+      },
+    });
+    expect(builtinToolMocks.askAppRun).toHaveBeenCalledWith(
+      {
+        app: "content",
+        message: "Read the document.",
+      },
+      expect.objectContaining({
+        actionName: "ask_app",
+        caller: "mcp",
+      }),
+    );
+  });
+
+  it("keeps an app-defined ask_app override concise", async () => {
+    const appDefinedAskAppConfig = {
+      ...compactSurfaceConfig,
+      actions: {
+        ...compactSurfaceConfig.actions,
+        ask_app: {
+          tool: { description: "App-defined ask_app override" },
+          run: async () => ({
+            message: "Custom ask complete.",
+            internalReceipt: "must-not-leak",
+          }),
+        },
+      },
+    };
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2922,
+        method: "tools/call",
+        params: {
+          name: "ask_app",
+          arguments: {},
+        },
+      },
+      {
+        config: appDefinedAskAppConfig,
+      },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(call.result.content[0].text).toBe("Custom ask complete.");
+    expect(JSON.stringify(call.result)).not.toContain("must-not-leak");
   });
 
   it("returns transient ask_app status read exhaustion as recoverable structured content", async () => {
@@ -2260,7 +2827,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       connect_domains: ["https://mail.agent-native.com"],
     });
     // The tools/call RESULT deliberately carries NO `_meta.ui` resource
-    // linkage. MCP Apps (ext-apps 1.7.2) binds the `ui://` window on the tool
+    // linkage. MCP Apps binds the `ui://` window on the tool
     // DESCRIPTOR (`_meta.ui.resourceUri`, asserted in the tools/list test
     // above); `ui/notifications/tool-result` delivers a plain CallToolResult,
     // so Claude.ai / Claude Desktop render inline from the descriptor binding
@@ -3363,7 +3930,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
     );
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
-      'scope="mcp:read mcp:write mcp:apps offline_access"',
+      'scope="mcp:read mcp:write mcp:apps"',
     );
     // The legacy `error` field is preserved, plus an actionable message and the
     // exact remediation (connect command + authorize/metadata/MCP URLs).
@@ -3383,6 +3950,33 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("preserves the legacy MCP resource in its OAuth challenge", async () => {
+    process.env.ACCESS_TOKEN = "secret-token";
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 10, method: "tools/list", params: {} },
+      headers: { authorization: "Bearer wrong" },
+    });
+    const res = await handleMcpRequest(
+      event,
+      config as any,
+      "/_agent-native/mcp",
+    );
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=%2F_agent-native%2Fmcp"',
+    );
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        resourceMetadataUrl:
+          "https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=%2F_agent-native%2Fmcp",
+        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+      },
+    });
   });
 
   it("challenges bare loopback MCP URLs so OAuth-native hosts can authenticate", async () => {
@@ -3483,22 +4077,25 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("returns 204 for DELETE on the web runtime (stateless, unchanged)", async () => {
+  it("returns the SDK's stateless 405 for DELETE", async () => {
     process.env.ACCESS_TOKEN = "secret-token";
     const event = makeWebEvent({
       method: "DELETE",
       headers: { authorization: "Bearer secret-token" },
     });
     const res = await handleMcpRequest(event, config as any);
-    expect(event._status).toBe(204);
-    expect(res).toBe("");
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(405);
+    expect(await (res as Response).json()).toMatchObject({
+      error: { message: "Method not allowed." },
+    });
   });
 
   it("returns 405 for an unsupported method", async () => {
     const event = makeWebEvent({ method: "PUT" });
     const res = await handleMcpRequest(event, config as any);
-    expect(event._status).toBe(405);
-    expect(res).toEqual({ error: "Method not allowed" });
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(405);
   });
 
   it("returns 405 for GET (no standalone SSE stream on a stateless serverless server)", async () => {
@@ -3508,38 +4105,32 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // Answering 405 tells the client to use plain POST request/response.
     const event = makeWebEvent({ method: "GET" });
     const res = await handleMcpRequest(event, config as any);
-    expect(event._status).toBe(405);
-    expect(res).toEqual({ error: "Method not allowed" });
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(405);
+    expect(await (res as Response).json()).toMatchObject({
+      error: { message: "Method not allowed." },
+    });
   });
 
-  it("returns tools/call results as JSON, not an SSE stream (serverless-safe framing)", async () => {
-    // enableJsonResponse: true — the result is computed and returned inside the
-    // request lifecycle. With the SDK default (SSE), a serverless instance can
-    // freeze right after returning the streaming Response, before the result
-    // event flushes, so the client never receives it and reports "session
-    // expired". JSON framing is what makes tools/call actually complete.
-    const event = makeWebEvent({
-      method: "POST",
-      body: {
-        jsonrpc: "2.0",
-        id: 314,
-        method: "tools/call",
-        params: { name: "echo-thing", arguments: { value: "hello" } },
-      },
-      headers: { "x-agent-native-mcp-full-catalog": "1" },
-    });
-    const res = await handleMcpRequest(event, config as any);
-    expect(res).toBeInstanceOf(Response);
-    const response = res as Response;
-    expect(response.headers.get("content-type")).toContain("application/json");
-    expect(response.headers.get("content-type")).not.toContain(
-      "text/event-stream",
-    );
-    const body = JSON.parse(await response.text());
-    expect(body.error).toBeUndefined();
-    expect(body.result.content[0].text).toBe(
-      "echo-thing completed for thing-42.",
-    );
+  it("returns modern tools/call results as one JSON response", async () => {
+    const { client, wireContentTypes, wireResponses } =
+      await createModernClient();
+    try {
+      const result = await client.callTool({
+        name: "echo-thing",
+        arguments: { value: "hello" },
+      });
+      expect(result.content[0]).toMatchObject({
+        type: "text",
+        text: "echo-thing completed for thing-42.",
+      });
+      expect(wireContentTypes.at(-1)).toContain("application/json");
+      expect(wireResponses.at(-1)?.result).toMatchObject({
+        resultType: "complete",
+      });
+    } finally {
+      await client.close();
+    }
   });
 
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
@@ -3549,7 +4140,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 });
 
-describe("handleMcpRequest — Node request objects use the web transport by default", () => {
+describe("handleMcpRequest — Node request objects use the v2 web handler", () => {
   beforeEach(() => {
     // Authenticated deployed-app caller (default makeWebEvent bearer matches);
     // header-only dev-open is loopback-only now.
@@ -3557,41 +4148,15 @@ describe("handleMcpRequest — Node request objects use the web transport by def
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_MCP_NODE_FAST_PATH;
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_MCP_NODE_FAST_PATH;
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
   it("returns a Web Response even when a Node req/res pair is present", async () => {
-    const sdkMod =
-      await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-    const webMod =
-      await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js");
-    const handleRequestSpy = vi
-      .spyOn(
-        sdkMod.StreamableHTTPServerTransport.prototype as any,
-        "handleRequest",
-      )
-      .mockImplementation(async function (
-        this: any,
-        nodeReq: any,
-        nodeRes: any,
-        body: any,
-      ) {
-        // Record what the handler delegated so we can assert on it.
-        (globalThis as any).__nodeDelegation = { nodeReq, nodeRes, body };
-        nodeRes.end?.('{"jsonrpc":"2.0","id":1,"result":{}}');
-      });
-    const webHandleSpy = vi.spyOn(
-      webMod.WebStandardStreamableHTTPServerTransport.prototype as any,
-      "handleRequest",
-    );
-
     const rpc = {
       jsonrpc: "2.0",
       id: 1,
@@ -3607,59 +4172,7 @@ describe("handleMcpRequest — Node request objects use the web transport by def
 
     expect(res).toBeInstanceOf(Response);
     expect(event._handled).toBeUndefined();
-    expect(handleRequestSpy).not.toHaveBeenCalled();
-    expect(webHandleSpy).toHaveBeenCalledTimes(1);
-
-    delete (globalThis as any).__nodeDelegation;
-  });
-
-  it("keeps the SDK Node transport available behind an explicit escape hatch", async () => {
-    process.env.AGENT_NATIVE_MCP_NODE_FAST_PATH = "1";
-    const sdkMod =
-      await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-    const webMod =
-      await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js");
-    const handleRequestSpy = vi
-      .spyOn(
-        sdkMod.StreamableHTTPServerTransport.prototype as any,
-        "handleRequest",
-      )
-      .mockImplementation(async function (
-        this: any,
-        nodeReq: any,
-        nodeRes: any,
-        body: any,
-      ) {
-        (globalThis as any).__nodeDelegation = { nodeReq, nodeRes, body };
-        nodeRes.end?.('{"jsonrpc":"2.0","id":1,"result":{}}');
-      });
-    const webHandleSpy = vi.spyOn(
-      webMod.WebStandardStreamableHTTPServerTransport.prototype as any,
-      "handleRequest",
-    );
-
-    const rpc = {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: { name: "c", version: "1" },
-      },
-    };
-    const event = makeWebEvent({ method: "POST", node: true, body: rpc });
-    const res = await handleMcpRequest(event, config as any);
-
-    expect(res).toBeUndefined();
-    expect(event._handled).toBe(true);
-    expect(handleRequestSpy).toHaveBeenCalledTimes(1);
-    const delegated = (globalThis as any).__nodeDelegation;
-    expect(delegated.nodeReq).toBe(event.node.req);
-    expect(delegated.nodeRes).toBe(event.node.res);
-    expect(delegated.body).toEqual(rpc);
-    expect(webHandleSpy).not.toHaveBeenCalled();
-
-    delete (globalThis as any).__nodeDelegation;
+    expect((res as Response).status).toBe(200);
+    expect(event.node.res.headersSent).toBe(false);
   });
 });

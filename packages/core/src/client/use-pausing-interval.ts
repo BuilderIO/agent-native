@@ -8,6 +8,12 @@ import { useEffect } from "react";
  * Pass `pollMs=0` to disable. Pass `pauseWhenHidden=false` to keep the
  * interval running even when the tab is hidden — the bell's browser-
  * notification popup loop uses that to still reach backgrounded tabs.
+ *
+ * @deprecated Use `usePollLoop` instead — it has the same visibility
+ * semantics plus a built-in per-attempt timeout and settle-then-reschedule
+ * (rather than `setInterval`) scheduling, so a hung `callback` can't wedge
+ * the loop. No remaining callers in this codebase; new polling code should
+ * use `usePollLoop` directly.
  */
 export function usePausingInterval(
   callback: () => void | Promise<void>,

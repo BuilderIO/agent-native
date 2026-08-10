@@ -90,6 +90,7 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
+import { documentQueryFilter } from "@/lib/document-query";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
@@ -318,6 +319,15 @@ export function compactToolbarBreadcrumbItems(
   ];
 }
 
+export function firstSelectableBreadcrumbMenuItemId(
+  menuItems: ToolbarBreadcrumbItem["menuItems"],
+  currentDocumentId: string,
+): string | null {
+  return (
+    menuItems?.find((menuItem) => menuItem.id !== currentDocumentId)?.id ?? null
+  );
+}
+
 function ToolbarBreadcrumbMenu({
   item,
   label,
@@ -337,6 +347,12 @@ function ToolbarBreadcrumbMenu({
 }) {
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openedWithKeyboardRef = useRef(false);
+  const firstSelectableItemRef = useRef<HTMLDivElement | null>(null);
+  const firstSelectableItemId = firstSelectableBreadcrumbMenuItemId(
+    item.menuItems,
+    currentDocumentId,
+  );
 
   function cancelClose() {
     if (!closeTimerRef.current) return;
@@ -349,8 +365,25 @@ function ToolbarBreadcrumbMenu({
     closeTimerRef.current = setTimeout(() => setOpen(false), 140);
   }
 
+  useEffect(() => {
+    if (!open || !openedWithKeyboardRef.current) return;
+    openedWithKeyboardRef.current = false;
+    const frame = requestAnimationFrame(() => {
+      firstSelectableItemRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
   return (
-    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      modal={false}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) cancelClose();
+        else openedWithKeyboardRef.current = false;
+        setOpen(nextOpen);
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -364,6 +397,16 @@ function ToolbarBreadcrumbMenu({
             setOpen(true);
           }}
           onPointerLeave={scheduleClose}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" ||
+              event.key === " " ||
+              event.key === "ArrowDown"
+            ) {
+              openedWithKeyboardRef.current = true;
+              cancelClose();
+            }
+          }}
         >
           {children}
         </button>
@@ -371,6 +414,7 @@ function ToolbarBreadcrumbMenu({
       <DropdownMenuContent
         align="start"
         className="w-64"
+        onKeyDown={cancelClose}
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
       >
@@ -379,7 +423,13 @@ function ToolbarBreadcrumbMenu({
           return (
             <DropdownMenuItem
               key={menuItem.id}
+              ref={
+                menuItem.id === firstSelectableItemId
+                  ? firstSelectableItemRef
+                  : undefined
+              }
               className="gap-2"
+              disabled={menuItem.id === currentDocumentId}
               onSelect={() => onOpen(menuItem.id)}
             >
               <span className="flex size-4 shrink-0 items-center justify-center">
@@ -523,12 +573,8 @@ export function DocumentToolbar({
       const previous = hideFromSearch;
       setPendingHideFromSearch(next);
 
-      queryClient.setQueryData(
-        ["action", "get-document", { id: documentId }],
-        (old: any) =>
-          old && typeof old === "object"
-            ? { ...old, hideFromSearch: next }
-            : old,
+      queryClient.setQueriesData(documentQueryFilter(documentId), (old: any) =>
+        old && typeof old === "object" ? { ...old, hideFromSearch: next } : old,
       );
       queryClient.setQueryData(
         ["action", "list-documents", undefined],
@@ -552,9 +598,7 @@ export function DocumentToolbar({
         });
       } catch (err) {
         setPendingHideFromSearch(previous);
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: documentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(documentId));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -565,9 +609,7 @@ export function DocumentToolbar({
         throw err;
       } finally {
         setPendingHideFromSearch(null);
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: documentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(documentId));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -921,70 +963,15 @@ export function DocumentToolbar({
             </>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={t("editor.toolbar.copyPageLink")}
-                onClick={() => void handleCopyPageLink()}
-              >
-                <IconLink size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("editor.toolbar.copyPageLink")}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  utilityPanel === "info" && "bg-accent text-foreground",
-                )}
-                aria-label={t("editor.toolbar.info")}
-                aria-pressed={utilityPanel === "info"}
-                onClick={() =>
-                  onUtilityPanelChange(utilityPanel === "info" ? null : "info")
-                }
-              >
-                <IconInfoCircle size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("editor.toolbar.info")}</TooltipContent>
-          </Tooltip>
-
-          {showCommentsControl ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    utilityPanel === "comments" && "bg-accent text-foreground",
-                  )}
-                  aria-label={t("comments.title")}
-                  aria-pressed={utilityPanel === "comments"}
-                  onClick={() =>
-                    onUtilityPanelChange(
-                      utilityPanel === "comments" ? null : "comments",
-                    )
-                  }
-                >
-                  <IconMessageCircle size={16} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("comments.title")}</TooltipContent>
-            </Tooltip>
-          ) : null}
-
           <DropdownMenu modal={false}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
+                      utilityPanel && "bg-accent text-foreground",
+                    )}
                     aria-label={t("editor.toolbar.morePageActions")}
                   >
                     <IconDotsVertical size={16} />
@@ -996,6 +983,43 @@ export function DocumentToolbar({
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
+                  <IconLink className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.copyPageLink")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onUtilityPanelChange(
+                      utilityPanel === "info" ? null : "info",
+                    )
+                  }
+                  className={cn(
+                    utilityPanel === "info" &&
+                      "bg-accent text-accent-foreground",
+                  )}
+                >
+                  <IconInfoCircle className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.info")}
+                </DropdownMenuItem>
+                {showCommentsControl ? (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      onUtilityPanelChange(
+                        utilityPanel === "comments" ? null : "comments",
+                      )
+                    }
+                    className={cn(
+                      utilityPanel === "comments" &&
+                        "bg-accent text-accent-foreground",
+                    )}
+                  >
+                    <IconMessageCircle className="me-2 h-4 w-4" />
+                    {t("comments.title")}
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.15.7",
+  "version": "0.22.1",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -50,7 +50,6 @@
   },
   "dependencies": {
     "@agent-native/toolkit": "workspace:*",
-    "@libsql/client": "^0.15.8",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.8",
@@ -84,7 +83,6 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "embla-carousel-react": "^8.6.0",
-    "h3": "^2.0.1-rc.20",
     "input-otp": "^1.4.2",
     "next-themes": "^0.4.6",
     "react-day-picker": "^9.14.0",

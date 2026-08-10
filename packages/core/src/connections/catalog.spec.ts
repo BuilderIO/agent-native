@@ -23,6 +23,7 @@ describe("workspace connection provider catalog", () => {
       "gmail",
       "google_drive",
       "hubspot",
+      "salesforce",
       "jira",
       "sentry",
       "granola",
@@ -56,6 +57,13 @@ describe("workspace connection provider catalog", () => {
         "crm.objects.contacts.read",
         "crm.objects.deals.read",
       ]),
+    });
+    expect(getWorkspaceConnectionProvider("salesforce")?.oauth).toMatchObject({
+      provider: "salesforce",
+      authorizationUrl:
+        "https://login.salesforce.com/services/oauth2/authorize",
+      tokenUrl: "https://login.salesforce.com/services/oauth2/token",
+      scopes: expect.arrayContaining(["api", "refresh_token", "id"]),
     });
     expect(getWorkspaceConnectionProvider("sentry")?.oauth).toMatchObject({
       provider: "sentry",
@@ -98,6 +106,12 @@ describe("workspace connection provider catalog", () => {
     ).toEqual(expect.arrayContaining(["gmail", "hubspot"]));
 
     expect(
+      listWorkspaceConnectionProvidersForTemplate("crm").map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(expect.arrayContaining(["hubspot", "salesforce"]));
+
+    expect(
       listWorkspaceConnectionProvidersForCapability("meetings").map(
         (provider) => provider.id,
       ),
@@ -109,6 +123,12 @@ describe("workspace connection provider catalog", () => {
         capability: "code",
       }).map((provider) => provider.id),
     ).toEqual(["github", "jira"]);
+
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("factory").map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(expect.arrayContaining(["slack", "github", "sentry"]));
   });
 
   it("checks provider capabilities without exposing credential values", () => {

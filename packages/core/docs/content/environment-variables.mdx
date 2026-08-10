@@ -1,0 +1,195 @@
+---
+title: "Environment Variables"
+description: "Reference for Agent-Native framework, workspace, authentication, and deployment environment variables."
+search: "environment variables env .env DATABASE_URL APP_URL BETTER_AUTH_SECRET Google OAuth workspace app"
+---
+
+# Environment Variables
+
+This page covers the environment variables owned by the Agent-Native framework
+and workspace runtime. It is not a setup inventory of every template or
+deployment system in this repository. Template-only values stay in the
+maintainer inventory; the setup tables below focus on the shared configuration
+most apps need.
+
+For a normal app, start with [Deployment](/docs/deployment#environment-variables)
+and [Authentication](/docs/authentication). Keep user-, organization-, and
+workspace-scoped credentials in the database-backed secret or connection store;
+use environment variables for deploy-level configuration.
+
+For committed, non-secret app defaults such as first-run onboarding, use the
+[Agent-Native app configuration guide](/docs/agent-native-config) instead of
+adding another browser-exposed environment setting. Keep credentials and
+deployment-specific values in the environment or scoped secret store.
+
+## Common application and deployment variables
+
+| Variable                                       | What it controls                                                                                                                                                        | Supported values or format                                                                                     |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                 | Primary SQL connection. Local development falls back to SQLite when it is unset. Production also accepts `<APP_NAME>_DATABASE_URL` or Netlify's `NETLIFY_DATABASE_URL`. | A provider-specific SQL URL, or unset for local SQLite.                                                        |
+| `DATABASE_AUTH_TOKEN`                          | Separate database token when the database provider requires one.                                                                                                        | An opaque provider token, or unset when the URL includes authentication.                                       |
+| `APP_URL`                                      | Optional canonical public origin used for auth, OAuth, A2A, webhooks, and generated links. Netlify and Vercel metadata are inferred when it is unset.                   | An absolute public `http(s)` origin.                                                                           |
+| `BETTER_AUTH_URL`                              | Optional Better Auth origin override. Known template or request context, `APP_URL`, and platform metadata such as Netlify or Vercel are used when it is unset.          | An absolute public `http(s)` origin.                                                                           |
+| `APP_BASE_PATH`                                | Mounts an app under a path such as `/mail`.                                                                                                                             | Unset for a standalone app, or a slash-prefixed path.                                                          |
+| `PORT`                                         | Local Node/Nitro server port.                                                                                                                                           | A decimal TCP port.                                                                                            |
+| `NITRO_PRESET`                                 | Build and deployment adapter.                                                                                                                                           | A preset supported by the target host, such as `node`, `netlify`, `vercel`, or `cloudflare_pages`.             |
+| `BETTER_AUTH_SECRET`                           | Stable Better Auth session signing secret for standalone production apps. Workspace deploys can derive it from `A2A_SECRET`.                                            | A fresh random value of at least 32 characters.                                                                |
+| `OAUTH_STATE_SECRET`                           | Dedicated signing key for OAuth state envelopes. Falls back to `BETTER_AUTH_SECRET` when unset.                                                                         | A fresh random value of at least 32 characters.                                                                |
+| `A2A_SECRET`                                   | Shared HMAC for trusted cross-app A2A calls and signed handoffs.                                                                                                        | One shared random value across trusted apps.                                                                   |
+| `SECRETS_ENCRYPTION_KEY`                       | Legacy app-local/shared encryption fallback.                                                                                                                            | A stable encryption key; prefer the workspace key for new shared vaults.                                       |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`             | Stable encryption key for a workspace-shared secrets vault.                                                                                                             | The same stable key in every app that reads the vault.                                                         |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`    | Previous workspace key during rotation.                                                                                                                                 | The old key only; remove it after migration.                                                                   |
+| `ANTHROPIC_API_KEY`                            | Optional deploy-level fallback for the embedded production agent.                                                                                                       | An API key; prefer scoped credentials for multi-tenant apps.                                                   |
+| `AGENT_ENGINE`                                 | Explicitly selects the agent engine instead of auto-detecting from provider keys.                                                                                       | A registered engine name such as `anthropic`, `ai-sdk:openai`, `builder`, or `codex-cli`.                      |
+| `AGENT_ENGINE_PREFER_BYO_KEY`                  | Prefers a provider key you set over the managed Builder gateway during auto-detection.                                                                                  | `true` or `1`; Builder still applies as the fallback when no provider key is set.                              |
+| `AUTH_MODE`                                    | Selects the local authentication behavior used by CLI and agent flows.                                                                                                  | Unset or `local`; this is not a browser login bypass.                                                          |
+| `AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV` | Explicitly enables the existing local-dev sign-in button on approved Builder preview hosts during development.                                                          | `1` or `true`; requires development mode and must stay off public or production deployments.                   |
+| `AUTH_DISABLED`                                | Disables auth for local or preview-only work. Unset already means false.                                                                                                | `true` or `1`; never use on a public production app.                                                           |
+| `AUTH_MAGIC_LINK`                              | Controls the password-first versus magic-link sign-in path.                                                                                                             | `0` keeps password-first sign-in; otherwise a configured email transport can enable magic links.               |
+| `AUTH_SKIP_EMAIL_VERIFICATION`                 | Skips signup email verification for local QA or previews.                                                                                                               | `1`; never use it to weaken production auth.                                                                   |
+| `ACCESS_TOKEN` / `ACCESS_TOKENS`               | Static bearer fallback for MCP and Connect clients.                                                                                                                     | One token or a delimited token list; these are not browser auth.                                               |
+| `AGENT_PROD_CODE_EXECUTION`                    | Production code-execution policy.                                                                                                                                       | `off`, `sandboxed`, or `trusted`. See [Production Code Execution](/docs/deployment#production-code-execution). |
+| `AGENT_NATIVE_SSR_CACHE`                       | Deployment-wide public SSR shell cache policy.                                                                                                                          | Unset/`on`, `off`, or a duration such as `30s` or `5m`. See [SSR Caching](/docs/deployment#ssr-caching).       |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`               | Lets a scale-to-zero database autosuspend instead of being woken every minute.                                                                                          | `1`; see [Keep-warm](/docs/deployment#netlify-keep-warm).                                                      |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`              | Keep-warm cadence override.                                                                                                                                             | A 5-field cron expression such as `*/5 * * * *`; an unparseable value fails the build.                         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND`    | Drops only the background-function warm and keeps the server warm.                                                                                                      | `1`; see [Keep-warm](/docs/deployment#netlify-keep-warm).                                                      |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`        | Turns off the in-process backstop sweep timers where a durable scheduler drives the same work.                                                                          | `1`; queued work is not retried without another driver.                                                        |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`              | Skips on-demand schema DDL for an already-migrated database.                                                                                                            | `1`; see [On-demand schema DDL](/docs/deployment#skip-ensure-tables). You own migrations when this is set.     |
+| `COOKIE_DOMAIN`                                | Shares auth cookies across same-database subdomains when explicitly configured.                                                                                         | A cookie domain.                                                                                               |
+| `CORS_ALLOWED_ORIGINS`                         | Cross-origin request allowlist.                                                                                                                                         | A comma-separated list of exact origins.                                                                       |
+| `WEBHOOK_BASE_URL`                             | Optional public base URL for self-callback and webhook targets.                                                                                                         | An absolute public `http(s)` origin.                                                                           |
+| `APP_NAME`                                     | App identity used by workspace and app-scoped configuration.                                                                                                            | A short app name, such as `mail`.                                                                              |
+| `APP_ID` / `APP_TEMPLATE`                      | Optional app identity and generated-template metadata.                                                                                                                  | App-owned strings.                                                                                             |
+| `NODE_ENV`                                     | Node runtime mode.                                                                                                                                                      | Normally `development`, `test`, or `production`.                                                               |
+| `CI`                                           | Marks CI-driven test and build behavior.                                                                                                                                | A CI-provided truthy value.                                                                                    |
+| `DEBUG`                                        | Enables resolver-specific debug logging.                                                                                                                                | A resolver-supported truthy or namespace value.                                                                |
+
+Generate strong secrets with:
+
+```bash
+openssl rand -hex 32
+```
+
+## What a normal deployment actually needs
+
+Do not copy a five-variable auth checklist into every app. The framework
+defaults `AUTH_DISABLED` to false and infers `BETTER_AUTH_URL` from known
+template/request context and hosting platform metadata. A standalone production app normally
+needs only one auth-specific deploy secret, `BETTER_AUTH_SECRET`, plus a
+persistent SQL URL. Workspace deployments can use the already-required
+`A2A_SECRET` to derive the Better Auth secret and trusted internal signing
+keys.
+
+Local development intentionally uses SQLite when no database URL is present
+and an ephemeral Better Auth secret when no local secret is configured. Those
+fallbacks keep `pnpm dev` zero-setup, but they are not silently accepted as
+production configuration. The build and runtime diagnostics report missing or
+weak auth/A2A secrets, local databases, auth disabled in production, invalid
+public origins, and app-declared required keys without including any secret
+values.
+
+Every framework app exposes the redacted report at
+`/_agent-native/ping?configuration=1`. The shared provider shell turns a
+non-healthy production report into a warning or error chip with a **Copy
+prompt for AI** button. `agent-native.config.ts` or its compatibility aliases can add
+non-secret requirements under `runtime.environment.required`; set the actual
+values in Netlify, Vercel, or the deployment's secret store.
+
+## Google sign-in
+
+Set one complete Google OAuth client pair to show the Google sign-in flow.
+Prefer a low-scope identity-only client for app login, and keep API access in a
+separate connection when a product needs broader Google scopes.
+
+| Variable                       | What it controls                                                                                | Supported values or format                |
+| ------------------------------ | ----------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `GOOGLE_SIGN_IN_CLIENT_ID`     | Preferred low-scope Google OAuth client ID for app login.                                       | The client ID from Google Cloud Console.  |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET` | Secret for the preferred sign-in client.                                                        | The matching client secret.               |
+| `GOOGLE_CLIENT_ID`             | Backwards-compatible sign-in fallback and provider OAuth client ID for Google API integrations. | The matching Google OAuth client ID.      |
+| `GOOGLE_CLIENT_SECRET`         | Secret for `GOOGLE_CLIENT_ID`.                                                                  | The matching client secret.               |
+| `GOOGLE_AUTH_MODE`             | Chooses the sign-in interaction.                                                                | `auto` (default), `popup`, or `redirect`. |
+
+Register the callback URL in Google Cloud Console as the app's public URL,
+including its base path, followed by
+`/_agent-native/google/callback`. See [Authentication - Google OAuth](/docs/authentication#social-providers).
+
+`GOOGLE_LEGACY_CLIENT_ID` and `GOOGLE_LEGACY_CLIENT_SECRET` are accepted for
+older Google provider connections. `GOOGLE_SERVICE_ACCOUNT_KEY` and
+`GOOGLE_APPLICATION_CREDENTIALS` are server-side service-account options for
+specific Google API integrations; they are not required for browser sign-in.
+
+## Optional AI, search, and email fallbacks
+
+These are deploy-level fallbacks for single-tenant or local use. Hosted,
+multi-user apps should prefer the scoped credential and connection store.
+
+Every provider key below selects its engine on its own: dropping one in is
+enough, and `AGENT_ENGINE` is only needed to pick between several.
+
+| Variable                       | What it controls                                         | Supported values or format                              |
+| ------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`            | Claude model fallback for the built-in AI engine.        | An Anthropic API key.                                   |
+| `OPENAI_API_KEY`               | OpenAI model, realtime voice, or transcription fallback. | An OpenAI API key.                                      |
+| `OPENAI_BASE_URL`              | OpenAI-compatible endpoint used with `OPENAI_API_KEY`.   | An absolute `http(s)` URL without embedded credentials. |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini model fallback for the built-in AI engine.        | A Google AI API key.                                    |
+| `GEMINI_API_KEY`               | Gemini transcription fallback.                           | A Google AI API key.                                    |
+| `OPENROUTER_API_KEY`           | OpenRouter model fallback.                               | An OpenRouter API key.                                  |
+| `GROQ_API_KEY`                 | Groq model or transcription fallback.                    | A Groq API key.                                         |
+| `MISTRAL_API_KEY`              | Mistral model fallback.                                  | A Mistral API key.                                      |
+| `COHERE_API_KEY`               | Cohere model fallback.                                   | A Cohere API key.                                       |
+| `BRAVE_SEARCH_API_KEY`         | Brave web-search fallback.                               | A Brave Search API key.                                 |
+| `TAVILY_API_KEY`               | Tavily web-search fallback.                              | A Tavily API key.                                       |
+| `EXA_API_KEY`                  | Exa web-search fallback.                                 | An Exa API key.                                         |
+| `FIRECRAWL_API_KEY`            | Firecrawl web-search fallback.                           | A Firecrawl API key.                                    |
+| `RESEND_API_KEY`               | Resend transactional email delivery.                     | A Resend API key.                                       |
+| `SENDGRID_API_KEY`             | SendGrid transactional email delivery.                   | A SendGrid API key.                                     |
+| `EMAIL_FROM`                   | Sender address used for transactional email.             | A valid email address or display-name address.          |
+| `EMAIL_AGENT_ADDRESS`          | Inbound address used by email-enabled apps.              | A valid email address.                                  |
+| `EMAIL_INBOUND_WEBHOOK_SECRET` | Verifies inbound email webhook signatures.               | A stable random secret.                                 |
+
+## Per-app values in a workspace
+
+The workspace root `.env` is loaded into every app. An app-local file such as
+`apps/mail/.env` wins when the same key exists in both places, so use the root
+file for shared values and the app file for app-specific values.
+
+Some deploy-level values also support an app-name prefix. Set `APP_NAME`,
+uppercase it, and replace non-alphanumeric characters with `_`:
+
+```bash
+APP_NAME=mail
+MAIL_DATABASE_URL=<MAIL_DATABASE_URL>
+MAIL_DATABASE_AUTH_TOKEN=<MAIL_DATABASE_AUTH_TOKEN>
+MAIL_SECRETS_ENCRYPTION_KEY=<MAIL_SECRETS_ENCRYPTION_KEY>
+```
+
+The prefix form is supported for database URLs/tokens and app-local secret
+encryption. Do not invent a prefix for an arbitrary variable; use
+`apps/<name>/.env` or the shared root `.env` according to the variable's scope.
+
+## Public versus secret values
+
+Variables whose names start with `VITE_` and values read through
+`import.meta.env` can be bundled into browser code. Treat them as public
+configuration. Never put an API key, token, password, or private key in a
+browser-exposed variable.
+
+Advanced integration and host-detection keys stay with their owning feature
+guides and the maintainer inventory rather than appearing as a generic setup
+block here. Use a scoped workspace connection for user or provider credentials,
+and follow the owning app or feature guide when one is actually needed.
+See [Security](/docs/security) for the credential boundary and
+[Deployment](/docs/deployment) for production hosting.
+
+## Keeping the reference complete
+
+The maintainer-only repository inventory remains broader than this public page.
+Run the focused check from the repository root when adding a framework variable:
+
+```bash
+pnpm run guard:env-documentation
+```
+
+The check keeps the exhaustive internal inventory aligned with source while
+also checking that the curated setup tables above do not omit a key they
+explicitly document.

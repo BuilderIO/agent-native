@@ -154,6 +154,27 @@ const LIST_EVENT_TYPES = [
 ];
 const GOOGLE_READ_CONCURRENCY = 4;
 
+export class CalendarMoveRollbackError extends Error {
+  readonly code = "CALENDAR_MOVE_ROLLBACK_FAILED" as const;
+  readonly cause: unknown;
+  readonly replacementId: string;
+  readonly destinationAccountEmail: string;
+
+  constructor(
+    replacementId: string,
+    destinationAccountEmail: string,
+    cause: unknown,
+  ) {
+    super(
+      `Calendar move cleanup failed after Google created destination event "${replacementId}" in calendar "${destinationAccountEmail}". The destination may still exist; inspect or delete it before retrying.`,
+    );
+    this.name = "CalendarMoveRollbackError";
+    this.cause = cause;
+    this.replacementId = replacementId;
+    this.destinationAccountEmail = destinationAccountEmail;
+  }
+}
+
 async function mapWithConcurrency<T, R>(
   values: T[],
   map: (value: T) => Promise<R>,
@@ -881,6 +902,7 @@ export async function listEvents(
           return {
             id: `google-${event.id}`,
             title: event.summary || "Untitled",
+            titleIsGenerated: !event.summary,
             description: event.description || "",
             start: event.start?.dateTime || event.start?.date || "",
             end: event.end?.dateTime || event.end?.date || "",
@@ -1153,6 +1175,7 @@ export async function getEvent(
   return {
     id: `google-${event.id}`,
     title: event.summary || "Untitled",
+    titleIsGenerated: !event.summary,
     description: event.description || "",
     start: event.start?.dateTime || event.start?.date || "",
     end: event.end?.dateTime || event.end?.date || "",
@@ -1257,6 +1280,86 @@ export async function createEvent(
     meetLink: response.hangoutLink || undefined,
     conferenceData: mapConferenceData(response.conferenceData),
   };
+}
+
+export async function moveEvent(
+  googleEventId: string,
+  options: {
+    sourceAccount: GoogleAccountSelection;
+    destinationAccount: GoogleAccountSelection;
+    sendUpdates?: "all" | "none";
+  },
+): Promise<{
+  id?: string;
+  htmlLink?: string;
+  meetLink?: string;
+  conferenceData?: CalendarEvent["conferenceData"];
+}> {
+  const sourceEvent = await getEvent(googleEventId, options.sourceAccount);
+  if (sourceEvent.status === "cancelled") {
+    throw new Error("Cancelled events cannot be moved.");
+  }
+  if (
+    sourceEvent.eventType &&
+    !["default", "outOfOffice", "focusTime", "workingLocation"].includes(
+      sourceEvent.eventType,
+    )
+  ) {
+    throw new Error("This Google Calendar event type cannot be moved.");
+  }
+  if (sourceEvent.recurrence?.length && !sourceEvent.recurringEventId) {
+    throw new Error(
+      "Recurring series masters cannot be moved; move a single occurrence instead.",
+    );
+  }
+
+  const replacement = await createEvent(
+    {
+      ...sourceEvent,
+      id: "",
+      googleEventId: undefined,
+      recurringEventId: undefined,
+      accountEmail: options.destinationAccount.accountEmail,
+      attendees: sourceEvent.attendees?.filter((attendee) => !attendee.self),
+    },
+    {
+      account: options.destinationAccount,
+      addGoogleMeet: Boolean(
+        sourceEvent.hangoutLink ||
+        sourceEvent.conferenceData?.entryPoints?.some(
+          (entry) => entry.entryPointType === "video",
+        ),
+      ),
+      sendUpdates: options.sendUpdates,
+    },
+  );
+
+  if (!replacement.id) {
+    throw new Error("Google did not return an id for the moved event.");
+  }
+
+  try {
+    await deleteEvent(googleEventId, options.sourceAccount, {
+      scope: "single",
+      sendUpdates: options.sendUpdates,
+    });
+  } catch (error) {
+    try {
+      await deleteEvent(replacement.id, options.destinationAccount, {
+        scope: "single",
+        sendUpdates: options.sendUpdates === "all" ? "all" : "none",
+      });
+    } catch (cleanupError) {
+      throw new CalendarMoveRollbackError(
+        replacement.id,
+        options.destinationAccount.accountEmail,
+        cleanupError,
+      );
+    }
+    throw error;
+  }
+
+  return replacement;
 }
 
 export async function updateEvent(

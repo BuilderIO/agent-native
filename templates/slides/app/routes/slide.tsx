@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   isInAgentEmbed,
@@ -10,6 +10,7 @@ import { useSearchParams } from "react-router";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
+import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import messages from "@/i18n/en-US";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
@@ -42,8 +43,10 @@ export default function SlideRoute() {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio | undefined>(
     undefined,
   );
+  const [designSystemId, setDesignSystemId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { designSystem } = useDeckDesignSystem(designSystemId);
 
   const slideNumber =
     slideNumberParam !== null ? parseInt(slideNumberParam, 10) : null;
@@ -75,14 +78,11 @@ export default function SlideRoute() {
       return;
     }
 
-    fetch(`${appBasePath()}/api/decks/${deckId}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          if (res.status === 404) throw new Error("Deck not found.");
-          throw new Error(`Failed to load deck (HTTP ${res.status}).`);
-        }
-        return res.json();
-      })
+    callAction<{
+      slides?: Slide[];
+      aspectRatio?: AspectRatio;
+      designSystemId?: string | null;
+    }>("get-deck", { id: deckId }, { method: "GET" })
       .then((deck) => {
         const slides: Slide[] = deck.slides ?? [];
         if (slides.length === 0) {
@@ -91,12 +91,20 @@ export default function SlideRoute() {
         const idx = Math.max(0, Math.min(slideIndex, slides.length - 1));
         setSlide(slides[idx]);
         setAspectRatio(deck.aspectRatio);
+        setDesignSystemId(deck.designSystemId ?? null);
         setLoading(false);
       })
       .catch((err: unknown) => {
-        setError(
-          err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
-        );
+        const status = (err as { status?: number } | undefined)?.status;
+        if (status === 404) {
+          setError("Deck not found.");
+        } else if (status !== undefined) {
+          setError(`Failed to load deck (HTTP ${status}).`);
+        } else {
+          setError(
+            err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
+          );
+        }
         setLoading(false);
       });
   }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam, t]);
@@ -119,6 +127,7 @@ export default function SlideRoute() {
         slide={slide}
         thumbnail={false}
         aspectRatio={aspectRatio}
+        designSystem={designSystem}
       />
 
       {inEmbed && (

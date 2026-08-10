@@ -20,7 +20,6 @@ const AUTHORABLE_LIBRARY_BLOCK_TYPES = [
   "code-tabs",
   "custom-html",
   "tabs",
-  "callout",
   "diagram",
   "wireframe",
   "mermaid",
@@ -43,6 +42,7 @@ const AUTHORABLE_LIBRARY_BLOCK_TYPES = [
 const HIDDEN_FROM_SLASH_MENU = ["columns", "question-form", "visual-questions"];
 const PHASED_BLOCKS_HIDDEN_FROM_SLASH_MENU = [
   "inline-database",
+  "callout",
   "source-component",
 ];
 
@@ -97,6 +97,8 @@ describe("buildRegistrySlashItems", () => {
     expect(offeredTypes).not.toContain("columns");
     expect(contentBlockRegistry.get("inline-database")).toBeDefined();
     expect(offeredTypes).not.toContain("inline-database");
+    expect(contentBlockRegistry.get("callout")).toBeDefined();
+    expect(offeredTypes).not.toContain("callout");
     expect(contentBlockRegistry.get("source-component")).toBeDefined();
     expect(offeredTypes).not.toContain("source-component");
   });

@@ -39,6 +39,7 @@ import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
 import { persistCaptureFile } from "@/lib/persist-capture";
 import {
   saveMobileDictation,
+  setLastDictatedText,
   transcribeMobileAudio,
   updateMobileDictation,
 } from "@/lib/voice-api";
@@ -111,6 +112,7 @@ export default function DictationCaptureScreen() {
         );
         if (!mountedRef.current || controller.signal.aborted) return;
         setText(transcript);
+        setLastDictatedText(transcript);
         publishKeyboardDictation(transcript, keyboardRequestId);
         await Clipboard.setStringAsync(transcript);
         await releaseCaptureJobLocalFile(boundJob.id).catch(() => null);
@@ -198,6 +200,7 @@ export default function DictationCaptureScreen() {
     setSaving(true);
     try {
       await Clipboard.setStringAsync(value);
+      setLastDictatedText(value);
       publishKeyboardDictation(value, keyboardRequestId);
       if (!mountedRef.current) return;
       if (dictationId) {
@@ -331,7 +334,7 @@ export default function DictationCaptureScreen() {
                 onChangeText={setText}
                 placeholder="Your transcript"
                 placeholderTextColor="#52525b"
-                selectionColor="#c7f36b"
+                selectionColor="#d4d4d8"
                 className="bg-card-dark border border-border-dark rounded-2xl text-text-light flex-1 text-lg leading-6 mt-3.5 p-4"
                 textAlignVertical="top"
                 value={text}

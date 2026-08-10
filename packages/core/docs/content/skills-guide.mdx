@@ -79,29 +79,51 @@ Every skill's frontmatter `name` and `description` are always injected into the 
 
 </Diagram>
 
+### Reference sub-files {#reference-subfiles}
+
+A skill directory can hold more than `SKILL.md` — extra Markdown, text, or JSON files under a `references/` (or similar) subfolder that the main file points to instead of inlining everything. The agent always sees the list of extra files in a skill's directory. Text sub-files under a size cap (64KB per file, 256KB total per skill) are also inlined and independently readable through `docs-search`, at a `skill-<name>--<subpath>` slug — a `references/api.md` file inside `my-skill` resolves as `skill-my-skill--references-api`. Sub-files over the cap, or non-text files (images, scripts), are still listed but not inlined; read them from the filesystem directly in Code mode.
+
+```text
+.agents/skills/my-skill/
+  SKILL.md
+  references/
+    api.md          # inlined — readable via docs-search as skill-my-skill--references-api
+    diagram.png     # listed only — not readable via docs-search
+```
+
 ## Framework skills {#framework-skills}
 
 These are the skills bundled with the **default template**. The exact set available in any given app depends on the template you scaffolded from — check that template's `.agents/skills/` directory for what it actually ships.
 
-| Skill                  | When to use                                                        |
-| ---------------------- | ------------------------------------------------------------------ |
-| `storing-data`         | Adding data models, reading/writing config or state                |
-| `real-time-sync`       | Wiring polling sync, debugging UI not updating                     |
-| `delegate-to-agent`    | Delegating AI work from UI or actions to the agent                 |
-| `actions`              | Creating or running agent actions                                  |
-| `self-modifying-code`  | Editing app source, components, or styles                          |
-| `create-skill`         | Adding new skills for the agent                                    |
-| `capture-learnings`    | Recording corrections and patterns                                 |
-| `frontend-design`      | Building or styling any web UI, components, or pages               |
-| `adding-a-feature`     | The four-area checklist: UI, actions, skills, app-state            |
-| `internationalization` | Updating localized UI copy, language catalogs, and RTL-safe styles |
-| `shadcn-ui`            | Using shadcn/ui primitives and components                          |
-| `security`             | Auth, access control, and secret handling                          |
-| `real-time-collab`     | Multi-user collaborative editing                                   |
-| `agent-engines`        | Swapping or configuring the underlying agent engine                |
-| `notifications`        | In-app and push notification patterns                              |
-| `progress`             | Tracking and surfacing background task progress                    |
-| `inline-embeds`        | Embedding apps or iframes inside the agent chat                    |
+| Skill                      | When to use                                                              |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `storing-data`             | Adding data models, reading/writing config or state                      |
+| `real-time-sync`           | Wiring polling sync, debugging UI not updating                           |
+| `delegate-to-agent`        | Delegating AI work from UI or actions to the agent                       |
+| `actions`                  | Creating or running agent actions                                        |
+| `self-modifying-code`      | Editing app source, components, or styles                                |
+| `create-skill`             | Adding new skills for the agent                                          |
+| `capture-learnings`        | Recording corrections and patterns                                       |
+| `frontend-design`          | Building or styling any web UI, components, or pages                     |
+| `adding-a-feature`         | The four-area checklist: UI, actions, skills, app-state                  |
+| `internationalization`     | Updating localized UI copy, language catalogs, and RTL-safe styles       |
+| `shadcn-ui`                | Using shadcn/ui primitives and components                                |
+| `security`                 | Auth, access control, and secret handling                                |
+| `real-time-collab`         | Multi-user collaborative editing                                         |
+| `agent-engines`            | Swapping or configuring the underlying agent engine                      |
+| `notifications`            | In-app and push notification patterns                                    |
+| `progress`                 | Tracking and surfacing background task progress                          |
+| `inline-embeds`            | Embedding apps or iframes inside the agent chat                          |
+| `agent-native-docs`        | Finding version-matched framework docs and source in `node_modules`      |
+| `agent-native-toolkit`     | Ownership rules for shared workspace UI (chrome, settings, nav, sharing) |
+| `app-branding`             | Renaming or rebranding the app consistently across every surface         |
+| `app-permissions`          | Enabling browser permissions (camera, mic, geolocation, etc.)            |
+| `customizing-agent-native` | Configuring, composing, or ejecting framework features into app code     |
+| `feature-flags`            | Declaring, evaluating, and removing framework feature flags              |
+| `integration-webhooks`     | Handling messaging integration webhooks on serverless hosts              |
+| `onboarding`               | Registering setup steps for the sidebar setup checklist                  |
+| `secrets`                  | Registering API keys/credentials for the settings UI and onboarding      |
+| `upgrade-agent-native`     | Updating `@agent-native/core` or fixing a broken upgrade                 |
 
 `context-awareness` and `a2a-protocol` are framework-level skills available in the `.agents/skills/` directory at the repo root — see each template's own `.agents/skills/` for what it inherits.
 
@@ -141,7 +163,7 @@ Create a skill when:
 Don't create a skill when:
 
 - The guidance already exists in another skill — extend it instead
-- The guidance is a one-off — put it in `AGENTS.md` or workspace memory instead
+- The guidance is a one-off — put it in `AGENTS.md` or agent memory instead
 
 ## Skill format {#skill-format}
 
@@ -209,6 +231,27 @@ scope: dev
 ```
 
 When `scope` is absent (or set to an unrecognized value) it defaults to `both`, so every existing skill keeps loading at runtime — this field is fully backward compatible. A `scope: dev` skill is invisible to the runtime agent everywhere: it is excluded from the skills block injected into the system prompt and from `docs-search` results.
+
+### Hiding a skill from the `/` picker {#user-invocable}
+
+A separate `user-invocable` frontmatter field controls whether a skill shows up in the `/`-command picker — independent of `scope`, which controls whether the runtime agent loads the skill at all.
+
+```markdown
+---
+name: learn
+description: >-
+  Review the conversation and save structured memories for future sessions.
+user-invocable: true
+---
+```
+
+| `user-invocable`   | Appears in the `/` picker? | Still loaded and usable by the agent?                     |
+| ------------------ | -------------------------- | --------------------------------------------------------- |
+| _(unset, default)_ | Yes                        | Yes                                                       |
+| `true`             | Yes                        | Yes                                                       |
+| `false`            | No                         | Yes — the agent can still invoke it on its own initiative |
+
+Use `user-invocable: false` for a skill that should stay fully loaded and available to the agent, but isn't something a user should type `/skill-name` to trigger directly.
 
 ### Exposing a dev-only skill to your coding agent {#dev-only-skills}
 
@@ -299,11 +342,11 @@ This replaces the old hack of relying on Claude Code only reading `.claude/skill
 
 </Callout>
 
-If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill or shared `LEARNINGS.md`. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `memory/MEMORY.md`. See [Agent Resources — Memory](/docs/workspace#memory) for the full treatment.
+If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill or shared `LEARNINGS.md`. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `memory/MEMORY.md`. See [Agent Resources — Memory](/docs/agent-resources#memory) for the full treatment.
 
 ## Skills vs SQL resources {#skills-vs-resources}
 
-This page frames a skill as a file at `.agents/skills/<name>/SKILL.md`. [Agent Resources](/docs/workspace#skills) frames the same skill as a SQL resource at path `skills/<slug>/SKILL.md`, scoped workspace/shared/personal. These are the same concept from two angles: Code mode reads and writes the file directly; App mode stores it as a resource row so it works without a filesystem. Author the content using this page's format either way.
+This page frames a skill as a file at `.agents/skills/<name>/SKILL.md`. [Agent Resources](/docs/agent-resources#skills) frames the same skill as a SQL resource at path `skills/<slug>/SKILL.md`, scoped workspace/shared/personal. These are the same concept from two angles: Code mode reads and writes the file directly; App mode stores it as a resource row so it works without a filesystem. Author the content using this page's format either way.
 
 ## App-backed skills — full details {#app-backed-skills-full}
 
@@ -384,6 +427,19 @@ also registers the MCP connector. `BuilderIO/agent-native` is a real GitHub
 repository source for the Vercel/open Skills CLI; `skills.sh` is a discovery and
 leaderboard directory, not an npm-style package namespace.
 
+`app-skill pack` also emits a standard Agent Plugin at the bundle root:
+`plugin.json`, `mcp.json`, and the exported `skills/` directories. Import that
+portable bundle into an Agent-Native workspace with:
+
+```bash
+npx @agent-native/core@latest plugin import ./dist/assets-skill --into . --yes
+```
+
+The importer namespaces Skills under `skills/<plugin>/<skill>`, maps remote
+Streamable HTTP MCP servers into `mcp.config.json`, and ignores package headers
+so they cannot become workspace credentials. Stdio and SSE servers are reported
+and skipped. Authentication remains an app or host Connections concern.
+
 The Claude Code marketplace adapter writes
 `adapters/claude-marketplace/.claude-plugin/marketplace.json` plus a nested
 plugin directory containing `skills/<name>/SKILL.md` and `.mcp.json`. In Claude
@@ -428,6 +484,6 @@ the same instructions without maintaining a second copy.
 ## What's next {#whats-next}
 
 - [**Writing Agent Instructions**](/docs/writing-agent-instructions) — word skill descriptions and split guidance across AGENTS.md, skills, and memory
-- [**Agent Resources**](/docs/workspace#skills) — where skills live as SQL resources in App mode
+- [**Agent Resources**](/docs/agent-resources#skills) — where skills live as SQL resources in App mode
 - [**Agent Mentions**](/docs/agent-mentions) — the `/`-command trigger that invokes a skill in chat
 - [**Plan plugin & marketplace**](/docs/plan-plugin) — a real app-backed skill's end-to-end install and auto-update flow

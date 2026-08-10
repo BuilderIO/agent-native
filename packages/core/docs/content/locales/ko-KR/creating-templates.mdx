@@ -9,6 +9,14 @@ description: "자신만의 에이전트 기반 앱 템플릿을 만들고 게시
 
 `@agent-native/core`는 runtime contract에 사용하세요: actions, server plugins, database helpers, app state, routing helpers, agent chat입니다. `@agent-native/toolkit`은 shared primitives, toast/mobile hooks, date pickers, simple app shell slots 같은 reusable app-building UI와 helpers에 사용하세요. 제품 동작이나 visual identity를 담는 template-specific variants는 로컬에 유지하세요.
 
+기능의 위치를 정할 때 세 계층을 염두에 두세요.
+
+- **Core - 프레임워크:** 모든 앱이 사용할 수 있는 필수 런타임 및 데이터 계약입니다.
+- **Toolkit - 선택적 재사용 부품:** 앱이 채택, 조합 또는 포크할 수 있는 공유 UI와 제품 시스템입니다.
+- **Templates - 선택적 앱:** Core 위에 구축되고 흔히 Toolkit을 사용하는 완전한 도메인 제품이며 시작점으로 포크할 수 있습니다.
+
+Toolkit과 Templates는 선택 사항입니다. Template 자체가 프레임워크는 아니며 Toolkit이 Core를 대체하지 않습니다.
+
 좋은 템플릿:
 
 - 유용한 시드 데이터 또는 빈 상태 흐름을 사용하여 하나의 워크플로를 엔드 투 엔드로 해결합니다.
@@ -35,7 +43,7 @@ npx @agent-native/core@latest create my-platform
 
 Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구, 애플리케이션 상태, actions 및 폴링 동기화를 제공합니다. 도메인 모델과 제품 UI를 추가합니다.
 
-아직 재사용 가능한 UI 템플릿을 구축하지 않은 경우 [Getting Started](/docs/getting-started#1-create-your-app)에서 헤드리스 온램프를 사용하세요. 하나의 작업을 정의하고 `pnpm agent`로 실행한 후 나중에 워크플로에 내구성 있는 표면이 필요할 때 UI를 추가하세요.
+아직 재사용 가능한 UI 템플릿을 구축하지 않았다면 [Automation-First Apps](/docs/pure-agent-apps)를 사용하세요. 액션을 정의하고 브라우저 없이 실행한 다음 워크플로에 지속적인 화면이 필요할 때 UI를 추가하세요.
 
 ## 프로젝트 구조 {#project-structure}
 
@@ -495,11 +503,23 @@ Templates should fit naturally into [Multi-App Workspaces](/docs/multi-app-works
 4. 필요한 환경 변수 및 온보딩 단계를 문서화하세요.
 5. 추적된 런타임 데이터 파일이 아닌 추가 마이그레이션을 통해 예제 또는 시드 행을 포함합니다.
 
-GitHub 저장소에서 커뮤니티 템플릿을 생성할 수 있습니다:
+커뮤니티 템플릿은 공개 GitHub 저장소에서 직접 설치합니다. Agent Native 앱을 저장소 루트에 두세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+특정 리비전을 고정하려면 `#branch`, `#tag` 또는 `#commit`을 추가하세요.
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI는 소스만 다운로드하며 종속성을 설치하거나 템플릿 스크립트를 실행하지 않습니다. 커뮤니티 템플릿은 타사 코드이므로 `pnpm install`을 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.
+
+카탈로그에 등록하려면 루트의 완성된 앱, 라이선스와 설정 README가 있는 공개 저장소, `@agent-native/core` 종속성, 통과하는 타입 검사와 테스트가 필요합니다. 호스팅 데모와 스크린샷은 선택 사항입니다.
+
+저장소가 준비되면 [커뮤니티 템플릿을 제출](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)하세요. 커뮤니티 목록은 공식 카탈로그와 분리되며 작성자가 유지 관리합니다.
 
 ## 프레임워크 모노레포에 기여 {#contributing}
 

@@ -78,6 +78,7 @@ export {
   buildMergedConfig,
   builtinMergedConfigKey,
   startMcpConfigRefresh,
+  McpConfigUnreadableError,
   type ClientBuiltinCapability,
 } from "./routes.js";
 
@@ -166,6 +167,8 @@ import {
 
 export interface McpActionEntryOptions {
   invocationPolicy?: McpToolInvocationPolicy;
+  /** Restrict the generated entries to an explicit background capability set. */
+  toolNames?: readonly string[];
 }
 
 export function mcpToolsToActionEntries(
@@ -173,7 +176,11 @@ export function mcpToolsToActionEntries(
   options: McpActionEntryOptions = {},
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
+  const selectedToolNames = options.toolNames
+    ? new Set(options.toolNames)
+    : undefined;
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
+    if (selectedToolNames && !selectedToolNames.has(tool.name)) continue;
     entries[tool.name] = mcpToolToActionEntry(manager, tool, options);
   }
   return entries;
@@ -215,6 +222,12 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    planMode: {
+      effect: (args) =>
+        evaluateMcpToolCallPolicy({ mode: "read-only" }, tool, args).effect,
+      description:
+        "Plan mode allows MCP calls classified as read-only from annotations, operation names, and runtime arguments.",
+    },
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
     run: async (args: Record<string, unknown>) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it

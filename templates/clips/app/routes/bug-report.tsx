@@ -1,18 +1,15 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  BUG_REPORT_POPUP_RESPONSE_HEADERS,
   bugReportContextToSearchParams,
+  isBugReportSubmissionMessage,
   parseBugReportContext,
   type BugReportContext,
   type BugReportSeverity,
 } from "@shared/bug-report";
-import {
-  IconArrowRight,
-  IconBug,
-  IconExternalLink,
-  IconShieldCheck,
-} from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { IconBug, IconShieldCheck } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useOutlet } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -33,7 +30,11 @@ export function meta() {
   return [{ title: enMessages.bugReportRoute.pageTitle }];
 }
 
-function openRecorder(url: string) {
+export function headers() {
+  return BUG_REPORT_POPUP_RESPONSE_HEADERS;
+}
+
+function openRecorder(url: string): Window | null {
   const opened = window.open(
     url,
     "agent-native-clips-bug-report",
@@ -41,9 +42,19 @@ function openRecorder(url: string) {
   );
   if (!opened) {
     window.location.href = url;
-    return;
+    return null;
   }
   opened.focus();
+  return opened;
+}
+
+function originFor(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
 }
 
 export default function BugReportRoute() {
@@ -66,6 +77,7 @@ export default function BugReportRoute() {
     initialContext?.severity ?? "normal",
   );
   const [referrer, setReferrer] = useState<string | null>(null);
+  const recorderWindowRef = useRef<Window | null>(null);
 
   useEffect(() => {
     setReferrer(document.referrer || null);
@@ -75,6 +87,26 @@ export default function BugReportRoute() {
   const pageTitle = initialContext?.pageTitle ?? null;
   const sourceLabel =
     pageTitle || sourceUrl || t("bugReportRoute.sourceUnknown");
+  const hostOrigin = originFor(initialContext?.returnUrl ?? sourceUrl);
+
+  useEffect(() => {
+    if (!hostOrigin) return;
+    const relaySubmission = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (
+        recorderWindowRef.current &&
+        event.source !== recorderWindowRef.current
+      ) {
+        return;
+      }
+      if (!isBugReportSubmissionMessage(event.data)) return;
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(event.data, hostOrigin);
+      }
+    };
+    window.addEventListener("message", relaySubmission);
+    return () => window.removeEventListener("message", relaySubmission);
+  }, [hostOrigin]);
 
   if (outlet) return outlet;
 
@@ -99,7 +131,9 @@ export default function BugReportRoute() {
     params.set("intent", "bug-report");
     params.set("mode", "screen");
     params.set("surface", "browser");
-    openRecorder(`${appBasePath()}/record?${params.toString()}`);
+    recorderWindowRef.current = openRecorder(
+      `${appBasePath()}/record?${params.toString()}`,
+    );
   };
 
   return (
@@ -206,9 +240,7 @@ export default function BugReportRoute() {
             </div>
 
             <Button className="h-11 w-full" onClick={startRecording}>
-              <IconExternalLink size={18} />
               {t("bugReportRoute.startRecording")}
-              <IconArrowRight size={18} className="ms-auto" />
             </Button>
           </div>
 

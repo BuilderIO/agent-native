@@ -18,6 +18,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   readLiveSourceFile,
+  SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -303,36 +304,28 @@ export default defineAction({
       );
     }
 
-    // Read the LIVE base (collab text when present, else the SQL row) right
-    // before transforming, and carry its versionHash through to the write
-    // below. writeInlineSourceFile re-reads the live text immediately before
-    // its own applyText/DB write and rejects if it no longer matches this
-    // hash — closing the race window where a concurrent editor/agent write
-    // lands between this read and the persist (the same stale-diff-base bug
-    // fixed for insert-design-native-asset.ts and insert-asset.ts: a diff
-    // computed from a stale base, char-diffed into a collab doc that has
-    // since moved on, corrupts or drops the other writer's change).
-    const workspaceFile: SourceWorkspaceFile = {
-      id: file.id,
-      designId: file.designId,
-      filename: file.filename ?? "",
-      fileType: file.fileType ?? "html",
-      content: file.content,
-      createdAt: null,
-      updatedAt: null,
-    };
-    const live = await readLiveSourceFile(workspaceFile);
-    const base = live.content;
-
     const resolvedMode =
       mode ??
       (replacementContent !== undefined ? "replace-file" : "search-replace");
-    const { content: nextContent, applied } =
-      resolvedMode === "replace-file"
-        ? { content: replacementContent ?? "", applied: 0 }
-        : applySearchReplaceEdits(base, edits ?? []);
-    const changed = nextContent !== base;
 
+    // A concurrent human/agent write can land between reading the live file
+    // and persisting this edit (writeInlineSourceFile throws
+    // SourceWorkspaceEditConflictError when that happens — see its own
+    // comment for the CAS/collab details). search-replace edits are anchored
+    // to specific text rather than a stale full snapshot, so on conflict we
+    // can just re-read the fresh content and reapply the SAME edits against
+    // it instead of forcing the agent to make a separate get-design-snapshot
+    // round trip and guess again. replace-file sends a full document computed
+    // from a point-in-time snapshot — retrying that blind could silently
+    // clobber whatever the concurrent writer did, so it still fails closed on
+    // the first conflict.
+    const MAX_EDIT_CONFLICT_RETRIES = 2;
+
+    let live: Awaited<ReturnType<typeof readLiveSourceFile>>;
+    let base = "";
+    let nextContent = "";
+    let applied = 0;
+    let changed = false;
     let creativeContext:
       | {
           contextMode: "off" | "auto" | "pinned";
@@ -352,7 +345,43 @@ export default defineAction({
         }
       | undefined;
 
-    if (changed) {
+    for (let attempt = 0; ; attempt += 1) {
+      // Refetch the SQL content on retries — readLiveSourceFile only falls
+      // back to this when no collab doc exists yet, so a conflict caused by
+      // a plain SQL writer (no live collab session) needs a fresh row here
+      // or every retry would recompute the exact same stale versionHash.
+      const currentContent =
+        attempt === 0
+          ? file.content
+          : (
+              await db
+                .select({ content: schema.designFiles.content })
+                .from(schema.designFiles)
+                .where(eq(schema.designFiles.id, file.id))
+                .limit(1)
+            )[0]?.content;
+
+      const workspaceFile: SourceWorkspaceFile = {
+        id: file.id,
+        designId: file.designId,
+        filename: file.filename ?? "",
+        fileType: file.fileType ?? "html",
+        content: currentContent,
+        createdAt: null,
+        updatedAt: null,
+      };
+      live = await readLiveSourceFile(workspaceFile);
+      base = live.content;
+
+      ({ content: nextContent, applied } =
+        resolvedMode === "replace-file"
+          ? { content: replacementContent ?? "", applied: 0 }
+          : applySearchReplaceEdits(base, edits ?? []));
+      changed = nextContent !== base;
+      creativeContext = undefined;
+
+      if (!changed) break;
+
       const previous =
         contextModeOverride === "off"
           ? null
@@ -439,6 +468,15 @@ export default defineAction({
           content: nextContent,
           expectedVersionHash: live.versionHash,
         });
+      } catch (error) {
+        if (
+          error instanceof SourceWorkspaceEditConflictError &&
+          resolvedMode === "search-replace" &&
+          attempt < MAX_EDIT_CONFLICT_RETRIES
+        ) {
+          continue;
+        }
+        throw error;
       } finally {
         agentLeaveDocument(file.id);
       }
@@ -448,6 +486,7 @@ export default defineAction({
         artifactId: designId,
         ...creativeContext,
       });
+      break;
     }
 
     return {

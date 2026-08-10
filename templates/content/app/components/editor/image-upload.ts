@@ -129,7 +129,7 @@ async function uploadMediaFile(
     const serverMessage = uploadResponseMessage(response, body, kind);
     if (isBuilderReconnectError(serverMessage)) {
       throw new Error(
-        "Builder.io is connected, but the saved connection was rejected. Reconnect Builder.io in Settings -> File uploads, then try again.",
+        "Builder.io is connected, but the saved connection was rejected. Reconnect Builder.io in Settings -> File uploads (free tier available), then try again.",
       );
     }
     if (
@@ -139,7 +139,7 @@ async function uploadMediaFile(
       )
     ) {
       throw new Error(
-        `${mediaUploadLabel(kind)} uploads need file storage. Connect Builder.io in Settings -> File uploads, then try again.`,
+        `${mediaUploadLabel(kind)} uploads need file storage. Connect Builder.io in Settings -> File uploads (free tier available), then try again.`,
       );
     }
     throw new Error(serverMessage);

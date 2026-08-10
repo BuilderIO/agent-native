@@ -256,9 +256,12 @@ export function DashboardFilterBar({
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="group rounded-lg border border-border bg-card px-3 py-2"
+        className="group rounded-lg bg-card px-3 py-2"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
+          <span className="self-center text-xs font-medium text-muted-foreground group-data-[state=open]:hidden">
+            {t("sqlDashboard.filters")}
+          </span>
           <CollapsibleContent className="min-w-0 flex-1">
             <div className="flex flex-wrap gap-3 items-end">
               {uniqueFilters.map((f) => (
@@ -426,8 +429,8 @@ function FilterControl({
           value={current}
           onValueChange={(v) => setValue({ [filter.id]: v })}
         >
-          <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue className="flex-1 text-left" />
+          <SelectTrigger className="h-8 w-[140px] justify-start gap-2 text-xs">
+            <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
             {filter.options?.map((opt) => (

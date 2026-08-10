@@ -1,5 +1,6 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import type { ColorValue } from "react-native";
 import { View, Text, TouchableOpacity } from "react-native";
 
 const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
@@ -15,6 +16,7 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Database: "database",
   MessageSquare: "message-square",
   Route: "shuffle",
+  Users: "users",
   ListCheck: "check-square",
   Settings: "settings",
 };
@@ -23,14 +25,14 @@ function getFeatherIcon(iconName: string): keyof typeof Feather.glyphMap {
   return ICON_MAP[iconName] ?? "box";
 }
 
-function AppIcon({
+export function AppIcon({
   iconName,
   size,
   color,
 }: {
   iconName: string;
   size: number;
-  color: string;
+  color: ColorValue;
 }) {
   if (iconName === "Brain") {
     return <MaterialCommunityIcons name="brain" size={size} color={color} />;

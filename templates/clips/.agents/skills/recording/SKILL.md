@@ -59,6 +59,16 @@ routes with native capture primitives:
 Mobile audio M4A is an MP4 container and uses the recording route's MP4 MIME
 alias. The bytes are not converted or loaded whole into JavaScript memory.
 
+Because the phone persists each audio/video file before any network work and
+resumes bounded chunk uploads from its durable queue, a transient upload failure
+never loses the capture. Do not ask users to keep a capture screen open or to
+re-record after a failed upload; tell them to reconnect Clips and retry the
+saved job from mobile Home.
+
+Mobile meeting capture is microphone-only; never claim it has the desktop
+mic-plus-system-audio fidelity. See the **meetings** skill for what that means
+for attendee attribution.
+
 ## Seekable playback (don't ship raw MediaRecorder output)
 
 Raw `MediaRecorder` files are not friendly to progressive HTTP playback, which
@@ -109,6 +119,12 @@ dimensions. When Loom exposes a signed public transcript JSON URL on the share
 page, the action imports that transcript into Clips and stores normalized
 segments; never store Loom's signed CDN URLs.
 
+When Loom exposes a downloadable public MP4, `import-loom-recording` downloads
+it, reuploads the bytes to Clips storage, and creates a ready, playable
+Clips-hosted recording, importing Loom's public transcript when the share page
+exposes one. If Loom does not expose a downloadable MP4, ask the user to download
+the original from Loom and use "Upload video".
+
 Loom imports are embed-backed, not Clips-owned video files. The player renders a
 Loom iframe and the native Clips editor is hidden for those recordings. If the
 user needs Clips-native trimming, exports, frame extraction, or upload-based
@@ -131,6 +147,35 @@ most seamless native capture. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=0` to hid
 the Chrome option again, or `VITE_CLIPS_CHROME_EXTENSION_URL` to point at a
 different listing.
 
+`save-browser-diagnostics` is UI/internal. It stores bounded console logs plus
+fetch/XHR method, URL path/query keys, status, and duration. It never captures
+headers, bodies, cookies, or network URL query values. Console text keeps useful
+non-secret values while redacting credential-looking keys and headers. Use
+`get-recording-player-data` for the full diagnostics payload when you have
+editor access; see the **video-sharing** skill for the narrower redacted stream
+that public agent context exposes.
+
+## Chrome extension
+
+The extension lives in `chrome-extension/`. It launches `/record` with
+`clipsExtensionId` and `clipsCaptureSessionId`, and the recorder sends
+`CLIPS_CAPTURE_START` / `CLIPS_CAPTURE_STOP` / `CLIPS_CAPTURE_CANCEL` back to the
+extension. It uses the Chrome debugger API only on the tab the user launched
+from, only while a recording is active, and returns the same redacted
+diagnostics shape saved by `save-browser-diagnostics`.
+
+The extension also enhances GitHub issue and PR markdown: a narrow `github.com`
+content script detects Clips `/r/`, `/share/`, and `/embed/` links, then renders
+the existing `/embed/:id` player in an extension-owned preview iframe so the
+video is playable without leaving GitHub. Keep this scoped to GitHub unless there
+is a deliberate permission review.
+
+## Folders, spaces, and bulk moves
+
+Use `move-recording` for both single and bulk folder moves. Pass `id` for one
+clip or `ids` for the selected clips, and `folderId: null` to move them to the
+library or space root.
+
 ## Pause / resume
 
 `MediaRecorder.pause()` / `.resume()` are supported in all evergreen browsers. Keep a single `MediaRecorder` instance across pauses — don't tear down the stream, or the permission prompt will fire again. While paused, the upload worker keeps draining its buffer so we catch up before the user stops.
@@ -143,6 +188,59 @@ When mode is `screen+camera`, "the bubble" is two different things:
 - **Recorded composite.** Display capture can't include that DOM element once the user records another window/app, so the saved video has to bake the camera circle in before `MediaRecorder` ever sees a frame. `createCameraCompositeStream` (`app/lib/camera-composite.ts`) draws the display video plus a clipped, mirrored camera circle onto an offscreen `<canvas>` and feeds `canvas.captureStream()` into a single `MediaRecorder`. There is **no** second `MediaRecorder` and **no** server-side ffmpeg stitching — the composite happens client-side, live, before upload.
 
 Because that draw loop runs continuously for the whole recording, keep its CPU/GPU cost bounded: a Worker-based timer drives the draw loop at the capture frame rate (`SCREEN_CAPTURE_FRAME_RATE`, 24fps — falling back to `requestAnimationFrame` only if Worker creation fails, e.g. under a strict CSP), the canvas is hard-capped to 1080p-class dimensions (1920px on its longest edge) even if the source display track is Retina/4K, and the bubble's drop shadow is pre-rendered into a small cached sprite (keyed by bubble size) instead of re-blurring with `shadowBlur` every frame.
+
+## Restart (desktop)
+
+Restart throws the current take away and immediately starts another one. It
+must never re-acquire the screen: the toolbar click reaches the popover through
+async Tauri IPC, which carries no user activation, so a second `getDisplayMedia`
+would throw. Instead the dying session hands its live display and mic streams to
+the replacement — `RecorderHandle.discardForRestart()` returns a `RestartHandoff`
+that `startRecording` accepts as `preAcquiredDisplayStream` /
+`preAcquiredAudioStream`.
+
+Ownership is the opposite of the camera's. The popover owns the camera stream for
+the whole session and re-hands it unchanged, so restart must not bump
+`bubbleSessionEpoch` or clear `bubbleStreamTransferredToRecorder`. The handed-off
+display and mic streams belong to the **recorder**, so the new session stops them
+on its own stop/cancel, and whoever asked for the restart must stop them if the
+new session never comes up.
+
+`cancel()` and `discardForRestart()` share one `discardTake(forRestart)` per
+backend, and the difference is which teardown they run. Cancel ends the
+*session*: `hide_overlays` (which destroys the camera bubble window too) and
+`clearRecordingState()`. A restart ends only the *take*, so it uses
+`hide_recording_chrome`, which spares the bubble, and leaves the recording state
+active.
+
+Stop, cancel and restart are mutually exclusive terminal transitions, so each
+gets its own promise slot — never reuse `cancelPromise` for a discard, or a
+cancel arriving mid-restart returns the take-level teardown and the session
+never ends. A cancel that lands after a discard still owes the session half,
+plus stopping the capture the retake never took ownership of. On the app side
+`restartInFlightRef` latches synchronously so stop and cancel events cannot act
+on the recorder a restart is already tearing down.
+
+Native full-screen backends re-acquire capture in Rust and hand off nothing.
+`resolveRestartHandoff` vets the inherited streams before anything is acquired,
+and it treats the two kinds of capture differently: an ended display share is
+fatal and fails with `RESTART_CAPTURE_ENDED_MESSAGE`, because re-acquiring it
+would surface an activation error that names the wrong cause, while an ended
+microphone is just dropped and re-acquired normally. A restart also has to wait
+for the old take's `transcriptionCapture.cancel()` — the engine is process-global
+(`audio_transcription_stop` / `native_speech_stop`), so a late cancel would stop
+the replacement's engine. And `stop()` after a discard must throw rather than
+answer with the discarded take's id, or an aborted recording gets published as a
+finished one. The
+recording-flow latches (`recordingFlowGateRef`, `recordingFlowActive`,
+`clipsForceAlive`, `set_recording_state`) stay held across the restart; releasing
+them the way cancel does lets the popover blur auto-hide fire mid-restart.
+
+Holding those latches has a catch. The `show_toolbar` effect is keyed on
+`isRecording || recordingFlowActive`, so it does not re-run when the flow never
+leaves — but the discard already closed the toolbar window. Restart therefore
+bumps `recordingChromeEpoch` to rebuild it. The countdown needs no such nudge;
+the recorder recreates it on every start.
 
 ## Error recovery
 

@@ -9,6 +9,14 @@ Vorlagen sind vollständige, forkbare agentennative Apps, die einen echten Arbei
 
 Verwenden Sie `@agent-native/core` für den Laufzeitvertrag: Actions, Server-Plugins, Datenbank-Helfer, App-State, Routing-Helfer und Agent-Chat. Verwenden Sie `@agent-native/toolkit` für wiederverwendbare App-Building-UI und Helfer wie gemeinsame Primitives, Toast- und Mobile-Hooks, Date-Picker und einfache App-Shell-Slots. Halten Sie template-spezifische Varianten lokal, wenn sie Produktverhalten oder visuelle Identität kodieren.
 
+Behalten Sie bei der Zuordnung einer Funktion die drei Ebenen im Blick:
+
+- **Core - das Framework:** der erforderliche Laufzeit- und Datenvertrag, den jede App nutzen kann.
+- **Toolkit - optionale wiederverwendbare Teile:** gemeinsame UI- und Produktsysteme, die Apps übernehmen, zusammensetzen oder forken können.
+- **Templates - optionale Apps:** vollständige Domänenprodukte auf Core, die häufig Toolkit nutzen und als Ausgangspunkt geforkt werden können.
+
+Toolkit und Templates sind optional. Ein Template ist nicht das Framework selbst, und Toolkit ersetzt Core nicht.
+
 Eine gute Vorlage:
 
 - Löst einen Workflow durchgängig, mit nützlichen Seed-Daten oder einem Leerzustandsfluss.
@@ -35,7 +43,7 @@ npx @agent-native/core@latest create my-platform
 
 Chat bietet Ihnen Authentifizierung, dauerhafte Chat-Threads, von SQL unterstützte Ressourcen, Tools, Anwendungsstatus, actions und Abfragesynchronisierung. Sie fügen das Domänenmodell und das Produkt UI hinzu.
 
-Wenn Sie noch keine wiederverwendbare UI-Vorlage erstellen, verwenden Sie die kopflose Auffahrt in [Getting Started](/docs/getting-started#1-create-your-app): Definieren Sie eine Aktion, führen Sie sie mit `pnpm agent` aus und fügen Sie UI später hinzu, wenn der Workflow eine dauerhafte Oberfläche benötigt.
+Wenn Sie noch keine wiederverwendbare UI-Vorlage erstellen, verwenden Sie [Automation-First Apps](/docs/pure-agent-apps): Definieren Sie Aktionen, führen Sie sie ohne Browser aus und fügen Sie später UI hinzu, wenn der Workflow eine dauerhafte Oberfläche benötigt.
 
 ## Projektstruktur {#project-structure}
 
@@ -495,11 +503,23 @@ Vor dem Teilen:
 4. Dokumentieren Sie die erforderlichen Umgebungsvariablen und Onboarding-Schritte.
 5. Fügen Sie Beispiele oder Seed-Zeilen durch additive Migrationen ein, nicht durch verfolgte Laufzeitdatendateien.
 
-Community-Vorlagen können aus einem GitHub-Repo erstellt werden:
+Community-Vorlagen werden direkt aus einem öffentlichen GitHub-Repository installiert. Die Agent-Native-App muss im Stammverzeichnis liegen:
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+Mit `#branch`, `#tag` oder `#commit` kann eine bestimmte Version festgelegt werden:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+Die CLI lädt nur den Quellcode herunter. Sie installiert keine Abhängigkeiten und führt keine Skripte der Vorlage aus. Community-Vorlagen sind Drittanbieter-Code; prüfe Repository, Lizenz, Abhängigkeiten und Installationsskripte vor `pnpm install`.
+
+Für eine Aufnahme in den Community-Katalog braucht die Vorlage eine vollständige App im Repository-Stamm, ein öffentliches Repository mit Lizenz und Setup-README, eine Abhängigkeit von `@agent-native/core` sowie erfolgreiche Typprüfungen und Tests. Eine gehostete Demo und ein Screenshot sind optional.
+
+[Community-Vorlage einreichen](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml), wenn das Repository bereit ist. Community-Einträge bleiben vom kleineren First-Party-Katalog getrennt und werden von ihren Autoren gepflegt.
 
 ## Beitrag zum Framework Monorepo {#contributing}
 

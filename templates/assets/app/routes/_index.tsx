@@ -35,7 +35,7 @@ const CHAT_STARTERS = [
 ] as const;
 
 const SEO_TITLE =
-  "Agent-Native Assets - Open Source AI asset library for brand-safe images and video";
+  "Assets - Open Source AI asset library for brand-safe images and video";
 const SEO_DESCRIPTION =
   "Open Source asset manager for AI teams to organize brand libraries, search creative work, and generate on-brand images and videos.";
 
@@ -59,6 +59,13 @@ export default function CreatePage() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
+  const threadUrlSync = threadId
+    ? {
+        routeThreadId: threadId,
+        getPath: chatThreadPath,
+        navigate,
+      }
+    : undefined;
   const imageModelMenu = useImageModelMenu();
 
   useEffect(() => {
@@ -82,11 +89,7 @@ export default function CreatePage() {
         className="assets-create-chat-panel"
         defaultMode="chat"
         storageKey={ASSETS_CHAT_STORAGE_KEY}
-        threadUrlSync={{
-          routeThreadId: threadId ?? null,
-          getPath: chatThreadPath,
-          navigate,
-        }}
+        threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
         threadFooterSlot={({ threadId }) => (
           <GenerationResults threadId={threadId} />

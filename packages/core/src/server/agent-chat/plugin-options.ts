@@ -5,9 +5,11 @@ import type {
   AgentChatReference,
   MentionProvider,
 } from "../../agent/types.js";
+import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
+import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 
 /** Shape of a Nitro plugin function: receives the Nitro app instance at
  * startup and may register routes/hooks synchronously or asynchronously. */
@@ -68,21 +70,24 @@ export interface AgentChatPluginOptions {
         | Promise<Record<string, MentionProvider>>);
   /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
-  /** Optional MCP server branding surfaced during the initialize handshake. */
+  /**
+   * Everything about this app's MCP mount — whether it is mounted, which tools
+   * external callers see, and the branding sent during the `initialize`
+   * handshake. See `AgentChatMcpOptions`.
+   *
+   * Replaces the top-level `disableMcp`, `mcpServerInfo`, `connectorCatalog`,
+   * and `externalAgents`, which stay accepted for one minor. Setting both
+   * forms to disagreeing values throws at plugin init rather than silently
+   * picking one.
+   */
+  mcp?: AgentChatMcpOptions;
+
+  /** @deprecated Use `mcp.title` / `mcp.description` / `mcp.websiteUrl` / `mcp.icons`. */
   mcpServerInfo?: {
-    /** Human-facing title. Defaults to the capitalized app id/name. */
     title?: string;
-    /** Host-facing description. Defaults to "Agent-native <app> agent". */
     description?: string;
-    /** Canonical app URL. Relative URLs are resolved against the request origin. */
     websiteUrl?: string;
-    /** App icons. Relative `src` values are resolved against the request origin. */
-    icons?: Array<{
-      src: string;
-      mimeType?: string;
-      sizes?: string[];
-      theme?: "light" | "dark";
-    }>;
+    icons?: AgentChatMcpIcon[];
   };
   /**
    * Optional callback to resolve the org ID for the current request.
@@ -217,6 +222,15 @@ export interface AgentChatPluginOptions {
    */
   initialToolNames?: string[];
   /**
+   * Controls whether broad provider/corpus tools and their workflow prompt are
+   * loaded into the first model request. Use `"lazy"` for apps that can answer
+   * ordinary lookups from a compact curated tool set; corpus tools remain
+   * discoverable through tool-search and the full retry surface.
+   *
+   * @default "initial"
+   */
+  corpusTools?: "initial" | "lazy";
+  /**
    * Use a compact system prompt with on-demand context loading. The system
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
@@ -252,6 +266,29 @@ export interface AgentChatPluginOptions {
    */
   nativeActionsInDev?: boolean;
   /**
+   * Which of the framework's OWN agent tools this app exposes — raw SQL,
+   * extensions, sharing, review comments, version history, feature flags,
+   * localization, audit, context X-Ray, profile, automations, docs, resources,
+   * web, cross-app delegation, chat, email.
+   *
+   * Every group defaults to today's behavior, so omitting this leaves the tool
+   * surface unchanged. `"minimal"` (or `{ preset: "minimal" }`) turns them all
+   * off for voice-first and single-purpose apps; an explicit group key wins over
+   * the preset.
+   *
+   * Disabling a group removes it from the AGENT surfaces only — chat, MCP, A2A,
+   * background runs. The matching HTTP action routes stay mounted because the UI
+   * reaches them through client hooks. Weigh the parity cost first: the
+   * framework's contract is that anything the UI can do, the agent can do, so
+   * `sharing: false` alongside a visible `ShareButton` is a deliberate break and
+   * only makes sense when the app has no such surface.
+   *
+   * Independent of this option, framework tools are no longer promoted into the
+   * first model request by default — they are reachable through `tool-search`,
+   * or by naming them in `initialToolNames`.
+   */
+  frameworkTools?: FrameworkToolsConfig;
+  /**
    * Expose raw SQL/native database tools to the app agent.
    *
    * Defaults to `"read"`: `db-schema`/`db-query` are available for inspection,
@@ -259,14 +296,20 @@ export interface AgentChatPluginOptions {
    * `true`) to expose `db-exec`/`db-patch` for scoped raw SQL maintenance.
    * Set to `"off"` (also `false`) for chat-first apps that want agents to use
    * typed actions only.
+   *
+   * @deprecated Use `frameworkTools: { database: … }`. Still honored for one
+   * minor; setting both to conflicting values throws at plugin init.
    */
   databaseTools?: DatabaseToolsOption;
   /**
    * Expose framework extension management actions (`create-extension`,
    * `update-extension`, `list-extensions`, etc.) to the app agent. Defaults to
-   * true. Set to false for apps that do not want the LLM to create or manage
-   * sandboxed extension mini-apps, even though the core extension routes may
-   * still be mounted for other surfaces.
+   * false. Set to true for apps that intentionally let the LLM create or
+   * manage sandboxed extension mini-apps. Core extension routes may still be
+   * mounted for compatibility and app-owned surfaces.
+   *
+   * @deprecated Use `frameworkTools: { extensions: … }`. Still honored for one
+   * minor; setting both to conflicting values throws at plugin init.
    */
   extensionTools?: boolean;
   /**
@@ -320,26 +363,35 @@ export interface AgentChatPluginOptions {
    * claim in their connect-minted JWT) or the deployment-wide
    * `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
    *
-   * Declare here rather than in MCPConfig directly; the plugin copies it through.
+   * @deprecated Use `mcp.connectorCatalog`.
    */
   connectorCatalog?: string[];
 
-  /**
-   * Default authenticated external-agent policy. In `auto` read mode, every
-   * action explicitly marked as GET + readOnly + publicAgent.requiresAuth is
-   * added to the connector surface automatically. Writes remain ask_app-only
-   * unless `writes: "allowlisted"` is explicitly selected.
-   */
+  /** @deprecated Use `mcp.externalAgents`. */
   externalAgents?: ExternalAgentPolicy;
 
   /**
-   * Skip mounting the remote MCP protocol route.
-   *
-   * Most apps should leave this off so agent chat, A2A, and MCP share one
-   * runtime. Hosted apps with a dedicated early MCP plugin can set this to
-   * true so their external connector does not depend on the heavier chat
-   * plugin initialization path.
+   * Allow this app's A2A agent to delegate to a different app through the
+   * built-in `call-agent` tool. Enabled by default so a receiver keeps the
+   * same cross-app capability as its interactive agent. Set false only for an
+   * intentionally isolated app. Core enforces a bounded delegation path so
+   * cycle safety does not depend on removing the tool.
    */
+  a2aAgentDelegation?: boolean;
+
+  /**
+   * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter
+   * than interactive chat because every retained tool result is re-sent on
+   * later iterations and delegated callers need a compact answer, not a raw
+   * transcript. Apps may raise one limit deliberately for proven workloads.
+   */
+  delegatedRunPolicy?: {
+    maxIterations?: number;
+    maxRunInputTokens?: number;
+    maxToolResultChars?: number;
+  };
+
+  /** @deprecated Use `mcp: { enabled: false }`. */
   disableMcp?: boolean;
 
   /**
@@ -375,5 +427,17 @@ export interface AgentChatPluginOptions {
    * App-level default tool-call limits. Individual actions override these with
    * their own `timeoutMs` / `maxResultChars` declarations.
    */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  toolLimits?: {
+    timeoutMs?: number;
+    maxResultChars?: number;
+    /** Absolute cap applied even when an individual action declares more. */
+    hardMaxResultChars?: number;
+  };
+}
+
+/** Cross-app agent delegation is a workspace default; false is an isolation opt-out. */
+export function resolveA2AAgentDelegationEnabled(
+  options?: Pick<AgentChatPluginOptions, "a2aAgentDelegation">,
+): boolean {
+  return options?.a2aAgentDelegation !== false;
 }

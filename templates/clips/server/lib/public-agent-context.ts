@@ -31,6 +31,7 @@ import {
 } from "../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
+import { recordAgentView } from "./agent-views.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
@@ -290,6 +291,14 @@ export async function loadPublicAgentAccess(
     }
   }
 
+  // Every agent API route funnels through here, so this is the one place that
+  // sees an outside agent read a clip. Owner requests are previews, not views.
+  if (!viewerIsOwner) {
+    await recordAgentView(event, recording.id, {
+      agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
+    });
+  }
+
   return {
     ok: true,
     access: {
@@ -497,13 +506,13 @@ export function transcriptStatusInstructions(
 
   if (status === "failed" && lowerReason.includes("credits exhausted")) {
     return [
-      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits, or configure a Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not transcribe Clips recordings.",
+      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits (free tier available). Clips uses the browser/macOS native transcript first and Builder transcription on the original recording when native capture is unavailable.",
     ];
   }
 
   if (status === "failed" && failureReason) {
     return [
-      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying transcription or configuring the supported Builder.io/Groq transcription fallback.`,
+      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying native capture or the Builder transcription fallback.`,
     ];
   }
 

@@ -6,6 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { type ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import { injectDocumentMarkup } from "@agent-native/core/shared";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -54,6 +55,7 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
+import { runtimeStyleTarget } from "@/pages/design-editor/pending-edits";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -66,6 +68,7 @@ import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
+import { appendContentSizeReporter } from "./design-canvas/content-size-report";
 import {
   getScreenContentPointFromClient,
   getZoomToCursorScrollDelta,
@@ -97,11 +100,13 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 } from "./design-canvas/iframe-events";
 import {
   forwardEmbeddedCanvasPanMessage,
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
+import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import type { MotionTrackWire } from "./design-canvas/motion-types";
 import {
   PENDING_TEXT_EDIT_TIMEOUT_MS,
@@ -115,6 +120,7 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
   DeviceFrameType,
+  RuntimeStructureInsertRequest,
   RuntimeStructureMoveRequest,
   RuntimeVerificationRequest,
 } from "./types";
@@ -314,6 +320,29 @@ ${editorChromeBridgeScript}
  */
 const LIVE_REFLOW_ENABLED = true;
 
+/**
+ * Rollout gate: when on, a pointerdown inside the current selection's box keeps
+ * the selected element as the drag target even when an overlapping
+ * non-descendant sibling wins the hit test. Baked into the bridge as
+ * `__SELECTED_LAYER_DRAG_PRIORITY__`; flip to `false` for descendant-only
+ * behavior.
+ */
+const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
+
+/**
+ * A style replay into the live iframe. `runtimeSelector`/`runtimeSourceId` are
+ * the only pair that resolves in a localhost document — see
+ * `runtimeStyleTarget` for the two-namespace problem they exist for.
+ */
+type StyleReplayPatch = {
+  selector: string;
+  sourceId?: string | null;
+  runtimeSelector?: string | null;
+  runtimeSourceId?: string | null;
+  styles: Record<string, string>;
+  interactionState?: string;
+};
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -408,13 +437,12 @@ interface DesignCanvasProps {
   runtimeReplacementKey?: string;
   styleRevertRequest?: {
     requestId: number;
-    patches: Array<{
-      selector: string;
-      sourceId?: string | null;
-      styles: Record<string, string>;
-      interactionState?: string;
-    }>;
+    patches: Array<StyleReplayPatch>;
   } | null;
+  /** Steady-state live style previews replayed after this iframe document
+   * announces readiness. Entries are screen-scoped so a sibling canvas can
+   * never receive another screen's pending edit. */
+  pendingStylePreviewPatches?: Array<StyleReplayPatch & { screenId: string }>;
   styleBaselineResetRequest?: number | null;
   textRevertRequest?: {
     requestId: number;
@@ -431,6 +459,10 @@ interface DesignCanvasProps {
   } | null;
   /** One-shot host request to optimistically move a runtime-only layer. */
   runtimeStructureMoveRequest?: RuntimeStructureMoveRequest | null;
+  /** One-shot host request to insert new markup into the running DOM. */
+  runtimeStructureInsertRequest?: RuntimeStructureInsertRequest | null;
+  /** The bridge could not honor a runtimeStructureInsertRequest. */
+  onRuntimeStructureInsertRejected?: (reason: string) => void;
   /** Mounts a separate hidden runtime only after a guarded source hash
    * changes. The editable iframe remains untouched and fully undoable. */
   runtimeVerificationRequest?: RuntimeVerificationRequest | null;
@@ -473,6 +505,7 @@ interface DesignCanvasProps {
   onElementDblClickText?: (info: ElementInfo) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
+  onImagePaste?: (event: IframeImagePastePayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onEditorDragStateChange?: (active: boolean) => void;
   onVisualStructureChange?: (
@@ -489,6 +522,13 @@ interface DesignCanvasProps {
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
       anchorElementInfo?: ElementInfo;
+      /** Set when the subject is markup this change introduced, not an
+       * element the running app already had. */
+      insertedHtml?: string;
+      /** The inserted subject replaced the anchor as one undoable gesture. */
+      replaced?: true;
+      replacementSelector?: string;
+      replacementSourceId?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -533,6 +573,8 @@ interface DesignCanvasProps {
   selectedSelector?: string | null;
   selectedSelectorCandidates?: string[];
   selectedSelectorGroups?: string[][];
+  /** Visual treatment for selection mirrors in responsive peer previews. */
+  passiveSelectionStyle?: "default" | "soft";
   hoveredSelector?: string | null;
   hoveredSelectorCandidates?: string[];
   lockedSelectors?: string[];
@@ -616,6 +658,7 @@ interface DesignCanvasProps {
    * 100% height.
    */
   previewWidthPx?: number;
+  previewHeightPx?: number;
   /**
    * Shader-fill CSS preview to apply to a selected element inside the iframe.
    *
@@ -861,7 +904,7 @@ const LIVE_EDIT_SAME_INSTANCE_MAX_REARM_DELAY_MS = 16_000;
 const LIVE_EDIT_SAME_INSTANCE_ERROR_CEILING_MS = 48_000;
 
 // Successful bridge registrations belong to the localhost bridge process,
-// not to one React DesignCanvas instance. Overview -> Full view currently
+// not to one React DesignCanvas instance. Canvas -> responsive Interact
 // replaces the overview canvas component with a focused canvas component; a
 // component-local registration flag made that transition mount an empty
 // srcdoc first and then replace it with the live URL after an identical POST.
@@ -945,6 +988,10 @@ function buildEditorChromeBridgeScript(args: {
         "__LIVE_REFLOW_ENABLED__",
         LIVE_REFLOW_ENABLED ? "true" : "false",
       )
+      .replace(
+        "__SELECTED_LAYER_DRAG_PRIORITY__",
+        SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+      )
   );
 }
 
@@ -972,7 +1019,14 @@ function runtimeDocumentNeedsReload(
     Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
       "\n",
     );
-  return scriptSignature(previousContent) !== scriptSignature(nextContent);
+  // A changed <head> is replaced wholesale, which drops whatever the page's own
+  // runtime injected there and cannot re-run the scripts that produced it.
+  const headSignature = (html: string) =>
+    /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
+  return (
+    scriptSignature(previousContent) !== scriptSignature(nextContent) ||
+    headSignature(previousContent) !== headSignature(nextContent)
+  );
 }
 
 /**
@@ -1019,10 +1073,13 @@ export function DesignCanvas({
   runtimeReplacementContent,
   runtimeReplacementKey,
   styleRevertRequest,
+  pendingStylePreviewPatches,
   styleBaselineResetRequest,
   textRevertRequest,
   structureAckRequest,
   runtimeStructureMoveRequest,
+  runtimeStructureInsertRequest,
+  onRuntimeStructureInsertRejected,
   runtimeVerificationRequest,
   embeddedFrameBackground,
   transparentBackground = false,
@@ -1043,6 +1100,7 @@ export function DesignCanvas({
   onElementDblClickText,
   onIframeHotkey,
   onFigmaClipboardPaste,
+  onImagePaste,
   onIframeContextMenu,
   onEditorDragStateChange,
   onVisualStructureChange,
@@ -1058,6 +1116,7 @@ export function DesignCanvas({
   selectedSelector,
   selectedSelectorCandidates = [],
   selectedSelectorGroups = [],
+  passiveSelectionStyle = "default",
   hoveredSelector,
   hoveredSelectorCandidates = [],
   lockedSelectors = [],
@@ -1083,6 +1142,7 @@ export function DesignCanvas({
   motionDefaultEase,
   motionDurationMs,
   previewWidthPx,
+  previewHeightPx,
   onComponentSourceJump,
   shaderFillPreview,
   gradientEditTarget,
@@ -1156,21 +1216,87 @@ export function DesignCanvas({
     pendingOneShotMessagesRef.current = [];
     queued.forEach((message) => win.postMessage(message, "*"));
   }, []);
-  const postOneShotBridgeMessage = useCallback((message: unknown) => {
-    const iframe = iframeRef.current;
-    const win = iframe?.contentWindow;
-    // A one-shot prop can arrive in the same render that first creates the
-    // iframe. Keep it queued even when the ref/contentWindow is not attached
-    // yet; otherwise the effect records its request id as handled and the
-    // command is lost permanently before the bridge can announce readiness.
-    if (!win || !bridgeReadyRef.current) {
-      pendingOneShotMessagesRef.current.push(message);
-      return true;
-    }
-    win.postMessage(message, "*");
-    return true;
+  const bridgeReadinessProbeTimerRef = useRef<number | undefined>(undefined);
+  const probeBridgeReadinessUntilDrained = useCallback(() => {
+    if (bridgeReadinessProbeTimerRef.current !== undefined) return;
+    let attempts = 0;
+    const probe = () => {
+      const win = iframeRef.current?.contentWindow;
+      const drained = pendingOneShotMessagesRef.current.length === 0;
+      // 20 x 250ms covers a frame still finishing navigation without leaving a
+      // timer running against a frame that has no bridge at all (interact-mode
+      // documents never inject one, and must keep queueing as before).
+      if (!win || drained || attempts >= 20) {
+        window.clearInterval(bridgeReadinessProbeTimerRef.current);
+        bridgeReadinessProbeTimerRef.current = undefined;
+        return;
+      }
+      attempts += 1;
+      win.postMessage(
+        {
+          type: "agent-native:text-edit-status",
+          correlationId: "",
+          nodeId: "",
+        },
+        "*",
+      );
+    };
+    probe();
+    if (pendingOneShotMessagesRef.current.length === 0) return;
+    bridgeReadinessProbeTimerRef.current = window.setInterval(probe, 250);
   }, []);
+  useEffect(
+    () => () => {
+      if (bridgeReadinessProbeTimerRef.current !== undefined) {
+        window.clearInterval(bridgeReadinessProbeTimerRef.current);
+        bridgeReadinessProbeTimerRef.current = undefined;
+      }
+    },
+    [],
+  );
+  const postOneShotBridgeMessage = useCallback(
+    (message: unknown) => {
+      const iframe = iframeRef.current;
+      const win = iframe?.contentWindow;
+      // A one-shot prop can arrive in the same render that first creates the
+      // iframe. Keep it queued even when the ref/contentWindow is not attached
+      // yet; otherwise the effect records its request id as handled and the
+      // command is lost permanently before the bridge can announce readiness.
+      if (!win || !bridgeReadyRef.current) {
+        pendingOneShotMessagesRef.current.push(message);
+        // The readiness recovery in the message handler below is PASSIVE: it
+        // waits for the frame to say something first. A live-edit screen keeps
+        // its already-loaded iframe across a canvas remount, so a replacement
+        // instance never sees `editor-chrome-ready`, and an idle frame says
+        // nothing on its own — every inspector style commit then sat here
+        // reporting success while the running app never changed, until some
+        // unrelated hover/selection happened to talk and flushed the backlog.
+        // Ask instead of waiting: `agent-native:text-edit-status` is the
+        // cheapest bridge round trip (no DOM walk with an empty nodeId), its
+        // reply is a trusted message from the current frame, and that reply is
+        // what marks the bridge ready and drains this queue. A frame with no
+        // bridge attached simply never answers, so the queue keeps its original
+        // meaning.
+        // ...and keep asking. A single probe is fire-and-forget: if it lands
+        // while the frame is mid-navigation (or before its bridge listener is
+        // attached) nothing answers, and because the frame is otherwise idle
+        // nothing ever asks again — the queue strands and every queued command
+        // keeps reporting success. Undo of a live style edit is the visible
+        // case: the revert never reaches the running app. Retry on a bounded
+        // schedule and stop as soon as the queue drains.
+        if (win) probeBridgeReadinessUntilDrained();
+        return true;
+      }
+      win.postMessage(message, "*");
+      return true;
+    },
+    [probeBridgeReadinessUntilDrained],
+  );
   const [renderedContent, setRenderedContent] = useState(content);
+  // What a freshly loaded document already contains, since srcdoc is built from
+  // it. The load handler below needs this to skip redundant pushes.
+  const renderedContentRef = useRef(renderedContent);
+  renderedContentRef.current = renderedContent;
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -1340,8 +1466,11 @@ export function DesignCanvas({
   );
   // Keep the installed gesture script identical between overview and focused
   // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
-  // script changed the bridge key during Full view and defeated the
+  // script changed the bridge key during responsive Interact and defeated the
   // registration handoff cache, forcing an avoidable iframe navigation.
+  // interactMode remains baked: un-baking its first-paint safety flag made the
+  // responsive iframe render blank in live verification. The live message
+  // below is additive; it does not replace the correct initial script.
   const embeddedGestureBridgeForCurrentState = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
@@ -1378,10 +1507,6 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
   );
-  const hasLiveEditExternalFrame =
-    sourceType === "localhost" && Boolean(bridgeUrl && rawExternalPreviewUrl);
-  const hasAuthenticatedLiveEditExternalFrame =
-    hasLiveEditExternalFrame && Boolean(previewToken);
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && previewToken && rawExternalPreviewUrl);
@@ -1420,12 +1545,15 @@ export function DesignCanvas({
   // bridge, so crossing that boundary must use the latest persisted `content`
   // or native hover/focus/pressed behavior would run against the stale HTML
   // from before the inspector edits.
-  const iframeRenderContent =
-    !hasAuthenticatedLiveEditExternalFrame && activeExternalSnapshotHtml
-      ? activeExternalSnapshotHtml
-      : interactMode
-        ? content
-        : renderedContent;
+  //
+  // A localhost screen NEVER renders `activeExternalSnapshotHtml`. The snapshot
+  // is the editable source model only. Rendering it produced a frame that looked
+  // exactly like the running app but was a corpse: no live DOM to manipulate,
+  // layers parsed from frozen HTML, and every edit applied to markup the app had
+  // already moved past — a failure indistinguishable from success. A viewer with
+  // no bridge entitlement gets the real dev-server URL instead (see
+  // externalPreviewUrl below), which is live even without editor chrome.
+  const iframeRenderContent = interactMode ? content : renderedContent;
 
   const desktopNativeSnapshot = useDesktopDesignNativePreview({
     iframeRef,
@@ -1456,13 +1584,14 @@ export function DesignCanvas({
     editMode,
     hasLiveEditorBridge: usesLiveEditEditorBridge,
   });
+  // Null only while an entitled viewer's keyed bridge is still registering.
+  // During that interval the loading surface renders without an iframe; once
+  // registration succeeds, the one real proxied document mounts directly.
+  // A viewer with no previewToken has no bridge to wait for, so it loads the
+  // dev server directly rather than degrading to a snapshot.
   const externalPreviewUrl =
     liveEditExternalPreviewUrl ??
-    (hasLiveEditExternalFrame
-      ? null
-      : activeExternalSnapshotHtml
-        ? null
-        : rawExternalPreviewUrl);
+    (usesLiveEditInjectedBridge ? null : rawExternalPreviewUrl);
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -2080,14 +2209,10 @@ export function DesignCanvas({
   // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
   // never rebuilds srcdoc / reloads every screen iframe.
   const srcdoc = useMemo(() => {
-    if (externalPreviewUrl) return undefined;
-    // Never boot the raw localhost URL (or an editor-enabled srcdoc) while
-    // the keyed live-edit bridge is still registering. The opaque placeholder
-    // stays behind the visible loading surface; the real iframe mounts once,
-    // directly at the authenticated proxied document.
-    if (waitingForLiveEditBridge) {
-      return '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
-    }
+    // A URL-backed screen is never an inline document, including while its
+    // keyed bridge registration is pending. The loading surface waits without
+    // mounting an iframe, then mounts the real `src` exactly once.
+    if (rawExternalPreviewUrl) return undefined;
     const editorChromeBridge = interactMode
       ? ""
       : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -2124,6 +2249,10 @@ export function DesignCanvas({
           .replace(
             "__LIVE_REFLOW_ENABLED__",
             LIVE_REFLOW_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__SELECTED_LAYER_DRAG_PRIORITY__",
+            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
@@ -2132,6 +2261,7 @@ export function DesignCanvas({
     // static-fallback board thumbnails that call appendHitTestResponder.
     // Without this, a drop onto a live/active screen has no responder and
     // always falls through to the 50ms request timeout.
+    const imageDiagBridge = "";
     const bridgeToInject =
       MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
@@ -2140,25 +2270,18 @@ export function DesignCanvas({
       NAV_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
       embeddedGestureBridgeForCurrentState +
-      editorChromeBridge;
+      editorChromeBridge +
+      imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
-      content: iframeRenderContent,
+      content: withLocalRuntimes(iframeRenderContent),
       embeddedFrameBackground,
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
     });
     let frameDocument: string;
-    if (frameContent.includes("</body>")) {
-      frameDocument = frameContent.replace(
-        "</body>", // i18n-ignore generated iframe HTML injection
-        bridgeToInject + "</body>", // i18n-ignore generated iframe HTML injection
-      ); // i18n-ignore generated iframe HTML injection
-    } else if (frameContent.includes("</html>")) {
-      frameDocument = frameContent.replace(
-        "</html>", // i18n-ignore generated iframe HTML injection
-        bridgeToInject + "</html>", // i18n-ignore generated iframe HTML injection
-      ); // i18n-ignore generated iframe HTML injection
+    if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
+      frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
     } else {
       // No body/html tags — wrap it
       const frameStyle = [
@@ -2171,7 +2294,14 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${withLocalRuntimes(iframeRenderContent)}${bridgeToInject}</body></html>`;
+    }
+    // Overview frames report their own content height so the canvas can
+    // content-fit them (Framer-style). Embedded (overview) frames only — a
+    // focused single-screen view fills the viewport and must keep native
+    // 100vh/min-h-screen, which the reporter's guard would otherwise pin.
+    if (isEmbeddedFrame) {
+      frameDocument = appendContentSizeReporter(frameDocument);
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
@@ -2183,14 +2313,13 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     boardSurface,
-    externalPreviewUrl,
+    rawExternalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
     embeddedFrameBackground,
     embeddedGestureBridgeForCurrentState,
     iframeRenderContent,
     transparentBackground,
-    waitingForLiveEditBridge,
   ]);
 
   // PERF (soak measurement 2): contentHash walks the full srcdoc string
@@ -2216,13 +2345,15 @@ export function DesignCanvas({
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
   }
+  // No snapshot is ever painted over the live frame, not even for the few
+  // frames of a document swap. Covering the real iframe with a frozen copy is
+  // the same false-success shape as rendering the snapshot outright: when the
+  // swap stalls, the canvas keeps showing a screen that looks correct and
+  // responds to nothing. A brief flash is the honest signal.
   const liveEditDocumentPending =
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
-  const liveEditTransitionFallbackHtml = liveEditDocumentPending
-    ? activeExternalSnapshotHtml
-    : undefined;
 
   // Listen for messages from the iframe
   useEffect(() => {
@@ -2323,6 +2454,20 @@ export function DesignCanvas({
           setReadyIframeDocumentIdentity(null);
         }
         return;
+      }
+      // Any other trusted message from the CURRENT frame proves the chrome
+      // bridge is live in the document that is in the iframe right now.
+      // Readiness must follow the document, not the one-time handshake: a
+      // live-edit screen keeps its already-loaded iframe across a canvas
+      // remount, so a later instance never sees `editor-chrome-ready` and
+      // `bridgeReadyRef` stays false forever. Every one-shot command then
+      // lands in `pendingOneShotMessagesRef` and nothing ever flushes it —
+      // the drop, the text edit, the delete all report success and do
+      // nothing. Re-derive readiness here so the queue always drains.
+      if (trustedCurrentFrame && !bridgeReadyRef.current) {
+        bridgeReadyRef.current = true;
+        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
+        flushPendingOneShotMessages();
       }
       if (e.data.type === "agent-native:runtime-layer-snapshot") {
         const payload = e.data.payload;
@@ -2493,10 +2638,15 @@ export function DesignCanvas({
         }
         return;
       }
+      if (e.data.type === "runtime-structure-insert-rejected") {
+        onRuntimeStructureInsertRejected?.(String(e.data.reason || "unknown"));
+        return;
+      }
       if (e.data.type === "visual-structure-change") {
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
         const placement = String(e.data.placement || "after");
+        const replaced = e.data.replaced === true;
         dndHostLog("recv:structure-change", {
           selector,
           anchorSelector,
@@ -2552,14 +2702,16 @@ export function DesignCanvas({
             placement === "inside")
         ) {
           const applied = onVisualStructureChange?.(
-            selector,
-            anchorSelector,
+            replaced ? anchorSelector : selector,
+            replaced ? "" : anchorSelector,
             placement,
-            e.data.payload,
+            replaced && isElementInfoPayload(e.data.anchorPayload)
+              ? e.data.anchorPayload
+              : e.data.payload,
             {
               requestId,
-              sourceId,
-              anchorSourceId,
+              sourceId: replaced ? anchorSourceId : sourceId,
+              anchorSourceId: replaced ? undefined : anchorSourceId,
               dropMode,
               forceFlowPositionOverride:
                 e.data.forceFlowPositionOverride === true,
@@ -2568,6 +2720,17 @@ export function DesignCanvas({
               anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
                 ? e.data.anchorPayload
                 : undefined,
+              insertedHtml:
+                typeof e.data.insertedHtml === "string"
+                  ? e.data.insertedHtml
+                  : undefined,
+              ...(replaced
+                ? {
+                    replaced: true as const,
+                    replacementSelector: selector,
+                    replacementSourceId: sourceId,
+                  }
+                : {}),
             },
           );
           dndHostLog("persist:result", {
@@ -2682,6 +2845,27 @@ export function DesignCanvas({
         const content =
           typeof e.data.content === "string" ? e.data.content : "";
         if (content) onFigmaClipboardPaste?.({ content });
+        return;
+      }
+      if (e.data.type === "canvas-image-paste") {
+        const raw = Array.isArray(e.data.files) ? e.data.files : [];
+        const MAX_IMAGE_PASTE_FILES = 20;
+        const MAX_DATA_URL_BYTES = 20 * 1024 * 1024; // 20 MB per file
+        const files = raw
+          .slice(0, MAX_IMAGE_PASTE_FILES)
+          .filter(
+            (
+              f: unknown,
+            ): f is { dataUrl: string; type: string; name: string } => {
+              if (!f || typeof f !== "object") return false;
+              const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
+              if (typeof dataUrl !== "string") return false;
+              if (!dataUrl.startsWith("data:image/")) return false;
+              if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
+              return true;
+            },
+          );
+        if (files.length > 0) onImagePaste?.({ files });
         return;
       }
       if (e.data.type === "element-contextmenu") {
@@ -2876,9 +3060,11 @@ export function DesignCanvas({
     onElementDblClickText,
     onIframeHotkey,
     onFigmaClipboardPaste,
+    onImagePaste,
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,
+    onRuntimeStructureInsertRejected,
     onVisualDuplicateChange,
     onZoomChange,
     deviceFrame,
@@ -2969,6 +3155,7 @@ export function DesignCanvas({
       {
         type: "select-elements",
         selectorGroups: selectedSelectorGroups,
+        passiveSelectionStyle,
       },
       "*",
     );
@@ -2978,8 +3165,14 @@ export function DesignCanvas({
             type: "hover-element",
             selector: hoveredSelector,
             selectorCandidates: hoveredSelectorCandidates,
+            hoverStyle: passiveSelectionStyle,
           }
-        : { type: "hover-element", selector: "", selectorCandidates: [] },
+        : {
+            type: "hover-element",
+            selector: "",
+            selectorCandidates: [],
+            hoverStyle: passiveSelectionStyle,
+          },
       "*",
     );
     // Re-send motion tracks so the preview bridge is ready after a reload.
@@ -3038,6 +3231,7 @@ export function DesignCanvas({
     selectedSelector,
     selectedSelectorCandidates,
     selectedSelectorGroups,
+    passiveSelectionStyle,
     shaderFillPreview,
     spacePanActive,
     statePreviewTarget,
@@ -3212,15 +3406,33 @@ export function DesignCanvas({
   ]);
 
   // Overview/focused placement is presentation state, not document identity.
-  // Update gesture routing in place so entering Full view reuses the same
+  // Update gesture routing in place when entering responsive Interact.
   // registered bridge key instead of rebuilding the injected script.
+  //
+  // readyIframeDocumentIdentity is a dep purely to re-fire this on every
+  // (re)ready handshake: a document swap resets bridgeReadyRef and wipes
+  // pendingOneShotMessagesRef (see the contentKey-change effect above), which
+  // silently drops this message if it was still queued when the swap
+  // happened. Its own value isn't read here — only bridgeReadyRef.current
+  // (already true by the time the ready handler flips this state) matters,
+  // so re-running always sends live instead of re-queuing into the
+  // just-cleared queue.
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "embedded-canvas-gesture-mode",
-      wheelEnabled: isEmbeddedFrame,
+      wheelEnabled: isEmbeddedFrame && !interactMode,
       spaceKeyForwardingEnabled: interactMode || readOnly,
+      // Interact hands the app its own native interaction back; every other
+      // mode keeps the editing shield armed.
+      editingSafetyEnabled: !interactMode,
     });
-  }, [interactMode, isEmbeddedFrame, postOneShotBridgeMessage, readOnly]);
+  }, [
+    interactMode,
+    isEmbeddedFrame,
+    postOneShotBridgeMessage,
+    readOnly,
+    readyIframeDocumentIdentity,
+  ]);
 
   // The board iframe is a finite paint window over an infinite logical
   // canvas. Re-centering that window must update its CSS/bridge coordinate
@@ -3416,8 +3628,8 @@ export function DesignCanvas({
       options?: { selectorCandidates?: string[]; nodeId?: string | null },
     ) => {
       const iframe = iframeRef.current;
-      if (!iframe?.contentWindow) return;
-      postOneShotBridgeMessage({
+      if (!iframe?.contentWindow) return false;
+      return postOneShotBridgeMessage({
         type: "style-change",
         selector,
         property,
@@ -3427,6 +3639,19 @@ export function DesignCanvas({
       });
     },
     [postOneShotBridgeMessage],
+  );
+  const sendStyleChangeForScreen = useCallback(
+    (
+      targetScreenId: string,
+      selector: string,
+      property: string,
+      value: string,
+      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+    ) => {
+      if (!screenId || targetScreenId !== screenId) return false;
+      return sendStyleChange(selector, property, value, options);
+    },
+    [screenId, sendStyleChange],
   );
 
   const sendInteractionStatePreviewStyle = useCallback(
@@ -3450,46 +3675,57 @@ export function DesignCanvas({
   );
 
   const lastStyleRevertRequestIdRef = useRef<number | null>(null);
+  const replayStylePatches = useCallback(
+    (patches: Array<StyleReplayPatch>) => {
+      for (const patch of patches) {
+        const target = runtimeStyleTarget(patch);
+        if (target.selectorCandidates.length === 0) continue;
+        if (patch.interactionState) {
+          sendInteractionStatePreviewStyle({
+            selector: target.selector,
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId,
+            state: patch.interactionState,
+            styles: patch.styles,
+          });
+          continue;
+        }
+        for (const [property, value] of Object.entries(patch.styles)) {
+          postOneShotBridgeMessage({
+            type: "style-change",
+            selector: target.selector,
+            property,
+            value,
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId ?? "",
+          });
+        }
+      }
+    },
+    [postOneShotBridgeMessage, sendInteractionStatePreviewStyle],
+  );
   useEffect(() => {
     if (!styleRevertRequest) return;
     if (lastStyleRevertRequestIdRef.current === styleRevertRequest.requestId) {
       return;
     }
     lastStyleRevertRequestIdRef.current = styleRevertRequest.requestId;
-    for (const patch of styleRevertRequest.patches) {
-      const selectorCandidates = [
-        patch.selector,
-        patch.sourceId
-          ? `[data-agent-native-node-id="${String(patch.sourceId)
-              .replace(/\\/g, "\\\\")
-              .replace(/"/g, '\\"')}"]`
-          : "",
-      ].filter(Boolean);
-      if (patch.interactionState) {
-        sendInteractionStatePreviewStyle({
-          selector: patch.selector,
-          selectorCandidates,
-          nodeId: patch.sourceId,
-          state: patch.interactionState,
-          styles: patch.styles,
-        });
-        continue;
-      }
-      for (const [property, value] of Object.entries(patch.styles)) {
-        postOneShotBridgeMessage({
-          type: "style-change",
-          selector: patch.selector,
-          property,
-          value,
-          selectorCandidates,
-          nodeId: patch.sourceId ?? "",
-        });
-      }
-    }
+    replayStylePatches(styleRevertRequest.patches);
+  }, [replayStylePatches, styleRevertRequest]);
+
+  useEffect(() => {
+    if (!screenId) return;
+    replayStylePatches(
+      (pendingStylePreviewPatches ?? []).filter(
+        (patch) => patch.screenId === screenId,
+      ),
+    );
   }, [
-    postOneShotBridgeMessage,
-    sendInteractionStatePreviewStyle,
-    styleRevertRequest,
+    contentKey,
+    pendingStylePreviewPatches,
+    readyIframeDocumentIdentity,
+    replayStylePatches,
+    screenId,
   ]);
 
   const lastStyleBaselineResetRequestRef = useRef<number | null>(null);
@@ -3572,6 +3808,51 @@ export function DesignCanvas({
       placement: runtimeStructureMoveRequest.placement,
     });
   }, [postOneShotBridgeMessage, runtimeStructureMoveRequest]);
+
+  const lastRuntimeStructureInsertRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!runtimeStructureInsertRequest) return;
+    if (
+      lastRuntimeStructureInsertRequestIdRef.current ===
+      runtimeStructureInsertRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeStructureInsertRequestIdRef.current =
+      runtimeStructureInsertRequest.requestId;
+    let anchorSelector = runtimeStructureInsertRequest.anchor.selector;
+    let anchorSourceId = runtimeStructureInsertRequest.anchor.sourceId;
+    [
+      runtimeStructureInsertRequest.html,
+      ...(runtimeStructureInsertRequest.additionalHtml ?? []),
+    ].forEach((html, index) => {
+      postOneShotBridgeMessage({
+        type: "runtime-structure-insert",
+        requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
+        html,
+        anchorSelector,
+        anchorSourceId,
+        anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
+        placement: runtimeStructureInsertRequest.placement,
+        ...(runtimeStructureInsertRequest.replaceAnchor === true && index === 0
+          ? { replaceAnchor: true }
+          : {}),
+      });
+      // Repeated "after" inserts against the original anchor reverse their
+      // order. Chain each subsequent root after the clone before it so a
+      // multi-layer clipboard lands in the same order the user copied.
+      if (runtimeStructureInsertRequest.placement === "after") {
+        const root = new DOMParser()
+          .parseFromString(`<template>${html}</template>`, "text/html")
+          .querySelector("template")?.content.firstElementChild;
+        const rootNodeId = root?.getAttribute("data-agent-native-node-id");
+        if (rootNodeId) {
+          anchorSelector = `[data-agent-native-node-id="${rootNodeId}"]`;
+          anchorSourceId = rootNodeId;
+        }
+      }
+    });
+  }, [postOneShotBridgeMessage, runtimeStructureInsertRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
@@ -3766,6 +4047,9 @@ export function DesignCanvas({
     const replaceLatestRuntimeContent = () => {
       const nextContent = runtimeReplacementContentRef.current;
       if (nextContent === undefined) return;
+      // The document that just loaded was built from these bytes; swapping it
+      // for itself only costs a blank frame.
+      if (renderedContentRef.current === nextContent) return;
       if (replaceRuntimeContentInPlace(nextContent)) {
         lastRuntimeReplacementKeyRef.current = runtimeReplacementKeyRef.current;
         lastRuntimeReplacementContentRef.current = nextContent;
@@ -3777,13 +4061,21 @@ export function DesignCanvas({
   }, [replaceRuntimeContentInPlace, runtimeReplacementEnabled]);
 
   const deleteRuntimeElement = useCallback(
-    (selector?: string | null, candidates?: string[]) => {
+    (
+      selector?: string | null,
+      candidates?: string[],
+      // Present when the host queued this deletion as a pending live edit; the
+      // bridge keeps the detached node under this id so a later
+      // visual-structure-ack with applied:false can put it back.
+      requestId?: string,
+    ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
       return postOneShotBridgeMessage({
         type: "delete-element",
         selector: selector ?? "",
         selectorCandidates: candidates ?? [],
+        requestId,
       });
     },
     [postOneShotBridgeMessage],
@@ -3793,6 +4085,7 @@ export function DesignCanvas({
   useEffect(() => {
     if (!registerRuntimeBridge) return;
     (window as any).__designCanvasSendStyle = sendStyleChange;
+    (window as any).__designCanvasSendStyleForScreen = sendStyleChangeForScreen;
     (window as any).__designCanvasSendInteractionStatePreviewStyle =
       sendInteractionStatePreviewStyle;
     (window as any).__designCanvasReplaceContent =
@@ -3812,6 +4105,12 @@ export function DesignCanvas({
       // a freshly mounted instance's bridge during a remount race.
       if ((window as any).__designCanvasSendStyle === sendStyleChange) {
         delete (window as any).__designCanvasSendStyle;
+      }
+      if (
+        (window as any).__designCanvasSendStyleForScreen ===
+        sendStyleChangeForScreen
+      ) {
+        delete (window as any).__designCanvasSendStyleForScreen;
       }
       if (
         (window as any).__designCanvasSendInteractionStatePreviewStyle ===
@@ -3859,6 +4158,7 @@ export function DesignCanvas({
   }, [
     deleteRuntimeElement,
     registerRuntimeBridge,
+    sendStyleChangeForScreen,
     replacePreviewContentFromHost,
     sendStyleChange,
     sendInteractionStatePreviewStyle,
@@ -3897,6 +4197,12 @@ export function DesignCanvas({
     previewWidthPx !== null && previewWidthPx !== undefined
       ? `${previewWidthPx}px`
       : iframeWidth;
+  const resolvedHeight =
+    previewHeightPx !== null && previewHeightPx !== undefined
+      ? `${previewHeightPx}px`
+      : deviceFrame === "none"
+        ? "100%"
+        : (iframeHeight ?? undefined);
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
     if (!surface || document.activeElement === surface) return;
@@ -4070,7 +4376,7 @@ export function DesignCanvas({
       data-node-rewrite-canvas-target={
         nodeRewriteCanvasTarget ? "true" : undefined
       }
-      className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
+      className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60"
       onDragEnter={handleWrapperDragEnter}
       onDragOver={handleWrapperDragOver}
       onDragLeave={handleWrapperDragLeave}
@@ -4085,9 +4391,7 @@ export function DesignCanvas({
           ? embeddedFrameFluid
             ? "100%"
             : embeddedFrame.viewportHeight
-          : deviceFrame === "none"
-            ? "100%"
-            : (iframeHeight ?? undefined),
+          : resolvedHeight,
         // BP-DEEP item 2: when a breakpoint chip constrains the viewport
         // (previewWidthPx) the wrapper is NARROWER than the canvas, so there
         // is no horizontal overflow for the scroll-centering effect above to
@@ -4129,55 +4433,39 @@ export function DesignCanvas({
           )}
         />
       ) : null}
-      {liveEditTransitionFallbackHtml ? (
+      {rawExternalPreviewUrl && !externalPreviewUrl ? null : (
         <iframe
-          data-live-edit-transition-fallback
-          srcDoc={liveEditTransitionFallbackHtml}
-          sandbox=""
-          aria-hidden="true"
-          tabIndex={-1}
-          className="pointer-events-none absolute inset-0 block h-full w-full border-0 bg-transparent"
+          key={iframeDocumentIdentity}
+          ref={iframeRef}
+          src={externalPreviewUrl ?? undefined}
+          srcDoc={externalPreviewUrl ? undefined : srcdoc}
+          sandbox={getDesignCanvasIframeSandbox({
+            externalPreview: Boolean(externalPreviewUrl),
+            readOnly,
+          })}
+          data-design-preview-iframe
+          {...{
+            [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
+              ? ""
+              : undefined,
+          }}
+          data-screen-iframe-id={
+            boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
+          }
+          data-design-source-type={
+            sourceType ??
+            (externalPreviewUrl
+              ? "localhost" // inferred — content is a URL
+              : "inline")
+          }
+          className="relative block h-full w-full border-0 bg-transparent"
           style={{
             background: iframeBackgroundColor,
             backgroundColor: iframeBackgroundColor,
           }}
-          title=""
+          title={t("designEditor.designPreview")}
         />
-      ) : null}
-      <iframe
-        key={iframeDocumentIdentity}
-        ref={iframeRef}
-        src={externalPreviewUrl ?? undefined}
-        srcDoc={externalPreviewUrl ? undefined : srcdoc}
-        sandbox={getDesignCanvasIframeSandbox({
-          externalPreview: Boolean(externalPreviewUrl),
-          readOnly,
-        })}
-        data-design-preview-iframe
-        {...{
-          [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
-            ? ""
-            : undefined,
-        }}
-        data-screen-iframe-id={
-          boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
-        }
-        data-design-source-type={
-          sourceType ??
-          (externalPreviewUrl
-            ? "localhost" // inferred — content is a URL
-            : "inline")
-        }
-        className={cn(
-          "relative block h-full w-full border-0 bg-transparent",
-          liveEditTransitionFallbackHtml && "pointer-events-none opacity-0",
-        )}
-        style={{
-          background: iframeBackgroundColor,
-          backgroundColor: iframeBackgroundColor,
-        }}
-        title={t("designEditor.designPreview")}
-      />
+      )}
       {runtimeVerificationUrl ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
@@ -4273,7 +4561,7 @@ export function DesignCanvas({
       ) : null}
       {waitingForEditableExternalSnapshot ||
       waitingForLiveEditBridge ||
-      (liveEditDocumentPending && !liveEditTransitionFallbackHtml) ? (
+      liveEditDocumentPending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {waitingForLiveEditBridge &&
           bridgeRegistrationError?.bridgeKey === liveEditBridgeKey ? (

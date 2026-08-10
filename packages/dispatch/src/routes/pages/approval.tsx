@@ -86,7 +86,7 @@ export default function ApprovalPreviewRoute() {
   if (!id) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center">
+        <div className="w-full max-w-md rounded-2xl bg-card p-6 text-center">
           <IconAlertCircle
             size={32}
             className="mx-auto mb-3 text-muted-foreground"
@@ -107,7 +107,7 @@ export default function ApprovalPreviewRoute() {
     return (
       <div className="flex min-h-screen items-start justify-center bg-background p-6">
         <div className="w-full max-w-md space-y-4">
-          <div className="rounded-2xl border bg-card p-5">
+          <div className="rounded-2xl bg-card p-5">
             <div className="flex items-start gap-3">
               <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
               <div className="min-w-0 flex-1 space-y-2">
@@ -158,7 +158,7 @@ export default function ApprovalPreviewRoute() {
   if (!approval) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center">
+        <div className="w-full max-w-md rounded-2xl bg-card p-6 text-center">
           <IconAlertCircle
             size={32}
             className="mx-auto mb-3 text-muted-foreground"
@@ -175,7 +175,7 @@ export default function ApprovalPreviewRoute() {
               size="sm"
               variant="outline"
               className="mt-4 gap-1.5"
-              onClick={() => postNavigate(appPath("/approvals"))}
+              onClick={() => postNavigate(appPath("/admin/approvals"))}
             >
               <IconArrowUpRight size={14} />
               View all approvals
@@ -193,7 +193,7 @@ export default function ApprovalPreviewRoute() {
   return (
     <div className="flex min-h-screen items-start justify-center bg-background p-6">
       <div className="w-full max-w-2xl space-y-4">
-        <div className="rounded-2xl border bg-card p-5">
+        <div className="rounded-2xl bg-card p-5">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-muted text-foreground">
               <IconShieldCheck size={17} />
@@ -288,7 +288,7 @@ export default function ApprovalPreviewRoute() {
               size="sm"
               variant="ghost"
               className="gap-1.5 text-muted-foreground"
-              onClick={() => postNavigate(appPath("/approvals"))}
+              onClick={() => postNavigate(appPath("/admin/approvals"))}
             >
               <IconArrowUpRight size={14} />
               Open in app

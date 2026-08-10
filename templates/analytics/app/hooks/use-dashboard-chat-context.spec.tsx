@@ -98,6 +98,12 @@ function setSidebarOpen(open: boolean) {
   );
 }
 
+async function settleContextPublish() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+}
+
 describe("useDashboardChatContext", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -119,6 +125,7 @@ describe("useDashboardChatContext", () => {
     await act(async () => {
       root.render(<Harness id="dash-1" />);
     });
+    await settleContextPublish();
 
     expect(clientMocks.setClientAppState).toHaveBeenCalledWith(
       "selected-object",
@@ -288,5 +295,36 @@ describe("useDashboardChatContext", () => {
         '[data-action="passive-select"]',
       )?.dataset.selected,
     ).toBe("true");
+  });
+
+  it("publishes once when dashboard metadata arrives in pieces", async () => {
+    function MetadataHarness({ panelCount }: { panelCount?: number }) {
+      useDashboardChatContext({
+        id: "dash-1",
+        kind: "sql",
+        title: "Revenue",
+        panelCount,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<MetadataHarness />);
+    });
+    await act(async () => {
+      root.render(<MetadataHarness panelCount={2} />);
+    });
+    await act(async () => {
+      root.render(<MetadataHarness panelCount={4} />);
+    });
+    await settleContextPublish();
+
+    expect(clientMocks.setAgentChatContextItem).toHaveBeenCalledTimes(1);
+    expect(clientMocks.setClientAppState).toHaveBeenCalledTimes(1);
+    expect(clientMocks.setAgentChatContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining("Panel count: 4"),
+      }),
+    );
   });
 });

@@ -9,7 +9,10 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import attachSource, {
+  builderAttachDurableItemCount,
   builderCmsAttachReadMetadata,
+  initialBuilderAttachmentSetupOptions,
+  readCompleteBuilderCmsAttachSource,
   readInitialBuilderCmsAttachEntries,
   readInitialBuilderCmsAttachSource,
 } from "./attach-content-database-source";
@@ -25,8 +28,10 @@ import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
+  reviewPreparePriority,
 } from "./prepare-builder-source-review";
 import previewReview from "./preview-builder-source-review";
+import previewSourceAttach from "./preview-content-database-source-attach";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
@@ -35,6 +40,20 @@ import stageBulkUpdate from "./stage-builder-source-bulk-update";
 import validateExecution from "./validate-builder-source-execution";
 
 describe("content database source actions", () => {
+  it("bounds Builder attachment previews to one database and safe field paths", () => {
+    expect(
+      previewSourceAttach.schema.parse({
+        documentId: "database-page",
+        sourceTable: "agent-native-blog-article-test",
+        fieldPaths: ["topics", "data.author"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      fieldPaths: ["topics", "data.author"],
+    });
+  });
+
   it("accepts database or document IDs for source status reads", () => {
     expect(getSource.schema.parse({ documentId: "database-page" })).toEqual({
       documentId: "database-page",
@@ -58,6 +77,35 @@ describe("content database source actions", () => {
       scope: "selected",
       documentIds: ["document-1"],
     });
+  });
+
+  it("surfaces new Builder drafts before in-place updates in the same review state", () => {
+    const source = {
+      metadata: { writeMode: "publish_updates", pushMode: "publish" },
+      rows: [
+        {
+          documentId: "existing-document",
+          databaseItemId: "existing-item",
+          sourceRowId: "existing-entry",
+          sourceQualifiedId: "builder-cms://safe-model/existing-entry",
+          provenance: "Builder CMS read adapter",
+        },
+      ],
+    } as ContentDatabaseSource;
+    const create = {
+      id: "create",
+      documentId: "new-document",
+      state: "pending_push",
+    } as ContentDatabaseSource["changeSets"][number];
+    const update = {
+      id: "update",
+      documentId: "existing-document",
+      state: "pending_push",
+    } as ContentDatabaseSource["changeSets"][number];
+
+    expect(reviewPreparePriority(create, source)).toBeLessThan(
+      reviewPreparePriority(update, source),
+    );
   });
 
   it("accepts Builder source batch execution args", () => {
@@ -224,6 +272,47 @@ describe("content database source actions", () => {
     ]);
   });
 
+  it("reads complete projected metadata for the canonical Builder attachment", async () => {
+    const calls: Array<{
+      model: string;
+      limit?: number;
+      maxPages?: number;
+      fieldPaths?: readonly string[];
+    }> = [];
+    await readCompleteBuilderCmsAttachSource("blog-article", {
+      readModelFields: async () => [],
+      readEntries: async (args) => {
+        calls.push(args);
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: args.limit ?? 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+      fieldPaths: ["topics", "tags"],
+    });
+
+    expect(calls).toEqual([
+      {
+        allowCached: true,
+        model: "blog-article",
+        fieldPaths: ["topics", "tags"],
+        limit: 10_000,
+      },
+    ]);
+  });
+
   it("fails Builder attachment preparation before durable source mutation when model discovery fails", async () => {
     const calls: string[] = [];
     await expect(
@@ -254,6 +343,56 @@ describe("content database source actions", () => {
       }),
     ).rejects.toThrow("model discovery unavailable");
     expect(calls).toEqual(["model-fields", "entries"]);
+  });
+
+  it("starts Builder field discovery and the projected first page together", async () => {
+    const calls: string[] = [];
+    let releaseFields!: () => void;
+    let releaseEntries!: () => void;
+    const fieldsReady = new Promise<void>((resolve) => {
+      releaseFields = resolve;
+    });
+    const entriesReady = new Promise<void>((resolve) => {
+      releaseEntries = resolve;
+    });
+    const pending = readInitialBuilderCmsAttachSource("blog-article", {
+      fieldPaths: ["topics", "data.author"],
+      readModelFields: async () => {
+        calls.push("model-fields");
+        await fieldsReady;
+        return [];
+      },
+      readEntries: async (args) => {
+        calls.push("entries");
+        expect(args.fieldPaths).toEqual(["topics", "data.author"]);
+        await entriesReady;
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+    });
+
+    await Promise.resolve();
+    expect(calls).toEqual(["model-fields", "entries"]);
+    releaseEntries();
+    releaseFields();
+    await expect(pending).resolves.toMatchObject({
+      read: { state: "live" },
+      modelFields: [],
+    });
   });
 
   it("fails role-change preparation before mappings can be rewritten when model discovery fails", async () => {
@@ -346,6 +485,54 @@ describe("content database source actions", () => {
     });
   });
 
+  it("binds a fully imported initial Builder page by exact document identity", () => {
+    const read = {
+      state: "live",
+      entries: [{ id: "entry-1" }, { id: "entry-2" }],
+    } as BuilderCmsReadResult;
+
+    expect(
+      initialBuilderAttachmentSetupOptions({
+        builderRead: read,
+        importedEntriesByDocumentId: new Map([
+          ["document-2", read.entries[1]!],
+          ["document-1", read.entries[0]!],
+        ]),
+      }),
+    ).toEqual({
+      documentIds: ["document-2", "document-1"],
+      limit: 2,
+      offset: 0,
+    });
+  });
+
+  it("keeps complete setup when an initial Builder entry was not imported", () => {
+    const read = {
+      state: "live",
+      entries: [{ id: "entry-1" }, { id: "entry-2" }],
+    } as BuilderCmsReadResult;
+
+    expect(
+      initialBuilderAttachmentSetupOptions({
+        builderRead: read,
+        importedEntriesByDocumentId: new Map([
+          ["document-1", read.entries[0]!],
+        ]),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("reports all durably matched Builder rows when reattachment imports none", () => {
+    expect(
+      builderAttachDurableItemCount(
+        new Map([
+          ["document-1", { id: "entry-1" }],
+          ["document-2", { id: "entry-2" }],
+        ]),
+      ),
+    ).toBe(2);
+  });
+
   it("rejects unsafe source federation normalization formulas", () => {
     expect(() =>
       attachSource.schema.parse({
@@ -370,6 +557,18 @@ describe("content database source actions", () => {
   it("accepts refresh requests without external provider details", () => {
     expect(refreshSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("accepts a guarded Builder continuation offset", () => {
+    expect(
+      refreshSource.schema.parse({
+        databaseId: "database",
+        expectedBuilderContinuationOffset: 400,
+      }),
+    ).toEqual({
+      databaseId: "database",
+      expectedBuilderContinuationOffset: 400,
     });
   });
 

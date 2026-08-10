@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  currentOrgId: vi.fn(),
+  currentOwnerEmail: vi.fn(),
   deleteAppSecret: vi.fn(),
+  discoverAgents: vi.fn(),
+  getDbExec: vi.fn(),
   getDb: vi.fn(),
+  getOrgSetting: vi.fn(),
+  getUserSetting: vi.fn(),
   listAppSecretsForScope: vi.fn(),
   readAppSecret: vi.fn(),
+  recordAudit: vi.fn(),
   writeAppSecret: vi.fn(),
 }));
 
@@ -13,6 +20,28 @@ vi.mock("@agent-native/core/secrets", () => ({
   listAppSecretsForScope: mocks.listAppSecretsForScope,
   readAppSecret: mocks.readAppSecret,
   writeAppSecret: mocks.writeAppSecret,
+}));
+
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
+  getDbExec: mocks.getDbExec,
+}));
+
+vi.mock("@agent-native/core/server/agent-discovery", () => ({
+  discoverAgents: mocks.discoverAgents,
+}));
+
+vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: mocks.getOrgSetting,
+  getUserSetting: mocks.getUserSetting,
+  putOrgSetting: vi.fn(),
+  putUserSetting: vi.fn(),
+}));
+
+vi.mock("./dispatch-store.js", () => ({
+  currentOrgId: mocks.currentOrgId,
+  currentOwnerEmail: mocks.currentOwnerEmail,
+  recordAudit: mocks.recordAudit,
 }));
 
 vi.mock("../../db/index.js", async (importOriginal) => {
@@ -26,10 +55,14 @@ vi.mock("../../db/index.js", async (importOriginal) => {
 import { readAppSecret } from "@agent-native/core/secrets";
 
 import {
+  assertCanManageVault,
   cleanupSyncedCredentialKeysIfUnused,
   credentialStoreScopeForVaultCtx,
   isTrustedEnvVarSyncAgentUrl,
+  getGrant,
+  listGrants,
   resyncAllVaultSecretsToCredentialStore,
+  syncGrantsToApp,
   syncSecretsToCredentialStore,
 } from "./vault-store.js";
 
@@ -58,6 +91,56 @@ describe("credentialStoreScopeForVaultCtx", () => {
       scope: "workspace",
       scopeId: "solo:owner@example.test",
     });
+  });
+});
+
+describe("vault authorization", () => {
+  it("rejects an organization member before reading shared vault values", async () => {
+    mocks.currentOrgId.mockReturnValue("org_123");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
+    });
+
+    await expect(assertCanManageVault()).rejects.toThrow(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+  });
+
+  it("rejects organization members before listing or reading grants", async () => {
+    mocks.currentOrgId.mockReturnValue("org_123");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
+    });
+
+    await expect(listGrants()).rejects.toThrow(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+    await expect(getGrant("grant-1")).rejects.toThrow(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+    expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner", "admin"])(
+    "allows an organization %s to manage shared vault values",
+    async (role) => {
+      mocks.currentOrgId.mockReturnValue("org_123");
+      mocks.currentOwnerEmail.mockReturnValue(`${role}@example.test`);
+      mocks.getDbExec.mockReturnValue({
+        execute: vi.fn().mockResolvedValue({ rows: [{ role }] }),
+      });
+
+      await expect(assertCanManageVault()).resolves.toBeUndefined();
+    },
+  );
+
+  it("allows a solo workspace owner to manage their own vault", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+
+    await expect(assertCanManageVault()).resolves.toBeUndefined();
+    expect(mocks.getDbExec).not.toHaveBeenCalled();
   });
 });
 
@@ -317,5 +400,140 @@ describe("resyncAllVaultSecretsToCredentialStore", () => {
     expect(String(warnMessage)).not.toContain("sk-broken-value");
 
     warnSpy.mockRestore();
+  });
+});
+
+describe("syncGrantsToApp", () => {
+  /** In-memory stand-in for app_secrets, keyed scope + scopeId + key. */
+  function fakeCredentialStore() {
+    const store = new Map<string, string>();
+    mocks.writeAppSecret.mockImplementation(async (args: any) => {
+      store.set(`${args.scope}:${args.scopeId}:${args.key}`, args.value);
+      return "app-secret-id";
+    });
+    return store;
+  }
+
+  /**
+   * `all-apps` vault access, one discovered app, and a caller whose active org
+   * is deliberately NOT the org that owns the secrets. The app URL is remote so
+   * the best-effort env-var push is skipped and no network call is attempted.
+   */
+  function mockWorkspace(
+    caller: { ownerEmail: string; orgId: string | null },
+    secretRows: Array<Record<string, unknown>>,
+  ) {
+    mocks.currentOwnerEmail.mockReturnValue(caller.ownerEmail);
+    mocks.currentOrgId.mockReturnValue(caller.orgId);
+    mocks.getOrgSetting.mockResolvedValue(null);
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.discoverAgents.mockResolvedValue([
+      { id: "coach", url: "https://coach.example.test" },
+    ]);
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({ orderBy: async () => secretRows }),
+        }),
+      }),
+      insert: () => ({ values: async () => undefined }),
+    });
+  }
+
+  afterEach(() => {
+    mocks.writeAppSecret.mockReset();
+  });
+
+  // The regression: `all-apps` mode lists secrets across orgs, and syncing them
+  // under the caller's ctx upserts copies of another org's credentials into
+  // whichever org the person clicking Sync happened to be in. Because
+  // writeAppSecret upserts, that copies rather than moves, so credential
+  // material accumulates permanently in the wrong org.
+  it("writes each secret under its own org, not the caller's active org", async () => {
+    const store = fakeCredentialStore();
+    mockWorkspace({ ownerEmail: "clicker@example.test", orgId: "org_caller" }, [
+      {
+        id: "secret_builder",
+        ownerEmail: "admin@example.test",
+        orgId: "org_owner",
+        name: "Academy Site URL",
+        credentialKey: "ACADEMY_CONVEX_SITE_URL",
+        value: "https://academy.example.test",
+      },
+      {
+        id: "secret_solo",
+        ownerEmail: "owner@example.test",
+        orgId: null,
+        name: "Personal API Key",
+        credentialKey: "PERSONAL_API_KEY",
+        value: "sk-test-personal",
+      },
+    ]);
+
+    const result = await syncGrantsToApp("coach");
+
+    expect(store.get("org:org_owner:ACADEMY_CONVEX_SITE_URL")).toBe(
+      "https://academy.example.test",
+    );
+    expect(
+      store.get("workspace:solo:owner@example.test:PERSONAL_API_KEY"),
+    ).toBe("sk-test-personal");
+
+    // Nothing may be written under the caller's org.
+    const callerScoped = [...store.keys()].filter((key) =>
+      key.startsWith("org:org_caller:"),
+    );
+    expect(callerScoped).toEqual([]);
+
+    expect(result.credentialStores).toEqual([
+      { scope: "org", scopeId: "org_owner", synced: 1 },
+      {
+        scope: "workspace",
+        scopeId: "solo:owner@example.test",
+        synced: 1,
+      },
+    ]);
+    expect(result.synced).toBe(2);
+  });
+
+  it("still syncs the caller's own org secrets into that org", async () => {
+    const store = fakeCredentialStore();
+    mockWorkspace({ ownerEmail: "clicker@example.test", orgId: "org_caller" }, [
+      {
+        id: "secret_own",
+        ownerEmail: "clicker@example.test",
+        orgId: "org_caller",
+        name: "Shared API Key",
+        credentialKey: "SHARED_API_KEY",
+        value: "sk-test-shared",
+      },
+    ]);
+
+    const result = await syncGrantsToApp("coach");
+
+    expect(store.get("org:org_caller:SHARED_API_KEY")).toBe("sk-test-shared");
+    expect(result.credentialStores).toEqual([
+      { scope: "org", scopeId: "org_caller", synced: 1 },
+    ]);
+  });
+
+  // A row with no ownerEmail cannot name its own tenant, so the caller's ctx is
+  // the only scope available — the pre-existing ctxForSecretRow fallback.
+  it("falls back to the caller ctx for a secret row with no owner", async () => {
+    const store = fakeCredentialStore();
+    mockWorkspace({ ownerEmail: "clicker@example.test", orgId: "org_caller" }, [
+      {
+        id: "secret_ownerless",
+        ownerEmail: "",
+        orgId: null,
+        name: "Legacy Key",
+        credentialKey: "LEGACY_KEY",
+        value: "sk-test-legacy",
+      },
+    ]);
+
+    await syncGrantsToApp("coach");
+
+    expect(store.get("org:org_caller:LEGACY_KEY")).toBe("sk-test-legacy");
   });
 });

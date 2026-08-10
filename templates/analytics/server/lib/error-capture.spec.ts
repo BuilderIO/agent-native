@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getDbMock = vi.hoisted(() => vi.fn());
 const recordChangeMock = vi.hoisted(() => vi.fn());
 const notifyWithDeliveryMock = vi.hoisted(() => vi.fn(async () => undefined));
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -23,6 +24,12 @@ vi.mock("@agent-native/core/notifications", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/notifications")>();
   return { ...actual, notifyWithDelivery: notifyWithDeliveryMock };
+});
+
+vi.mock("@agent-native/core/settings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/settings")>();
+  return { ...actual, getUserSetting: getUserSettingMock };
 });
 
 import { schema } from "../db/index.js";
@@ -193,6 +200,57 @@ describe("fingerprint", () => {
     );
     expect(fingerprint("Error", frames, "boom")).toBe(
       fingerprint("UnhandledRejection", frames, "boom"),
+    );
+  });
+
+  it("separates different messages thrown through the same frame", () => {
+    // Real regression: every server action error shares one minified dispatch
+    // frame, so a frame-only key merged unrelated failures under whichever
+    // title arrived first.
+    const frames = parseStack(
+      "Error: boom\n    at runAction (https://app.example.com/assets/server.js:1:1)",
+    );
+    expect(
+      fingerprint(
+        "Error",
+        frames,
+        "A booking link with this slug already exists",
+      ),
+    ).not.toBe(
+      fingerprint(
+        "Error",
+        frames,
+        "Action update-visual-plan failed: Internal server error",
+      ),
+    );
+  });
+
+  it("groups the same logical error when only ids/values differ", () => {
+    const frames = parseStack(
+      "Error: boom\n    at runAction (https://app.example.com/assets/server.js:1:1)",
+    );
+    const same = (message: string) => fingerprint("Error", frames, message);
+    expect(same("DB query timed out after 8000ms")).toBe(
+      same("DB query timed out after 30000ms"),
+    );
+    expect(
+      same(
+        "Destructive structured replacement would remove 4 existing block IDs (phase4-h, phase6-h, seq-h, oq-h)",
+      ),
+    ).toBe(
+      same(
+        "Destructive structured replacement would remove 2 existing block IDs (current-state, status-matrix)",
+      ),
+    );
+    expect(same(`Build step "react-router-build" failed`)).toBe(
+      same(`Build step "netlify-deploy" failed`),
+    );
+    expect(same("Failed to read /Users/ada/app/src/main.ts")).toBe(
+      same("Failed to read /Users/grace/other/lib/util.ts"),
+    );
+    // An apostrophe is not an opening quote: these stay distinct.
+    expect(same("Can't find variable: EmptyRanges")).not.toBe(
+      same("Can't find variable: __firefox__"),
     );
   });
 
@@ -497,6 +555,8 @@ describe("ingestException", () => {
     getDbMock.mockReturnValue(db);
     recordChangeMock.mockReset();
     notifyWithDeliveryMock.mockClear();
+    getUserSettingMock.mockReset();
+    getUserSettingMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -529,6 +589,28 @@ describe("ingestException", () => {
     );
     // A brand new issue raises a best-effort notification.
     expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ channels: ["inbox"] }),
+      expect.anything(),
+    );
+  });
+
+  it("sends error email only when the owner opts in", async () => {
+    getUserSettingMock.mockResolvedValue({
+      errorEmailNotifications: true,
+    });
+
+    await ingestException(SCOPE, baseRaw(), derivedFor());
+
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: ["inbox", "email"],
+        metadata: expect.objectContaining({
+          emailRecipients: [SCOPE.ownerEmail],
+        }),
+      }),
+      expect.anything(),
+    );
   });
 
   it("bumps counts and first/last seen on repeat occurrences (same fingerprint)", async () => {
@@ -560,6 +642,32 @@ describe("ingestException", () => {
     });
     // Only the first (new) issue notifies.
     expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts only real identities as affected users", async () => {
+    const anonymous = derivedFor({
+      userId: null,
+      anonymousId: null,
+      userKey: null,
+      sessionId: null,
+    });
+    await ingestException(SCOPE, baseRaw(), anonymous);
+    await ingestException(SCOPE, baseRaw(), {
+      ...anonymous,
+      timestamp: "2026-07-08T12:00:01.000Z",
+    });
+    let issues = await loadIssues();
+    // A flood with no identity is volume, never user impact.
+    expect(issues[0]).toMatchObject({ eventCount: 2, usersAffected: 0 });
+
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userId: null, anonymousId: null, userKey: null }),
+    );
+    issues = await loadIssues();
+    // The session id is a real identity; the two anonymous events still are not.
+    expect(issues[0]).toMatchObject({ eventCount: 3, usersAffected: 1 });
   });
 
   it("keeps earliest firstSeen when an older occurrence arrives late", async () => {
@@ -785,6 +893,8 @@ describe("matchErrorIssuesBySignatures", () => {
     getDbMock.mockReturnValue(db);
     recordChangeMock.mockReset();
     notifyWithDeliveryMock.mockClear();
+    getUserSettingMock.mockReset();
+    getUserSettingMock.mockResolvedValue(null);
   });
 
   afterEach(() => {

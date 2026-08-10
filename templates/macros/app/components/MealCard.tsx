@@ -26,8 +26,8 @@ export function MealCard({
 }: MealCardProps) {
   const t = useT();
   return (
-    <div className="group relative flex items-center gap-3 overflow-hidden rounded-xl border border-border bg-card p-3 hover:bg-accent/40 sm:gap-4 sm:p-4">
-      <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+    <div className="group relative flex items-center gap-3 overflow-hidden rounded-xl bg-card p-3 hover:bg-accent/40 sm:gap-4 sm:p-4">
+      <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-emerald-500/10">
         <IconToolsKitchen2 className="h-4 w-4 text-emerald-400" />
       </div>
       <div className="flex-1 min-w-0">

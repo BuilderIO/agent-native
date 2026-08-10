@@ -12,6 +12,8 @@ import {
 import { useContentSpaces } from "@/hooks/use-content-spaces";
 import { useCreateDocument } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { documentQueryFilter } from "@/lib/document-query";
+import { markDocumentCreationPending } from "@/lib/optimistic-document";
 
 const LIST_DOCUMENTS_QUERY_KEY = [
   "action",
@@ -63,7 +65,7 @@ export function useCreatePage(opts?: {
       }
       const id = nanoid();
       const now = new Date().toISOString();
-      const tempDoc: Document = {
+      const tempDoc = markDocumentCreationPending({
         id,
         parentId: parentId ?? null,
         title: "",
@@ -75,7 +77,7 @@ export function useCreatePage(opts?: {
         visibility: "private",
         createdAt: now,
         updatedAt: now,
-      };
+      });
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
@@ -90,17 +92,19 @@ export function useCreatePage(opts?: {
       }
 
       const persist = async () => {
-        await createDocument.mutateAsync({
+        const created = await createDocument.mutateAsync({
           id,
           title: "",
           parentId: parentId ?? undefined,
           spaceId,
         });
+        queryClient.setQueryData(
+          ["action", "get-document", { id: created.id }],
+          created,
+        );
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(id));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -110,9 +114,7 @@ export function useCreatePage(opts?: {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.removeQueries({
-          queryKey: ["action", "get-document", { id }],
-        });
+        queryClient.removeQueries(documentQueryFilter(id));
         if (shouldNavigate) navigate("/");
         toast.error("Failed to create page", {
           description:

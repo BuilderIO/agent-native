@@ -1,8 +1,4 @@
 import {
-  isAgentChatHomeHandoffActive,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
-import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
@@ -111,13 +107,6 @@ export function useNavigationState() {
     deleteCommand();
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
-    if (
-      location.pathname === "/" &&
-      path !== "/" &&
-      isAgentChatHomeHandoffActive("plans")
-    ) {
-      markAgentChatHomeHandoff("plans");
-    }
     const commitNavigation = () =>
       navigate(path, { replace: true, flushSync: true });
     if (
@@ -207,7 +196,7 @@ function pathForView(view?: string): string {
     case "settings":
       return "/settings";
     case "team":
-      return "/settings#organization";
+      return "/settings/organization";
     default:
       return "/";
   }

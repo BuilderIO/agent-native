@@ -1,10 +1,10 @@
 {
   "name": "content",
-  "displayName": "Agent-Native Content",
+  "displayName": "Content",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "agent-native dev",
+    "dev": "agent-native dev --inspect",
     "dev:database": "node scripts/check-native-deps.mjs && node scripts/dev-database.mjs",
     "build": "agent-native build",
     "start": "agent-native start",
@@ -14,6 +14,7 @@
     "eval:parity": "agent-native eval parity",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "action": "agent-native action",
     "script": "agent-native script",
     "seed:demo": "node scripts/seed-demo-user.mjs"
@@ -99,6 +100,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
+    "tsx": "^4.20.3",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

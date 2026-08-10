@@ -32,6 +32,60 @@ Move behavior into shared toolkit primitives when it is:
 Keep behavior app-local when the abstraction would hide important domain
 language or make a simple app-specific workflow harder to understand.
 
+## Agent Surface Contract
+
+The repeated app shell has two distinct navigation surfaces:
+
+- The left rail owns domain destinations, settings, and chat history when the
+  app has a full-page chat route. Do not label a domain workflow as `Chat` just
+  because the app was scaffolded from the chat template.
+- The right `AgentSidebar` owns contextual agent work. Domain buttons that call
+  `sendToAgentChat` should open it (`openSidebar: true`) so the user can see,
+  steer, and review the agent without losing the page they were using.
+- Keep `/` or `/chat/*` as the full-page chat surface when the starter provides
+  one. Put domain workflows on named routes and wire the shell's route checks,
+  navigation labels, and handoffs to those routes together.
+- Use familiar message or neutral action icons for agent affordances. Never use
+  sparkle, wand, magic, or robot icons as an AI label; the copy should carry the
+  meaning.
+- Give the right rail a quiet visual boundary with a subtle surface shift,
+  divider, or both. The domain page and AgentSidebar should not collapse into a
+  single undifferentiated background.
+- Any button labeled as agent work must use `sendToAgentChat` with bounded
+  context and `openSidebar: true`; local deterministic analysis should be
+  labeled as local, preview, or analyze. For original/generated review, stack
+  the source above the result by default and use side-by-side only for short,
+  highly scannable content.
+- Deterministic implementation does not make an AI-shaped experience
+  deterministic. If the user expects research, analysis, generation,
+  recommendation, synthesis, visible progress, or steering, route the button
+  to the AgentSidebar and let the agent call focused actions. Keep revisions in
+  the same thread instead of adding a second freeform prompt box.
+- Standalone apps with `AgentSidebar` must resolve one assistant-ui runtime
+  context. Match direct assistant-ui pins to the installed core/toolkit peer
+  graph, use Vite dedupe/aliases when linked dependencies can split contexts,
+  and verify an AI handoff produces no stale-index console error.
+
+Contextual agent UI is not a reason to expose every option at once. Start with
+the domain task's primary action, reveal review or configuration only when the
+current state needs it, and let the sidebar carry conversational depth.
+
+## Visual Direction And Workspace Variety
+
+Shared workspace behavior should be consistent without forcing every app into
+the same visual skin. Keep shell and component tokens semantic, then let each
+app declare a named direction in `DESIGN.md` before styling. A new app should
+choose its palette family and composition from the product context, compare
+nearby apps, and avoid inheriting their accent by default. Use the
+`frontend-design` visual-direction reference for mode, palette, type, density,
+shape, anti-references, and the `distill` / `typeset` / `colorize` / `layout` /
+`polish` / `audit` review vocabulary.
+
+Do not make warm beige plus terracotta the workspace fallback. Preserve a
+workspace-level brand when one exists; otherwise keep shared chrome neutral and
+allow app-owned accents to distinguish products while retaining accessible
+semantic states and the shared AgentSidebar contract.
+
 ## Discover Before Building
 
 Before creating an app-local version of repeated workspace or agent UI:
@@ -47,6 +101,34 @@ Before creating an app-local version of repeated workspace or agent UI:
 Use public package exports at runtime. Published source and ejection manifests
 are discovery and ownership-transfer mechanisms, not private runtime APIs.
 
+## Design-System Boundary
+
+Every app keeps an explicit design-system seam in `app/design-system.ts` using
+`defineDesignSystem` from `@agent-native/toolkit/design-system`, and supplies it
+to `ToolkitProvider`. The semantic contract contains:
+
+- nine leaf components: `ActionButton`, `IconButton`, `TextField`, `TextArea`,
+  `Spinner`, `Skeleton`, `Status`, `Surface`, and `Avatar`
+- eight behavior components: `Tooltip`, `Menu`, `Popover`, `Dialog`, `Picker`,
+  `Checkbox`, `Switch`, and `Tabs`
+
+These are semantic contracts, not styling contracts. An adapter may use
+Tailwind/shadcn, MUI-style theme providers, React Aria, CSS modules, CSS-in-JS,
+or another React design system. Do not assume CVA, utility classes, or even a
+`className`; behavior adapters may supply their overlay and focus
+implementation wholesale while honoring portal, focus-restoration, keyboard,
+dismissal, ARIA, and z-index interoperability.
+
+Pages, routes, and domain components import ordinary controls through the app's
+local adapter layer, usually `@/components/ui/*`. They must not import
+`@agent-native/toolkit/ui/*` directly. Toolkit feature exports are still the
+right home for shared workspace behavior; their presentation flows through the
+registered semantic components, feature controller, and product-level slots.
+
+Customer adapter packages are normal npm packages imported explicitly by the
+app. Never auto-detect them or load React components from JSON. Run the adapter
+against `@agent-native/toolkit/conformance` in customer CI before adopting it.
+
 ## Settings Direction
 
 Durable settings belong in the Settings app or a registered settings route. The
@@ -58,6 +140,12 @@ quick controls and deep links such as:
 - `/settings/secrets`
 - `/settings/usage`
 - `/settings/apps/:appId`
+
+The shared Account section is the canonical profile surface at
+`/settings#account`. It owns the editable display name and existing avatar
+control through the authenticated `get-user-profile` and `update-user-profile`
+actions. Shared workspace chrome such as `OrgSwitcher` should link to this
+surface rather than creating an app-local profile page.
 
 When adding a new API key, OAuth grant, provider connection, model selector, app
 preference, notification preference, or usage/billing surface, register it as a
@@ -83,9 +171,17 @@ in the moment of agent use.
   missing-secret states, OAuth grants, and provider connection health.
 - **Agent UX kit**: sidebar, composer, staged context, mentions, voice, human
   approval, generative UI, progress, and screen-state exposure.
+- **Custom block kit**: optional extension creation, viewer chrome, slots, and
+  promotion affordances. Apps must opt in; Core keeps the sandbox, SQL storage,
+  access checks, and compatibility routes, while Toolkit owns reusable adoption
+  UI. Analytics may expose this as one-off **Custom Blocks**; durable behavior
+  should be promoted to app code.
 - **Chat history kit**: presentational chat lists and recent-chat rails belong
   in Toolkit; Core keeps thread persistence, agent execution, transport, and
-  page-to-sidebar handoff. Apps inject routing, labels, and domain actions.
+  page-to-sidebar handoff. Use Toolkit's `ChatHistoryRail` for the standard
+  five-item sidebar preview and a footer row with New chat followed by an
+  ellipsis disclosure up to fifteen. Apps inject routing, labels, and domain
+  actions.
 - **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
   `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
   Access tabs plus a Personal/Organization scope toggle. The canonical home
@@ -104,8 +200,9 @@ in the moment of agent use.
 When adding or refactoring one of these areas:
 
 1. Search existing framework and template code for duplicated UI or actions.
-2. Decide the shared contract: data shape, action API, React component/hook, and
-   app adapter points.
+2. Decide the shared contract: data shape, action API, feature-level headless
+   controller, default view, semantic components, and product-level render
+   slots.
 3. Keep shared data provider-agnostic and scoped by auth/sharing rules.
 4. Expose the same capability to the UI and agent through actions or documented
    client helpers.
@@ -116,6 +213,12 @@ When adding or refactoring one of these areas:
    ship readable source plus a complete ejection unit so apps can take ownership
    of the smallest feature when needed. See `customizing-agent-native` for the
    configure → compose → eject → propose seam ladder.
+8. Keep one controller as the source of truth for the default and custom render
+   paths. A custom design must not fork actions, analytics, async state, or
+   accessibility behavior.
+9. Verify the default adapter and at least one non-Tailwind adapter with the
+   conformance kit, including focus and portal stacking across mixed overlay
+   implementations.
 
 ## Related Skills
 

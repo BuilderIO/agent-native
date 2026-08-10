@@ -115,7 +115,11 @@ export interface FrameOriginMessage {
 
 export interface ChatRunningMessage {
   type: "agentNative.chatRunning";
-  detail: { isRunning: boolean; tabId?: string };
+  detail: {
+    isRunning: boolean;
+    tabId?: string;
+    reason?: "stopped" | "failed";
+  };
 }
 
 export interface UserInfoMessage {
@@ -140,6 +144,10 @@ export interface SidebarModeMessage {
     width?: number;
     /** Whether the app's sidebar should be open. */
     open?: boolean;
+    /** Whether the sidebar is using the wide fixed drawer presentation. */
+    wide?: boolean;
+    /** Width reserved in the app layout while the wide drawer overlays it. */
+    placeholderWidth?: number;
   };
 }
 

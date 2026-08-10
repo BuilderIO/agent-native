@@ -83,6 +83,15 @@ describe("DocsSidebar", () => {
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
   });
 
+  it("uses the Agent Resources section and canonical overview link", () => {
+    const html = renderSidebar("/docs/agent-resources");
+
+    expect(html).toContain("Agent Resources");
+    expect(html).toContain("Agent Resources Overview");
+    expect(html).toContain('href="/docs/agent-resources"');
+    expect(html).not.toContain('href="/docs/workspace"');
+  });
+
   it("expands the section that contains the active docs page", () => {
     const html = renderSidebar("/docs/tracking");
 
@@ -93,7 +102,7 @@ describe("DocsSidebar", () => {
     const activeLink = getLinkMarkup(html, "/docs/tracking");
     const closedLink = getLinkMarkup(html, "/docs/creating-templates");
 
-    expect(activeLink).toContain('data-an-prefetch="render"');
+    expect(activeLink).toContain('data-an-prefetch="viewport"');
     expect(activeLink).not.toContain("tabindex");
     expect(closedLink).not.toContain("data-an-prefetch");
     expect(closedLink).toContain('tabindex="-1"');
@@ -142,6 +151,6 @@ describe("DocsSidebar", () => {
     // The active child link is highlighted and the group is open.
     const activeLink = getLinkMarkup(html, "/docs/template-plan");
     expect(activeLink).toContain("is-active");
-    expect(activeLink).toContain('data-an-prefetch="render"');
+    expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
 });

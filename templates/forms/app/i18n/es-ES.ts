@@ -88,6 +88,16 @@ const messages = {
     addOption: "Agregar opción",
     min: "mín.",
     max: "máx.",
+    conditionalVisibility: "Visibilidad condicional",
+    conditionalVisibilityDescription:
+      "Muestra este campo solo cuando coincida una respuesta anterior.",
+    conditionField: "Respuesta anterior",
+    conditionOperator: "Condición",
+    conditionEquals: "es",
+    conditionNotEquals: "no es",
+    conditionContains: "contiene",
+    conditionValue: "Respuesta",
+    conditionValuePlaceholder: "Escribe una respuesta...",
     fieldTypes: {
       text: "Texto corto",
       email: "Correo electrónico",
@@ -145,6 +155,7 @@ const messages = {
     integrationsTab: "Integraciones",
     settingsSaved: "Ajustes guardados",
     integrationsSaved: "Integraciones guardadas",
+    saveFailed: "No se pudieron guardar los cambios",
     formTitlePlaceholder: "Título del formulario",
     addDescriptionPlaceholder: "Añadir una descripción...",
     dragToReorder: "Arrastra para reordenar",
@@ -216,7 +227,7 @@ const messages = {
       googleSheetsBlurb:
         "Copia cada respuesta en una hoja de cálculo que tu equipo puede compartir.",
       googleSheetsHelp:
-        "Implementa una app web de Apps Script que reciba datos POST",
+        "Usa una URL /exec de Apps Script desplegada que lea JSON de e.postData.contents y añada la fila.",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -268,6 +279,8 @@ const messages = {
     duplicated: "Formulario duplicado",
     duplicateFailed: "No se pudo duplicar el formulario",
     movedToArchive: "Formulario movido al archivo",
+    movingToArchive: "Moviendo el formulario al archivo…",
+    archiveFailed: "No se pudo mover el formulario al archivo",
     restored: "Formulario restaurado",
     permanentlyDeleted: "Formulario eliminado permanentemente",
     bulkPermanentlyDeleted:

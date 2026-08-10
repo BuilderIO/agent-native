@@ -11,7 +11,7 @@ Les applications natives d'agent utilisent [Better Auth](https://better-auth.com
 
 L'authentification est configurée automatiquement via `autoMountAuth(app)` dans le plugin du serveur d'authentification. Il existe trois modes :
 
-- **Par défaut :** Meilleure authentification avec e-mail/mot de passe + fournisseurs sociaux. Page d'intégration affichée lors de la première visite.
+- **Par défaut :** Lien magique en priorité dans Better Auth lorsque l'e-mail sortant est prêt, avec e-mail/mot de passe en secours et fournisseurs sociaux. Définissez `AUTH_MAGIC_LINK=0` pour forcer le mode de secours.
 - **MCP OAuth à distance :** Standard OAuth 2.1 pour les hôtes MCP tels que le code Claude et les connecteurs ChatGPT.
 - **Personnalisé :** Apportez votre propre authentification via le rappel `getSession`.
 
@@ -102,11 +102,19 @@ Quelques drapeaux règlent cela ; tous les détails sont dans le tableau [Envir
 
 </Callout>
 
+## Connexion en développement local {#local-development-sign-in}
+
+Sur un serveur de développement utilisant une adresse de bouclage, la page de connexion partagée affiche d'abord **Continue as local dev**. Elle crée ou réutilise le véritable compte et la session de développement Better Auth, selon le même parcours authentifié que le reste de l'application.
+
+Choisissez **Show full sign in options** pour afficher les options normales d'inscription, de mot de passe, de lien magique et de fournisseurs sociaux. Si la session locale ne peut pas être créée, la page affiche automatiquement ces options afin que vous puissiez continuer avec l'authentification standard.
+
+Cette facilité est disponible uniquement lorsque le navigateur se connecte via `localhost`, `127.0.0.0/8` ou `::1` en développement ou lors des tests. Elle est désactivée pour les aperçus de déploiement et la production hébergée. Il ne s'agit pas d'un contournement de l'authentification. Définissez `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` pour la désactiver et afficher la page de connexion normale en développement local.
+
 ## Meilleure authentification (par défaut) {#better-auth}
 
 Par défaut, Better Auth gère l'authentification. Il fournit :
 
-- Inscription et connexion par e-mail/mot de passe
+- Inscription et connexion par lien magique, avec e-mail/mot de passe en secours
 - Fournisseurs de réseaux sociaux (Google, GitHub et plus de 35 autres)
 - Organisations avec rôles et invitations
 - Jetons JWT pour accès API et A2A
@@ -115,6 +123,7 @@ Par défaut, Better Auth gère l'authentification. Il fournit :
 De meilleures routes d'authentification sont montées sur `/_agent-native/auth/ba/*`. Le framework fournit également des points de terminaison rétrocompatibles :
 
 - `GET /_agent-native/auth/session` – obtenir la session en cours
+- `POST /_agent-native/auth/magic-link` — demander un e-mail avec lien magique
 - `POST /_agent-native/auth/login` — connexion par e-mail/mot de passe
 - `POST /_agent-native/auth/register` — créer un compte
 - `POST /_agent-native/auth/logout` — déconnexion
@@ -379,7 +388,7 @@ function MyComponent() {
 Les modèles comportant des **pages publiques** (liens de partage, intégrations, pages marketing) nécessitent souvent un CTA sur la page qui demande aux utilisateurs anonymes de se connecter et les ramène à la page sur laquelle ils se trouvaient. Le framework fournit un point d'entrée unique pour cela :
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 Lorsqu'un spectateur anonyme accède à ce URL, la page de connexion du framework est servie. Après une connexion réussie (n'importe quel flux : jeton, e-mail/mot de passe ou Google OAuth), le spectateur est redirigé vers `return`.
@@ -394,8 +403,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -403,11 +411,13 @@ function SignInCta() {
 
 ### Chemins privés marqués
 
-Les pages normales de l’application utilisent une seule coque SSR impersonnelle et mise en cache publiquement pour tous les visiteurs. `AppProviders` vérifie la session côté client ; sur un chemin privé tel que `/dashboard`, il redirige un visiteur anonyme vers `/_agent-native/sign-in?return=%2Fdashboard` avant de monter l’interface privée. Après connexion, le visiteur revient sur `/dashboard`. Utilisez `isPublicPath` pour les routes publiques/SEO, ou `sessionBypass` pour une surface authentifiée par un autre mécanisme limité, tel qu’un jeton d’intégration MCP.
+Les pages normales de l’application utilisent une seule coque SSR impersonnelle et mise en cache publiquement pour tous les visiteurs. `AppProviders` vérifie la session côté client ; sur un chemin privé tel que `/dashboard`, il redirige un visiteur anonyme vers `/sign-in?return=%2Fdashboard` avant de monter l’interface privée. Après connexion, le visiteur revient sur `/dashboard`. Utilisez `isPublicPath` pour les routes publiques/SEO, ou `sessionBypass` pour une surface authentifiée par un autre mécanisme limité, tel qu’un jeton d’intégration MCP.
+
+La durée de mise en cache de cette coque est un paramètre valable pour l’ensemble du déploiement — voir [SSR Caching](/docs/deployment#ssr-caching) pour `AGENT_NATIVE_SSR_CACHE`. Raccourcir ou désactiver le cache ne change que la durée ; le SSR continue de rendre la branche anonyme avec les cookies supprimés.
 
 ### Dans les coulisses : Google OAuth
 
-Les deux flux (le point d'entrée explicite `/_agent-native/sign-in` et le cas du chemin marqué par un signet) transmettent le retour URL via l'état OAuth. L'état est signé HMAC, il ne peut donc pas être falsifié pendant le transport. Lors du rappel, le retour URL est revalidé comme étant de même origine avant la redirection — de sorte qu'une clé de signature divulguée ne peut toujours pas être transformée en un oracle de redirection ouverte.
+Les deux flux (le point d'entrée explicite `/sign-in` et le cas du chemin marqué par un signet) transmettent le retour URL via l'état OAuth. L'état est signé HMAC, il ne peut donc pas être falsifié pendant le transport. Lors du rappel, le retour URL est revalidé comme étant de même origine avant la redirection — de sorte qu'une clé de signature divulguée ne peut toujours pas être transformée en un oracle de redirection ouverte.
 
 Si votre modèle encapsule directement `/_agent-native/google/auth-url` (par exemple, les modèles de courrier et de calendrier le font, pour élargir les portées), acceptez une requête `?return=<path>` et transférez-la via le formulaire d'objet d'options de `encodeOAuthState` :
 

@@ -1,6 +1,6 @@
 {
   "name": "plan",
-  "displayName": "Agent-Native Plan",
+  "displayName": "Plan",
   "private": true,
   "description": "Generate and review coding-agent plans with diagrams, wireframes, annotations, prototypes, and feedback.",
   "type": "module",
@@ -9,6 +9,7 @@
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "action": "agent-native action",
     "script": "agent-native script",
     "test": "vitest --run"

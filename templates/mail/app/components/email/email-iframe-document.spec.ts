@@ -20,11 +20,24 @@ describe("Mail email iframe document", () => {
     );
   });
 
+  it("includes host theme CSS before the iframe can paint email content", () => {
+    const document = buildEmailIframeDocument(
+      "",
+      "<p>Hello</p>",
+      "body { color: red; }",
+    );
+
+    expect(document).toContain(
+      "<style data-mail-theme>\nbody { color: red; }\n  </style>\n</head>",
+    );
+  });
+
   it("uses srcDoc/load instead of replacing the mounted iframe document", () => {
     const source = readFileSync(join(HERE, "EmailThread.tsx"), "utf8");
     expect(source).toContain('data-agent-native-session-replay=""');
     expect(source).toContain("srcDoc={iframeDocument}");
-    expect(source).toContain("onLoad={() => setIframeLoadVersion");
+    expect(source).toContain("setIframeReady(true)");
+    expect(source).toContain("setIframeLoadVersion((version) => version + 1)");
     expect(source).toContain(
       'sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"',
     );

@@ -130,6 +130,7 @@ export interface FeatureConfig {
   screenMemory: ScreenMemoryConfig;
   onboardingComplete: boolean;
   whisperModelEnabled: boolean;
+  whisperModelId: string;
 }
 
 export function useFeatureConfig() {

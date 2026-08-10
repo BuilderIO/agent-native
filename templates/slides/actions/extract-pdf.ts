@@ -2,6 +2,8 @@ import fs from "fs";
 
 import { parseArgs } from "@agent-native/core";
 
+import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+
 export default async function (args: string[]) {
   const { path: pdfPath } = parseArgs(args);
   if (!pdfPath) {
@@ -10,12 +12,10 @@ export default async function (args: string[]) {
   }
 
   const buf = fs.readFileSync(pdfPath);
-  const { CanvasFactory, getData } = await import("pdf-parse/worker");
-  const { PDFParse } = await import("pdf-parse");
-  PDFParse.setWorker(getData());
+  const { PDFParse, canvasFactory } = await setupPdfParse();
   const pdf = new PDFParse({
     data: new Uint8Array(buf),
-    CanvasFactory,
+    CanvasFactory: canvasFactory,
   });
   const result = await pdf.getText().finally(() => pdf.destroy());
   const pages = result.pages || [];

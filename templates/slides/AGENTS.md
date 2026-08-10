@@ -7,10 +7,8 @@ state.
 Detailed deck, slide-editing, image, design-system, and export workflows live in
 `.agents/skills/`.
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+Before building common workspace or agent UI, read `agent-native-toolkit` and
+`customizing-agent-native` for the public kit and configure/eject seams.
 
 ## Core Rules
 
@@ -27,52 +25,46 @@ ladder.
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
-- Follow linked design-system tokens and custom instructions.
-- For reusable design-system setup from Figma, connected code/GitHub, local
-  code/design files, or optional `design.md`, use Builder-backed DSI indexing
-  through `index-design-system-with-builder` or `import-file --format fig`.
-  Pass readable `design.md` content as `designMd`, use the returned local design
-  system id in Slides flows, and call `get-design-system` before generation to
-  hydrate Builder docs/tokens when available. Do not create a duplicate local
-  design system from raw Figma/code sources.
-- Treat import/export actions as shortcuts, not capability limits. When the
-  exact Google Drive endpoint, file metadata field, export format, pagination
-  mode, or API version matters, use `provider-api-catalog`,
-  `provider-api-docs`, and `provider-api-request` against the real provider
-  API. Slides resolves Google Drive auth from the user's connected Google Docs
-  OAuth account. For large scans, stage results with `stageAs` and analyze them
-  with `query-staged-dataset`.
-- Use image-generation and image-selection actions only when the deck genuinely
-  needs imagery; keep citations/asset provenance when available.
-- Use framework sharing actions for deck visibility and grants.
-- For a known, read-only sibling-app operation, use `call-agent` with `action`
-  and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
-  model loop. In Analytics, use `gong-native-insights` for provider-synthesized
-  briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
-- Before generation, follow the creative-context reuse ladder in
-  `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
-  first, then a pinned/current pack, then narrow library search. Respect
-  `creative-context.contextMode: "off"` without silently restoring a pack.
-- To submit a deck to a governed Creative Context, use the Context tab or
-  `manage-context-membership`; it captures one immutable deck version. Reuse
-  only a returned opaque native clone reference through the Slides clone action.
-  Use `operation="submit-latest"` with a Library membership id when its native
-  update status reports `update-available`.
+- When an uploaded PPTX or PDF is being improved, import it into the target deck
+  first with `import-pptx` or `import-file --importIntoDeck true`. Treat the
+  resulting `sourceImport` metadata as the source-of-truth contract: preserve
+  slide count, order, IDs, factual copy, notes, images, and positioned objects;
+  use `update-slide` for bounded visual edits and verify with `get-deck`.
+- A source import with `fidelity: partial` or `imagesSkipped` is not safe to
+  restyle automatically. Report the exact warning rather than silently
+  replacing missing content.
+- Preserve freeform objects and their `data-slide-object-id` values. They are
+  absolutely positioned `.fmd-slide` children; keep generated flex/grid in
+  normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
+- Read `slide-editing` before creating slides; it covers fit, density, and overflow.
+- Follow linked design-system tokens; read `design-systems` for per-source actions.
+- Import/export actions are shortcuts, not capability limits. For exact Google
+  Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
+  large scans with `stageAs` and analyze them via `query-staged-dataset`.
+- `import-google-slides-reference` accepts either a Picker `fileId` or a
+  `presentationUrl`; imported PPTX timing metadata, including by-paragraph
+  reveals, stays on the deck's slide records.
+- For images, use `generate-image-api` with provenance; show results as
+  `![alt](url)`.
+- Ask a sibling app's agent with a natural-language `call-agent` message by
+  default. Let that specialist use its own instructions, skills, sources, and
+  tools. Direct action invocation is only for an exact bounded read with a
+  fully known schema; never use it as a workaround for slow or failed A2A.
+- For data requests, read `.agents/skills/analytics-data-for-decks/SKILL.md` and
+  delegate via Analytics over A2A; do not write SQL or call providers directly.
+- When the user names no reference deck or design system, call
+  `get-workspace-defaults` first so a bare "make a deck about X" is still on
+  brand.
+- Before generation, follow `.agents/skills/creative-context/SKILL.md`: explicit
+  request/current deck, then pinned/current pack, then narrow library search.
+  Respect `contextMode: "off"`. Submit governed context through the Context tab
+  or `manage-context-membership`; reuse only its opaque clone reference.
 
 ## Persistence Model
 
-Decks are stored as a single JSON blob in the `decks.data` column. All writes
-go through server-side read-modify-write actions that hold a per-deck lock,
-so concurrent writers (human + agent, two humans) touching different slides
-never overwrite each other's work.
-
-**Agent actions** (`update-slide`, `add-slide`): continue to use their dedicated
-granular actions — they share the same in-process deck lock.
-
-**Browser editor** now calls `patch-deck` instead of a full PUT. If you are
-extending the editor's save path, enqueue a granular op (`patch-slide`,
-`delete-slide`, `reorder-slides`, `add-slide`, or `patch-deck-fields`) via
-`enqueueDeckOp` in `DeckContext.tsx` — do NOT add a new full-deck PUT.
+Deck data lives in SQL and all writes go through server-side actions. Read
+`deck-management` before changing persistence or editor save paths.
 
 ## Application State
 
@@ -89,6 +81,10 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 - Browser PowerPoint export uses the rendered slide DOM to generate native,
   editable PPTX text/shapes/images. Do not replace it with full-slide images
   unless the user explicitly asks for non-editable visual snapshots.
+- The server-side `export-pptx` action cannot measure browser-rendered
+  freeform geometry. It must fail clearly for positioned objects and direct the
+  user to the editor's Export > PowerPoint path instead of silently reflowing
+  them.
 - Google Slides export is a PPTX import workflow: generate the same editable
   PPTX and have the user import it into Google Slides. Creating a native Google
   Slides file directly requires a separate Google Slides API batchUpdate path.
@@ -97,10 +93,11 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 
 Read the relevant skill before deeper work:
 
-- `create-deck` for new decks and outline-to-slide flows.
+- `create-deck` for new decks, reference decks, workspace defaults, outlines.
 - `slide-editing` for targeted slide changes.
 - `deck-management` for organization, sharing, import/export, and metadata.
 - `slide-images` and `image-generation-via-a2a` for image work.
 - `design-systems`, `frontend-design`, `shadcn-ui`, and `actions` as needed.
 - `creative-context` for cross-app source reuse, pinned packs, provenance, and
   context opt-out.
+- `analytics-data-for-decks` for delegated data.

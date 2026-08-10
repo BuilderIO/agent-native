@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveCredential = vi.fn();
+const describeCredentialScopeGap = vi.fn();
 const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
@@ -10,6 +11,7 @@ const resolveWorkspaceConnectionForApp = vi.fn();
 const resolveSecret = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
+  describeCredentialScopeGap,
   resolveCredential,
 }));
 
@@ -51,6 +53,8 @@ describe("provider API runtime", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resolveCredential.mockReset();
+    describeCredentialScopeGap.mockReset();
+    describeCredentialScopeGap.mockResolvedValue(null);
     isBlockedExtensionUrlWithDns.mockReset();
     createSsrfSafeDispatcher.mockReset();
     listOAuthAccountsByOwner.mockReset();
@@ -873,6 +877,305 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("uses a granted Salesforce OAuth connection at its validated instance URL", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: { access_token: "salesforce-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "salesforce",
+      path: "/services/data/v60.0/sobjects/Account",
+      connectionId: "salesforce-connection",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://acme.my.salesforce.com/services/data/v60.0/sobjects/Account",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer salesforce-oauth-example",
+        }),
+      }),
+    );
+  });
+
+  it("requires a Salesforce workspace connectionId before resolving a request", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: { access_token: "salesforce-oauth-example" },
+      },
+    ]);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "salesforce",
+        path: "/services/data/v60.0/sobjects/Account",
+      }),
+    ).rejects.toThrow(
+      "Salesforce Provider API requests require a workspace connectionId.",
+    );
+
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a Salesforce OAuth token on its exact connection instance", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: { access_token: "salesforce-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "salesforce",
+        path: "https://other.my.salesforce.com/services/data/v60.0/query",
+        connectionId: "salesforce-connection",
+      }),
+    ).rejects.toThrow(/must stay on the configured provider host/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("documents Salesforce Provider API examples with a concrete API version", () => {
+    const examples = getProviderApiConfig("salesforce").examples ?? [];
+    expect(examples.map((example) => example.path)).toEqual(
+      expect.arrayContaining([
+        "/services/data/v60.0/sobjects/Account",
+        "/services/data/v60.0/query",
+      ]),
+    );
+  });
+
+  it("refreshes Salesforce OAuth before calling the connection instance", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "SALESFORCE_CLIENT_ID"
+        ? "salesforce-client-id"
+        : key === "SALESFORCE_CLIENT_SECRET"
+          ? "salesforce-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: {
+          access_token: "expired-salesforce-access",
+          refresh_token: "salesforce-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+          salesforceLoginUrl: "https://test.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "salesforce-access-new",
+            refresh_token: "salesforce-refresh-rotated",
+            expires_in: 7200,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ records: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "salesforce",
+      path: "/services/data/v60.0/query",
+      connectionId: "salesforce-connection",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://test.salesforce.com/services/oauth2/token",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "grant_type=refresh_token",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://acme.my.salesforce.com/services/data/v60.0/query",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer salesforce-access-new",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "salesforce",
+      "00Dexample::scoped-owner",
+      expect.objectContaining({
+        access_token: "salesforce-access-new",
+        refresh_token: "salesforce-refresh-rotated",
+      }),
+      "ada@example.com",
+    );
+  });
+
+  it("refreshes Salesforce OAuth using Consumer Key/Secret when CLIENT_ID/SECRET are unset", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "SALESFORCE_CONSUMER_KEY"
+        ? "salesforce-consumer-key"
+        : key === "SALESFORCE_CONSUMER_SECRET"
+          ? "salesforce-consumer-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: {
+          access_token: "expired-salesforce-access",
+          refresh_token: "salesforce-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+          salesforceLoginUrl: "https://test.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "salesforce-access-new",
+            refresh_token: "salesforce-refresh-rotated",
+            expires_in: 7200,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ records: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "salesforce",
+      path: "/services/data/v60.0/query",
+      connectionId: "salesforce-connection",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://test.salesforce.com/services/oauth2/token",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "client_id=salesforce-consumer-key",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "client_secret=salesforce-consumer-secret",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://acme.my.salesforce.com/services/data/v60.0/query",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer salesforce-access-new",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "salesforce",
+      "00Dexample::scoped-owner",
+      expect.objectContaining({
+        access_token: "salesforce-access-new",
+        refresh_token: "salesforce-refresh-rotated",
+      }),
+      "ada@example.com",
+    );
+  });
+
   it("resolves a connection-bound OAuth token for trusted UI bridges", async () => {
     listOAuthAccountsByOwner.mockResolvedValue([
       {
@@ -993,6 +1296,55 @@ describe("provider API runtime", () => {
     expect(JSON.stringify(result)).not.toContain(fakeKey);
   });
 
+  it("attaches Notion sharing guidance to access failures and not to other errors", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "NOTION_API_KEY" ? "notion-test-token" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Could not find page" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const denied = (await runtime.executeRequest({
+      provider: "notion",
+      path: "/pages/example",
+    })) as any;
+    expect(denied.guidance).toContain("••• → Connections");
+    expect(denied.guidance).toContain("may not match this app or workspace");
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("{}", {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const throttled = (await runtime.executeRequest({
+      provider: "notion",
+      path: "/pages/example",
+    })) as any;
+    expect(throttled.guidance).not.toContain("••• → Connections");
+  });
+
+  it("catalogs Notion's integration-label caveat", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const [catalogEntry] = (await runtime.listCatalog("notion")) as any[];
+
+    expect(catalogEntry.notes[0]).toContain("Notion-side integration label");
+    expect(catalogEntry.accessErrorGuidance).toContain("••• → Connections");
+  });
+
   it("exposes Clay's official catalog and docs metadata", async () => {
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -1039,6 +1391,56 @@ describe("provider API runtime", () => {
 
     expect(resolveCredential).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("explains an out-of-scope credential instead of reporting it missing", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(
+      'A "HUBSPOT_ACCESS_TOKEN" key is saved in this workspace with Personal scope. ' +
+        "It needs Workspace or Organization scope instead.",
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "hubspot", path: "/crm/v3/objects/deals" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toContain("hubspot credential not configured");
+    expect(error?.message).toContain("with Personal scope");
+    expect(error?.message).toContain("Workspace or Organization scope");
+    expect(describeCredentialScopeGap).toHaveBeenCalledWith(
+      expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),
+      credentialContext,
+    );
+  });
+
+  it("keeps the generic message when nothing safe can be said about scope", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "hubspot", path: "/crm/v3/objects/deals" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toMatch(
+      /hubspot credential not configured\. Tried:/,
+    );
+    expect(error?.message).not.toContain("Personal scope");
   });
 
   it("wraps provider transport failures with a sanitized request target", async () => {
@@ -1950,6 +2352,29 @@ describe("provider API runtime", () => {
       deleteGitHubRepositoryFile: vi.fn(),
     };
     const action = createGitHubRepoFilesAction(runtime);
+    const planEffect = action.planMode?.effect;
+    expect(typeof planEffect).toBe("function");
+    if (typeof planEffect !== "function") {
+      throw new Error("Missing Plan-mode classifier");
+    }
+    expect(planEffect({ operation: "list", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "search", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "read", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "write", owner: "o", repo: "r" })).toBe(
+      "write",
+    );
+    expect(planEffect({ operation: "delete", owner: "o", repo: "r" })).toBe(
+      "write",
+    );
+    expect(action.planMode?.allowedValues).toEqual({
+      operation: ["list", "search", "read"],
+    });
 
     expect(typeof action.needsApproval).toBe("function");
     await expect(

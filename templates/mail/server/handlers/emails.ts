@@ -25,7 +25,6 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 
-import { normalizeSignature } from "../../shared/signature.js";
 import {
   incrementSendFrequency,
   getContactFrequencyMap,
@@ -68,6 +67,7 @@ import {
   withLocalEmailMutationLock,
   writeLocalEmails as writeEmails,
 } from "../lib/local-email-store.js";
+import { readSettings } from "../lib/mail-settings.js";
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
@@ -282,21 +282,6 @@ async function userEmail(event: H3Event): Promise<string> {
   return session.email;
 }
 
-// ─── Settings defaults ──────────────────────────────────────────────────────
-
-const DEFAULT_SETTINGS: UserSettings = {
-  name: "",
-  email: "",
-  signature: "",
-  writingStyle: "",
-  theme: "dark",
-  density: "comfortable",
-  previewPane: "right",
-  sendAndArchive: false,
-  undoSendDelay: 5,
-  tracking: { opens: false, clicks: false },
-};
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function reqSource(event: H3Event) {
@@ -362,19 +347,6 @@ async function writeLabels(
   options?: { requestSource?: string },
 ): Promise<void> {
   await putUserSetting(email, "labels", { labels }, options);
-}
-
-async function readSettings(email: string): Promise<UserSettings> {
-  const data = await getUserSetting(email, "mail-settings");
-  if (data) {
-    return {
-      ...DEFAULT_SETTINGS,
-      ...(data as any),
-      email: (data as any).email || email,
-      signature: normalizeSignature((data as any).signature),
-    } as UserSettings;
-  }
-  return { ...DEFAULT_SETTINGS, email };
 }
 
 function recomputeUnreadCounts(
@@ -1852,33 +1824,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
     } catch {}
   }
   return readLabels(email);
-});
-
-// ─── Settings ─────────────────────────────────────────────────────────────────
-
-export const getSettings = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  return readSettings(email);
-});
-
-export const updateSettings = defineEventHandler(async (event: H3Event) => {
-  const email = await userEmail(event);
-  const current = await readSettings(email);
-  const body = await readBody(event);
-  const updated = {
-    ...current,
-    ...body,
-    ...(body.signature !== undefined
-      ? { signature: normalizeSignature(body.signature) }
-      : {}),
-  };
-  await putUserSetting(
-    email,
-    "mail-settings",
-    updated as Record<string, unknown>,
-    { requestSource: reqSource(event) },
-  );
-  return updated;
 });
 
 // ─── Calendar RSVP ───────────────────────────────────────────────────────────

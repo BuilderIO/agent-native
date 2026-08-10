@@ -54,6 +54,29 @@ describe("serializeActionQueryParams", () => {
     expect(params.has("empty")).toBe(false);
     expect(params.has("none")).toBe(false);
   });
+
+  it("serializes nested object GET params as JSON", () => {
+    const tableQuery = {
+      filters: [
+        {
+          propertyId: "status",
+          operator: "equals",
+          value: "published",
+        },
+      ],
+      sorts: [{ propertyId: "date", direction: "desc" }],
+    };
+
+    const query = serializeActionQueryParams({
+      documentId: "doc-1",
+      tableQuery,
+    });
+
+    const params = new URLSearchParams(query);
+    expect(params.get("documentId")).toBe("doc-1");
+    expect(params.get("tableQuery")).toBe(JSON.stringify(tableQuery));
+    expect(query).not.toContain("%5Bobject+Object%5D");
+  });
 });
 
 describe("callAction", () => {
@@ -204,6 +227,31 @@ describe("callAction", () => {
     );
   });
 
+  it("sends the browser session id so actions share the agent run's session", async () => {
+    const store = new Map<string, string>([
+      ["agent-native.session_id_pin", "run-42"],
+    ]);
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAction("log-meal", { name: "Salad" });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Session-Id": "run-42",
+    });
+  });
+
   it("serializes GET params for imperative reads", async () => {
     const fetchMock = vi
       .fn()
@@ -329,6 +377,75 @@ describe("callAction", () => {
     // React Query relies on recognizing the original cancellation.
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
+  });
+
+  it("surfaces a transport-level abort as a retryable error, not a cancellation", async () => {
+    // Nobody asked for this: no caller signal, no timeout. The browser killed
+    // the request (connection reset, bfcache eviction, exhausted socket pool)
+    // while the user was still waiting on it.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.reject(
+          new DOMException("The operation was aborted.", "AbortError"),
+        ),
+      ),
+    );
+
+    const error = await callAction("list-meetings").catch((err) => err);
+
+    // Must be a renderable, retryable failure — rethrowing the raw AbortError
+    // would let React Query treat it as a cancellation and park the query in
+    // `pending` behind a loading skeleton forever.
+    expect(String(error.message)).toContain("Action list-meetings failed");
+    expect(defaultActionQueryRetry(0, error)).toBe(true);
+  });
+
+  it("times out a transport that never settles and ignores the abort signal", async () => {
+    vi.useFakeTimers();
+    try {
+      // A patched fetch, a wedged service worker, or a browser that drops the
+      // promise: aborting the controller accomplishes nothing, so the timeout
+      // has to reject the caller itself.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => new Promise<Response>(() => {})),
+      );
+
+      const promise = callAction("stuck-action", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+        status: 408,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out an unabortable body stream after headers arrive", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          text: () => new Promise<string>(() => {}),
+        })),
+      );
+
+      const promise = callAction("stuck-body", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+        status: 408,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

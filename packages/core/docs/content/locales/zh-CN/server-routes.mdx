@@ -1,0 +1,198 @@
+---
+title: "路由"
+description: "基于文件的 Nitro 服务器路由、SSR 兜底路由、命名约定，以及如何将自定义路由限定到已认证的用户。"
+---
+
+# 路由
+
+代理本机应用中的服务器路由分为两个表面。
+
+**框架路由**位于 `/_agent-native/*`，由框架管理。它们暴露 Agent 聊天循环、同步轮询、Action 端点和其他核心能力，你不需要也不应该创建或修改这些路由。
+
+**自定义文件路由**放在 `server/routes/` 中,是你添加自己端点的地方。Nitro 会根据文件在目录树中的位置自动拾取它们,无需注册或配置。文件名决定 HTTP 方法，目录路径变成 URL 路径，每个文件导出一个处理函数。
+
+## 框架挂载的路由 {#framework-routes}
+
+框架为自己的端点保留了 `/_agent-native/` 命名空间。切勿在这里放置自定义路由。下表具有代表性，但并不详尽。
+
+| 路由前缀                         | 用途                                                          |
+| -------------------------------- | ------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Action 的 HTTP 端点                                           |
+| `/_agent-native/agent-chat`      | Agent 聊天循环                                                |
+| `/_agent-native/poll`            | 基于 SQL 的 UI 同步                                           |
+| `/_agent-native/runs`            | 进度基础原语。`RunsTray` 会轮询它；参见[进度](/docs/progress) |
+| `/_agent-native/resources/*`     | 工作区资源                                                    |
+| `/_agent-native/extensions/*`    | 运行时扩展与扩展代理（旧别名：`/_agent-native/tools/*`）      |
+| `/_agent-native/integrations/*`  | 消息/Webhook 集成                                             |
+| `/_agent-native/a2a`             | 代理间（Agent-to-agent）JSON-RPC                              |
+| `/mcp`                           | MCP 端点                                                      |
+| `/_agent-native/onboarding/*`    | 设置清单                                                      |
+| `/_agent-native/observability/*` | 追踪、反馈、评估、实验                                        |
+| `/_agent-native/file-upload`     | 文件上传提供商端点                                            |
+
+自定义的应用路由应放在 `/api/*` 或其他不与 `/_agent-native/` 冲突的路径下。
+
+## 什么时候使用自定义路由 {#when-custom-routes}
+
+Actions 覆盖了绝大多数应用操作。只有当你需要 Action 无法表达的能力时，才在 `server/routes/` 中新建一个文件路由。
+
+<Comparison>
+
+### 使用自定义路由 {#use-custom-route}
+
+- 文件上传或 multipart 表单数据
+- 流式响应或服务器发送事件（SSE）
+- 需要验证原始请求体的入站 Webhook
+- OAuth 回调
+- 公开的、无需身份验证的页面
+- 需要特定 URL 路径或响应格式的外部 REST 契约
+
+### 改用 Action {#use-action-instead}
+
+- UI 和代理都需要的操作
+- 读取或写入应用数据
+- HTTP 形态的端点（使用 [Actions](/docs/actions) 中的 `http` 选项）
+- 任何应该成为代理工具、MCP 工具或 CLI 命令的能力
+- 标准的 JSON 请求/响应 API
+
+</Comparison>
+
+### 示例：入站 Webhook {#example-webhook}
+
+Webhook 是使用自定义路由的典型场景。外部服务发送的原始 HTTP 请求体必须在解析之前按字节读取，这样才能验证请求签名。Actions 接收的是预先解析好的 JSON，无法访问原始请求体，这使得在 Action 内部验证签名变得不可能。
+
+下面的路由处理 `POST /api/webhooks/events` 的入站 Webhook：读取原始请求体、验证 HMAC 签名，然后处理载荷。
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro 会自动把这个文件映射到 `POST /api/webhooks/events`。`WEBHOOK_SECRET` 环境变量应设置为外部服务提供的签名密钥。
+
+## 基于文件的路由 {#file-based-routes}
+
+目录路径变成 URL 路径，文件名后缀决定 HTTP 方法。位于 `server/routes/api/items/[id].get.ts` 的文件会映射到 `GET /api/items/:id`——`items/` 来自目录，`[id]` 变成 `:id` 参数，`.get` 设置方法。
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR catch-all for public pages
+```
+
+`defineEventHandler` 是编写路由的 H3 基础原语。它包装你的处理函数，并让它访问 `event` 对象——其中携带请求、响应、路由参数、查询字符串、请求头和请求体。从处理函数中返回一个值会将其作为响应发送，普通对象会自动变成 JSON。抛出一个 `createError` 会发送相应的 HTTP 错误状态码。
+
+像 `[id]` 这样的路由参数通过 `getRouterParam` 从 `event` 中读取：
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### 命名约定 {#naming-conventions}
+
+| 文件路径（相对于 `server/routes/`） | HTTP 方法 | URL 路径         |
+| ----------------------------------- | --------- | ---------------- |
+| `api/items/index.get.ts`            | GET       | `/api/items`     |
+| `api/items/index.post.ts`           | POST      | `/api/items`     |
+| `api/items/[id].get.ts`             | GET       | `/api/items/:id` |
+| `api/items/[id].patch.ts`           | PATCH     | `/api/items/:id` |
+| `api/items/[id].delete.ts`          | DELETE    | `/api/items/:id` |
+| `api/items/[...slug].get.ts`        | GET       | `/api/items/*`   |
+
+## 请求上下文与访问权限 {#request-context}
+
+框架挂载的 Actions 会自动带着请求上下文运行，自定义路由则不会。如果一个自定义路由需要读写可拥有（ownable）资源，请加载会话并把工作包裹起来：
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="将自定义路由限定到请求用户"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "自定义路由没有自动上下文",
+      note: "与 Actions 不同，一个文件路由必须自己加载会话，并在没有已认证用户时以失败告终（fail closed）。",
+    },
+    {
+      lines: "13",
+      label: "建立请求上下文",
+      note: "`runWithRequestContext` 让用户/组织信息在这段工作期间对范围限定助手可用。",
+    },
+    {
+      lines: "17-20",
+      label: "限定可拥有数据的读取范围",
+      note: "`accessFilter` 会把查询约束在调用者可见的行范围内。切勿在这里执行未限定范围的 `db.select().from(ownableTable)`。",
+    },
+  ]}
+/>
+
+`getDb` 是每个应用在 `server/db/index.ts` 中通过 `createGetDb(schema)` 创建的，因此自定义路由应从模板路径（`../../db/index.js`）导入它，而不是从 `@agent-native/core/db` 导入。参见[数据库](/docs/server-database#db-client)。
+
+<Callout tone="warning">
+  不要在自定义路由中执行未限定范围的 `db.select().from(ownableTable)`。在查询
+  可拥有数据之前，始终先用 `runWithRequestContext` 建立请求上下文。
+</Callout>
+
+## SSR 兜底路由 {#ssr-catch-all}
+
+位于 `server/routes/` 根目录的 `[...page].get.ts` 路由负责面向公众页面的服务端渲染。它使用 `createH3SSRHandler` 把请求交给 React Router 构建产物处理：
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+每个 SSR 响应都是一个不针对个人的公共外壳，并会在 CDN 上被缓存。切勿在这个处理函数中读取 cookie、会话状态或身份验证分支，个性化内容应在客户端完成 hydration 之后进行。
+
+## 下一步 {#whats-next}
+
+- [**Actions**](/docs/actions)：应用操作的首选表面；只有在不适用时才考虑路由
+- [**插件**](/docs/server-plugins)：启动插件及其初始化行为
+- [**中间件**](/docs/server-middleware)：保护包括 `/api/*` 在内的所有路由的身份验证守卫
+- [**安全性**](/docs/security#access-guards)：`accessFilter`/`assertAccess` 与完整的数据范围限定模型

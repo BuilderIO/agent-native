@@ -54,6 +54,10 @@ The `cleanup-transcript` action resolves credentials in this order — **always 
 
 The "Cleanup transcripts with AI" toggle in Settings → Voice & Transcription gates whether cleanup runs automatically (default ON when Builder is connected).
 
+Pass bounded `voiceContext` (active app context, learned vocabulary, user notes,
+AGENTS.md preferences) into the shared cleanup path — see the `ai-video-tools`
+skill's "Bounded voice context" section.
+
 ## Navigation state
 
 The app exposes `view` and `dictationId`:

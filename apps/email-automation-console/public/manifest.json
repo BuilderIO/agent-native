@@ -1,0 +1,21 @@
+{
+  "name": "Email Automation Console",
+  "short_name": "Email Automation Console",
+  "description": "Workspace app for Email Automation Console.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#18181B",
+  "icons": [
+    {
+      "src": "icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

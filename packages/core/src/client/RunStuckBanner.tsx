@@ -45,13 +45,21 @@ export interface RunStuckBannerProps {
    * `chatHandle.hasInFlightWork()`. "No progress" for a stretch of time does
    * not mean the run is dead: a long provider query or a cross-app `call
    * agent` can legitimately emit nothing for minutes. When this returns
-   * true, Retry (which aborts the run) is hidden — aborting would destroy
-   * real in-flight work and re-execute the same long call from scratch.
-   * Only Cancel, an explicit destructive choice, remains available. Checked
-   * fresh on every render; omit to keep the unconditional Retry/Cancel
-   * behavior.
+   * true, the stuck warning is hidden — aborting would destroy real in-flight
+   * work and re-execute the same long call from scratch. Checked fresh on every
+   * render; omit to keep the unconditional Retry/Cancel behavior.
    */
   hasInFlightWork?: () => boolean;
+  /**
+   * Returns true when this chat is actually waiting on a reply - typically
+   * backed by `chatHandle.isRunning()`. "Stuck" is a claim about THIS client,
+   * but the run row is the server's; a turn that finished normally can leave a
+   * row in `running` (terminal marking is best-effort, and the stale-run reaper
+   * runs later). Without this gate an idle, completed chat shows the warning
+   * and auto-retry re-prompts a thread the user considers done. Checked fresh
+   * on every render; omit to keep the unconditional behavior.
+   */
+  isAwaitingResponse?: () => boolean;
   /**
    * Called whenever the stuck state transitions. Useful for surfacing
    * observability events (Sentry, PostHog) at the call site.
@@ -172,6 +180,7 @@ export function RunStuckBanner({
   autoRetry = false,
   autoRetryOwnerId,
   hasInFlightWork,
+  isAwaitingResponse,
   className,
 }: RunStuckBannerProps) {
   const state = useRunStuckDetection({
@@ -182,6 +191,11 @@ export function RunStuckBanner({
   });
   const abortRun = useAbortRun(apiUrl);
   const [busy, setBusy] = useState<BusyState>({ type: "none" });
+  // "An automatic attempt was made for this run" is a different fact from
+  // "the controls are locked while a request is in flight". Sharing one flag
+  // for both would force the buttons to stay disabled just to keep the
+  // message on screen.
+  const [autoRetriedRunId, setAutoRetriedRunId] = useState<string | null>(null);
   const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
   const generatedOwnerIdRef = useRef<string | null>(null);
   if (!generatedOwnerIdRef.current) {
@@ -191,9 +205,9 @@ export function RunStuckBanner({
   const backgroundWorkerStillAlive = isFreshBackgroundWorker(state);
   // A live tool call or sub-agent (A2A) call means "no progress" is not the
   // same as "dead" — the process is genuinely still doing the user's work.
-  // Retry aborts the run, so it must not be offered as the (implicitly
-  // safe-looking) primary action while real work is in flight; see the
-  // `hasInFlightWork` prop doc comment. Re-checked on every render (the
+  // Retry aborts the run, so the stuck warning stays out of the way while real
+  // work is in flight; see the `hasInFlightWork` prop doc comment. Re-checked
+  // on every render (the
   // underlying source mutates in place as tool/agent-call events stream in),
   // which is why this is a function prop rather than a plain boolean.
   //
@@ -206,6 +220,7 @@ export function RunStuckBanner({
   // either signal says so.
   const inFlightWork =
     state.hasInFlightWork === true || (hasInFlightWork?.() ?? false);
+  const awaitingResponse = isAwaitingResponse?.() ?? true;
   // Server-continued runs are recovered by the SERVER (chained continuation
   // chunks + lost-handoff sweep); an automatic client abort would kill a live
   // server-chained run. Auto-retry is therefore disabled unconditionally for
@@ -263,6 +278,9 @@ export function RunStuckBanner({
       // A live tool/A2A call in flight — never auto-abort real work (see
       // `inFlightWork` comment above).
       inFlightWork ||
+      // Nothing is waiting on this run here; re-prompting would restart a
+      // thread the user already considers finished.
+      !awaitingResponse ||
       !state.isStuck ||
       !state.runId ||
       busy.type !== "none" ||
@@ -276,21 +294,22 @@ export function RunStuckBanner({
       autoRetriedRunIdsRef.current.add(runId);
       if (!claimed) return;
       setBusy({ type: "retry", runId });
+      setAutoRetriedRunId(runId);
       trackEvent("agent_chat_stuck_auto_retry", {
         runId,
         threadId: threadId ?? null,
         stuckSinceMs: state.stuckSinceMs ?? null,
       });
       void abortRun(runId, "auto_stuck_retry").then((aborted) => {
-        if (aborted) {
-          onRetry?.(aborted);
-          return;
-        }
+        // Release the controls on both outcomes. If the abort does not move
+        // the row off `running`, polling may never observe a new run id. The
+        // automatic-attempt set still prevents re-entry.
         setBusy((current) =>
           current.type !== "none" && current.runId === runId
             ? { type: "none" }
             : current,
         );
+        if (aborted) onRetry?.(aborted);
       });
     });
   }, [
@@ -306,9 +325,22 @@ export function RunStuckBanner({
     state.runId,
     state.stuckSinceMs,
     threadId,
+    awaitingResponse,
   ]);
 
-  if (!state.isStuck || !state.runId) return null;
+  // A stale progress timestamp is not actionable while the server is still
+  // heartbeating or an unresolved tool/A2A call is known to be running. Keep
+  // those healthy long-running states in the chat's inline activity UI; the
+  // warning is reserved for runs that may actually need recovery.
+  if (
+    !state.isStuck ||
+    !state.runId ||
+    backgroundWorkerStillAlive ||
+    inFlightWork ||
+    !awaitingResponse
+  ) {
+    return null;
+  }
 
   const handleCancel = async () => {
     if (!state.runId || busy.type !== "none") return;
@@ -323,9 +355,9 @@ export function RunStuckBanner({
   };
 
   const handleRetry = async () => {
-    // Defense in depth: Retry is hidden while a background worker is still
-    // heartbeating or work is explicitly in flight (see render below). Guard
-    // the handler too so this path cannot abort a run the server says is alive.
+    // Defense in depth: the banner is hidden while a background worker is
+    // still heartbeating or work is explicitly in flight. Guard the handler
+    // too so a render transition cannot abort a run the server says is alive.
     if (
       !state.runId ||
       busy.type !== "none" ||
@@ -350,8 +382,6 @@ export function RunStuckBanner({
   const stuckSeconds =
     state.stuckSinceMs != null ? Math.floor(state.stuckSinceMs / 1000) : null;
 
-  const stillWorking = backgroundWorkerStillAlive || inFlightWork;
-
   return (
     <div
       role="status"
@@ -368,51 +398,36 @@ export function RunStuckBanner({
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="leading-snug">
-          <span className="font-medium">
-            {stillWorking
-              ? "The agent is still working."
-              : "This chat looks stuck."}
-          </span>{" "}
+          <span className="font-medium">This chat looks stuck.</span>{" "}
           <span className="text-muted-foreground">
             No progress
-            {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}.{" "}
-            {inFlightWork
-              ? "It's waiting on a call to another app or a long tool — canceling will stop that work."
-              : backgroundWorkerStillAlive
-                ? "The background worker is still alive; large updates can take a few minutes."
-                : "The agent may have hit a server timeout or lost its connection."}
-            {autoRetry && busyType === "retry"
+            {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}. The agent may
+            have hit a server timeout or lost its connection.
+            {autoRetry && autoRetriedRunId === state.runId
               ? " Retrying automatically now."
               : ""}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {stillWorking ? null : (
-            <button
-              type="button"
-              onClick={handleRetry}
-              disabled={busyType !== "none"}
-              className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {busyType === "retry" ? (
-                <IconLoader2
-                  size={12}
-                  className="animate-spin"
-                  aria-hidden="true"
-                />
-              ) : null}
-              Retry
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={busyType !== "none"}
+            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busyType === "retry" ? (
+              <IconLoader2
+                size={12}
+                className="animate-spin"
+                aria-hidden="true"
+              />
+            ) : null}
+            Retry
+          </button>
           <button
             type="button"
             onClick={handleCancel}
             disabled={busyType !== "none"}
-            title={
-              inFlightWork
-                ? "Stop the in-progress run. Work that hasn't finished will be lost."
-                : undefined
-            }
             className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busyType === "cancel" ? (

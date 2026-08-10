@@ -1,6 +1,7 @@
 import type { CalendarEvent } from "@shared/api";
-import { addDays, parseISO, startOfDay } from "date-fns";
+import { addDays, format, parseISO, startOfDay } from "date-fns";
 
+import { getFullDayOutOfOfficeDateRange } from "@/lib/out-of-office";
 import { isWorkingLocationEvent } from "@/lib/working-location";
 
 export interface AllDaySpan {
@@ -39,6 +40,7 @@ export function getAllDaySpan(
 ): Omit<AllDaySpan, "event"> | null {
   const eventStart = parseISO(event.start);
   const eventEnd = event.end ? parseISO(event.end) : addDays(eventStart, 1);
+  const outOfOfficeRange = getFullDayOutOfOfficeDateRange(event);
 
   let startCol = -1;
   let endCol = -1;
@@ -46,7 +48,12 @@ export function getAllDaySpan(
   for (let index = 0; index < days.length; index++) {
     const dayStart = startOfDay(days[index]);
     const dayEnd = addDays(dayStart, 1);
-    if (eventStart < dayEnd && eventEnd > dayStart) {
+    const dayDate = format(days[index], "yyyy-MM-dd");
+    const overlaps = outOfOfficeRange
+      ? dayDate >= outOfOfficeRange.startDate &&
+        dayDate < outOfOfficeRange.endDateExclusive
+      : eventStart < dayEnd && eventEnd > dayStart;
+    if (overlaps) {
       if (startCol === -1) startCol = index;
       endCol = index;
     }

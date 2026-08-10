@@ -3,7 +3,7 @@
  *
  * Called by the web client (Web Speech API) and desktop client (whispher).
  * Native transcripts are available instantly with no API-key requirement
- * and are the primary transcript source. Always replaces the stored transcript with `fullText`. If `segments` are
+ * and are the primary transcript source. A non-empty result replaces the stored transcript with `fullText`. If `segments` are
  * supplied (real timestamps, e.g. from the desktop Whisper engine) they're
  * stored verbatim; otherwise evenly-paced segments are synthesized from the
  * text. Live capture that OWNS the transcript (meeting flushes re-sending the
@@ -133,42 +133,37 @@ export default defineAction({
           reason: "Transcript already exists",
         };
       }
+      // An empty native result is only a diagnostic. Never create a terminal
+      // transcript row here: finalization owns creating the pending row that
+      // lets the Builder fallback run against the saved recording.
       if (current) {
-        await db
-          .update(schema.recordingTranscripts)
-          .set({
-            ownerEmail,
-            fullText: "",
-            segmentsJson: "[]",
-            status: "failed",
-            failureReason,
-            updatedAt: now,
-          })
-          .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-      } else {
-        await db.insert(schema.recordingTranscripts).values({
+        return {
           recordingId: args.recordingId,
-          ownerEmail,
-          language: "en",
-          segmentsJson: "[]",
-          fullText: "",
-          status: "failed",
-          failureReason,
-          createdAt: now,
-          updatedAt: now,
-        });
+          status: "skipped" as const,
+          reason: "Transcript attempt already exists",
+        };
       }
-      await writeAppState("refresh-signal", { ts: Date.now() });
       console.warn(
-        `[clips] Native transcript failed for ${args.recordingId} via ${args.source ?? "web-speech"}: ${failureReason}`,
+        `[clips] Native transcript unavailable for ${args.recordingId} via ${args.source ?? "web-speech"}; finalization will queue Builder fallback: ${failureReason}`,
       );
       return {
         recordingId: args.recordingId,
-        status: "failed" as const,
-        provider: args.source ?? "web-speech",
-        failureReason,
+        status: "skipped" as const,
+        reason: "Empty native transcript; waiting for recording finalization",
       };
     }
+
+    // Text plus a failure reason means capture died partway (a Web Speech
+    // session that could not restart, a revoked mic). Keep the partial text,
+    // but never mark it `ready`: that is the terminal state every preserve
+    // guard checks, so a three-line partial would permanently suppress the
+    // Builder fallback that can still transcribe the whole recording.
+    // `failed` rather than `pending`/`streaming` — a fresh pending row makes
+    // finalization's own transcript job skip itself as already-pending, and a
+    // perpetual streaming row reads as normal progress that never resolves.
+    const truncated = Boolean(failureReason);
+    const savedStatus = truncated ? ("failed" as const) : ("ready" as const);
+    const savedFailureReason = truncated ? failureReason : null;
 
     if (current) {
       // Don't overwrite an already-segmented cloud/native transcript with a
@@ -189,8 +184,8 @@ export default defineAction({
           ownerEmail,
           fullText,
           segmentsJson,
-          status: "ready",
-          failureReason: null,
+          status: savedStatus,
+          failureReason: savedFailureReason,
           updatedAt: now,
         })
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
@@ -201,15 +196,17 @@ export default defineAction({
         language: "en",
         segmentsJson,
         fullText,
-        status: "ready",
-        failureReason: null,
+        status: savedStatus,
+        failureReason: savedFailureReason,
         createdAt: now,
         updatedAt: now,
       });
     }
 
     console.log(
-      `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars)`,
+      truncated
+        ? `[clips] Partial native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars); Builder fallback will retranscribe: ${failureReason}`
+        : `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars)`,
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
@@ -229,7 +226,13 @@ export default defineAction({
       rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
     );
     const summaryQueued = Boolean(rec && !rec.description?.trim());
-    if (rec?.status === "ready" && (titleQueued || summaryQueued)) {
+    // A truncated capture dispatches too: the transcript job is what runs the
+    // Builder fallback, and it must not be skipped just because this clip
+    // already has a title and summary.
+    if (
+      rec?.status === "ready" &&
+      (truncated || titleQueued || summaryQueued)
+    ) {
       await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "transcript",
@@ -243,9 +246,10 @@ export default defineAction({
 
     return {
       recordingId: args.recordingId,
-      status: "ready" as const,
+      status: savedStatus,
       provider: args.source ?? "web-speech",
       chars: fullText.length,
+      truncated,
       titleQueued,
       summaryQueued,
     };

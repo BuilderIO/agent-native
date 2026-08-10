@@ -1,0 +1,232 @@
+---
+title: "伺服器"
+description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何時該使用自訂路由，以及各部分如何串連。"
+---
+
+# 伺服器
+
+`server/` 目錄是 Agent-Native 應用的基礎架構層。它負責啟動時的任務、驗證，以及 actions 涵蓋不到的 HTTP 介面。大多數產品行為屬於 [Actions](/docs/actions) 的範疇；伺服器的職責是讓這些 actions 得以對外提供服務。
+
+<Diagram id="doc-block-server-overview-1" title="請求如何流經伺服器" summary="呼叫者抵達 Nitro 伺服器，其中大部分請求由 Actions 處理。中間件與路由涵蓋 Actions 無法表達的情況。兩條路徑都可以查詢資料庫。">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">瀏覽器 / UI</div>
+    <div class="diagram-node">Agent 迴圈</div>
+    <div class="diagram-node">
+      外部客戶端<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro 伺服器</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">主要路徑</small>
+    </div>
+    <div class="srv-or diagram-muted">或</div>
+    <div class="srv-path">
+      <span class="diagram-pill">中間件</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">路由</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL 資料庫<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 伺服器扮演的角色 {#role}
+
+在傳統的網頁應用中，伺服器是大部分邏輯的所在地。業務規則、資料存取和呈現全都發生在路由處理常式內。Agent-Native 應用的運作方式不同：邏輯存在於 actions 中，由 agent 與 UI 以平等夥伴的關係共用。伺服器的工作是協調——執行資料庫遷移、設定驗證、掛載 agent 迴圈，並處理 actions 本身無法表達的少數 HTTP 相關事務。
+
+<Diagram id="doc-block-server-overview-2" title="傳統伺服器與 Agent Native 的比較">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">傳統</div>
+    <div class="diagram-node">瀏覽器</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>伺服器</strong>
+      <small class="diagram-muted">邏輯存在於此</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">路由處理常式</span>
+        <span class="cmp-tag">業務邏輯</span>
+        <span class="cmp-tag">資料存取</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>資料庫</div>
+  </div>
+  <div class="cmp-vs diagram-muted">相對於</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">瀏覽器 / UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>伺服器</strong>
+      <small class="diagram-muted">僅負責協調</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">驗證</span>
+        <span class="cmp-tag">遷移</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>資料庫</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+瀏覽器請求、agent 迴圈與外部 API 客戶端全都透過同一個 Nitro 伺服器路由，並讀取同一個 SQL 資料庫。沒有分開的 agent 後端或 UI 後端。伺服器層正是將 actions 對外公開的部分。
+
+## server/ 目錄中有什麼 {#server-directory}
+
+以下是每個 Agent-Native 應用都會附帶的 `server/` 內部目錄與檔案。每一項都對應伺服器層中的特定部分：它做什麼、何時該使用它，以及它如何與框架其餘部分串連。
+
+| 頁面                                  | 涵蓋內容                                                           |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| **[資料庫](/docs/server-database)**   | 使用 `table()` 幫手定義架構、`getDb`，以及可共用表的模式           |
+| **[中間件](/docs/server-middleware)** | `server/middleware/` 中的驗證守衛，以及為何在此執行而非放在外掛中  |
+| **[外掛](/docs/server-plugins)**      | 用於驗證和 agent-chat 的啟動外掛，以及可選的應用程式自有資料庫遷移 |
+| **[路由](/docs/server-routes)**       | 基於檔案的路由、SSR 全捕獲路由，以及將自訂路由範圍限定給請求使用者 |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) 是驅動 Agent-Native HTTP 層的伺服器工具套件。您在 `server/` 中設定的內容大多是 Nitro：基於檔案的路由、啟動外掛，以及中間件。
+
+- **基於檔案的路由**：檔名直接對應到 HTTP 方法與 URL 路徑，無需註冊。`server/routes/api/health.get.ts` 會自動變成 `GET /api/health`。詳情請參閱 [路由](/docs/server-routes)。
+- **外掛**：在伺服器啟動時註冊並載入一次的程式碼。框架輔助函式會初始化驗證與 agent-chat；選用的應用程式自有資料庫遷移在第一個請求抵達時可能仍在執行。詳情請參閱 [外掛](/docs/server-plugins)。
+- **中間件**：在每個傳入請求抵達路由之前執行的程式碼。驗證守衛就位於 `server/middleware/` 中。詳情請參閱 [中間件](/docs/server-middleware)。
+
+Nitro 同時也與部署平台無關。同一個應用可以無須修改程式碼就部署到 Node.js、Cloudflare Workers、Netlify、Vercel 及其他執行環境，只需設定對應的 preset。請參閱 [部署](/docs/deployment)。
+
+底層的請求/回應 API 是 [H3](https://h3.unjs.io)。當您在自訂路由中看到 `defineEventHandler`、`createError` 或 `getQuery` 時，那就是 H3。[Nitro 文件](https://nitro.build/guide) 和 [H3 文件](https://h3.unjs.io) 是框架未直接涵蓋內容的參考來源。
+
+## 優先預設使用 Actions {#actions-first}
+
+Agent Native 的架構思路不同。每當您想到應用的新功能時，先考慮它能否成為一個 action。舉例來說，如果 UI 與 agent 都需要執行某件事，就定義一個 action，而不是自訂 API 路由。Actions 會自動變成：
+
+- Agent 工具。
+- 具型別的前端 hooks。
+- `/_agent-native/actions/:name` 底下的 HTTP 端點。
+- 可透過 MCP 與 A2A 呼叫的工具。
+- 用於開發的 CLI 指令。
+
+只有在您需要路由形式的協定或二進位／串流行為時，才使用自訂的 `/api/*` 路由。詳情請參閱 [Actions](/docs/actions)。
+
+## 下一步是什麼 {#whats-next}
+
+- [**Actions**](/docs/actions)：預設的操作介面。只有在不合用時才改用自訂路由。
+- [**資料庫**](/docs/server-database)：自訂路由與 actions 都會匯入的 `getDb()`／架構模式
+- [**中間件**](/docs/server-middleware)：驗證守衛與 `server/middleware/` 目錄
+- [**外掛**](/docs/server-plugins)：用於遷移、驗證與 agent 的啟動外掛
+- [**路由**](/docs/server-routes)：基於檔案的路由、請求脈絡，以及 SSR 全捕獲路由

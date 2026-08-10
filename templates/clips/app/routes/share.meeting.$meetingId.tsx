@@ -2,6 +2,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { PoweredByBadge } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconCalendar,
   IconCheck,
@@ -118,11 +119,14 @@ export async function loader({
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   const meeting = loaderData?.meeting;
-  const title = meeting?.title
-    ? `${meeting.title} · Clips`
+  const meetingTitle = meeting?.title
+    ? normalizeDocumentTitle(meeting.title, enMessages.shareMeeting.pageTitle)
+    : null;
+  const title = meetingTitle
+    ? `${meetingTitle} · Clips`
     : enMessages.shareMeeting.pageTitle;
-  const description = meeting?.title
-    ? `AI meeting notes for "${meeting.title}"`
+  const description = meetingTitle
+    ? `AI meeting notes for "${meetingTitle}"`
     : enMessages.shareMeeting.description;
   return [
     { title },
@@ -242,7 +246,12 @@ export default function ShareMeetingRoute() {
       : null;
 
   useEffect(() => {
-    if (meeting?.title) document.title = `${meeting.title} · Clips`;
+    if (!meeting?.title) return;
+    const meetingTitle = normalizeDocumentTitle(
+      meeting.title,
+      enMessages.shareMeeting.pageTitle,
+    );
+    document.title = `${meetingTitle} · Clips`;
   }, [meeting?.title]);
 
   if (!meeting && (sessionLoading || meetingQuery.isLoading)) {
@@ -427,8 +436,6 @@ export default function ShareMeetingRoute() {
                 <TranscriptBubbles
                   segments={transcript.segments}
                   isLive={false}
-                  recordingId={null}
-                  onSeek={() => {}}
                 />
               </div>
             ) : transcript.fullText ? (
@@ -437,12 +444,7 @@ export default function ShareMeetingRoute() {
               </div>
             ) : (
               <div className="flex min-h-40 flex-col overflow-hidden rounded-lg border border-border">
-                <TranscriptBubbles
-                  segments={[]}
-                  isLive={false}
-                  recordingId={null}
-                  onSeek={() => {}}
-                />
+                <TranscriptBubbles segments={[]} isLive={false} />
               </div>
             )}
           </section>

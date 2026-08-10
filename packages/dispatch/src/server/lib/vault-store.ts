@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { getDbExec } from "@agent-native/core/db";
 import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
@@ -72,6 +73,15 @@ function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
 }
 
+/** Scope an approval operation to the active tenant, never just the owner email. */
+function tenantScope<T extends { ownerEmail: any; orgId: any }>(
+  table: T,
+  ctx: VaultCtx,
+) {
+  if (ctx.orgId) return eq(table.orgId, ctx.orgId);
+  return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
+}
+
 /** Build a ctx that scopes to a specific row's owner/org (used when a
  * request approver acts on behalf of the original requester so the
  * created secret lands in the request's org). */
@@ -140,6 +150,45 @@ function scopedFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
   return ctxScope(table, requireVaultCtx());
 }
 
+/**
+ * Shared vault values and grants are organization administration data. Keep
+ * the member path available for request creation and safe key metadata, but
+ * fail closed before a member can read or mutate a raw secret.
+ */
+export async function assertCanManageVault(): Promise<void> {
+  const orgId = currentOrgId();
+  if (!orgId) return;
+
+  const email = currentOwnerEmail().trim().toLowerCase();
+  let role: unknown = null;
+  try {
+    const result = await getDbExec().execute({
+      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+      args: [orgId, email],
+    });
+    role = result.rows[0]?.role;
+  } catch {
+    // coercion-ok: unknown membership is treated as unauthorized below.
+    // A failed membership check must not become an authorization bypass.
+  }
+
+  if (role !== "owner" && role !== "admin") {
+    throw new Error(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+  }
+}
+
+export async function canManageVault(): Promise<boolean> {
+  try {
+    await assertCanManageVault();
+    return true;
+  } catch {
+    // coercion-ok: the UI must treat an authorization lookup failure as no access.
+    return false;
+  }
+}
+
 function normalizeCredentialKey(value: string) {
   return value.trim();
 }
@@ -169,6 +218,7 @@ export async function getVaultAccessSettings(): Promise<VaultAccessSettings> {
 export async function setVaultAccessSettings(input: {
   mode: VaultAccessMode;
 }): Promise<VaultAccessSettings> {
+  await assertCanManageVault();
   const scope = vaultAccessScope();
   const next = { mode: parseVaultAccessMode(input.mode) };
   if (scope.scope === "org") {
@@ -215,6 +265,7 @@ export async function recordVaultAudit(input: {
 }
 
 export async function listVaultAudit(limit = 50) {
+  await assertCanManageVault();
   const db = getDb();
   return db
     .select()
@@ -227,6 +278,7 @@ export async function listVaultAudit(limit = 50) {
 // ─── Secrets ──────────────────────────────────────────────────────
 
 export async function listSecrets() {
+  await assertCanManageVault();
   const db = getDb();
   return db
     .select()
@@ -235,7 +287,24 @@ export async function listSecrets() {
     .orderBy(desc(schema.vaultSecrets.updatedAt));
 }
 
+/** Safe metadata for app creation and integration readiness checks. */
+export async function listSecretOptions() {
+  const db = getDb();
+  return db
+    .select({
+      id: schema.vaultSecrets.id,
+      name: schema.vaultSecrets.name,
+      credentialKey: schema.vaultSecrets.credentialKey,
+      provider: schema.vaultSecrets.provider,
+      description: schema.vaultSecrets.description,
+    })
+    .from(schema.vaultSecrets)
+    .where(scopedFilter(schema.vaultSecrets))
+    .orderBy(desc(schema.vaultSecrets.updatedAt));
+}
+
 export async function getSecret(secretId: string, ctx: VaultCtx) {
+  await assertCanManageVault();
   const db = getDb();
   const [row] = await db
     .select()
@@ -260,6 +329,7 @@ export async function createSecret(
   },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const timestamp = now();
   const credentialKey = normalizeCredentialKey(input.credentialKey);
@@ -372,6 +442,7 @@ export async function updateSecret(
       },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
@@ -478,6 +549,7 @@ export async function deleteSecret(
   secretId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
@@ -524,6 +596,7 @@ export async function listGrants(filter?: {
   secretId?: string;
   appId?: string;
 }) {
+  await assertCanManageVault();
   const db = getDb();
   const conditions = [scopedFilter(schema.vaultGrants)];
   if (filter?.secretId) {
@@ -543,6 +616,7 @@ export async function getGrant(
   grantId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const [row] = await db
     .select()
@@ -562,6 +636,7 @@ export async function createGrant(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const secret = await getSecret(secretId, ctx);
   if (!secret) throw new Error("Secret not found");
@@ -657,6 +732,7 @@ export async function grantSecretsToApp(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const access = await getVaultAccessSettings();
   const uniqueSecretIds = Array.from(new Set(secretIds));
   if (access.mode === "all-apps") {
@@ -695,6 +771,7 @@ export async function revokeGrant(
   grantId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const grant = await getGrant(grantId, ctx);
   if (!grant) throw new Error("Grant not found");
@@ -764,6 +841,33 @@ export async function syncSecretsToCredentialStore(
 }
 
 /**
+ * Group secrets by the tenant their credential-store rows must land in.
+ *
+ * Every sync path must write a secret under the org that *owns the row*, not
+ * under whoever happens to be syncing: `writeAppSecret` upserts, so syncing
+ * with the caller's ctx copies credential material into the caller's org
+ * instead of moving it, and it accumulates there permanently.
+ */
+function groupSecretsByTenant(
+  rows: VaultSecretRow[],
+  resolveCtx: (row: VaultSecretRow) => VaultCtx,
+): { ctx: VaultCtx; rows: VaultSecretRow[] }[] {
+  const groups = new Map<string, { ctx: VaultCtx; rows: VaultSecretRow[] }>();
+  for (const row of rows) {
+    if (!row.credentialKey || !row.value) continue;
+    const ctx = resolveCtx(row);
+    const groupKey = `${ctx.orgId ?? ""}\u0000${ctx.ownerEmail}`;
+    const group = groups.get(groupKey);
+    if (group) {
+      group.rows.push(row);
+    } else {
+      groups.set(groupKey, { ctx, rows: [row] });
+    }
+  }
+  return [...groups.values()];
+}
+
+/**
  * Re-sync every vault secret across every tenant into the shared credential
  * store, regardless of which request/ctx is currently active.
  *
@@ -788,23 +892,12 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
   const db = getDb();
   const rows = await db.select().from(schema.vaultSecrets);
 
-  const groups = new Map<string, { ctx: VaultCtx; rows: VaultSecretRow[] }>();
-  for (const row of rows) {
-    if (!row.credentialKey || !row.value) continue;
-    const ctx: VaultCtx = { ownerEmail: row.ownerEmail, orgId: row.orgId };
-    const groupKey = `${ctx.orgId ?? ""} ${ctx.ownerEmail}`;
-    const group = groups.get(groupKey);
-    if (group) {
-      group.rows.push(row);
-    } else {
-      groups.set(groupKey, { ctx, rows: [row] });
-    }
-  }
+  const groups = groupSecretsByTenant(rows, ctxForRow);
 
   let failedGroups = 0;
   let syncedKeys = 0;
 
-  for (const { ctx, rows: groupRows } of groups.values()) {
+  for (const { ctx, rows: groupRows } of groups) {
     try {
       const result = await syncSecretsToCredentialStore(groupRows, ctx);
       syncedKeys += result.keys.length;
@@ -818,7 +911,7 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
     }
   }
 
-  return { groups: groups.size, failedGroups, syncedKeys };
+  return { groups: groups.length, failedGroups, syncedKeys };
 }
 
 export async function cleanupSyncedCredentialKeysIfUnused(
@@ -862,6 +955,7 @@ export async function syncGrantsToApp(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const access = await getVaultAccessSettings();
   const agents = await discoverAgents("dispatch");
@@ -889,13 +983,37 @@ export async function syncGrantsToApp(
   }
 
   if (secretsToSync.length === 0) {
-    return { appId, accessMode: access.mode, synced: 0, keys: [] };
+    return {
+      appId,
+      accessMode: access.mode,
+      synced: 0,
+      keys: [],
+      credentialStores: [],
+    };
   }
 
-  const credentialStoreSync = await syncSecretsToCredentialStore(
-    secretsToSync,
-    ctx,
+  // `all-apps` mode lists secrets across every org the caller can see, so each
+  // row must be written back under its own org. Syncing them all under `ctx`
+  // upserts copies of other orgs' credentials into the caller's org.
+  const credentialStoreGroups = groupSecretsByTenant(secretsToSync, (row) =>
+    ctxForSecretRow(row, ctx),
   );
+  const credentialStores: {
+    scope: ReturnType<typeof credentialStoreScopeForVaultCtx>["scope"];
+    scopeId: string;
+    synced: number;
+  }[] = [];
+  const credentialStoreKeys: string[] = [];
+  for (const group of credentialStoreGroups) {
+    const result = await syncSecretsToCredentialStore(group.rows, group.ctx);
+    credentialStores.push({
+      scope: result.scope,
+      scopeId: result.scopeId,
+      synced: result.keys.length,
+    });
+    credentialStoreKeys.push(...result.keys);
+  }
+
   const vars = secretsToSync.map((secret) => ({
     key: secret.credentialKey,
     value: secret.value,
@@ -942,7 +1060,7 @@ export async function syncGrantsToApp(
     }
   }
 
-  const syncedKeys = credentialStoreSync.keys;
+  const syncedKeys = credentialStoreKeys;
   const timestamp = now();
 
   // Update syncedAt on grants that were successfully pushed to the shared
@@ -964,10 +1082,7 @@ export async function syncGrantsToApp(
     metadata: {
       syncedKeys,
       accessMode: access.mode,
-      credentialStore: {
-        scope: credentialStoreSync.scope,
-        scopeId: credentialStoreSync.scopeId,
-      },
+      credentialStores,
       envVars: envVarSync,
     },
   });
@@ -977,11 +1092,7 @@ export async function syncGrantsToApp(
     accessMode: access.mode,
     synced: syncedKeys.length,
     keys: syncedKeys,
-    credentialStore: {
-      scope: credentialStoreSync.scope,
-      scopeId: credentialStoreSync.scopeId,
-      synced: credentialStoreSync.keys.length,
-    },
+    credentialStores,
     envVars: envVarSync,
   };
 }
@@ -990,7 +1101,13 @@ export async function syncGrantsToApp(
 
 export async function listRequests(filter?: { status?: string }) {
   const db = getDb();
-  const conditions = [scopedFilter(schema.vaultRequests)];
+  const ctx = requireVaultCtx();
+  const isAdmin = await canManageVault();
+  const conditions = [
+    isAdmin
+      ? ctxScope(schema.vaultRequests, ctx)
+      : eq(schema.vaultRequests.ownerEmail, ctx.ownerEmail),
+  ];
   if (filter?.status) {
     conditions.push(eq(schema.vaultRequests.status, filter.status) as any);
   }
@@ -1013,6 +1130,21 @@ export async function getRequest(
       and(
         eq(schema.vaultRequests.id, requestId),
         ctxScope(schema.vaultRequests, ctx),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+async function getRequestForTenant(requestId: string, ctx: VaultCtx) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.vaultRequests)
+    .where(
+      and(
+        eq(schema.vaultRequests.id, requestId),
+        tenantScope(schema.vaultRequests, ctx),
       ),
     )
     .limit(1);
@@ -1062,8 +1194,9 @@ export async function approveRequest(
   secretName?: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
-  const request = await getRequest(requestId, ctx);
+  const request = await getRequestForTenant(requestId, ctx);
   if (!request) throw new Error("Request not found");
 
   const timestamp = now();
@@ -1086,7 +1219,7 @@ export async function approveRequest(
     .where(
       and(
         eq(schema.vaultRequests.id, requestId),
-        ctxScope(schema.vaultRequests, ctx),
+        tenantScope(schema.vaultRequests, ctx),
         or(
           eq(schema.vaultRequests.status, "pending"),
           and(
@@ -1099,7 +1232,7 @@ export async function approveRequest(
     .returning();
 
   if (claimed.length === 0) {
-    const current = await getRequest(requestId, ctx);
+    const current = await getRequestForTenant(requestId, ctx);
     if (current?.status === "applying") {
       throw new Error("Vault request is already being applied");
     }
@@ -1147,7 +1280,7 @@ export async function approveRequest(
       .where(
         and(
           eq(schema.vaultRequests.id, requestId),
-          ctxScope(schema.vaultRequests, ctx),
+          tenantScope(schema.vaultRequests, ctx),
           eq(schema.vaultRequests.status, "applying"),
         ),
       );
@@ -1165,7 +1298,7 @@ export async function approveRequest(
     .where(
       and(
         eq(schema.vaultRequests.id, requestId),
-        ctxScope(schema.vaultRequests, ctx),
+        tenantScope(schema.vaultRequests, ctx),
         eq(schema.vaultRequests.status, "applying"),
       ),
     );
@@ -1177,7 +1310,7 @@ export async function approveRequest(
     metadata: { requestId, reviewer },
   });
 
-  return getRequest(requestId, ctx);
+  return getRequestForTenant(requestId, ctx);
 }
 
 export async function denyRequest(
@@ -1185,8 +1318,9 @@ export async function denyRequest(
   reason?: string | null,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
-  const request = await getRequest(requestId, ctx);
+  const request = await getRequestForTenant(requestId, ctx);
   if (!request) throw new Error("Request not found");
 
   const timestamp = now();
@@ -1203,14 +1337,14 @@ export async function denyRequest(
     .where(
       and(
         eq(schema.vaultRequests.id, requestId),
-        ctxScope(schema.vaultRequests, ctx),
+        tenantScope(schema.vaultRequests, ctx),
         eq(schema.vaultRequests.status, "pending"),
       ),
     )
     .returning();
 
   if (claimed.length === 0) {
-    return getRequest(requestId, ctx);
+    return getRequestForTenant(requestId, ctx);
   }
 
   const claimedRequest = claimed[0];
@@ -1222,7 +1356,7 @@ export async function denyRequest(
     metadata: { requestId, reviewer, reason },
   });
 
-  return getRequest(requestId, ctx);
+  return getRequestForTenant(requestId, ctx);
 }
 
 // ─── Integrations Catalog ────────────────────────────────────────
@@ -1249,8 +1383,8 @@ export interface AppIntegrations {
 export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
   const access = await getVaultAccessSettings();
   const agents = await discoverAgents("dispatch");
-  const grants = await listGrants();
-  const secrets = await listSecrets();
+  const grants = (await canManageVault()) ? await listGrants() : [];
+  const secrets = await listSecretOptions();
 
   const secretByKey = new Map(secrets.map((s) => [s.credentialKey, s]));
 
@@ -1333,9 +1467,10 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
 // ─── Vault Overview (for dashboard) ──────────────────────────────
 
 export async function listVaultOverview() {
+  const isAdmin = await canManageVault();
   const [secrets, grants, requests, access] = await Promise.all([
-    listSecrets(),
-    listGrants(),
+    listSecretOptions(),
+    isAdmin ? listGrants() : Promise.resolve([]),
     listRequests(),
     getVaultAccessSettings(),
   ]);
@@ -1345,8 +1480,12 @@ export async function listVaultOverview() {
     accessMode: access.mode,
     secretCount: secrets.length,
     activeGrantCount:
-      access.mode === "all-apps" ? secrets.length : manualGrantCount,
-    manualGrantCount,
+      access.mode === "all-apps"
+        ? secrets.length
+        : isAdmin
+          ? manualGrantCount
+          : 0,
+    manualGrantCount: isAdmin ? manualGrantCount : 0,
     pendingRequestCount: requests.filter((r) => r.status === "pending").length,
   };
 }

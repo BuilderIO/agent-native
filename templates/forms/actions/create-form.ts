@@ -9,7 +9,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
-import { assertValidFields } from "../server/lib/validate-fields.js";
+import {
+  assertValidFields,
+  normalizeFieldIds,
+} from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
@@ -88,6 +91,7 @@ export default defineAction({
         fields = args.fields as unknown as FormField[];
       }
     }
+    fields = normalizeFieldIds(fields) as FormField[];
     assertValidFields(fields);
 
     const defaultSettings: FormSettings = {

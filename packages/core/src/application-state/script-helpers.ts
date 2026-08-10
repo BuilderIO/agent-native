@@ -12,14 +12,19 @@
  * context) should fall through to the env var.
  */
 
-import { getRequestRunContext } from "../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestRunContext,
+} from "../server/request-context.js";
 import {
   appStateGet,
   appStatePut,
   appStateDelete,
   appStateCompareAndSet,
+  appStateCompareAndSetMany,
   appStateList,
   appStateDeleteByPrefix,
+  type AppStateCompareAndSetOperation,
 } from "./store.js";
 
 /**
@@ -40,7 +45,7 @@ async function resolveSessionId(): Promise<string> {
     // request-context not available — fall through to env var
   }
 
-  const email = process.env.AGENT_USER_EMAIL;
+  const email = getAmbientUserEmail();
   if (email) return email;
 
   throw new Error(
@@ -74,11 +79,20 @@ export async function deleteAppState(key: string): Promise<boolean> {
 
 export async function compareAndSetAppState(
   key: string,
-  expectedValue: Record<string, unknown>,
+  expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
   return appStateCompareAndSet(sessionId, key, expectedValue, nextValue, {
+    requestSource: "agent",
+  });
+}
+
+export async function compareAndSetManyAppState(
+  operations: readonly AppStateCompareAndSetOperation[],
+): Promise<boolean> {
+  const sessionId = await resolveSessionId();
+  return appStateCompareAndSetMany(sessionId, operations, {
     requestSource: "agent",
   });
 }

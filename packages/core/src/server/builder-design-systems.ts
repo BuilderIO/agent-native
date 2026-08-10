@@ -1,3 +1,6 @@
+import type { DesignSystemSourceInput } from "@builder.io/ai-utils";
+
+import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import { FeatureNotConfiguredError } from "./credential-provider.js";
 import {
   getBuilderProxyOrigin,
@@ -5,6 +8,12 @@ import {
 } from "./credential-provider.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+
+// GCS resumable uploads require every chunk except the last to be a multiple
+// of 256 KiB. 16 MiB is the recommended default and keeps very large `.fig`
+// files off a single unbounded request body.
+const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
+const MAX_CHUNK_RETRIES = 5;
 
 export interface BuilderDesignSystemIndexFile {
   name: string;
@@ -48,7 +57,14 @@ export interface BuilderDesignSystemProxyFieldsOptions {
   projectName?: string;
   description?: string;
   surface: "design" | "slides";
+  sourceKind?: BuilderDesignSystemSourceKind;
 }
+
+export type BuilderDesignSystemSourceKind =
+  | "figma"
+  | "code"
+  | "github"
+  | "mixed";
 
 export interface BuilderDesignSystemProxyFields {
   title: string;
@@ -59,6 +75,7 @@ export interface BuilderDesignSystemProxyFields {
 
 export interface BuilderDesignSystemProxyReference {
   source: "builder";
+  sourceKind?: BuilderDesignSystemSourceKind;
   builderDesignSystemId: string;
   builderJobId: string;
   builderProjectId?: string;
@@ -122,15 +139,64 @@ interface UploadStartResponse {
   uploads?: Array<{ idx: number; uploadUrl: string; uploadToken: string }>;
 }
 
-interface GenerateResponse {
-  projectId?: string;
-  jobId?: string;
+interface IndexResponse {
   designSystemId?: string;
+  jobId?: string;
+  projectId?: string;
+  branchUrl?: string;
+  branchName?: string;
+}
+
+export interface BuilderDesignSystemUploadAttachment {
+  name: string;
+  mimetype: string;
+  declaredSize: number;
+}
+
+export interface BuilderDesignSystemUploadSlot {
+  idx: number;
+  uploadUrl: string;
+  uploadToken: string;
+}
+
+export interface BuilderDesignSystemIndexFromSourcesOptions {
+  sources: DesignSystemSourceInput[];
+  projectName?: string;
+  devToolsVersion?: string;
+}
+
+export interface BuilderDesignSystemDecodeJobStatus {
+  jobId: string;
+  status: "pending" | "processing" | "complete" | "error";
+  framesProcessed: number;
+  totalFrames: number;
+  branchName: string | null;
+  branchUrl: string | null;
+  error: string | null;
+  partialFailure?: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 const DEFAULT_MAX_CODE_FILES = 50;
 const DEFAULT_MAX_TOTAL_CODE_BYTES = 2 * 1024 * 1024;
 const MAX_DOC_CONTENT_CHARS = 4_000;
+
+export async function fetchBuilderDesignSystemDecodeJobStatus(
+  jobId: string,
+): Promise<BuilderDesignSystemDecodeJobStatus> {
+  const credentials = await resolveBuilderDesignSystemCredentials();
+  const url = makeBuilderDesignSystemUrl(
+    "decode-jobs/" + encodeURIComponent(jobId),
+    credentials,
+  );
+  const response = await fetchWithTimeout(url, {
+    method: "GET",
+    headers: makeBuilderHeaders(credentials),
+  });
+  await assertOk(response, "Builder design-system decode-job status failed");
+  return (await response.json()) as BuilderDesignSystemDecodeJobStatus;
+}
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
@@ -262,7 +328,7 @@ async function resolveBuilderDesignSystemCredentials(): Promise<BuilderDesignSys
     throw new FeatureNotConfiguredError({
       requiredCredential: "BUILDER_PRIVATE_KEY",
       message:
-        "Connect Builder.io before indexing a design system from Figma or code.",
+        "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
       builderConnectUrl: "/_agent-native/builder/connect",
     });
   }
@@ -317,17 +383,45 @@ async function assertOk(response: Response, label: string): Promise<void> {
   );
 }
 
+// GCS reports the highest committed byte in a `Range: bytes=0-<end>` header.
+function committedOffsetFromRange(response: Response): number | null {
+  const match = response.headers.get("Range")?.match(/bytes=0-(\d+)/);
+  return match ? parseInt(match[1], 10) + 1 : null;
+}
+
+async function queryCommittedOffset(
+  sessionUrl: string,
+  total: number,
+): Promise<number> {
+  const response = await fetchWithTimeout(sessionUrl, {
+    method: "PUT",
+    headers: { "Content-Range": `bytes */${total}` },
+  });
+  if (response.status === 200 || response.status === 201) return total;
+  if (response.status === 308) {
+    return committedOffsetFromRange(response) ?? 0;
+  }
+  throw new Error(
+    `Builder design-system upload status query failed (${response.status}).`,
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function uploadToResumableUrl(
   slot: { uploadUrl: string },
   file: BuilderDesignSystemIndexFile,
 ): Promise<void> {
   const mimeType = mimeTypeForFile(file);
   const bytes = file.data;
+  const total = bytes.byteLength;
   const start = await fetchWithTimeout(slot.uploadUrl, {
     method: "POST",
     headers: {
       "x-goog-resumable": "start",
-      "x-goog-content-length-range": `0,${bytes.byteLength}`,
+      "x-goog-content-length-range": `0,${total}`,
       "Content-Type": mimeType,
     },
   });
@@ -337,15 +431,60 @@ async function uploadToResumableUrl(
     throw new Error("Builder design-system upload session returned no URL.");
   }
 
-  const response = await fetchWithTimeout(sessionUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Range": `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
-      "Content-Type": mimeType,
-    },
-    body: makeBody(bytes, mimeType),
-  });
-  await assertOk(response, "Builder design-system file upload failed");
+  if (total === 0) {
+    const response = await fetchWithTimeout(sessionUrl, {
+      method: "PUT",
+      headers: { "Content-Range": "bytes */0" },
+      body: makeBody(bytes, mimeType),
+    });
+    await assertOk(response, "Builder design-system file upload failed");
+    return;
+  }
+
+  // A failed PUT may have still landed at GCS, so the local offset can't be
+  // trusted after an error — only GCS's committed-offset response is
+  // authoritative.
+  let offset = 0;
+  let retries = 0;
+  while (offset < total) {
+    const end = Math.min(offset + GCS_CHUNK_SIZE, total);
+    const isLast = end === total;
+    try {
+      const response = await fetchWithTimeout(sessionUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Range": `bytes ${offset}-${end - 1}/${total}`,
+          "Content-Type": mimeType,
+        },
+        body: makeBody(bytes.subarray(offset, end), mimeType),
+      });
+      if (response.status === 200 || response.status === 201) {
+        offset = total;
+      } else if (!isLast && response.status === 308) {
+        const nextOffset = committedOffsetFromRange(response) ?? offset;
+        if (nextOffset <= offset) {
+          throw new Error(
+            `Builder design-system upload stalled at byte ${offset}.`,
+          );
+        }
+        offset = nextOffset;
+      } else {
+        throw new Error(
+          `Builder design-system file upload failed (${response.status}).`,
+        );
+      }
+      retries = 0;
+    } catch (err) {
+      if (++retries > MAX_CHUNK_RETRIES) throw err;
+      await delay(500 * retries);
+      try {
+        offset = await queryCommittedOffset(sessionUrl, total);
+      } catch {
+        // If the offset query also fails, retry from the last local offset —
+        // GCS's resumable PUT safely re-acknowledges bytes it already has.
+      }
+    }
+  }
 }
 
 function nonEmptyFiles(
@@ -356,11 +495,34 @@ function nonEmptyFiles(
 
 export function builderDesignSystemUrl(designSystemId?: string | null): string {
   const host = trimTrailingSlash(getBuilderAppHost());
-  return designSystemId
+  const url = designSystemId
     ? `${host}/app/design-system-intelligence/${encodeURIComponent(
         designSystemId,
       )}`
     : `${host}/app/design-system-intelligence`;
+  return withBuilderUtmTrackingParams(url, {
+    campaign: "product",
+    content: "design_system_intelligence",
+  });
+}
+
+export function builderProjectBranchUrl(
+  projectId?: string | null,
+  branchName?: string | null,
+): string | undefined {
+  const project = projectId?.trim();
+  const branch = branchName?.trim();
+  if (!project || !branch) return undefined;
+  const host = trimTrailingSlash(getBuilderAppHost());
+  const path =
+    "/app/projects/" +
+    encodeURIComponent(project) +
+    "/" +
+    encodeURIComponent(branch);
+  return withBuilderUtmTrackingParams(host + path, {
+    campaign: "product",
+    content: "design_system_intelligence",
+  });
 }
 
 export function localBuilderDesignSystemId(
@@ -378,6 +540,7 @@ export function createBuilderDesignSystemProxyFields({
   projectName,
   description,
   surface,
+  sourceKind,
 }: BuilderDesignSystemProxyFieldsOptions): BuilderDesignSystemProxyFields {
   const title = projectName?.trim() || "Builder indexed design system";
   const fallbackDescription =
@@ -386,6 +549,7 @@ export function createBuilderDesignSystemProxyFields({
   const spacingKey = surface === "slides" ? "slidePadding" : "pagePadding";
   const data = JSON.stringify({
     source: "builder",
+    ...(sourceKind ? { sourceKind } : {}),
     builderDesignSystemId: result.designSystemId,
     builderJobId: result.jobId,
     builderProjectId: result.projectId,
@@ -457,8 +621,19 @@ export function parseBuilderDesignSystemProxyReference(
   if (value.source !== "builder") return null;
   if (typeof value.builderDesignSystemId !== "string") return null;
   if (typeof value.builderJobId !== "string") return null;
+  const sourceKind = value.sourceKind;
+  if (
+    sourceKind !== undefined &&
+    sourceKind !== "figma" &&
+    sourceKind !== "code" &&
+    sourceKind !== "github" &&
+    sourceKind !== "mixed"
+  ) {
+    return null;
+  }
   return {
     source: "builder",
+    ...(sourceKind ? { sourceKind } : {}),
     builderDesignSystemId: value.builderDesignSystemId,
     builderJobId: value.builderJobId,
     builderProjectId:
@@ -564,6 +739,110 @@ export async function hydrateBuilderDesignSystemReference(
   };
 }
 
+/**
+ * Opens signed resumable-upload slots for `.fig`/code/design attachments so
+ * the browser can stream each file's bytes straight to GCS. Large `.fig`
+ * files must not ride through the app server as one request body -- the
+ * serverless host caps request bodies well below Figma export sizes.
+ */
+export async function startBuilderDesignSystemUpload(
+  attachments: BuilderDesignSystemUploadAttachment[],
+): Promise<BuilderDesignSystemUploadSlot[]> {
+  if (attachments.length === 0) return [];
+  const credentials = await resolveBuilderDesignSystemCredentials();
+  const uploadStart = await fetchWithTimeout(
+    makeBuilderDesignSystemUrl("upload/start", credentials),
+    {
+      method: "POST",
+      headers: {
+        ...makeBuilderHeaders(credentials),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ attachments }),
+    },
+  );
+  await assertOk(uploadStart, "Builder design-system upload start failed");
+  const uploadJson = (await uploadStart.json()) as UploadStartResponse;
+  const slots = [...(uploadJson.uploads ?? [])].sort((a, b) => a.idx - b.idx);
+  if (slots.length !== attachments.length) {
+    throw new Error("Builder did not return upload slots for all files.");
+  }
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i].idx !== i) {
+      throw new Error("Builder upload slot mismatch: expected " + i + ".");
+    }
+  }
+  return slots;
+}
+
+/**
+ * Finalizes indexing from already-resolved sources (uploaded file tokens,
+ * public repos, connected projects). Callers that stream uploads from the
+ * browser pass the returned `uploadToken`s as `file` sources here.
+ */
+export async function indexBuilderDesignSystem(
+  options: BuilderDesignSystemIndexFromSourcesOptions,
+): Promise<BuilderDesignSystemIndexResult> {
+  if (options.sources.length === 0) {
+    throw new Error(
+      "Provide at least one .fig/code/text file or a GitHub repository URL to index with Builder.",
+    );
+  }
+  const credentials = await resolveBuilderDesignSystemCredentials();
+  const index = await fetchWithTimeout(
+    makeBuilderDesignSystemUrl("index", credentials),
+    {
+      method: "POST",
+      headers: {
+        ...makeBuilderHeaders(credentials),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sources: options.sources,
+        ...(options.projectName?.trim()
+          ? { designSystemName: options.projectName.trim() }
+          : {}),
+        ...(options.devToolsVersion?.trim()
+          ? { devToolsVersion: options.devToolsVersion.trim() }
+          : {}),
+      }),
+    },
+  );
+  await assertOk(index, "Builder design-system indexing failed");
+  const indexed = (await index.json()) as IndexResponse;
+  if (!indexed.designSystemId) {
+    throw new Error(
+      "Builder design-system indexing returned an incomplete response.",
+    );
+  }
+
+  const jobId = indexed.jobId ?? "";
+  // The `.fig` decode job creates the Fusion branch asynchronously, so
+  // `/index` usually can't return a branchUrl yet — the caller polls the
+  // decode-job status endpoint for it once the job completes.
+  const branchUrl = indexed.branchUrl?.trim() || null;
+
+  return {
+    ok: true,
+    source: "builder",
+    projectId: indexed.projectId ?? "",
+    jobId,
+    designSystemId: indexed.designSystemId,
+    suggestedTitle: options.projectName?.trim() || null,
+    builderUrl:
+      branchUrl ||
+      builderProjectBranchUrl(indexed.projectId, indexed.branchName) ||
+      builderDesignSystemUrl(indexed.designSystemId),
+    status: "in-progress",
+  };
+}
+
+/**
+ * Server-side indexing for in-memory files (the agent action's small inline
+ * payloads). Uploads each file server->GCS in resumable chunks, then
+ * finalizes. Browser callers should instead stream via
+ * `startBuilderDesignSystemUpload` + `indexBuilderDesignSystem`.
+ */
 export async function startBuilderDesignSystemIndex(
   options: BuilderDesignSystemIndexOptions,
 ): Promise<BuilderDesignSystemIndexResult> {
@@ -586,83 +865,47 @@ export async function startBuilderDesignSystemIndex(
     );
   }
 
-  const credentials = await resolveBuilderDesignSystemCredentials();
-  let uploadTokens: string[] = [];
+  const sources: DesignSystemSourceInput[] = [];
   if (files.length > 0) {
-    const uploadStart = await fetchWithTimeout(
-      makeBuilderDesignSystemUrl("upload/start", credentials),
-      {
-        method: "POST",
-        headers: {
-          ...makeBuilderHeaders(credentials),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          attachments: files.map((file) => ({
-            name: file.name,
-            mimetype: mimeTypeForFile(file),
-            declaredSize: file.data.byteLength,
-          })),
-        }),
-      },
+    const slots = await startBuilderDesignSystemUpload(
+      files.map((file) => ({
+        name: file.name,
+        mimetype: mimeTypeForFile(file),
+        declaredSize: file.data.byteLength,
+      })),
     );
-    await assertOk(uploadStart, "Builder design-system upload start failed");
-    const uploadJson = (await uploadStart.json()) as UploadStartResponse;
-    const slots = [...(uploadJson.uploads ?? [])].sort((a, b) => a.idx - b.idx);
-    if (slots.length !== files.length) {
-      throw new Error("Builder did not return upload slots for all files.");
-    }
     for (let i = 0; i < slots.length; i++) {
-      if (slots[i].idx !== i) {
-        throw new Error(`Builder upload slot mismatch: expected ${i}.`);
-      }
       await uploadToResumableUrl(slots[i], files[i]);
     }
-    uploadTokens = slots.map((slot) => slot.uploadToken);
+    for (let i = 0; i < slots.length; i++) {
+      const name = files[i].name;
+      const fileSelection = options.selection?.[name];
+      sources.push({
+        kind: "file",
+        uploadToken: slots[i].uploadToken,
+        ...(fileSelection && fileSelection.length > 0
+          ? { selection: { [name]: fileSelection } }
+          : {}),
+      });
+    }
   }
 
-  const generate = await fetchWithTimeout(
-    makeBuilderDesignSystemUrl("generate", credentials),
-    {
-      method: "POST",
-      headers: {
-        ...makeBuilderHeaders(credentials),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        uploads: uploadTokens,
-        ...(options.projectName?.trim()
-          ? { projectName: options.projectName.trim() }
-          : {}),
-        ...(options.githubRepoUrl?.trim()
-          ? { githubRepoUrl: options.githubRepoUrl.trim() }
-          : {}),
-        ...(options.connectedProjectId?.trim()
-          ? { connectedProjectId: options.connectedProjectId.trim() }
-          : {}),
-        ...(options.selection ? { selection: options.selection } : {}),
-        ...(options.devToolsVersion?.trim()
-          ? { devToolsVersion: options.devToolsVersion.trim() }
-          : {}),
-      }),
-    },
-  );
-  await assertOk(generate, "Builder design-system indexing failed");
-  const generated = (await generate.json()) as GenerateResponse;
-  if (!generated.projectId || !generated.jobId || !generated.designSystemId) {
-    throw new Error(
-      "Builder design-system indexing returned an incomplete response.",
-    );
+  if (options.githubRepoUrl?.trim()) {
+    sources.push({
+      kind: "public-repo",
+      repoUrl: options.githubRepoUrl.trim(),
+    });
+  }
+  if (options.connectedProjectId?.trim()) {
+    sources.push({
+      kind: "connected-repo",
+      fusionProjectId: options.connectedProjectId.trim(),
+    });
   }
 
-  return {
-    ok: true,
-    source: "builder",
-    projectId: generated.projectId,
-    jobId: generated.jobId,
-    designSystemId: generated.designSystemId,
-    suggestedTitle: options.projectName?.trim() || null,
-    builderUrl: builderDesignSystemUrl(generated.designSystemId),
-    status: "in-progress",
-  };
+  return indexBuilderDesignSystem({
+    sources,
+    projectName: options.projectName,
+    devToolsVersion: options.devToolsVersion,
+  });
 }

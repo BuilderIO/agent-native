@@ -209,7 +209,8 @@ To reduce cost:
 - **Pin a cheaper model.** For Claude, set `VISUAL_RECAP_MODEL=claude-haiku-4-5` for simple or small repos — it's the cheapest Claude tier; `claude-sonnet-5` (the default) is the balanced tier.
 - **Switch to Codex with a cheaper model.** Set `VISUAL_RECAP_AGENT=codex` with `VISUAL_RECAP_MODEL=gpt-5.6-luna` (the cheapest GPT-5.6 tier) or `gpt-5.6-terra` (mid-tier), and set `VISUAL_RECAP_REASONING=low` to cut reasoning-token spend further. Reasoning depth only applies to Codex.
 - **Point at a cheaper OpenAI-compatible provider.** Set `VISUAL_RECAP_AGENT=openai-compatible` with `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` targeting DeepSeek, Kimi, or any other OpenAI-compatible endpoint.
-- **Recap less often.** Edit the installed workflow's `on.pull_request.types` from `[opened, synchronize, reopened, ready_for_review, closed]` to `[opened, ready_for_review, closed]` so it recaps only when a PR opens and when it merges, instead of on every push.
+- **Require an explicit PR label.** Set `VISUAL_RECAP_REQUIRED_LABELS=visual recap` to keep the workflow installed but skip recaps until a PR has that label. Use a comma-separated list, such as `visual recap,recap`, when several labels should opt in. Applying a listed label wakes the workflow immediately.
+- **Recap less often.** Edit the installed workflow's `on.pull_request.types` from `[opened, synchronize, reopened, ready_for_review, labeled, closed]` to `[opened, ready_for_review, closed]` so it recaps only when a PR opens and when it merges, instead of on every push.
 
 Every run records what it actually spent: the workflow's `recap usage` step attaches token and cost usage to the published plan, so you can look at real spend per run instead of guessing.
 
@@ -256,16 +257,17 @@ real token.
 
 ### Optional (only if you change defaults)
 
-| Secret / variable        | Default                                                       | When you need it                                                                                                                                                                                                                                         |
-| ------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                                                             | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead.                                                                                                                                                                |
-| `VISUAL_RECAP_API_KEY`   | —                                                             | Secret. Set with `VISUAL_RECAP_AGENT=openai-compatible` for DeepSeek, Kimi, or another OpenAI-compatible provider.                                                                                                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                                                      | Variable. Selects the coding-agent backend (`claude`, `codex`, or `openai-compatible`).                                                                                                                                                                  |
-| `VISUAL_RECAP_BASE_URL`  | required for compatible backend                               | Variable. HTTP(S) base URL for the OpenAI-compatible backend; credentials are rejected.                                                                                                                                                                  |
-| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` for Claude; required for compatible backend | Variable. Provider model id for OpenAI-compatible backends (required there). For Claude, unset now defaults to `claude-sonnet-5` — set it to override, e.g. `claude-haiku-4-5` for the cheapest tier. For Codex, unset uses the Codex CLI's own default. |
-| `VISUAL_RECAP_REASONING` | each model's default                                          | Variable. Reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Applies to the Codex backend.                                                                                                                                         |
-| `RECAP_CLI_VERSION`      | `latest`                                                      | Variable. Pins the `@agent-native/recap-cli` version the workflow installs — e.g. `1.5.0`. See [Version pinning](#version-pinning-copy-variant).                                                                                                         |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                               | Secret. Only when self-hosting the Plans app at a different origin.                                                                                                                                                                                      |
+| Secret / variable              | Default                                                       | When you need it                                                                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | —                                                             | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead.                                                                                                                                                                |
+| `VISUAL_RECAP_API_KEY`         | —                                                             | Secret. Set with `VISUAL_RECAP_AGENT=openai-compatible` for DeepSeek, Kimi, or another OpenAI-compatible provider.                                                                                                                                       |
+| `VISUAL_RECAP_AGENT`           | `claude`                                                      | Variable. Selects the coding-agent backend (`claude`, `codex`, or `openai-compatible`).                                                                                                                                                                  |
+| `VISUAL_RECAP_BASE_URL`        | required for compatible backend                               | Variable. HTTP(S) base URL for the OpenAI-compatible backend; credentials are rejected.                                                                                                                                                                  |
+| `VISUAL_RECAP_MODEL`           | `claude-sonnet-5` for Claude; required for compatible backend | Variable. Provider model id for OpenAI-compatible backends (required there). For Claude, unset now defaults to `claude-sonnet-5` — set it to override, e.g. `claude-haiku-4-5` for the cheapest tier. For Codex, unset uses the Codex CLI's own default. |
+| `VISUAL_RECAP_REASONING`       | each model's default                                          | Variable. Reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Applies to the Codex backend.                                                                                                                                         |
+| `VISUAL_RECAP_REQUIRED_LABELS` | —                                                             | Variable. Comma-separated PR labels. When set, the gate skips until the PR has at least one listed label, for example `visual recap`.                                                                                                                    |
+| `RECAP_CLI_VERSION`            | `latest`                                                      | Variable. Pins the `@agent-native/recap-cli` version the workflow installs — e.g. `1.5.0`. See [Version pinning](#version-pinning-copy-variant).                                                                                                         |
+| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                               | Secret. Only when self-hosting the Plans app at a different origin.                                                                                                                                                                                      |
 
 The workflow auto-detects how to invoke its helper CLI (local source inside this monorepo, the published `@agent-native/recap-cli` elsewhere), so there is no `RECAP_CLI` variable to set.
 
@@ -510,10 +512,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -535,10 +538,11 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 
-The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant. The reusable caller forwards `VISUAL_RECAP_RUNS_ON` through its JSON `runs-on` input for the full recap job and `VISUAL_RECAP_GATE_RUNS_ON` through its plain-label `gate-runs-on` input for the metadata-only gate. The latter is used only for trusted same-repository authors; other PRs use GitHub-hosted `ubuntu-latest`. Omitting either input preserves its `ubuntu-latest` default.
+The same secrets and variables described in [Secrets and variables](#secrets-and-variables) apply — set them in your repo settings the same way as for the copy variant. The reusable caller forwards `VISUAL_RECAP_RUNS_ON` through its JSON `runs-on` input for the full recap job, `VISUAL_RECAP_GATE_RUNS_ON` through its plain-label `gate-runs-on` input for the metadata-only gate, and `VISUAL_RECAP_REQUIRED_LABELS` through `required-labels` for optional PR-label gating. The gate runner input is used only for trusted same-repository authors; other PRs use GitHub-hosted `ubuntu-latest`. Omitting the runner inputs preserves their `ubuntu-latest` defaults; omitting required labels preserves automatic recap behavior.
 
 ### Installing via the CLI
 

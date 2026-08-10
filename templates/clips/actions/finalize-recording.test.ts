@@ -12,6 +12,7 @@ const mockState = vi.hoisted(() => ({
     hasAudio: true,
     hasCamera: false,
     title: "Test recording",
+    uploadGenerationId: null as string | null,
   },
   uploadState: null as Record<string, unknown> | null,
   chunkRows: [] as Array<{ key: string }>,
@@ -19,6 +20,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
@@ -106,6 +108,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
       status: "recordings.status",
+      uploadGenerationId: "recordings.uploadGenerationId",
       videoUrl: "recordings.videoUrl",
       trashedAt: "recordings.trashedAt",
     },
@@ -158,6 +161,10 @@ vi.mock("../server/lib/streaming-upload-mode.js", () => ({
   isStreamingUploadDisabled: vi.fn(() => false),
 }));
 
+vi.mock("../server/lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+}));
+
 vi.mock("../server/lib/video-remux.js", () => ({
   probeHasAudioStream: vi.fn(async () => null),
   remuxWebmToSeekable: vi.fn(async (bytes: Uint8Array) => ({
@@ -188,6 +195,8 @@ describe("finalize-recording chunk completeness", () => {
     };
     mockState.chunkRows = [];
     mockState.selectRows = [];
+    mockState.existingRecording.status = "uploading";
+    mockState.existingRecording.uploadGenerationId = null;
     mockReadAppState.mockImplementation(async (key: string) => {
       if (key === "recording-upload-rec_1") return mockState.uploadState;
       return null;
@@ -196,6 +205,36 @@ describe("finalize-recording chunk completeness", () => {
       rows: mockState.chunkRows,
       rowsAffected: 0,
     }));
+  });
+
+  it("does not finalize after reset wins the generation claim race", async () => {
+    mockState.existingRecording = {
+      ...mockState.existingRecording,
+      status: "uploading",
+      uploadGenerationId: "generation-a",
+    };
+    // The generation/status CAS returns no row: reset installed generation B
+    // after finalize read A but before it could claim processing.
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    await expect(
+      finalizeRecording.run({
+        id: "rec_1",
+        uploadGenerationId: "generation-a",
+      }),
+    ).rejects.toThrow("Upload changed before finalization could claim it");
+
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unfenced finalizer after reset installs a generation", async () => {
+    mockState.existingRecording.uploadGenerationId = "generation-b";
+
+    await expect(finalizeRecording.run({ id: "rec_1" })).rejects.toThrow(
+      "Upload generation changed before finalization",
+    );
+
+    expect(mockUploadFile).not.toHaveBeenCalled();
   });
 
   it("fails before upload when persisted chunk indices have a gap", async () => {
@@ -294,7 +333,81 @@ describe("finalize-recording media serve verification", () => {
     mockUploadFile.mockResolvedValue({
       url: "https://cdn.builder.io/api/v1/file/assets%2Forg%2Frec_1",
     });
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
+    seedBufferedRecording();
+    const videoUrl =
+      "https://clips.example.com/api/storage/clips/recording.webm";
+    mockUploadFile.mockResolvedValue({ url: videoUrl, provider: "s3" });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("ok", {
+        status: 206,
+        headers: { "content-range": "bytes 0-1/11" },
+      }),
+    );
+    vi.mocked(fetch).mockRejectedValue(new TypeError("public read blocked"));
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "ready",
+        videoUrl,
+        videoSizeBytes: 11,
+      }),
+    );
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(videoUrl, {
+      range: "bytes=0-1023",
+      timeoutMs: 8_000,
+      recordingId: "rec_1",
+      allowLegacyObjectKey: true,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the public URL when signed S3 credentials cannot read", async () => {
+    seedBufferedRecording();
+    const videoUrl =
+      "https://clips.example.com/api/storage/clips/rec_1/video.webm";
+    mockUploadFile.mockResolvedValue({ url: videoUrl, provider: "s3" });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("denied", { status: 403 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "ready",
+        videoUrl,
+        videoSizeBytes: 12,
+      }),
+    );
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      videoUrl,
+      expect.objectContaining({
+        method: "GET",
+        headers: { Range: "bytes=0-1023" },
+      }),
+    );
   });
 
   it("keeps the recording processing and schedules durable verification when uploaded media stays unservable", async () => {
@@ -786,6 +899,6 @@ describe("finalize-recording resumable recovery", () => {
         videoUrl: "https://cdn.example.com/rec_1",
       }),
     );
-    expect(deleteResumableSession).toHaveBeenCalledWith("rec_1");
+    expect(deleteResumableSession).toHaveBeenCalledWith("rec_1", null);
   });
 });

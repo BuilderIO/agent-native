@@ -3,8 +3,12 @@ import os from "node:os";
 
 const guards = [
   "guard:no-drizzle-push",
+  "guard:no-pnpm-patches",
+  "guard:chat-first-shared-ui",
+  "guard:no-empty-migrations",
   "guard:no-unscoped-queries",
   "guard:no-env-credentials",
+  "guard:env-documentation",
   "guard:no-unscoped-credentials",
   "guard:no-env-mutation",
   "guard:no-localhost-fallback",
@@ -12,11 +16,17 @@ const guards = [
   "guard:db-tool-scoping",
   "guard:template-list",
   "guard:netlify-private-env",
+  "guard:trusted-acceptance",
+  "guard:content-product-conformance",
+  "guard:content-product-docs",
   "guard:workspace-skills",
+  "guard:template-standard",
   "guard:public-packages",
   "guard:shared-ui-singletons",
   "guard:no-core-client-barrel-imports",
   "guard:toolkit-must-not-import-core",
+  "guard:template-ui-imports",
+  "guard:controller-boundaries",
   "guard:migration-manifest",
   "guard:eject-manifests",
   "guard:no-generated-artifacts",
@@ -31,6 +41,17 @@ const guards = [
   "guard:agent-chat-context",
   "guard:request-storms",
   "guard:ssr-cache-shell",
+  "guard:route-chunk-recovery",
+  "guard:one-sign-in",
+  "guard:no-secret-literals",
+  "guard:additive-migrations",
+  "guard:no-silent-coercion",
+  "guard:no-raw-colors",
+  "guard:help-icon-scale",
+  "guard:no-boot-data-work",
+  "guard:no-heavy-dashboard-list-reads",
+  "guard:dead-settings-keys",
+  "guard:serverless-function-payload",
 ] as const;
 
 type GuardName = (typeof guards)[number];
@@ -70,7 +91,7 @@ if (args.dryRun) {
     )}`,
   );
   for (const guard of guards) {
-    console.log(`${pnpmCommand()} run ${guard}`);
+    console.log(formatCommand(guardCommand(guard)));
   }
   process.exit(0);
 }
@@ -133,7 +154,8 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
 
 function runGuard(name: GuardName): Promise<GuardResult> {
   const startedAt = Date.now();
-  const child = spawn(pnpmCommand(), ["run", name], {
+  const [command, args] = guardCommand(name);
+  const child = spawn(command, args, {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -188,6 +210,17 @@ Options:
 Environment overrides:
   GUARD_CONCURRENCY / AGENT_NATIVE_GUARD_CONCURRENCY
 `);
+}
+
+function guardCommand(name: GuardName): [string, string[]] {
+  if (name === "guard:no-heavy-dashboard-list-reads") {
+    return ["node", ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+  }
+  return [pnpmCommand(), ["run", name]];
+}
+
+function formatCommand([command, args]: [string, string[]]): string {
+  return [command, ...args].join(" ");
 }
 
 function parseArgs(rawArgs: string[]): {

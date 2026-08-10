@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { exportConcat } from "@/lib/ffmpeg-export";
+import { copyRecordingShareLink } from "@/lib/recording-link";
 import { formatMs } from "@/lib/timestamp-mapping";
 import { uploadFileClient } from "@/lib/upload-file-client";
 import { cn } from "@/lib/utils";
@@ -125,9 +126,10 @@ export function StitchManager({
       );
 
       // 2) Upload the combined video.
+      const destinationRecordingId = crypto.randomUUID();
       const upload = await uploadFileClient(
         blob,
-        `${title.replace(/[^a-z0-9-_]+/gi, "-")}.mp4`,
+        `${destinationRecordingId}.mp4`,
       );
       const videoUrl = upload?.url ?? null;
       if (!videoUrl) {
@@ -137,12 +139,32 @@ export function StitchManager({
       // 3) Create the stitched recording row.
       const totalDuration = queue.reduce((sum, r) => sum + r.durationMs, 0);
       const result = await stitch.mutateAsync({
+        recordingId: destinationRecordingId,
         title,
         sourceRecordingIds: queue.map((r) => r.id),
         videoUrl,
         durationMs: totalDuration,
       });
-      toast.success(t("stitchManager.created"));
+      const newRecordingId = (result as { id?: string } | null)?.id;
+      if (newRecordingId) {
+        const copied = await copyRecordingShareLink(newRecordingId);
+        if (copied) {
+          toast.success(t("stitchManager.created"), {
+            description: t("recordRoute.linkCopied"),
+          });
+        } else {
+          toast.success(t("stitchManager.created"), {
+            action: {
+              label: t("recordRoute.copyLinkAction"),
+              onClick: () => {
+                void copyRecordingShareLink(newRecordingId);
+              },
+            },
+          });
+        }
+      } else {
+        toast.success(t("stitchManager.created"));
+      }
       onOpenChange(false);
       return result;
     } catch (err: any) {

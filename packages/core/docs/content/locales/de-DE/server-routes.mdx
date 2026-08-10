@@ -1,0 +1,200 @@
+---
+title: "Routen"
+description: "Dateibasierte Nitro-Server-Routen, der SSR-Catch-all, Namenskonventionen und die Eingrenzung benutzerdefinierter Routen auf den authentifizierten Benutzer."
+---
+
+# Routen
+
+Das Server-Routing in einer agentennativen App ist auf zwei Oberflächen aufgeteilt.
+
+**Framework-Routen** unter `/_agent-native/*` werden vom Framework verwaltet. Sie legen die Agent-Chat-Schleife, das Sync-Polling, Action-Endpunkte und weitere Kernfunktionen offen. Sie erstellen oder ändern diese Routen nicht.
+
+**Benutzerdefinierte Dateirouten** in `server/routes/` sind der Ort, an dem Sie eigene Endpunkte hinzufügen. Nitro erkennt sie automatisch anhand ihrer Position im Verzeichnisbaum — keine Registrierung oder Konfiguration nötig. Der Dateiname legt die HTTP-Methode fest, der Verzeichnispfad wird zum URL-Pfad, und jede Datei exportiert genau einen Handler.
+
+## Vom Framework eingehängte Routen {#framework-routes}
+
+Das Framework reserviert den Namespace `/_agent-native/` für seine eigenen Endpunkte. Platzieren Sie hier niemals benutzerdefinierte Routen. Diese Tabelle ist repräsentativ, nicht vollständig.
+
+| Routenpräfix                     | Zweck                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | HTTP-Endpunkte für Actions                                                             |
+| `/_agent-native/agent-chat`      | Agent-Chat-Schleife                                                                    |
+| `/_agent-native/poll`            | SQL-gestützte UI-Synchronisierung                                                      |
+| `/_agent-native/runs`            | Fortschritts-Primitive. Die `RunsTray` pollt dies; siehe [Fortschritt](/docs/progress) |
+| `/_agent-native/resources/*`     | Workspace-Ressourcen                                                                   |
+| `/_agent-native/extensions/*`    | Laufzeit-Erweiterungen und Erweiterungs-Proxy (Legacy-Alias: `/_agent-native/tools/*`) |
+| `/_agent-native/integrations/*`  | Messaging-/Webhook-Integrationen                                                       |
+| `/_agent-native/a2a`             | Agent-zu-Agent-JSON-RPC                                                                |
+| `/mcp`                           | MCP-Endpunkt                                                                           |
+| `/_agent-native/onboarding/*`    | Einrichtungs-Checkliste                                                                |
+| `/_agent-native/observability/*` | Traces, Feedback, Evals, Experimente                                                   |
+| `/_agent-native/file-upload`     | Endpunkt des Datei-Upload-Providers                                                    |
+
+Benutzerdefinierte App-Routen befinden sich unter `/api/*` oder einem anderen Pfad, der nicht mit `/_agent-native/` kollidiert.
+
+## Wann eine benutzerdefinierte Route verwenden {#when-custom-routes}
+
+Actions decken die überwiegende Mehrheit der App-Operationen ab. Greifen Sie nur dann zu einer Dateiroute in `server/routes/`, wenn Sie etwas benötigen, das eine Action nicht ausdrücken kann.
+
+<Comparison>
+
+### Eine benutzerdefinierte Route verwenden {#use-custom-route}
+
+- Datei-Uploads oder Multipart-Formulardaten
+- Streaming-Antworten oder Server-Sent Events (SSE)
+- Eingehende Webhooks, die eine Verifizierung des Rohkörpers benötigen
+- OAuth-Callbacks
+- Öffentliche, nicht authentifizierte Seiten
+- Externe REST-Verträge, die einen bestimmten URL-Pfad oder eine bestimmte Antwortform erfordern
+
+### Stattdessen eine Action verwenden {#use-action-instead}
+
+- Vorgänge, die sowohl UI als auch Agent benötigen
+- Lesen oder Schreiben von App-Daten
+- HTTP-förmige Endpunkte (verwenden Sie die Option `http` in [Actions](/docs/actions))
+- Alles, was ein Agenten-Tool, MCP-Tool oder CLI-Befehl sein sollte
+- Standard-JSON-Request/Response-APIs
+
+</Comparison>
+
+### Beispiel: Eingehender Webhook {#example-webhook}
+
+Webhooks sind ein klarer Fall für eine benutzerdefinierte Route. Externe Dienste senden einen rohen HTTP-Body, der als Bytes gelesen werden muss, bevor er geparst wird, damit Sie die Anfragesignatur verifizieren können. Actions erhalten bereits geparstes JSON und haben keinen Zugriff auf den Rohkörper, was eine Signaturverifizierung innerhalb einer Action unmöglich macht.
+
+Die folgende Route behandelt einen eingehenden Webhook unter `POST /api/webhooks/events`. Sie liest den Rohkörper, verifiziert eine HMAC-Signatur und verarbeitet dann die Payload.
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro bildet diese Datei automatisch auf `POST /api/webhooks/events` ab. Die Umgebungsvariable `WEBHOOK_SECRET` sollte auf das Signaturgeheimnis gesetzt werden, das der externe Dienst bereitstellt.
+
+## Dateibasierte Routen {#file-based-routes}
+
+Der Verzeichnispfad wird zum URL-Pfad, und das Dateinamen-Suffix legt die HTTP-Methode fest. Eine Datei unter `server/routes/api/items/[id].get.ts` wird auf `GET /api/items/:id` abgebildet — `items/` stammt aus dem Verzeichnis, `[id]` wird zum `:id`-Parameter, und `.get` legt die Methode fest.
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR catch-all for public pages
+```
+
+`defineEventHandler` ist die H3-Primitive zum Schreiben einer Route. Sie umschließt Ihre Handler-Funktion und gibt ihr Zugriff auf das `event`-Objekt, das Request, Response, Router-Parameter, Query-String, Header und Body trägt. Gibt der Handler einen Wert zurück, wird dieser als Antwort gesendet — ein einfaches Objekt wird automatisch zu JSON. Das Werfen eines `createError` sendet den passenden HTTP-Fehlerstatus.
+
+Router-Parameter wie `[id]` werden mit `getRouterParam` aus `event` gelesen:
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### Namenskonventionen {#naming-conventions}
+
+| Dateipfad (relativ zu `server/routes/`) | HTTP-Methode | URL-Pfad         |
+| --------------------------------------- | ------------ | ---------------- |
+| `api/items/index.get.ts`                | GET          | `/api/items`     |
+| `api/items/index.post.ts`               | POST         | `/api/items`     |
+| `api/items/[id].get.ts`                 | GET          | `/api/items/:id` |
+| `api/items/[id].patch.ts`               | PATCH        | `/api/items/:id` |
+| `api/items/[id].delete.ts`              | DELETE       | `/api/items/:id` |
+| `api/items/[...slug].get.ts`            | GET          | `/api/items/*`   |
+
+## Anfragekontext und Zugriff {#request-context}
+
+Vom Framework eingehängte Actions laufen automatisch mit Anfragekontext. Benutzerdefinierte Routen nicht. Wenn eine benutzerdefinierte Route ownable Ressourcen liest oder schreibt, laden Sie die Session und umschließen Sie die Arbeit damit:
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="Eine benutzerdefinierte Route auf den Anfragenutzer eingrenzen"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "Benutzerdefinierte Routen haben keinen automatischen Kontext",
+      note: "Anders als Actions muss eine Dateiroute die Session selbst laden und geschlossen fehlschlagen (fail closed), wenn kein authentifizierter Benutzer vorhanden ist.",
+    },
+    {
+      lines: "13",
+      label: "Anfragekontext herstellen",
+      note: "`runWithRequestContext` macht Benutzer/Organisation für Scoping-Helfer während der Dauer der Arbeit verfügbar.",
+    },
+    {
+      lines: "17-20",
+      label: "Ownable Lesevorgänge eingrenzen",
+      note: "`accessFilter` schränkt die Abfrage auf Zeilen ein, die der Aufrufer sehen darf. Führen Sie hier niemals ein uneingegrenztes `db.select().from(ownableTable)` aus.",
+    },
+  ]}
+/>
+
+`getDb` wird pro App über `createGetDb(schema)` in `server/db/index.ts` erstellt, daher importieren benutzerdefinierte Routen es vom Vorlagenpfad (`../../db/index.js`) und nicht aus `@agent-native/core/db`. Siehe [Datenbank](/docs/server-database#db-client).
+
+<Callout tone="warning">
+  Führen Sie in benutzerdefinierten Routen kein uneingegrenztes
+  `db.select().from(ownableTable)` aus. Stellen Sie immer mit
+  `runWithRequestContext` den Anfragekontext her, bevor Sie ownable Daten
+  abfragen.
+</Callout>
+
+## SSR-Catch-all {#ssr-catch-all}
+
+Die Route `[...page].get.ts` im Root von `server/routes/` übernimmt das serverseitige Rendering für öffentlich zugängliche Seiten. Sie verwendet `createH3SSRHandler`, um an den React-Router-Build zu übergeben:
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+Jede SSR-Antwort ist eine unpersönliche, öffentliche Shell, die am CDN gecacht wird. Lesen Sie in diesem Handler niemals Cookies, Session-Zustand oder Auth-Verzweigungen. Personalisierung erfolgt clientseitig nach der Hydration.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Actions**](/docs/actions): die bevorzugte Oberfläche für App-Operationen; greifen Sie nur dann zu einer Route, wenn sie nicht passt
+- [**Plugins**](/docs/server-plugins): Startup-Plugins und ihr Initialisierungsverhalten
+- [**Middleware**](/docs/server-middleware): Auth-Guards, die alle Routen schützen, einschließlich `/api/*`
+- [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess` und das vollständige Data-Scoping-Modell

@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
+import { createDesignCanvasInteractionAdapter } from "@/components/design/canvas-interactions/design-canvas-interactions";
+
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -203,8 +205,8 @@ export interface UseDesignHotkeysProps {
    * modifiers held) or SHIFT_TOOL_SHORTCUTS (which has no "a" entry).
    */
   onAddAutoLayout?: DesignHotkeyHandler;
-  /** Figma's Cmd+\ — toggle Show/Hide UI (left rail, right panel, bottom
-   *  toolbar chrome). */
+  /** Figma's Shift+\ "Minimize UI" shortcut, applied here to the full Design
+   *  chrome (left rail, right panel, and bottom toolbar). */
   onToggleUi?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
@@ -238,13 +240,6 @@ const SHIFT_TOOL_SHORTCUTS: Record<
   { tool: DesignHotkeyTool; handler: keyof UseDesignHotkeysProps }
 > = {
   l: { tool: "arrow", handler: "onArrowTool" },
-};
-
-const ARROW_DIRECTIONS: Record<string, DesignHotkeyDirection> = {
-  ArrowUp: "up",
-  ArrowRight: "right",
-  ArrowDown: "down",
-  ArrowLeft: "left",
 };
 
 export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
@@ -282,13 +277,29 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+/** Chat bodies and panel labels are selectable but not editable targets, so the
+ * editable guard never sees them. Canvas layers live in the preview iframe and
+ * produce no parent-document range, so this cannot mask a real layer copy. */
+export function hasDocumentTextSelection() {
+  if (typeof window === "undefined" || !window.getSelection) return false;
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+  return selection.toString().trim().length > 0;
+}
+
 export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
-  return (
-    (event.ctrlKey || event.metaKey) &&
-    event.shiftKey &&
-    !event.altKey &&
-    normalizedKey(event) === "?"
-  );
+  if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) {
+    return false;
+  }
+  // macOS never sends "?" for this chord: holding Control suppresses the
+  // shifted character, so Control+Shift+/ arrives as key "/" while Windows
+  // sends "?". Matching only "?" left Macs with no pressable combination —
+  // the obvious ⌘⇧? alternative is the system Help-menu shortcut and the
+  // browser consumes it before the page ever sees it.
+  const key = normalizedKey(event);
+  return key === "?" || key === "/";
 }
 
 function isFocusableChromeTarget(target: EventTarget | null) {
@@ -396,17 +407,6 @@ export function handleDesignHotkey(
     return true;
   };
 
-  const runNudge = (direction: DesignHotkeyDirection) => {
-    if (!props.onNudge) return false;
-    prevent();
-    props.onNudge({
-      ...details,
-      direction,
-      largeStep: event.shiftKey,
-    });
-    return true;
-  };
-
   const runAlign = (edge: DesignHotkeyAlignEdge) => {
     if (!props.onAlignSelection) return false;
     prevent();
@@ -418,6 +418,17 @@ export function handleDesignHotkey(
     if (!props.onDistributeSelection) return false;
     prevent();
     props.onDistributeSelection({ ...details, axis });
+    return true;
+  };
+
+  const designCanvasInteractions = createDesignCanvasInteractionAdapter({
+    shortcuts: props,
+  });
+
+  const runSharedCanvasCommand = () => {
+    const result = designCanvasInteractions.dispatchKeyboardEvent(event);
+    if (!result.handled) return false;
+    prevent();
     return true;
   };
 
@@ -449,8 +460,8 @@ export function handleDesignHotkey(
     }
   }
 
-  if (event.key in ARROW_DIRECTIONS && !primary && !event.altKey) {
-    return runNudge(ARROW_DIRECTIONS[event.key]);
+  if (event.key.startsWith("Arrow") && !primary && !event.altKey) {
+    return runSharedCanvasCommand();
   }
 
   if (event.key === "Escape") return run(props.onEscape);
@@ -487,7 +498,7 @@ export function handleDesignHotkey(
     return true;
   }
   if ((event.key === "Delete" || event.key === "Backspace") && !primary) {
-    return run(props.onDelete);
+    return runSharedCanvasCommand() || run(props.onDelete);
   }
 
   // Current Figma: Cmd+Backspace ungroups. Checked after plain Backspace
@@ -498,7 +509,10 @@ export function handleDesignHotkey(
   }
 
   if (primary && key === "z") {
-    return event.shiftKey ? run(props.onRedo) : run(props.onUndo);
+    return (
+      runSharedCanvasCommand() ||
+      (event.shiftKey ? run(props.onRedo) : run(props.onUndo))
+    );
   }
   if (primary && key === "y") return run(props.onRedo);
   // Figma Find uses the operating system's primary modifier, rather than
@@ -514,14 +528,16 @@ export function handleDesignHotkey(
     return run(props.onFind);
   }
   if (primary && !event.altKey && !event.shiftKey && key === "a") {
-    return run(props.onSelectAll);
+    return runSharedCanvasCommand() || run(props.onSelectAll);
   }
   // Figma's Cmd+Shift+X — toggle strikethrough. Must be checked before plain
   // Cmd+X (cut) below, since that check doesn't itself gate on shiftKey.
   if (primary && event.shiftKey && key === "x") {
     return run(props.onToggleStrikethrough);
   }
-  if (primary && key === "x") return run(props.onCut);
+  if (primary && key === "x" && !hasDocumentTextSelection()) {
+    return runSharedCanvasCommand() || run(props.onCut);
+  }
   // Figma's Cmd+U — toggle underline. No existing binding claims plain "u".
   if (primary && !event.altKey && !event.shiftKey && key === "u") {
     return run(props.onToggleUnderline);
@@ -552,14 +568,17 @@ export function handleDesignHotkey(
   if (primary && key === "c") {
     if (event.altKey) return run(props.onCopyProps);
     if (event.shiftKey) return run(props.onCopyAsPng);
-    return run(props.onCopy);
+    if (hasDocumentTextSelection()) return false;
+    return runSharedCanvasCommand() || run(props.onCopy);
   }
   if (primary && key === "v") {
     if (event.altKey) return run(props.onPasteProps);
     if (event.shiftKey) return run(props.onPasteOver);
-    return run(props.onPaste);
+    return runSharedCanvasCommand() || run(props.onPaste);
   }
-  if (primary && key === "d") return run(props.onDuplicate);
+  if (primary && key === "d") {
+    return runSharedCanvasCommand() || run(props.onDuplicate);
+  }
   // Figma's Shift+Cmd+R — "Paste to replace" — must be checked BEFORE plain
   // Cmd+R (rename) so shift wins; onPasteToReplace absent falls through to
   // rename so existing behavior is unaffected until the handler is wired.
@@ -658,17 +677,8 @@ export function handleDesignHotkey(
   // backward (single-step reorder). Alt+Cmd+]/Alt+Cmd+[ are silent aliases
   // of the plain front/back commands (kept for muscle memory / older
   // bindings), NOT of forward/backward.
-  if (primary && key === "]") {
-    return event.altKey ? run(props.onBringToFront) : run(props.onBringForward);
-  }
-  if (primary && key === "[") {
-    return event.altKey ? run(props.onSendToBack) : run(props.onSendBackward);
-  }
-  if (!primary && !event.altKey && !event.shiftKey && key === "]") {
-    return run(props.onBringToFront);
-  }
-  if (!primary && !event.altKey && !event.shiftKey && key === "[") {
-    return run(props.onSendToBack);
+  if (key === "]" || key === "[" || key === "}" || key === "{") {
+    return runSharedCanvasCommand();
   }
 
   // Current Figma reserves N / Shift+N for moving to the next / previous
@@ -725,8 +735,15 @@ export function handleDesignHotkey(
     return run(props.onAddAutoLayout);
   }
 
-  // Figma: Cmd+\ — Show/Hide UI (empty-canvas context-menu item).
-  if (primary && key === "\\") {
+  // Figma's Shift+\ "Minimize UI" chord avoids the bare Cmd+\ shortcut that
+  // desktop coding hosts can reserve for closing their focused pane. Use the
+  // physical key code because Shift+\ produces "|" on US keyboard layouts.
+  if (
+    !primary &&
+    !event.altKey &&
+    event.shiftKey &&
+    event.code === "Backslash"
+  ) {
     return run(props.onToggleUi);
   }
 
@@ -779,7 +796,7 @@ const ALT_CODE_KEYS: Record<string, string> = {
   BracketLeft: "[",
 };
 
-function isApplePlatform() {
+export function isApplePlatform() {
   if (typeof navigator === "undefined") return false;
   const userAgentDataPlatform = (
     navigator as Navigator & {

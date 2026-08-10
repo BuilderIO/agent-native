@@ -216,7 +216,7 @@ l'agent démarre un tour de révision par rapport au plan existant.
 
 Générer un plan ou un récapitulatif exécute une session agentique complète contre le LLM de votre agent de codage, et non un simple remplissage de modèle léger ; le coût dépend donc de la taille du diff ou du plan et du modèle choisi.
 
-- Le modèle de chat par défaut de l'application est Sonnet 5 ; changez-le à tout moment dans les **Paramètres**. Haiku est l'option Claude moins chère, et Luna est l'option moins chère de la famille GPT-5.6.
+- Le modèle de chat par défaut de l'application est GPT-5.6 Luna. Les connexions Anthropic directes conservent Claude Sonnet 5 comme modèle par défaut. Changez de modèle à tout moment dans les **Paramètres** ; Haiku est l'option Claude la moins chère.
 - Les récapitulatifs de PR automatisés depuis l'action GitHub s'exécutent séparément de l'application interactive et ont leurs propres réglages de modèle et de coût — voir [PR Visual Recap](/docs/pr-visual-recap) pour `VISUAL_RECAP_MODEL`, `VISUAL_RECAP_AGENT` et `VISUAL_RECAP_REASONING`.
 
 ## Ce que vous pouvez en faire

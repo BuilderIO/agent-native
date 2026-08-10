@@ -173,7 +173,7 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
     expect(apps[0]).toMatchObject({
       id: "dispatch",
-      name: "Agent-Native Dispatch",
+      name: "Dispatch",
       url: "http://localhost:8092",
       granted: true,
     });
@@ -878,6 +878,24 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           }),
       ),
     ).rejects.toThrow(/safe app-relative route/);
+  });
+
+  it("rejects a URL that does not belong to the explicitly named app", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            url: "https://mail.example.com/inbox",
+          }),
+      ),
+    ).rejects.toThrow(
+      /Embed URL must belong to an app granted through Dispatch/,
+    );
   });
 
   it("routes same-origin mounted app embed URLs to the mounted app", async () => {

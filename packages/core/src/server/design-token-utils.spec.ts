@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addFont,
   analyzeCodeFile,
+  analyzeCodeFiles,
+  CODE_MAX_TOTAL_BYTES,
   classifyFile,
   createCodeAnalysisState,
   detectStylingFramework,
@@ -416,6 +418,33 @@ describe("analyzeCodeFile (routing by filename)", () => {
       type: "json-theme",
       data: { parseError: true },
     });
+  });
+});
+
+describe("analyzeCodeFiles", () => {
+  it("preserves import-code caps and returns the action payload shape", () => {
+    expect(
+      analyzeCodeFiles([
+        {
+          filename: "theme.css",
+          content: ":root { --brand: #123456; }",
+        },
+      ]),
+    ).toMatchObject({
+      source: "code",
+      fileCount: 1,
+      filesAnalyzed: ["theme.css"],
+      colors: { "#123456": "#123456" },
+    });
+  });
+
+  it("counts UTF-8 bytes and stops before an oversized next file", () => {
+    const first = "a".repeat(CODE_MAX_TOTAL_BYTES);
+    const result = analyzeCodeFiles([
+      { filename: "first.css", content: first },
+      { filename: "second.css", content: "b" },
+    ]);
+    expect(result.filesAnalyzed).toEqual(["first.css"]);
   });
 });
 

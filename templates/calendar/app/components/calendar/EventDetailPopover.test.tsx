@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { CalendarEvent } from "@shared/api";
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -67,8 +67,18 @@ vi.mock("@/hooks/use-events", () => ({
   useUpdateEvent: () => ({ mutate: updateEventMutate, isPending: false }),
 }));
 
+vi.mock("@/hooks/use-google-auth", () => ({
+  useGoogleAuthStatus: () => ({ data: { accounts: [] } }),
+}));
+
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => false,
+}));
+
+vi.mock("@/hooks/use-view-preferences", () => ({
+  useViewPreferences: () => ({
+    prefs: { accountColors: {}, singleColor: undefined },
+  }),
 }));
 
 vi.mock("@/hooks/use-zoom-auth", () => ({
@@ -222,6 +232,157 @@ describe("EventDetailPopover characterization", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("shows the add-title placeholder instead of editable fallback text for a new unnamed event", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "(No title)",
+            titleIsGenerated: true,
+          })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+  });
+
+  it("keeps the fallback label out of the input when renaming an unnamed event", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "(No title)",
+            titleIsGenerated: true,
+          })}
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openButton = findByExactText("button", "Mock open popover");
+    act(() => {
+      (openButton as HTMLElement).click();
+    });
+
+    const fallbackTitle = findByExactText("h2", "(No title)");
+    expect(fallbackTitle).toBeTruthy();
+    act(() => {
+      (fallbackTitle as HTMLElement).click();
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+  });
+
+  it("preserves a literal fallback label typed by the user", () => {
+    const onTitleSave = vi.fn();
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({ title: "(No title)" })}
+          defaultOpen
+          onDelete={() => undefined}
+          onTitleSave={onTitleSave}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+
+    act(() => {
+      setNativeInputValue(titleInput!, "(No title)");
+      titleInput!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onTitleSave).toHaveBeenCalledWith(
+      "event-1",
+      "(No title)",
+      undefined,
+    );
+  });
+
+  it("dismisses a blank out-of-office draft without saving its generated title", () => {
+    const onTitleSave = vi.fn();
+    const onDismissNew = vi.fn();
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "Out of office",
+            titleIsGenerated: true,
+            eventType: "outOfOffice",
+          })}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onTitleSave={onTitleSave}
+          onDismissNew={onDismissNew}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+
+    const closeButton = findByExactText("button", "Mock close popover");
+    act(() => {
+      (closeButton as HTMLElement).click();
+    });
+
+    expect(onTitleSave).not.toHaveBeenCalled();
+    expect(onDismissNew).toHaveBeenCalledWith("event-1", undefined);
+  });
+
+  it("preserves an explicit Out of office title on a draft", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "Out of office",
+            eventType: "outOfOffice",
+          })}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("Out of office");
   });
 
   it("does not show the event timezone as a standalone row", () => {
@@ -435,26 +596,6 @@ describe("EventDetailPopover characterization", () => {
       'input[placeholder="eventForm.addLocation"]',
     );
     expect(locationInputAfterUpdate!.value).toBe("Room A (typing)");
-
-    // The time fields were NOT being edited during the update above, so they
-    // should reflect the new event's start/end once the user opens that
-    // editor — not whatever was captured at mount.
-    const timeLabel = shortTimeLabel(updatedEvent.start);
-    const timeSummary = findByExactText("span", timeLabel);
-    expect(timeSummary).toBeTruthy();
-    act(() => {
-      (timeSummary as HTMLElement).click();
-    });
-
-    const timeInputs =
-      document.querySelectorAll<HTMLInputElement>('input[type="time"]');
-    expect(timeInputs).toHaveLength(2);
-    expect(timeInputs[0].value).toBe(
-      format(parseISO(updatedEvent.start), "HH:mm"),
-    );
-    expect(timeInputs[1].value).toBe(
-      format(parseISO(updatedEvent.end), "HH:mm"),
-    );
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {

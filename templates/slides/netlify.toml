@@ -1,11 +1,14 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs slides"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter slides build"
+# Rebuild Core explicitly so a cached Netlify install cannot bundle an older
+# agent loop or A2A handler into Slides' server functions.
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter slides build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter slides migrate:production; fi"
 publish = "templates/slides/dist"
 functions = "templates/slides/.netlify/functions-internal"
 
 [build.environment]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AGENT_CHAT_DURABLE_BACKGROUND = "true"

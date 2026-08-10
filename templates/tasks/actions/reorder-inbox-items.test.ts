@@ -12,7 +12,9 @@ vi.mock("../server/inbox/store.js", () => ({
   },
 }));
 
-import reorderInboxItemsAction from "./reorder-inbox-items.js";
+import reorderInboxItemsAction, {
+  reorderInboxItemsSchema,
+} from "./reorder-inbox-items.js";
 
 describe("reorder-inbox-items", () => {
   beforeEach(() => {
@@ -22,14 +24,14 @@ describe("reorder-inbox-items", () => {
   describe("schema", () => {
     it("requires at least one inbox item id", () => {
       expect(
-        reorderInboxItemsAction.schema.parse({
+        reorderInboxItemsSchema.parse({
           inboxItemIds: ["in-2", "in-1"],
         }),
       ).toEqual({
         inboxItemIds: ["in-2", "in-1"],
       });
       expect(() =>
-        reorderInboxItemsAction.schema.parse({ inboxItemIds: [] }),
+        reorderInboxItemsSchema.parse({ inboxItemIds: [] }),
       ).toThrow();
     });
   });

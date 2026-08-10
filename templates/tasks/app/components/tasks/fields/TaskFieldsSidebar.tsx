@@ -1,3 +1,5 @@
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -16,13 +18,14 @@ export function TaskFieldsSidebar({
   task: TaskWithFields | null;
   onClose: () => void;
 }) {
+  const t = useT();
   if (!task) return null;
 
   return (
     <SidePanel
-      title="Fields"
-      subtitle="Task details"
-      closeLabel="Close fields panel"
+      title={t("taskFields.panelTitle")}
+      subtitle={t("taskFields.panelSubtitle")}
+      closeLabel={t("taskFields.closeLabel")}
       onClose={onClose}
     >
       <TaskFieldsSidebarPanel task={task} />
@@ -31,6 +34,7 @@ export function TaskFieldsSidebar({
 }
 
 function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
+  const t = useT();
   const fields = task.fields ?? [];
   const updateTask = useUpdateTask();
 
@@ -42,10 +46,12 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
       void updateTask
         .mutateAsync({ taskId: task.id, ...payload })
         .catch((caught) => {
-          toast.error((caught as Error)?.message ?? "Could not update task.");
+          toast.error(
+            (caught as Error)?.message ?? t("taskFields.updateError"),
+          );
         });
     },
-    [task.id, updateTask],
+    [task.id, updateTask, t],
   );
 
   return (
@@ -57,7 +63,7 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
 
       {fields.length === 0 ? (
         <div className="m-3 rounded-lg border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">
-          No fields defined.
+          {t("taskFields.noFieldsDefined")}
         </div>
       ) : (
         fields.map((field) => (
@@ -71,6 +77,20 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
           />
         ))
       )}
+
+      {/* Stable extension contract: changing this slot id or context requires a migration. */}
+      <ExtensionSlot
+        id="tasks.task-detail.bottom"
+        context={{
+          taskId: task.id,
+          title: task.title,
+          done: task.done,
+          fieldValues: fields.map((field) => ({
+            fieldId: field.id,
+            value: field.value ?? null,
+          })),
+        }}
+      />
     </div>
   );
 }

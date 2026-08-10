@@ -5,18 +5,19 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconPlus,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
@@ -29,6 +30,13 @@ import {
 } from "@/components/ui/tooltip";
 import { navItems } from "@/lib/brain";
 import { cn } from "@/lib/utils";
+
+const primaryNavItems = navItems.filter(
+  (item) => item.view !== "agent" && item.view !== "settings",
+);
+const bottomNavItems = navItems.filter(
+  (item) => item.view === "agent" || item.view === "settings",
+);
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
@@ -81,7 +89,7 @@ function persistedActiveThreadId() {
   }
 }
 
-function BrainChatsSection() {
+function BrainChatsSection({ open }: { open: boolean }) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -102,8 +110,7 @@ function BrainChatsSection() {
     () =>
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
-        .sort(compareThreads)
-        .slice(0, 8),
+        .sort(compareThreads),
     [threads],
   );
   const chatItems = useMemo<ChatHistoryItem[]>(
@@ -177,30 +184,24 @@ function BrainChatsSection() {
   }
 
   return (
-    <div className="mt-2 border-s border-sidebar-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          {t("chat.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("chat.newBrainChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("chat.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4">
+        <ChatHistoryRail
           items={chatItems}
           activeId={activeThreadId}
           onSelect={openThread}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
+          previewCount={5}
+          expandedCount={15}
           onTogglePin={(threadId) => {
             const thread = visibleThreads.find((item) => item.id === threadId);
             if (thread) void pinThread(threadId, !thread.pinnedAt);
@@ -218,10 +219,9 @@ function BrainChatsSection() {
             unpin: t("chat.unpinChat"),
             delete: t("chat.archiveChat"),
           }}
-          variant="rail"
           className="min-w-0"
         />
-      )}
+      </div>
     </div>
   );
 }
@@ -271,6 +271,28 @@ export function Sidebar({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("navigation.search")}
+          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("navigation.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
 
   return (
     <aside
@@ -288,23 +310,50 @@ export function Sidebar({
       >
         <Link
           to="/"
+          onClick={(event) => {
+            if (
+              !collapsible ||
+              !onCollapsedChange ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              event.button !== 0
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onCollapsedChange(!collapsed);
+          }}
           className={cn(
             "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
             collapsed ? "size-8 justify-center" : "flex-1 gap-3",
           )}
-          aria-label={collapsed ? t("navigation.brand") : undefined}
+          aria-label={
+            collapsible && onCollapsedChange
+              ? collapsed
+                ? t("navigation.expandSidebar")
+                : t("navigation.collapseSidebar")
+              : collapsed
+                ? t("navigation.brand")
+                : undefined
+          }
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
+            width={28}
+            height={16}
+            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
+            width={28}
+            height={16}
+            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
@@ -312,7 +361,6 @@ export function Sidebar({
             </p>
           </div>
         </Link>
-        {!collapsed ? collapseButton : null}
       </div>
 
       <nav
@@ -327,7 +375,7 @@ export function Sidebar({
             collapsed ? "justify-items-center gap-1" : "gap-1",
           )}
         >
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const label =
               item.view === "agent"
@@ -369,8 +417,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "ask" && isAskRoute ? (
-                  <BrainChatsSection />
+                {!collapsed && item.view === "ask" ? (
+                  <BrainChatsSection open={isAskRoute} />
                 ) : null}
               </div>
             );
@@ -378,29 +426,54 @@ export function Sidebar({
         </div>
       </nav>
 
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label =
+            item.view === "agent"
+              ? t("settings.agentTitle")
+              : t(`navigation.${item.view}`);
+          const link = (
+            <NavLink
+              to={item.href}
+              className={navClass}
+              aria-label={collapsed ? label : undefined}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className={collapsed ? "sr-only" : "truncate"}>
+                {label}
+              </span>
+            </NavLink>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{link}</div>
+          );
+        })}
+      </nav>
+
       <div className="mt-auto shrink-0">
         {!collapsed ? (
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
-        ) : null}
-
-        {!collapsed ? (
           <div className="px-3 py-2">
-            <OrgSwitcher reserveSpace />
+            <OrgSwitcher />
           </div>
         ) : null}
 
         {!collapsed ? (
           <div className="px-3 py-2">
             <DevDatabaseLink />
-            <FeedbackButton />
           </div>
         ) : null}
-
-        {collapseButton ? (
-          <div className="flex justify-center px-2 py-2">{collapseButton}</div>
-        ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );

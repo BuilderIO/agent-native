@@ -15,7 +15,8 @@
  *   2. Filesystem fallback — `process.cwd()/AGENTS.md` +
  *      `process.cwd()/.agents/skills/` (or legacy `.agent/skills/`). Only reliable in local dev and Node
  *      production (`agent-native start`); not on Netlify/Vercel/CF at runtime.
- *   3. Empty bundle — everything silently returns empty strings.
+ *   3. Configuration and filesystem failures propagate so a broken bundle is
+ *      visible instead of being mistaken for an app with no instructions.
  *
  * Result is cached in module scope so it's only computed once per cold start.
  */
@@ -60,11 +61,28 @@ export interface Skill {
    * `ls` call. Empty array if the skill is single-file.
    */
   extraFiles: string[];
+  /**
+   * Text content of eligible sub-files (progressive-disclosure references),
+   * keyed by the same skill-dir-relative path used in `extraFiles`. Only
+   * populated for text extensions under the per-file/per-skill caps in
+   * `readSkillsDir` — files that exist but were skipped for size still show
+   * up in `extraFiles`, just not here. This is what makes reference content
+   * actually readable by the runtime agent (via docs-search); it is never
+   * injected into a prompt.
+   */
+  files: Record<string, string>;
 }
 
 export interface AgentsBundle {
-  /** Contents of the template's AGENTS.md (empty string if missing). */
+  /**
+   * Legacy alias for the runtime instruction file. Empty when an explicitly
+   * configured runtime file is missing.
+   */
   agentsMd: string;
+  /** Contents of the runtime agent's selected instruction file. */
+  runtimeAgentsMd: string;
+  /** Contents of the development agent's selected instruction file. */
+  developmentAgentsMd: string;
   /**
    * Contents of the workspace core's AGENTS.md, if the app is inside an
    * enterprise monorepo with a `workspaceCore` configured. Empty string
@@ -82,7 +100,27 @@ export interface AgentsBundle {
   skills: Record<string, Skill>;
 }
 
-const EMPTY: AgentsBundle = { agentsMd: "", workspaceAgentsMd: "", skills: {} };
+export interface AgentsBundleReadOptions {
+  instructions?: AgentNativeInstructionsConfig;
+  /** Additional skill roots supplied by a local host, such as installed plugins. */
+  additionalSkillDirs?: string[];
+}
+
+export interface AgentInstructionPaths {
+  runtime: string;
+  development: string;
+}
+
+const DEFAULT_AGENT_INSTRUCTIONS_PATH = "AGENTS.md";
+
+export function resolveAgentInstructionPaths(
+  instructions?: AgentNativeInstructionsConfig,
+): AgentInstructionPaths {
+  return {
+    runtime: instructions?.runtime ?? DEFAULT_AGENT_INSTRUCTIONS_PATH,
+    development: instructions?.development ?? DEFAULT_AGENT_INSTRUCTIONS_PATH,
+  };
+}
 
 let cached: AgentsBundle | null = null;
 
@@ -171,10 +209,29 @@ export function parseSkillFrontmatter(content: string): Partial<SkillMeta> {
 import fs from "node:fs";
 import path from "node:path";
 
+import type { AgentNativeInstructionsConfig } from "../config.js";
+
 const TEMPLATE_SKILLS_DIRS = [
   path.join(".agents", "skills"),
   path.join(".agent", "skills"),
 ] as const;
+
+/**
+ * Extensions eligible to have their content inlined into `Skill.files`.
+ * Binary/asset sub-files (images, scripts, etc.) are always listed in
+ * `extraFiles` but never read into memory.
+ */
+const READABLE_SUBFILE_EXTENSIONS = new Set([".md", ".txt", ".json"]);
+/**
+ * Per-file and per-skill caps on inlined reference content. This content is
+ * bundled into the virtual module (and therefore the server bundle) for
+ * every deployment target, so it must stay small even though it's never
+ * added to a prompt — only fetched on demand via docs-search. Measured
+ * against this repo's skills (largest single sub-file ~20KB, largest
+ * per-skill sub-file total ~83KB), these caps have generous headroom.
+ */
+const MAX_SUBFILE_BYTES = 64 * 1024;
+const MAX_SKILL_FILES_BYTES = 256 * 1024;
 
 /**
  * Paths to a workspace-core's agent resources, for merging into a template's
@@ -187,6 +244,27 @@ export interface WorkspaceAgentsSource {
   agentsMdPath: string | null;
   /** Root dir (used to compute `dir` paths for workspace-core skills). */
   rootDir: string;
+}
+
+function readInstructionFile(cwd: string, relativePath: string): string {
+  const normalizedPath = relativePath.replaceAll("\\", "/");
+  const root = fs.realpathSync(path.resolve(cwd));
+  const absolutePath = path.resolve(root, normalizedPath);
+  if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(
+      `Agent instruction path must stay inside the app root: ${relativePath}`,
+    );
+  }
+
+  if (!fs.existsSync(absolutePath)) return "";
+  const realPath = fs.realpathSync(absolutePath);
+  if (realPath !== root && !realPath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(
+      `Agent instruction path must stay inside the app root: ${relativePath}`,
+    );
+  }
+  if (!fs.statSync(realPath).isFile()) return "";
+  return fs.readFileSync(realPath, "utf-8");
 }
 
 /**
@@ -217,6 +295,8 @@ function readSkillsDir(
       if (skipExistingNames && out[name]) continue; // Template wins
 
       const extraFiles: string[] = [];
+      const files: Record<string, string> = {};
+      let skillFilesBytes = 0;
       try {
         const walk = (subdir: string, prefix: string) => {
           for (const e of fs.readdirSync(subdir, { withFileTypes: true })) {
@@ -229,6 +309,17 @@ function readSkillsDir(
               } catch {}
             } else if (e.isFile() && e.name !== "SKILL.md") {
               extraFiles.push(rel);
+              const ext = path.extname(e.name).toLowerCase();
+              if (!READABLE_SUBFILE_EXTENSIONS.has(ext)) continue;
+              try {
+                const stat = fs.statSync(abs);
+                if (stat.size > MAX_SUBFILE_BYTES) continue;
+                if (skillFilesBytes + stat.size > MAX_SKILL_FILES_BYTES) {
+                  continue;
+                }
+                files[rel] = fs.readFileSync(abs, "utf-8");
+                skillFilesBytes += stat.size;
+              } catch {}
             }
           }
         };
@@ -245,10 +336,34 @@ function readSkillsDir(
         content,
         dir: path.relative(rootForRelative, skillDirAbs).replace(/\\/g, "/"),
         extraFiles,
+        files,
       };
     } catch {
       // Skip unreadable skills
     }
+  }
+}
+
+function readNestedSkillsDir(
+  skillsDir: string,
+  rootForRelative: string,
+  out: Record<string, Skill>,
+): void {
+  if (!fs.existsSync(skillsDir)) return;
+  readSkillsDir(skillsDir, rootForRelative, out, true);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === "." || entry.name === "..") {
+      continue;
+    }
+    const nestedDir = path.join(skillsDir, entry.name);
+    if (fs.existsSync(path.join(nestedDir, "SKILL.md"))) continue;
+    readSkillsDir(nestedDir, rootForRelative, out, true);
   }
 }
 
@@ -263,14 +378,14 @@ function readSkillsDir(
 export function readAgentsBundleFromFs(
   cwd: string,
   workspaceSource: WorkspaceAgentsSource | null = null,
+  options: AgentsBundleReadOptions = {},
 ): AgentsBundle {
-  let agentsMd = "";
-  try {
-    const agentsMdPath = path.join(cwd, "AGENTS.md");
-    if (fs.existsSync(agentsMdPath)) {
-      agentsMd = fs.readFileSync(agentsMdPath, "utf-8");
-    }
-  } catch {}
+  const instructionPaths = resolveAgentInstructionPaths(options.instructions);
+  const runtimeAgentsMd = readInstructionFile(cwd, instructionPaths.runtime);
+  const developmentAgentsMd = readInstructionFile(
+    cwd,
+    instructionPaths.development,
+  );
 
   let workspaceAgentsMd = "";
   if (workspaceSource?.agentsMdPath) {
@@ -289,9 +404,9 @@ export function readAgentsBundleFromFs(
   // overwrite the template's. `.agents/skills` is canonical; `.agent/skills`
   // is accepted as a legacy alias and does not override canonical skills.
   const skills: Record<string, Skill> = {};
-  for (const [index, relSkillsDir] of TEMPLATE_SKILLS_DIRS.entries()) {
+  for (const relSkillsDir of TEMPLATE_SKILLS_DIRS) {
     try {
-      readSkillsDir(path.join(cwd, relSkillsDir), cwd, skills, index > 0);
+      readNestedSkillsDir(path.join(cwd, relSkillsDir), cwd, skills);
     } catch {}
   }
 
@@ -306,7 +421,27 @@ export function readAgentsBundleFromFs(
     } catch {}
   }
 
-  return { agentsMd, workspaceAgentsMd, skills };
+  for (const skillsDir of options.additionalSkillDirs ?? []) {
+    try {
+      readNestedSkillsDir(skillsDir, cwd, skills);
+    } catch (error) {
+      // Optional host-provided skills must not make the coding session fail.
+      console.warn(
+        "[agents-bundle] Failed to load optional host-provided skills",
+        { skillsDir, error },
+      );
+    }
+  }
+
+  return {
+    // Keep the old field useful for callers that only know about the runtime
+    // bundle. Audience-aware consumers should use the explicit fields.
+    agentsMd: runtimeAgentsMd,
+    runtimeAgentsMd,
+    developmentAgentsMd,
+    workspaceAgentsMd,
+    skills,
+  };
 }
 
 /**
@@ -337,28 +472,36 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
 
   // 2. Filesystem fallback — works in dev / Node prod. If a workspace core
   //    is present in the ancestor chain, merge its skills + AGENTS.md in.
+  let workspaceSource: WorkspaceAgentsSource | null = null;
   try {
-    let workspaceSource: WorkspaceAgentsSource | null = null;
-    try {
-      const { getWorkspaceCoreExports } =
-        await import("../deploy/workspace-core.js");
-      const ws = await getWorkspaceCoreExports(process.cwd());
-      if (ws) {
-        workspaceSource = {
-          skillsDir: ws.skillsDir,
-          agentsMdPath: ws.agentsMdPath,
-          rootDir: ws.packageDir,
-        };
-      }
-    } catch {
-      // workspace-core discovery isn't available (e.g. edge runtime).
+    const { getWorkspaceCoreExports } =
+      await import("../deploy/workspace-core.js");
+    const ws = await getWorkspaceCoreExports(process.cwd());
+    if (ws) {
+      workspaceSource = {
+        skillsDir: ws.skillsDir,
+        agentsMdPath: ws.agentsMdPath,
+        rootDir: ws.packageDir,
+      };
     }
-    cached = readAgentsBundleFromFs(process.cwd(), workspaceSource);
-    return cached;
+    // coercion-ok: workspace-core discovery is optional in edge runtimes.
   } catch {
-    cached = EMPTY;
-    return cached;
+    // workspace-core discovery isn't available (e.g. edge runtime).
   }
+  const { createAgentNativeConfigContext, loadResolvedAgentNativeConfig } =
+    await import("../vite/agent-native-config-loader.js");
+  const production = process.env.NODE_ENV === "production";
+  const config = await loadResolvedAgentNativeConfig(
+    process.cwd(),
+    createAgentNativeConfigContext(
+      production ? "build" : "serve",
+      production ? "production" : "development",
+    ),
+  );
+  cached = readAgentsBundleFromFs(process.cwd(), workspaceSource, {
+    instructions: config.instructions,
+  });
+  return cached;
 }
 
 /**
@@ -397,12 +540,34 @@ export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   );
 }
 
-function skillDocsSlug(name: string): string {
+export function skillDocsSlug(name: string): string {
   return `skill-${name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")}`;
+}
+
+function subfileSlugSuffix(relPath: string): string {
+  return relPath
+    .replace(/\.[^./]+$/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Slug docs-search resolves a skill sub-file (reference) content by. Kept in
+ * sync with the `skill-<name>--<subpath-slug>` docs it emits in
+ * `scripts/docs/search.ts` so the prompt hint always points at something the
+ * agent can actually read.
+ */
+export function skillSubfileDocsSlug(
+  skillName: string,
+  relPath: string,
+): string {
+  return `${skillDocsSlug(skillName)}--${subfileSlugSuffix(relPath)}`;
 }
 
 function generateSkillsPromptBlockForEntries(
@@ -412,10 +577,26 @@ function generateSkillsPromptBlockForEntries(
   if (entries.length === 0) return "";
 
   const lines = entries.map((s) => {
-    const extras =
-      s.extraFiles.length > 0
-        ? ` (also contains: ${s.extraFiles.join(", ")})`
-        : "";
+    let extras = "";
+    if (s.extraFiles.length > 0) {
+      if (mode === "runtime") {
+        const readable = s.extraFiles.filter((f) => f in s.files);
+        const unreadable = s.extraFiles.filter((f) => !(f in s.files));
+        const parts: string[] = [];
+        if (readable.length > 0) {
+          const refIds = readable.map((f) => subfileSlugSuffix(f)).join(", ");
+          parts.push(
+            `refs via docs-search --slug "${skillDocsSlug(s.meta.name)}--<ref>": ${refIds}`,
+          );
+        }
+        if (unreadable.length > 0) {
+          parts.push(`also contains: ${unreadable.join(", ")}`);
+        }
+        extras = ` (${parts.join("; ")})`;
+      } else {
+        extras = ` (also contains: ${s.extraFiles.join(", ")})`;
+      }
+    }
     const runtimeHint =
       mode === "runtime"
         ? ` Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`

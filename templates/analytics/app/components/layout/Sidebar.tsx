@@ -11,7 +11,6 @@ import {
   IconGripVertical,
   IconBook2,
   IconDatabase,
-  IconReportAnalytics,
   IconSearch,
   IconArchive,
   IconActivity,
@@ -20,7 +19,6 @@ import {
   IconLock,
   IconLink,
   IconMessageCircle,
-  IconHierarchy2,
   IconUsersGroup,
   IconEye,
   IconEyeOff,
@@ -46,6 +44,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import { getIdToken } from "@/lib/auth";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
@@ -62,7 +61,8 @@ type SidebarDashboard = {
   id: string;
   name: string;
   subviews?: DashboardSubview[];
-  source: "static" | "sql";
+  source: "static" | "sql" | "analysis";
+  resourceId?: string;
   visibility?: Visibility;
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
@@ -86,19 +86,20 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appApiPath, appPath } from "@agent-native/core/client/api-path";
+import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   callAction,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 
@@ -143,24 +144,19 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
-  analysisDetailPrefetchKey,
+  dashboardCacheScope,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
 
-import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { SidebarLoadError } from "./SidebarLoadError";
-
-type AnalysisHiddenFilter = "visible" | "hidden";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
 const ASK_OPEN_KEY = "analytics-sidebar-ask-open";
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
-const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
-const ANALYSES_OPEN_KEY = "analytics-sidebar-analyses-open";
 const SIDEBAR_COLLAPSE_KEY = "analytics.sidebar.collapsed";
 const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
@@ -187,11 +183,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
-  {
-    icon: IconHierarchy2,
-    labelKey: "settings.agentTitle",
-    href: "/agent",
-  },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -495,12 +486,28 @@ function SortableRow({
   const isFav = favoriteIds.has(favoriteKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
+    useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
   }, [isRenaming, name]);
+
+  useEffect(() => {
+    if (menuOpen || !openDeleteAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenDeleteAfterMenuClose(false);
+      setConfirmDeleteOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen, openDeleteAfterMenuClose]);
+
+  const requestDashboardDelete = useCallback(() => {
+    setOpenDeleteAfterMenuClose(true);
+    setMenuOpen(false);
+  }, []);
 
   const submitRename = useCallback(async () => {
     const trimmed = renameValue.trim();
@@ -784,8 +791,7 @@ function SortableRow({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
-                      setMenuOpen(false);
-                      setConfirmDeleteOpen(true);
+                      requestDashboardDelete();
                     }}
                     className="text-destructive focus:text-destructive"
                   >
@@ -797,8 +803,7 @@ function SortableRow({
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
-                    setMenuOpen(false);
-                    setConfirmDeleteOpen(true);
+                    requestDashboardDelete();
                   }}
                   className="text-destructive focus:text-destructive"
                 >
@@ -867,7 +872,10 @@ function SortableDashboardItem({
     visibility: Visibility,
   ) => Promise<void>;
 }) {
-  const href = `/dashboards/${d.id}`;
+  const resourceId = d.resourceId ?? d.id;
+  const href =
+    d.source === "analysis" ? `/analyses/${resourceId}` : `/dashboards/${d.id}`;
+  const favoriteKey = d.source === "analysis" ? `analysis:${resourceId}` : d.id;
   const t = useT();
   const { mutateAsync: deleteView } = useDeleteDashboardView();
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
@@ -908,7 +916,7 @@ function SortableDashboardItem({
   return (
     <SortableRow
       id={d.id}
-      favoriteKey={d.id}
+      favoriteKey={favoriteKey}
       name={d.name}
       href={href}
       isActive={isActive}
@@ -916,7 +924,9 @@ function SortableDashboardItem({
       onToggleFavorite={onToggleFavorite}
       onDelete={() => onDelete(d)}
       onRename={(name) => onRename(d, name)}
-      onArchive={onArchive ? () => onArchive(d) : undefined}
+      onArchive={
+        d.source === "analysis" || !onArchive ? undefined : () => onArchive(d)
+      }
       onPrefetch={() => onPrefetch?.(d)}
       visibility={d.visibility}
       onSetVisibility={
@@ -1068,33 +1078,6 @@ function SortableDashboardItem({
   );
 }
 
-// Analyses reuse SortableRow directly — no wrapper component needed.
-
-const ANALYSIS_ORDER_KEY = "analysis-order";
-
-function getAnalysisOrder(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(ANALYSIS_ORDER_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((x) => typeof x === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function setAnalysisOrder(order: string[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(ANALYSIS_ORDER_KEY, JSON.stringify(order));
-  } catch {
-    // localStorage unavailable / quota — ignore, order is best-effort
-  }
-}
-
 const STATIC_DASHBOARD_RENAMES_KEY = "dashboard-name-overrides";
 
 function getStaticDashboardRenames(): Record<string, string> {
@@ -1143,17 +1126,22 @@ async function fetchSqlDashboards(
 ): Promise<SqlDashboardListItem[]> {
   const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
   return (Array.isArray(rows) ? rows : [])
-    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .filter(
+      (d: any) =>
+        d &&
+        typeof d.id === "string" &&
+        d.id.length > 0 &&
+        (d.visibility === "private" ||
+          d.visibility === "org" ||
+          d.visibility === "public"),
+    )
     .map((d: any) => ({
       id: d.id,
       name:
         typeof d.name === "string" && d.name.trim().length > 0
           ? d.name
           : t("sidebar.untitledDashboard"),
-      visibility:
-        d.visibility === "org" || d.visibility === "public"
-          ? (d.visibility as Visibility)
-          : ("private" as Visibility),
+      visibility: d.visibility as Visibility,
       parentId:
         typeof d.parentId === "string" && d.parentId.trim().length > 0
           ? d.parentId
@@ -1161,10 +1149,7 @@ async function fetchSqlDashboards(
     }));
 }
 
-async function fetchSidebarAnalyses(
-  t: (key: string) => string,
-  hidden: AnalysisHiddenFilter = "visible",
-): Promise<
+async function fetchSidebarAnalyses(t: (key: string) => string): Promise<
   {
     id: string;
     name: string;
@@ -1172,13 +1157,7 @@ async function fetchSidebarAnalyses(
     hiddenAt: string | null;
   }[]
 > {
-  const rows = await callAction(
-    "list-analyses",
-    {
-      ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
-    } as Record<string, unknown>,
-    { method: "GET" },
-  );
+  const rows = await callAction("list-analyses", {}, { method: "GET" });
   return (Array.isArray(rows) ? rows : [])
     .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
     .map((a: any) => ({
@@ -1256,16 +1235,6 @@ async function fetchSqlDashboardForPrefetch(
   }
 }
 
-async function fetchAnalysisDetailForPrefetch(id: string): Promise<unknown> {
-  try {
-    const data = await callAction("get-analysis", { id }, { method: "GET" });
-    if (!data || (data as Record<string, unknown>).error) return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
 const ANALYTICS_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${ANALYTICS_CHAT_STORAGE_KEY}`;
 
 function formatThreadAge(updatedAt: number) {
@@ -1311,7 +1280,13 @@ function persistedAnalyticsThreadId() {
   }
 }
 
-function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
+function AnalyticsChatsSection({
+  isAskRoute,
+  open,
+}: {
+  isAskRoute: boolean;
+  open: boolean;
+}) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -1334,7 +1309,7 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
         .sort(compareThreads)
-        .slice(0, SIDEBAR_PREVIEW_COUNT),
+        .slice(0, 15),
     [threads],
   );
   const chatItems = useMemo<ChatHistoryItem[]>(
@@ -1413,31 +1388,43 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
   }
 
   return (
-    <div className="ms-4 min-w-0 space-y-0.5">
-      {chatsLoading &&
-        visibleThreads.length === 0 &&
-        Array.from({ length: 3 }).map((_, i) => (
-          <div
-            key={`chat-skeleton-${i}`}
-            className="flex items-center gap-2 px-3 py-1"
-          >
-            <Skeleton
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 rounded-sm",
-                SIDEBAR_SKELETON_CLASS,
-              )}
-            />
-            <Skeleton
-              className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
-              style={{ width: `${60 + ((i * 17) % 30)}%` }}
-            />
-          </div>
-        ))}
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4 min-w-0 space-y-0.5">
+        {chatsLoading &&
+          visibleThreads.length === 0 &&
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={`chat-skeleton-${i}`}
+              className="flex items-center gap-2 px-3 py-1"
+            >
+              <Skeleton
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 rounded-sm",
+                  SIDEBAR_SKELETON_CLASS,
+                )}
+              />
+              <Skeleton
+                className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
+                style={{ width: `${60 + ((i * 17) % 30)}%` }}
+              />
+            </div>
+          ))}
+        <ChatHistoryRail
           items={chatItems}
           activeId={displayedActiveThreadId}
           onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("sidebar.showMore", {
+              count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
+            }),
+            showLess: t("sidebar.showLess"),
+          }}
           renameMaxLength={160}
           onTogglePin={(threadId) => {
             const thread = visibleThreads.find((item) => item.id === threadId);
@@ -1455,18 +1442,9 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
             unpin: t("chat.unpinChat"),
             delete: t("chat.archiveChat"),
           }}
-          variant="rail"
           className="min-w-0"
         />
-      )}
-      <button
-        type="button"
-        onClick={() => void handleNewChat()}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary"
-      >
-        <IconPlus className="h-3 w-3" />
-        {t("chat.newChat")}
-      </button>
+      </div>
     </div>
   );
 }
@@ -1492,6 +1470,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
+  const { auth } = useAuth();
+  const dashboardScope = dashboardCacheScope(auth);
 
   const isAskRoute = location.pathname === "/ask";
   const activeDashboardId = useMemo(() => {
@@ -1513,30 +1493,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const [dashShowAll, setDashShowAll] = useState(false);
   const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
-  const [analysesOpen, setAnalysesOpen] = useState(
-    () =>
-      getStoredBooleanPreference(ANALYSES_OPEN_KEY) ??
-      activeAnalysisId !== null,
-  );
-  const [analysesShowAll, setAnalysesShowAll] = useState(false);
-  const [analysisFilter, setAnalysisFilter] =
-    useState<SidebarVisibilityFilter>("all");
-  const [analysisHiddenFilter, setAnalysisHiddenFilter] =
-    useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
-  const [analysisSortMode, setAnalysisSortModeState] =
-    useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
   const { data: popularity, isReady: popularityReady } = usePopularity();
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
       return;
     }
-    fetch(appApiPath("/api/theme"))
-      .then((r) => r.json())
+    callAction("get-theme", {}, { method: "GET" })
       .then((d) => {
-        if (d.theme === "light" || d.theme === "dark") {
+        if (d?.theme === "light" || d?.theme === "dark") {
           setTheme(d.theme);
         }
       })
@@ -1545,7 +1512,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const { mutateAsync: renameDashboard } =
     useActionMutation("rename-dashboard");
   const { mutateAsync: renameAnalysis } = useActionMutation("rename-analysis");
-  const { mutateAsync: hideAnalysisMut } = useActionMutation("hide-analysis");
   const { mutateAsync: setResourceVisibility } = useActionMutation(
     "set-resource-visibility",
   );
@@ -1583,14 +1549,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [dashboardOrderState, setDashboardOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getDashboardOrder(),
   );
-  const [analysisOrderState, setAnalysisOrderState] = useState(() =>
-    typeof window === "undefined" ? [] : getAnalysisOrder(),
-  );
-
   // Server-backed favorites
   const {
     data: favoritesData,
     isLoading: favoritesLoading,
+    isError: favoritesError,
+    isSuccess: favoritesLoaded,
     save: saveFavorites,
   } = useUserPref<{
     ids: string[];
@@ -1601,6 +1565,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const toggleFavorite = useCallback(
     (id: string) => {
+      if (favoritesError || !favoritesLoaded) {
+        toast.error(t("sidebar.favoritesUnavailable"));
+        return;
+      }
       const next = new Set(favoriteIds);
       if (next.has(id)) {
         next.delete(id);
@@ -1609,17 +1577,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
       saveFavorites({ ids: Array.from(next) });
     },
-    [favoriteIds, saveFavorites],
+    [favoriteIds, favoritesError, favoritesLoaded, saveFavorites],
   );
 
   const setDashboardSortMode = useCallback((mode: SidebarSortMode) => {
     setStoredSortMode(DASHBOARD_SORT_MODE_KEY, mode);
     setDashboardSortModeState(mode);
-  }, []);
-
-  const setAnalysisSortMode = useCallback((mode: SidebarSortMode) => {
-    setStoredSortMode(ANALYSIS_SORT_MODE_KEY, mode);
-    setAnalysisSortModeState(mode);
   }, []);
 
   useEffect(() => {
@@ -1633,12 +1596,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       setDashOpen(activeDashboardId !== null);
     }
   }, [activeDashboardId]);
-
-  useEffect(() => {
-    if (getStoredBooleanPreference(ANALYSES_OPEN_KEY) === null) {
-      setAnalysesOpen(activeAnalysisId !== null);
-    }
-  }, [activeAnalysisId]);
 
   const toggleAskOpen = useCallback(() => {
     setAskOpen((current) => {
@@ -1656,14 +1613,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     });
   }, []);
 
-  const toggleAnalysesOpen = useCallback(() => {
-    setAnalysesOpen((current) => {
-      const next = !current;
-      setStoredBoolean(ANALYSES_OPEN_KEY, next);
-      return next;
-    });
-  }, []);
-
   // Fold per-source counters into sidebar list query keys so agent-driven
   // create/rename/archive/delete shows up without a manual refresh. We
   // Domain counters keep these lists targeted. Folding the generic `action`
@@ -1674,9 +1623,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const analysesSync = useSettledSyncVersion(useChangeVersions(["analyses"]));
   const dashboardsSyncRef = useRef(dashboardsSync);
-  const analysesSyncRef = useRef(analysesSync);
   dashboardsSyncRef.current = dashboardsSync;
-  analysesSyncRef.current = analysesSync;
 
   const {
     data: sqlDashboards = [],
@@ -1685,10 +1632,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     isError: sqlDashboardsError,
     refetch: refetchSqlDashboards,
   } = useQuery({
-    queryKey: ["sql-dashboards-sidebar", dashboardsSync],
+    queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
   });
 
   const {
@@ -1697,51 +1643,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     isError: analysesError,
     refetch: refetchAnalyses,
   } = useQuery({
-    queryKey: ["analyses-sidebar", analysesSync, analysisHiddenFilter],
-    queryFn: () => fetchSidebarAnalyses(t, analysisHiddenFilter),
+    queryKey: ["analyses-sidebar", analysesSync],
+    queryFn: () => fetchSidebarAnalyses(t),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
-
-  const sortedAnalyses = useMemo(() => {
-    if (analysisSortMode === "alphabetical") {
-      return sortByName(analysesList);
-    }
-    if (analysisSortMode === "manual" && analysisOrderState.length > 0) {
-      return applyOrder(analysesList, analysisOrderState);
-    }
-    return [...analysesList].sort((a, b) => {
-      const aFav = favoriteIds.has(`analysis:${a.id}`) ? 0 : 1;
-      const bFav = favoriteIds.has(`analysis:${b.id}`) ? 0 : 1;
-      if (aFav !== bFav) return aFav - bFav;
-      const aPop = popularityOf(popularity, "analysis", a.id);
-      const bPop = popularityOf(popularity, "analysis", b.id);
-      if (aPop !== bPop) return bPop - aPop;
-      return a.name.localeCompare(b.name);
-    });
-  }, [
-    analysesList,
-    analysisSortMode,
-    analysisOrderState,
-    popularity,
-    favoriteIds,
-  ]);
-
-  const filteredAnalyses = useMemo(
-    () =>
-      sortedAnalyses.filter((analysis) =>
-        matchesVisibilityFilter(analysis, analysisFilter),
-      ),
-    [sortedAnalyses, analysisFilter],
-  );
-
-  const displayedAnalyses = useMemo(
-    () =>
-      analysesShowAll
-        ? filteredAnalyses
-        : filteredAnalyses.slice(0, SIDEBAR_PREVIEW_COUNT),
-    [filteredAnalyses, analysesShowAll],
-  );
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
@@ -1757,7 +1663,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const prefetchDashboard = useCallback(
     (d: SidebarDashboard) => {
       if (d.source !== "sql") return;
-      const queryKey = sqlDashboardPrefetchKey(d.id);
+      const queryKey = sqlDashboardPrefetchKey(d.id, dashboardScope);
       const cached =
         queryClient.getQueryData<
           PrefetchSnapshot<PrefetchedSqlDashboard | null>
@@ -1772,25 +1678,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         staleTime: cached?.syncVersion === dashboardsSync ? 30_000 : 0,
       });
     },
-    [dashboardsSync, queryClient, t],
-  );
-
-  const prefetchAnalysis = useCallback(
-    (id: string) => {
-      const queryKey = analysisDetailPrefetchKey(id);
-      const cached =
-        queryClient.getQueryData<PrefetchSnapshot<unknown | null>>(queryKey);
-      void import("@/pages/analyses/AnalysisDetail");
-      void queryClient.prefetchQuery({
-        queryKey,
-        queryFn: async () => ({
-          data: await fetchAnalysisDetailForPrefetch(id),
-          syncVersion: analysesSync,
-        }),
-        staleTime: cached?.syncVersion === analysesSync ? 30_000 : 0,
-      });
-    },
-    [analysesSync, queryClient],
+    [dashboardScope, dashboardsSync, queryClient, t],
   );
 
   const visibleDashboards = useMemo<SidebarDashboard[]>(() => {
@@ -1809,7 +1697,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       visibility: d.visibility,
       parentId: d.parentId,
     }));
-    const all = [...staticItems, ...sqlItems];
+    const analysisItems: SidebarDashboard[] = analysesList.map((a) => ({
+      id: `analysis:${a.id}`,
+      resourceId: a.id,
+      name: a.name,
+      source: "analysis",
+      visibility: a.visibility,
+    }));
+    const all = [...staticItems, ...sqlItems, ...analysisItems];
     if (dashboardSortMode === "alphabetical") {
       return sortByName(all);
     }
@@ -1817,11 +1712,25 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       return applyOrder(all, dashboardOrderState);
     }
     return [...all].sort((a, b) => {
-      const aFav = favoriteIds.has(a.id) ? 0 : 1;
-      const bFav = favoriteIds.has(b.id) ? 0 : 1;
+      const aResourceId = a.resourceId ?? a.id;
+      const bResourceId = b.resourceId ?? b.id;
+      const aFavoriteKey =
+        a.source === "analysis" ? `analysis:${aResourceId}` : a.id;
+      const bFavoriteKey =
+        b.source === "analysis" ? `analysis:${bResourceId}` : b.id;
+      const aFav = favoriteIds.has(aFavoriteKey) ? 0 : 1;
+      const bFav = favoriteIds.has(bFavoriteKey) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
-      const aPop = popularityOf(popularity, "dashboard", a.id);
-      const bPop = popularityOf(popularity, "dashboard", b.id);
+      const aPop = popularityOf(
+        popularity,
+        a.source === "analysis" ? "analysis" : "dashboard",
+        aResourceId,
+      );
+      const bPop = popularityOf(
+        popularity,
+        b.source === "analysis" ? "analysis" : "dashboard",
+        bResourceId,
+      );
       if (aPop !== bPop) return bPop - aPop;
       return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
     });
@@ -1832,6 +1741,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     dashboardSortMode,
     dashboardOrderState,
     sqlDashboards,
+    analysesList,
     popularity,
   ]);
 
@@ -1908,6 +1818,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const handleDashboardDelete = useCallback(
     async (d: SidebarDashboard) => {
+      if (d.source === "analysis") {
+        await deleteAnalysisMut({ id: d.resourceId ?? d.id });
+        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        return;
+      }
       if (d.source === "static") {
         hideDashboard(d.id);
         setHiddenIds(getHiddenDashboards());
@@ -1916,7 +1832,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       // Optimistic: remove from the sidebar query cache immediately so the row
       // disappears without waiting for the DELETE round-trip. Snapshot the
       // prior value so we can roll back on failure.
-      const activeKey = ["sql-dashboards-sidebar"] as const;
+      const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
@@ -1927,18 +1843,21 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await deleteSqlDashboard({ id: d.id });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey: activeKey });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
         throw err;
       }
     },
-    [queryClient, deleteSqlDashboard],
+    [dashboardScope, deleteAnalysisMut, deleteSqlDashboard, queryClient],
   );
 
   const handleDashboardArchive = useCallback(
     async (d: SidebarDashboard) => {
+      if (d.source === "analysis") return;
       if (d.source === "static") {
         // Static dashboards can only be hidden, not archived; route to delete
         // (which calls hideDashboard for static items).
@@ -1946,7 +1865,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         setHiddenIds(getHiddenDashboards());
         return;
       }
-      const activeKey = ["sql-dashboards-sidebar"] as const;
+      const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
@@ -1957,7 +1876,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await archiveDashboardMut({ id: d.id, archived: true });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey: activeKey });
         toast.success(t("sidebar.archivedName", { name: d.name }));
       } catch (err) {
@@ -1965,13 +1886,23 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient, archiveDashboardMut, t],
+    [dashboardScope, queryClient, archiveDashboardMut, t],
   );
 
   const handleDashboardRename = useCallback(
     async (d: SidebarDashboard, name: string) => {
       const trimmed = name.trim();
       if (!trimmed || trimmed === d.name) return;
+
+      if (d.source === "analysis") {
+        await renameAnalysis({ id: d.resourceId ?? d.id, name: trimmed });
+        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        queryClient.invalidateQueries({
+          queryKey: ["analysis-detail", d.resourceId ?? d.id],
+        });
+        return;
+      }
 
       if (d.source === "static") {
         setStaticDashboardRenamesState((prev) => {
@@ -1982,7 +1913,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return;
       }
 
-      const queryKey = ["sql-dashboards-sidebar"] as const;
+      const queryKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         queryKey,
@@ -1994,50 +1925,42 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await renameDashboard({ id: d.id, name: trimmed });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey });
         queryClient.invalidateQueries({
-          queryKey: ["sql-dashboards-palette"],
+          queryKey: ["sql-dashboards-palette", dashboardScope],
         });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
-    [queryClient, renameDashboard],
-  );
-
-  const handleAnalysisDelete = useCallback(
-    async (a: { id: string; name: string }) => {
-      const queryKey = ["analyses-sidebar"] as const;
-      const prev = getQuerySnapshots<{ id: string; name: string }[]>(
-        queryClient,
-        queryKey,
-      );
-      queryClient.setQueriesData<{ id: string; name: string }[]>(
-        { queryKey },
-        (old) => (old ?? []).filter((item) => item.id !== a.id),
-      );
-      try {
-        await deleteAnalysisMut({ id: a.id });
-        queryClient.removeQueries({
-          queryKey: analysisDetailPrefetchKey(a.id),
-        });
-        queryClient.invalidateQueries({ queryKey });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-      } catch (err) {
-        restoreQuerySnapshots(queryClient, prev);
-        throw err;
-      }
-    },
-    [queryClient, deleteAnalysisMut],
+    [dashboardScope, queryClient, renameAnalysis, renameDashboard],
   );
 
   const handleDashboardSetVisibility = useCallback(
     async (d: SidebarDashboard, visibility: Visibility) => {
       if (d.source === "static") return;
+      if (d.source === "analysis") {
+        await setResourceVisibility({
+          resourceType: "analysis",
+          resourceId: d.resourceId ?? d.id,
+          visibility,
+        } as any);
+        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        toast.success(
+          visibility === "org"
+            ? t("sidebar.nameSharedWithOrg", { name: d.name })
+            : t("sidebar.nameMadePrivate", { name: d.name }),
+        );
+        return;
+      }
       const queryKey = [
         "sql-dashboards-sidebar",
+        dashboardScope,
         dashboardsSyncRef.current,
       ] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
@@ -2066,144 +1989,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient, setResourceVisibility, t],
-  );
-
-  const handleAnalysisSetVisibility = useCallback(
-    async (a: { id: string; name: string }, visibility: Visibility) => {
-      const sidebarKey = ["analyses-sidebar", analysesSyncRef.current] as const;
-      const listKey = ["analyses-list"] as const;
-      const prevSidebar = getQuerySnapshots<
-        { id: string; name: string; visibility?: Visibility }[]
-      >(queryClient, sidebarKey);
-      const prevList = getQuerySnapshots<any[]>(queryClient, listKey);
-      queryClient.setQueriesData<
-        { id: string; name: string; visibility?: Visibility }[]
-      >({ queryKey: sidebarKey }, (old) =>
-        (old ?? []).map((item) =>
-          item.id === a.id ? { ...item, visibility } : item,
-        ),
-      );
-      queryClient.setQueriesData<any[]>({ queryKey: listKey }, (old) =>
-        (old ?? []).map((item) =>
-          item.id === a.id ? { ...item, visibility } : item,
-        ),
-      );
-      try {
-        await setResourceVisibility({
-          resourceType: "analysis",
-          resourceId: a.id,
-          visibility,
-        } as any);
-        queryClient.invalidateQueries({ queryKey: sidebarKey });
-        queryClient.invalidateQueries({ queryKey: listKey });
-        toast.success(
-          visibility === "org"
-            ? t("sidebar.nameSharedWithOrg", { name: a.name })
-            : t("sidebar.nameMadePrivate", { name: a.name }),
-        );
-      } catch (err) {
-        restoreQuerySnapshots(queryClient, prevSidebar);
-        restoreQuerySnapshots(queryClient, prevList);
-        throw err;
-      }
-    },
-    [queryClient, setResourceVisibility, t],
-  );
-
-  const handleAnalysisRename = useCallback(
-    async (a: { id: string; name: string }, name: string) => {
-      const trimmed = name.trim();
-      if (!trimmed || trimmed === a.name) return;
-
-      const sidebarKey = ["analyses-sidebar"] as const;
-      const listKey = ["analyses-list"] as const;
-      const detailKey = ["analysis-detail", a.id] as const;
-      const prevSidebar = getQuerySnapshots<{ id: string; name: string }[]>(
-        queryClient,
-        sidebarKey,
-      );
-      const prevList = getQuerySnapshots<any[]>(queryClient, listKey);
-      const prevDetail = getQuerySnapshots<any>(queryClient, detailKey);
-
-      queryClient.setQueriesData<{ id: string; name: string }[]>(
-        { queryKey: sidebarKey },
-        (old) =>
-          (old ?? []).map((item) =>
-            item.id === a.id ? { ...item, name: trimmed } : item,
-          ),
-      );
-      queryClient.setQueriesData<any[]>({ queryKey: listKey }, (old) =>
-        (old ?? []).map((item) =>
-          item.id === a.id ? { ...item, name: trimmed } : item,
-        ),
-      );
-      queryClient.setQueriesData<any>({ queryKey: detailKey }, (old: any) =>
-        old ? { ...old, name: trimmed } : old,
-      );
-
-      try {
-        await renameAnalysis({ id: a.id, name: trimmed });
-        queryClient.removeQueries({
-          queryKey: analysisDetailPrefetchKey(a.id),
-        });
-        queryClient.invalidateQueries({ queryKey: sidebarKey });
-        queryClient.invalidateQueries({ queryKey: listKey });
-        queryClient.invalidateQueries({ queryKey: detailKey });
-      } catch (err) {
-        restoreQuerySnapshots(queryClient, prevSidebar);
-        restoreQuerySnapshots(queryClient, prevList);
-        restoreQuerySnapshots(queryClient, prevDetail);
-        throw err;
-      }
-    },
-    [queryClient, renameAnalysis],
-  );
-
-  const handleAnalysisHide = useCallback(
-    async (a: { id: string; name: string }) => {
-      const sidebarKey = ["analyses-sidebar"] as const;
-      const prev = getQuerySnapshots<{ id: string }[]>(queryClient, sidebarKey);
-      // Optimistically drop it from the visible list (the hidden-filter
-      // variant is invalidated below to pick it up).
-      queryClient.setQueriesData<{ id: string }[]>(
-        { queryKey: sidebarKey },
-        (old) => (old ?? []).filter((item) => item.id !== a.id),
-      );
-      try {
-        await hideAnalysisMut({ id: a.id, hidden: true });
-        queryClient.invalidateQueries({ queryKey: sidebarKey });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-        toast.success(t("sidebar.nameHidden", { name: a.name }));
-      } catch (err) {
-        restoreQuerySnapshots(queryClient, prev);
-        throw err;
-      }
-    },
-    [queryClient, hideAnalysisMut, t],
-  );
-
-  const handleAnalysisUnhide = useCallback(
-    async (a: { id: string; name: string }) => {
-      const sidebarKey = ["analyses-sidebar"] as const;
-      const prev = getQuerySnapshots<{ id: string }[]>(queryClient, sidebarKey);
-      // Optimistically drop it from the hidden list (the visible variant is
-      // invalidated below to pick it up).
-      queryClient.setQueriesData<{ id: string }[]>(
-        { queryKey: sidebarKey },
-        (old) => (old ?? []).filter((item) => item.id !== a.id),
-      );
-      try {
-        await hideAnalysisMut({ id: a.id, hidden: false });
-        queryClient.invalidateQueries({ queryKey: sidebarKey });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-        toast.success(t("sidebar.nameUnhidden", { name: a.name }));
-      } catch (err) {
-        restoreQuerySnapshots(queryClient, prev);
-        throw err;
-      }
-    },
-    [queryClient, hideAnalysisMut, t],
+    [dashboardScope, queryClient, setResourceVisibility, t],
   );
 
   const sensors = useSensors(
@@ -2227,24 +2013,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       setDashboardOrderState(newOrder);
     },
     [setDashboardSortMode, dashboardRenderOrderIds],
-  );
-
-  const handleAnalysisDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      setAnalysisSortMode("manual");
-      setAnalysisOrderState((prev) => {
-        const ids = prev.length > 0 ? prev : sortedAnalyses.map((a) => a.id);
-        const oldIndex = ids.indexOf(active.id as string);
-        const newIndex = ids.indexOf(over.id as string);
-        if (oldIndex === -1 || newIndex === -1) return prev;
-        const newOrder = arrayMove(ids, oldIndex, newIndex);
-        setAnalysisOrder(newOrder);
-        return newOrder;
-      });
-    },
-    [setAnalysisSortMode, sortedAnalyses],
   );
 
   const handleResizeStart = useCallback(
@@ -2286,7 +2054,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const isAdhocActive =
     location.pathname.startsWith("/adhoc") ||
-    location.pathname.startsWith("/dashboards");
+    location.pathname.startsWith("/dashboards") ||
+    location.pathname.startsWith("/analyses");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2326,12 +2095,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: isAdhocActive,
     },
     {
-      icon: IconReportAnalytics,
-      label: t("navigation.analyses"),
-      href: "/analyses",
-      active: location.pathname.startsWith("/analyses"),
-    },
-    {
       icon: IconPlayerPlay,
       label: t("navigation.sessions"),
       href: "/sessions",
@@ -2362,18 +2125,66 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname.startsWith("/data-dictionary"),
     },
     {
-      icon: IconHierarchy2,
-      label: t("settings.agentTitle"),
-      href: "/agent",
-      active: location.pathname === "/agent",
-    },
-    {
       icon: IconSettings,
       label: t("navigation.settings"),
       href: "/settings",
       active: location.pathname === "/settings",
     },
   ];
+
+  const footerSearch = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("sidebar.search")}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {t("sidebar.searchShortcut", {
+          shortcut: `${shortcutModifierLabel()}+K`,
+        })}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const footerCollapse = !mobile ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setSidebarCollapsed(!effectiveCollapsed)}
+          aria-label={
+            effectiveCollapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          {effectiveCollapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {effectiveCollapsed
+          ? t("sidebar.expandSidebar")
+          : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const footerFeedback = (
+    <FeedbackButton
+      variant={effectiveCollapsed ? "icon" : "sidebar"}
+      side="right"
+      className={effectiveCollapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
 
   return (
     <div
@@ -2390,24 +2201,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <div className="flex h-12 shrink-0 items-center justify-center border-b border-border px-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setSidebarCollapsed(false)}
-                  aria-label={t("sidebar.expandSidebar")}
-                  className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-                >
-                  <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("sidebar.expandSidebar")}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-
           <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
@@ -2433,6 +2226,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               );
             })}
           </nav>
+          <SidebarFooterActions
+            collapsed
+            feedback={footerFeedback}
+            search={footerSearch}
+            collapse={footerCollapse}
+          />
         </>
       ) : (
         <>
@@ -2445,35 +2244,22 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 src={appPath("/agent-native-icon-light.svg")}
                 alt=""
                 aria-hidden="true"
-                className="block h-5 w-auto shrink-0 dark:hidden"
+                width={35}
+                height={20}
+                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
               />
               <img
                 src={appPath("/agent-native-icon-dark.svg")}
                 alt=""
                 aria-hidden="true"
-                className="hidden h-5 w-auto shrink-0 dark:block"
+                width={35}
+                height={20}
+                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
               />
               <span className="text-lg font-bold tracking-tight">
                 {t("navigation.brand")}
               </span>
             </Link>
-            {!mobile && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarCollapsed(true)}
-                    aria-label={t("sidebar.collapseSidebar")}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-                  >
-                    <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {t("sidebar.collapseSidebar")}
-                </TooltipContent>
-              </Tooltip>
-            )}
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
@@ -2527,7 +2313,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && <AnalyticsChatsSection isAskRoute={isAskRoute} />}
+                <AnalyticsChatsSection
+                  isAskRoute={isAskRoute}
+                  open={askOpen && isAskRoute}
+                />
               </div>
 
               {/* Sessions link */}
@@ -2668,7 +2457,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               <Fragment key={d.id}>
                                 <SortableDashboardItem
                                   d={d}
-                                  isActive={activeDashboardId === d.id}
+                                  isActive={
+                                    d.source === "analysis"
+                                      ? activeAnalysisId === d.resourceId
+                                      : activeDashboardId === d.id
+                                  }
                                   location={location}
                                   favoriteIds={favoriteIds}
                                   onToggleFavorite={toggleFavorite}
@@ -2686,7 +2479,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                                         key={child.id}
                                         d={child}
                                         isActive={
-                                          activeDashboardId === child.id
+                                          child.source === "analysis"
+                                            ? activeAnalysisId ===
+                                              child.resourceId
+                                            : activeDashboardId === child.id
                                         }
                                         location={location}
                                         favoriteIds={favoriteIds}
@@ -2749,156 +2545,30 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                             onRetry={() => void refetchSqlDashboards()}
                           />
                         )}
-                        <NewDashboardDialog />
-                      </div>
-                    </SortableContext>
-                  </DndContext>
-                )}
-              </div>
-
-              {/* Analyses section */}
-              <div className="order-3 group/section min-w-0 space-y-1">
-                <div
-                  className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
-                    location.pathname.startsWith("/analyses")
-                      ? "text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={toggleAnalysesOpen}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
-                    aria-expanded={analysesOpen}
-                  >
-                    <IconReportAnalytics className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
-                      {t("navigation.analyses")}
-                    </span>
-                  </button>
-                  <SidebarSectionSettingsPopover
-                    label={t("navigation.analyses")}
-                    sortMode={analysisSortMode}
-                    onSortModeChange={setAnalysisSortMode}
-                    visibilityFilter={analysisFilter}
-                    onVisibilityFilterChange={setAnalysisFilter}
-                    showHidden={analysisHiddenFilter === "hidden"}
-                    onShowHiddenChange={(checked) =>
-                      setAnalysisHiddenFilter(checked ? "hidden" : "visible")
-                    }
-                  />
-                  <button
-                    type="button"
-                    onClick={toggleAnalysesOpen}
-                    className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
-                    aria-label={
-                      analysesOpen
-                        ? t("sidebar.collapseAnalyses")
-                        : t("sidebar.expandAnalyses")
-                    }
-                  >
-                    <IconChevronDown
-                      className={cn(
-                        "h-3.5 w-3.5 shrink-0 transition-transform",
-                        !analysesOpen && "-rotate-90",
-                      )}
-                    />
-                  </button>
-                </div>
-
-                {analysesOpen && (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleAnalysisDragEnd}
-                  >
-                    <SortableContext
-                      items={displayedAnalyses.map((a) => a.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      <div className="ms-4 min-w-0 space-y-0.5">
-                        {displayedAnalyses.map((a) => (
-                          <SortableRow
-                            key={a.id}
-                            id={a.id}
-                            favoriteKey={`analysis:${a.id}`}
-                            name={a.name}
-                            href={`/analyses/${a.id}`}
-                            isActive={location.pathname === `/analyses/${a.id}`}
-                            favoriteIds={favoriteIds}
-                            onToggleFavorite={toggleFavorite}
-                            onDelete={() => handleAnalysisDelete(a)}
-                            onRename={(name) => handleAnalysisRename(a, name)}
-                            hidden={analysisHiddenFilter === "hidden"}
-                            onHide={
-                              analysisHiddenFilter === "hidden"
-                                ? undefined
-                                : () => handleAnalysisHide(a)
-                            }
-                            onUnhide={
-                              analysisHiddenFilter === "hidden"
-                                ? () => handleAnalysisUnhide(a)
-                                : undefined
-                            }
-                            visibility={a.visibility}
-                            onSetVisibility={(v) =>
-                              handleAnalysisSetVisibility(a, v)
-                            }
-                            onPrefetch={() => prefetchAnalysis(a.id)}
-                          />
-                        ))}
-                        {filteredAnalyses.length > SIDEBAR_PREVIEW_COUNT && (
-                          <button
-                            onClick={() => setAnalysesShowAll(!analysesShowAll)}
-                            className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                          >
-                            {analysesShowAll
-                              ? t("sidebar.showLess")
-                              : t("sidebar.showMore", {
-                                  count:
-                                    filteredAnalyses.length -
-                                    SIDEBAR_PREVIEW_COUNT,
-                                })}
-                          </button>
+                        {analysesLoading && analysesList.length === 0 && (
+                          <div className="flex items-center gap-2 px-3 py-1">
+                            <Skeleton
+                              className={cn(
+                                "h-3.5 w-3.5 shrink-0 rounded-sm",
+                                SIDEBAR_SKELETON_CLASS,
+                              )}
+                            />
+                            <Skeleton
+                              className={cn(
+                                "h-3 w-3/4 rounded",
+                                SIDEBAR_SKELETON_CLASS,
+                              )}
+                            />
+                          </div>
                         )}
-                        {analysesLoading &&
-                          sortedAnalyses.length === 0 &&
-                          Array.from({ length: 3 }).map((_, i) => (
-                            <div
-                              key={`analysis-skeleton-${i}`}
-                              className="flex items-center gap-2 px-3 py-1"
-                            >
-                              <Skeleton
-                                className={cn(
-                                  "h-3.5 w-3.5 shrink-0 rounded-sm",
-                                  SIDEBAR_SKELETON_CLASS,
-                                )}
-                              />
-                              <Skeleton
-                                className={cn(
-                                  "h-3 rounded",
-                                  SIDEBAR_SKELETON_CLASS,
-                                )}
-                                style={{ width: `${60 + ((i * 17) % 30)}%` }}
-                              />
-                            </div>
-                          ))}
-                        {analysesError && sortedAnalyses.length === 0 && (
+                        {analysesError && analysesList.length === 0 && (
                           <SidebarLoadError
                             message={t("sidebar.analysesLoadFailed")}
                             retryLabel={t("sidebar.retry")}
                             onRetry={() => void refetchAnalyses()}
                           />
                         )}
-                        {!analysesLoading &&
-                          !analysesError &&
-                          sortedAnalyses.length === 0 && (
-                            <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
-                              {t("sidebar.noAnalysesYet")}
-                            </p>
-                          )}
-                        <NewAnalysisDialog />
+                        <NewDashboardDialog />
                       </div>
                     </SortableContext>
                   </DndContext>
@@ -2923,54 +2593,22 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       )}
                     >
                       <Icon className="h-4 w-4" />
-                      {t(item.labelKey)}
+                      <span className="truncate">{t(item.labelKey)}</span>
                     </Link>
                   );
                 })}
               </nav>
 
-              <div className="min-w-0">
-                <ExtensionsSidebarSection />
-              </div>
-
               <div className="space-y-2 pt-2">
                 <OrgSwitcher />
+                <DevDatabaseLink />
                 <TooltipProvider delayDuration={200}>
-                  <div className="flex items-center gap-1">
-                    <DevDatabaseLink />
-                    <FeedbackButton className="min-w-0 flex-1" />
-                    <div className="flex shrink-0 items-center gap-0.5">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() =>
-                              window.dispatchEvent(
-                                new CustomEvent(
-                                  "analytics:open-command-palette",
-                                ),
-                              )
-                            }
-                            aria-label={t("sidebar.search")}
-                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-colors hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                          >
-                            <IconSearch className="h-4 w-4" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>
-                            {t("sidebar.searchShortcut", {
-                              shortcut: `${shortcutModifierLabel()}+K`,
-                            })}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                      <LanguagePicker
-                        variant="icon"
-                        label={t("settings.languageLabel")}
-                        className="[&_[data-language-picker-trigger]]:rounded-lg [&_[data-language-picker-trigger]]:border-0 [&_[data-language-picker-trigger]]:bg-transparent [&_[data-language-picker-trigger]]:text-muted-foreground [&_[data-language-picker-trigger]]:hover:bg-sidebar-accent/50 [&_[data-language-picker-trigger]]:hover:text-primary"
-                      />
-                    </div>
-                  </div>
+                  <SidebarFooterActions
+                    feedback={footerFeedback}
+                    search={footerSearch}
+                    collapse={footerCollapse}
+                    className="px-0 py-0"
+                  />
                 </TooltipProvider>
               </div>
             </div>

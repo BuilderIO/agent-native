@@ -5,9 +5,9 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
 
 # 자동화
 
-**자동화**는 규칙입니다: _X가 발생하면 Y를 수행_ - 자연어로 설명됩니다. 에이전트는 지침을 실행하므로 자동화는 에이전트가 대화형 채팅에서 사용할 수 있는 모든 작업, 도구 및 MCP 서버에 액세스할 수 있습니다.
+**자동화**는 일정에 따라 또는 이벤트가 발생할 때 에이전트가 실행하는 작업입니다: _X가 발생하면 Y를 수행_. **Scheduled**와 **Event**는 두 가지 트리거 유형이며 별도 제품이 아닙니다.
 
-자동화는 **이벤트 트리거**, **자연어 조건** 및 `web-request` 도구를 통한 **아웃바운드 HTTP**로 [recurring jobs](/docs/recurring-jobs)를 확장합니다. 반복 작업과 동일한 `jobs/<name>.md` 파일 형식, 저장소 및 "세 가지 방법 만들기" 워크플로를 사용합니다. 공유 형식은 [Recurring Jobs](/docs/recurring-jobs#job-file)를 참조하세요. 이 페이지에서는 이벤트 중심 자동화의 새로운 기능만 다룹니다.
+프레임워크는 원래 예약 자동화를 **Recurring Jobs**로 제공했습니다. 이 이름과 `jobs/<name>.md` 경로, `manage-jobs` 도구는 호환성을 위해 유지됩니다. 새 가이드에서는 **Automations**를 포괄적인 이름으로 사용합니다. 기존 예약 작업, 조직 범위 또는 고급 필드는 [Recurring Jobs](/docs/recurring-jobs)를 참조하세요.
 
 <Diagram id="doc-block-5aye3j" title={"X가 발생하면 Y를 수행하세요."} summary={"버스에서 이벤트가 발생하고 선택적 자연어 조건이 이를 게이트하며 에이전트는 전체 도구 액세스 권한으로 자동화 본체를 실행합니다."}>
 
@@ -72,9 +72,15 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
 
 에이전트는 사용 가능한 이벤트를 검색하고 계획을 확인하며 자동화를 작성합니다.
 
-### UI 설정에서
+### Automations UI에서
 
-설정 패널에 자동화가 나타납니다. 사용자는 여기에서 이를 확인, 활성화/비활성화 및 삭제할 수 있습니다.
+전체 Agent 페이지에서 **Automations**를 열어 예약 및 이벤트 트리거 자동화를 확인하고 관리합니다. 호환성 URL은 계속 `/agent#jobs`이므로 기존 링크와 북마크가 작동합니다.
+
+<Callout tone="warning">
+
+`manage-automations`는 Scheduled 및 Event 트리거의 개인·조직 자동화를 지원합니다. 조직 Event 자동화는 구성원에게 표시되지만 항상 생성자 권한으로 실행되며, 관리자는 그 실행 ID를 변경하지 않고 관리할 수 있습니다.
+
+</Callout>
 
 세 번째 경로(`resourcePut`를 통해 직접 `jobs/<name>.md` 파일 작성)는 [recurring jobs](/docs/recurring-jobs#creating)와 동일하게 작동합니다. 이벤트 기반 자동화의 경우 아래의 이벤트 트리거 머리말을 동일한 파일에 추가합니다. 이벤트로 트리거되는 작업은 `schedule: ""`를 설정하고 `triggerType: event`, `event` 이름 및 선택적 `condition`를 제공합니다.
 
@@ -172,11 +178,11 @@ emit(
     customerEmail: "jane@example.com",
     total: 49.99,
   },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
-자동화가 실행되는 내보내기 메타데이터 범위의 `owner` — 동일한 사용자가 소유한 자동화(또는 공유 자동화)만 평가됩니다.
+이벤트 메타데이터의 `owner`가 실행 가능한 자동화를 결정합니다. 개인 및 조직 Event 자동화 모두 `createdBy`와 정확히 일치해야 합니다.
 
 ## 조건 {#conditions}
 
@@ -228,7 +234,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## 에이전트 도구 {#agent-tools}
 
-모든 자동화 작업은 `action` 매개변수가 있는 단일 `manage-automations` 도구를 통해 액세스됩니다.
+개인 및 조직 자동화는 `action` 매개변수와 함께 `manage-automations`를 사용합니다.
 
 | 액션          | 목적                                                                 |
 | ------------- | -------------------------------------------------------------------- |
@@ -240,6 +246,8 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | `fire-test`   | `test.event.fired` 이벤트를 내보내 자동화를 검증합니다               |
 
 추가 도구: `web-request` — `${keys.NAME}` 대체 기능이 있는 아웃바운드 HTTP.
+
+`manage-automations`는 조직 범위, 모델 재정의, 엄격히 적용되는 MCP 허용 목록을 지원합니다. `manage-jobs`는 기존 schedule-only 통합과 전달 메타데이터를 위한 호환성 도구로 유지됩니다.
 
 ## API 엔드포인트 {#api}
 
@@ -280,7 +288,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -361,6 +370,7 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ```yaml
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"

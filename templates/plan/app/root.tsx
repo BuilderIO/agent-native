@@ -13,7 +13,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconMoon,
   IconScribble,
   IconShape2,
@@ -177,10 +177,10 @@ function AppContent() {
             {t("root.openRecaps")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => go("/agent")}
+            onSelect={() => go("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
           >
-            <IconBrain size={16} />
+            <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
@@ -241,6 +241,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         sessionBypass={sessionBypass}
+        documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >

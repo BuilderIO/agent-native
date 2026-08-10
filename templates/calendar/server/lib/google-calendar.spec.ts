@@ -97,6 +97,7 @@ import {
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
   createEvent,
+  moveEvent,
   deleteEvent,
   getClientForAccount,
   getDefaultAccountSelection,
@@ -905,6 +906,59 @@ describe("calendar event creation", () => {
     expect(body).not.toHaveProperty("description");
     expect(body).not.toHaveProperty("location");
   });
+
+  it("serializes full-day OOO semantics as timed Google event bounds", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Out of office",
+        description: "",
+        location: "",
+        start: "2026-07-31T04:00:00.000Z",
+        end: "2026-08-01T04:00:00.000Z",
+        startTimeZone: "America/Indiana/Indianapolis",
+        endTimeZone: "America/Indiana/Indianapolis",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "opaque",
+        eventType: "outOfOffice",
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
+        createdAt: "2026-07-26T14:00:00.000Z",
+        updatedAt: "2026-07-26T14:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        eventType: "outOfOffice",
+        start: {
+          dateTime: "2026-07-31T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        end: {
+          dateTime: "2026-08-01T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
+      }),
+      undefined,
+    );
+  });
 });
 
 describe("calendar recurring event updates", () => {
@@ -1215,6 +1269,138 @@ describe("owner-aware Google Calendar writes", () => {
       "event-secondary",
       undefined,
     );
+  });
+
+  it("recreates an event on the destination account before deleting the source", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      description: "Agenda",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+      attendees: [
+        { email: ownerEmail, self: true, organizer: true },
+        { email: "guest@example.com" },
+      ],
+    });
+    calendarInsertEventMock.mockResolvedValue({
+      id: "destination-event",
+      htmlLink: "https://calendar.google.com/destination-event",
+    });
+
+    const result = await moveEvent("source-event", {
+      sourceAccount: {
+        ownerEmail,
+        accountEmail: ownerEmail,
+      },
+      destinationAccount: account,
+      sendUpdates: "all",
+    });
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      expect.objectContaining({
+        summary: "Move me",
+        description: "Agenda",
+        attendees: [{ email: "guest@example.com" }],
+      }),
+      { sendUpdates: "all" },
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "owner-access-token",
+      "primary",
+      "source-event",
+      "all",
+    );
+    expect(result).toEqual({
+      id: "destination-event",
+      htmlLink: "https://calendar.google.com/destination-event",
+      meetLink: undefined,
+      conferenceData: undefined,
+    });
+  });
+
+  it("cleans up the destination copy when deleting the source fails", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+    });
+    calendarInsertEventMock.mockResolvedValue({ id: "destination-event" });
+    calendarDeleteEventMock
+      .mockRejectedValueOnce(new Error("source delete failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+        sendUpdates: "all",
+      }),
+    ).rejects.toThrow("source delete failed");
+
+    expect(calendarDeleteEventMock).toHaveBeenNthCalledWith(
+      2,
+      "secondary-access-token",
+      "primary",
+      "destination-event",
+      "all",
+    );
+  });
+
+  it("rejects moving a recurring series master before creating or deleting anything", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "series-master",
+      summary: "Recurring meeting",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+      recurrence: ["RRULE:FREQ=WEEKLY;COUNT=4"],
+    });
+
+    await expect(
+      moveEvent("series-master", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+      }),
+    ).rejects.toThrow("Recurring series masters cannot be moved");
+
+    expect(calendarInsertEventMock).not.toHaveBeenCalled();
+    expect(calendarDeleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the destination when source and rollback deletion both fail", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+    });
+    calendarInsertEventMock.mockResolvedValue({ id: "destination-event" });
+    calendarDeleteEventMock.mockRejectedValue(new Error("delete failed"));
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+      }),
+    ).rejects.toMatchObject({
+      name: "CalendarMoveRollbackError",
+      code: "CALENDAR_MOVE_ROLLBACK_FAILED",
+      replacementId: "destination-event",
+      destinationAccountEmail: secondaryEmail,
+      message: expect.stringContaining("destination-event"),
+    });
   });
 });
 

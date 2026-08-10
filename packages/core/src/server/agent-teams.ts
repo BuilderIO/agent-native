@@ -57,6 +57,7 @@ import {
   listAppState,
   deleteAppState,
 } from "../application-state/script-helpers.js";
+import { redactArgsToValue, redactTextToSummary } from "../audit/redact.js";
 import { createThread } from "../chat-threads/store.js";
 import type {
   BackgroundAgentRun,
@@ -1112,13 +1113,20 @@ function summarizeAgentChatEvent(event: RunEvent): {
       return {
         kind: "status",
         message: `Running ${payload.tool}`,
-        metadata: { tool: payload.tool, input: payload.input },
+        metadata: {
+          tool: payload.tool,
+          input: redactArgsToValue(payload.input),
+        },
       };
     case "tool_done":
       return {
         kind: "artifact",
         message: payload.result,
-        metadata: { tool: payload.tool },
+        metadata: {
+          tool: payload.tool,
+          input: redactArgsToValue(payload.input),
+          result: redactTextToSummary(payload.result),
+        },
       };
     case "agent_task":
       return {
@@ -1246,6 +1254,10 @@ export interface SpawnTaskOptions {
   parentSend: (event: AgentChatEvent) => void;
   /** Parent thread ID — used to auto-respond when the sub-agent finishes */
   parentThreadId?: string;
+  /** App id that owns the parent chat, used to scope the child thread. */
+  parentSourceAppId?: string | null;
+  /** Parent run ID used to correlate child telemetry after durable handoff. */
+  parentRunId?: string;
   /** Display name for the sub-agent tab (carried into the dispatch payload). */
   name?: string;
   /**
@@ -1298,8 +1310,10 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   const taskId = generateTaskId();
 
   // Create a dedicated thread for the sub-agent with the task as the first message
+  const parentSourceAppId = opts.parentSourceAppId?.trim();
   const thread = await createThread(opts.ownerEmail, {
     title: opts.description.slice(0, 100),
+    ...(parentSourceAppId ? { source: { appId: parentSourceAppId } } : {}),
   });
 
   // Save the initial user message to thread data so the tab shows content
@@ -1388,6 +1402,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     instructions: opts.instructions,
     model: opts.model,
     ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
+    ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
     ...(opts.name ? { name: opts.name } : {}),
     // Stable across continuation chunks so the durable assistant message folds.
     turnId: runId,
@@ -1839,7 +1854,7 @@ export async function processAgentTeamRun(
               // before delegationDepth was tracked.
               () =>
                 runWithDelegationDepth(task.delegationDepth ?? 1, async () => {
-                  chunkUsage = await runAgentLoop({
+                  const agentLoopOpts = {
                     engine: config.engine,
                     model: config.model,
                     // Agent-team runs are delegated turns too. Keep their
@@ -1862,7 +1877,49 @@ export async function processAgentTeamRun(
                     finalResponseGuard: createTaskMessageFinalGuard(
                       opts.taskId,
                     ),
-                  });
+                  };
+
+                  let instrumented = false;
+                  try {
+                    const { getObservabilityConfig, instrumentAgentLoop } =
+                      await import("../observability/traces.js");
+                    const observabilityConfig = await getObservabilityConfig();
+                    if (observabilityConfig.enabled) {
+                      instrumented = true;
+                      chunkUsage = await instrumentAgentLoop({
+                        runAgentLoop,
+                        loopOpts: agentLoopOpts,
+                        runId,
+                        threadId: task.threadId,
+                        userId: ownerEmail || null,
+                        config: observabilityConfig,
+                        metadata: {
+                          source: "agent_team",
+                          agent_team_task_id: opts.taskId,
+                          continuation_count: claimed.continuationCount,
+                          ...(payload.parentThreadId
+                            ? { parent_thread_id: payload.parentThreadId }
+                            : {}),
+                        },
+                        delegation: {
+                          protocol: "agent-team",
+                          callerApp: "agent-teams",
+                          taskId: opts.taskId,
+                          ...(payload.parentRunId
+                            ? { parentRunId: payload.parentRunId }
+                            : {}),
+                        },
+                      });
+                    }
+                  } catch (error) {
+                    // Configuration is best effort. Once the wrapper starts,
+                    // preserve its errors so a failed child is not reported
+                    // as a successful run with missing telemetry.
+                    if (instrumented) throw error;
+                  }
+                  if (!instrumented) {
+                    chunkUsage = await runAgentLoop(agentLoopOpts);
+                  }
                 }),
             );
           },
@@ -1988,7 +2045,16 @@ export async function processAgentTeamRun(
               resolve();
             }
           },
-          { useHostedSoftTimeoutDefault: true, turnId },
+          {
+            useHostedSoftTimeoutDefault: true,
+            turnId,
+            // No userId here: `ownerEmail` is the only identity known at
+            // this scope and is PII (email), which the terminal event must
+            // not carry.
+            model: config.model,
+            engineName: config.engine.name,
+            attemptCount: claimedAttempts,
+          },
         );
       });
 

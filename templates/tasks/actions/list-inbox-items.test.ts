@@ -12,7 +12,9 @@ vi.mock("../server/inbox/store.js", () => ({
   },
 }));
 
-import listInboxItemsAction from "./list-inbox-items.js";
+import listInboxItemsAction, {
+  listInboxItemsSchema,
+} from "./list-inbox-items.js";
 
 describe("list-inbox-items", () => {
   beforeEach(() => {
@@ -21,7 +23,7 @@ describe("list-inbox-items", () => {
 
   describe("schema", () => {
     it("accepts an empty object", () => {
-      expect(listInboxItemsAction.schema.parse({})).toEqual({});
+      expect(listInboxItemsSchema.parse({})).toEqual({});
     });
   });
 

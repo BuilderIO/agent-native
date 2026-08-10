@@ -92,6 +92,27 @@ describe("RunStuckBanner", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
+  it("does not poll when disabled for an inactive tab", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    function InactiveProbe() {
+      const state = useRunStuckDetection({
+        threadId: "thread-1",
+        enabled: false,
+      });
+      return <div>{state.runId ?? "inactive"}</div>;
+    }
+
+    await act(async () => {
+      root.render(<InactiveProbe />);
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(container.textContent).toBe("inactive");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("clears stale run state and slows polling after a permanent client error", async () => {
     const fetchSpy = vi
       .fn()
@@ -192,7 +213,7 @@ describe("RunStuckBanner", () => {
     ).toHaveLength(1);
   });
 
-  it("shows informational status and Cancel for a quiet heartbeating durable worker", async () => {
+  it("does not warn for a quiet heartbeating durable worker", async () => {
     const onRetry = vi.fn();
     const fetchSpy = vi.fn(async (url: string) => {
       if (url.includes("/runs/active")) {
@@ -219,12 +240,7 @@ describe("RunStuckBanner", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    expect(container.textContent).toContain("The agent is still working.");
-    expect(container.textContent).toContain(
-      "The background worker is still alive",
-    );
-    expect(container.textContent).toContain("Cancel");
-    expect(container.textContent).not.toContain("Retry");
+    expect(container.textContent).toBe("");
     expect(container.textContent).not.toContain("Retrying automatically now.");
     expect(onRetry).not.toHaveBeenCalled();
     expect(
@@ -236,7 +252,7 @@ describe("RunStuckBanner", () => {
     ).toBe(false);
   });
 
-  it("keeps overdue heartbeating worker status informational", async () => {
+  it("does not warn for an overdue worker with a fresh heartbeat", async () => {
     const fetchSpy = vi.fn(async (url: string) => {
       if (url.includes("/runs/active")) {
         return jsonResponse({
@@ -260,12 +276,7 @@ describe("RunStuckBanner", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    expect(container.textContent).toContain("The agent is still working.");
-    expect(container.textContent).toContain(
-      "The background worker is still alive",
-    );
-    expect(container.textContent).toContain("Cancel");
-    expect(container.textContent).not.toContain("Retry");
+    expect(container.textContent).toBe("");
   });
 
   it("recomputes stuck state when a fresh heartbeat expires during failed polls", async () => {
@@ -628,7 +639,7 @@ describe("RunStuckBanner", () => {
     ).toBe(false);
   });
 
-  it("hides Retry and only offers Cancel while a tool/A2A call is in flight", async () => {
+  it("does not show a stuck warning while a tool/A2A call is in flight", async () => {
     const onRetry = vi.fn();
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes("/runs/active")) {
@@ -661,19 +672,7 @@ describe("RunStuckBanner", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    expect(container.textContent).toContain("The agent is still working.");
-    expect(container.textContent).not.toContain("Retry");
-    expect(container.textContent).toContain("Cancel");
-
-    const cancelButton = Array.from(container.querySelectorAll("button")).find(
-      (btn) => btn.textContent?.includes("Cancel"),
-    );
-    expect(cancelButton).toBeTruthy();
-
-    await act(async () => {
-      cancelButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(0);
-    });
+    expect(container.textContent).toBe("");
 
     expect(
       fetchSpy.mock.calls.some(
@@ -682,7 +681,7 @@ describe("RunStuckBanner", () => {
           init?.method === "POST" &&
           init?.body === JSON.stringify({ reason: "user_stuck_cancel" }),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(onRetry).not.toHaveBeenCalled();
   });
 
@@ -715,7 +714,7 @@ describe("RunStuckBanner", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
-    expect(container.textContent).not.toContain("Retry");
+    expect(container.textContent).toBe("");
 
     inFlight = false;
     await act(async () => {
@@ -785,5 +784,85 @@ describe("RunStuckBanner", () => {
       act(() => secondRoot.unmount());
       secondContainer.remove();
     }
+  });
+
+  it("stays hidden when the chat is not waiting on a reply", async () => {
+    // A turn that finished normally can leave the run row in `running` until
+    // the stale-run reaper catches it. That is server hygiene, not a stuck
+    // chat: warning about it - and auto-retrying, which re-prompts a thread
+    // the user considers done - is the bug.
+    const onRetry = vi.fn();
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-abandoned",
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(
+        <RunStuckBanner
+          threadId="thread-1"
+          autoRetry
+          onRetry={onRetry}
+          isAwaitingResponse={() => false}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(container.textContent).toBe("");
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/abort") && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("re-enables controls when an auto-retry leaves the run running", async () => {
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-wedged",
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      if (url.includes("/runs/run-wedged/abort")) {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(container.textContent).toContain("Retrying automatically now.");
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Retry",
+      "Cancel",
+    ]);
+    expect(buttons.every((button) => button.disabled)).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
   documentPropertiesQueryKey,
   documentQueryKey,
@@ -20,6 +21,49 @@ import {
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
 } from "./use-documents";
+
+describe("document query freshness", () => {
+  it("always replaces seeded row snapshots before the editor mounts", () => {
+    expect(DOCUMENT_QUERY_FRESHNESS_OPTIONS).toMatchObject({
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+    });
+  });
+
+  it("keeps membership contexts in separate Page query keys", () => {
+    expect(
+      documentQueryKey("shared-page", {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      }),
+    ).toEqual([
+      "action",
+      "get-document",
+      {
+        id: "shared-page",
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      },
+    ]);
+    expect(
+      documentQueryKey("shared-page", {
+        databaseId: "builder-database",
+        databaseDocumentId: "builder-database-page",
+      }),
+    ).not.toEqual(
+      documentQueryKey("shared-page", {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      }),
+    );
+    expect(documentQueryKey("shared-page")).toEqual([
+      "action",
+      "get-document",
+      { id: "shared-page" },
+    ]);
+  });
+});
 
 function doc(id: string, parentId: string | null, position = 0): Document {
   return {
@@ -361,11 +405,17 @@ describe("optimistic document titles", () => {
       ],
     });
 
-    patchDocumentCaches(queryClient, "a", { title: "Page one" });
+    patchDocumentCaches(queryClient, "a", {
+      title: "Page one",
+      content: "Saved body",
+    });
 
     expect(
       queryClient.getQueryData<Document>(documentQueryKey("a"))?.title,
     ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<Document>(documentQueryKey("a"))?.content,
+    ).toBe("Saved body");
     expect(
       queryClient.getQueryData<Document[]>([
         "action",
@@ -376,6 +426,56 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.title,
     ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
+    ).toBe("Saved body");
+  });
+
+  it("patches Page-owned fields across contexts without exchanging memberships", () => {
+    const queryClient = new QueryClient();
+    const localKey = documentQueryKey("shared-page", {
+      databaseId: "local-database",
+      databaseDocumentId: "local-database-page",
+    });
+    const builderKey = documentQueryKey("shared-page", {
+      databaseId: "builder-database",
+      databaseDocumentId: "builder-database-page",
+    });
+    queryClient.setQueryData(localKey, {
+      ...doc("shared-page", null),
+      databaseMembership: {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+        databaseTitle: "Local",
+        position: 0,
+      },
+    });
+    queryClient.setQueryData(builderKey, {
+      ...doc("shared-page", null),
+      databaseMembership: {
+        databaseId: "builder-database",
+        databaseDocumentId: "builder-database-page",
+        databaseTitle: "Builder",
+        position: 0,
+        sourceId: "builder-source",
+      },
+    });
+
+    patchDocumentCaches(queryClient, "shared-page", {
+      title: "Shared title",
+      content: "Shared body",
+    });
+
+    expect(queryClient.getQueryData<Document>(localKey)).toMatchObject({
+      title: "Shared title",
+      content: "Shared body",
+      databaseMembership: { databaseId: "local-database" },
+    });
+    expect(queryClient.getQueryData<Document>(builderKey)).toMatchObject({
+      title: "Shared title",
+      content: "Shared body",
+      databaseMembership: { databaseId: "builder-database" },
+    });
   });
 });
 
@@ -407,6 +507,46 @@ describe("mergeDocumentIntoDocumentCache", () => {
       ),
     ).toEqual({ ...updated, database });
   });
+
+  it("never copies membership or hydration context between query variants", () => {
+    const localMembership = {
+      databaseId: "local-database",
+      databaseDocumentId: "local-database-page",
+      databaseTitle: "Local",
+      position: 0,
+    };
+    const merged = mergeDocumentIntoDocumentCache(
+      {
+        ...doc("shared-page", null),
+        databaseMembership: localMembership,
+      },
+      {
+        ...doc("shared-page", null),
+        title: "Server title",
+        databaseMembership: {
+          databaseId: "builder-database",
+          databaseDocumentId: "builder-database-page",
+          databaseTitle: "Builder",
+          position: 0,
+        },
+        bodyHydration: {
+          provider: "builder",
+          hydration: {
+            status: "pending",
+            attemptedAt: null,
+            error: null,
+            version: null,
+          },
+        },
+      },
+    );
+
+    expect(merged).toMatchObject({
+      title: "Server title",
+      databaseMembership: localMembership,
+    });
+    expect(merged).not.toHaveProperty("bodyHydration");
+  });
 });
 
 describe("documentUpdateSuccessPatch", () => {
@@ -437,6 +577,7 @@ describe("documentUpdateSuccessPatch", () => {
     const response = {
       ...doc("page", null),
       title: "Renamed",
+      content: "Saved body",
       updatedAt: "2026-05-12T00:00:01.000Z",
       urlPath: "/page/page",
       softDeletedDatabaseIds: [],
@@ -446,9 +587,11 @@ describe("documentUpdateSuccessPatch", () => {
       documentUpdateSuccessPatch(response, {
         id: "page",
         title: "Renamed",
+        content: "Saved body",
       }),
     ).toEqual({
       title: "Renamed",
+      content: "Saved body",
       updatedAt: "2026-05-12T00:00:01.000Z",
     });
   });
@@ -477,7 +620,7 @@ describe("isDocumentUpdateConflict", () => {
 });
 
 describe("seedDatabaseItemDocumentCaches", () => {
-  it("warms get-document and list-document-properties from a database row", () => {
+  it("warms properties without treating a database row snapshot as an editable document", () => {
     const queryClient = new QueryClient();
     const item: ContentDatabaseItem = {
       id: "item-a",
@@ -517,20 +660,75 @@ describe("seedDatabaseItemDocumentCaches", () => {
 
     seedDatabaseItemDocumentCaches(queryClient, item);
 
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
     expect(
-      queryClient.getQueryData(documentQueryKey("row-page")),
-    ).toMatchObject({
-      id: "row-page",
-      title: "Builder blog launch",
-      icon: "B",
-      properties: item.properties,
-    });
-    expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
       properties: item.properties,
+    });
+  });
+
+  it("keeps property caches separate for one page in two databases", () => {
+    const queryClient = new QueryClient();
+    const item = (databaseId: string, propertyId: string, value: string) =>
+      ({
+        id: `item-${databaseId}`,
+        databaseId,
+        position: 0,
+        document: {
+          ...doc("shared-row", `page-${databaseId}`),
+          databaseMembership: {
+            databaseId,
+            databaseDocumentId: `page-${databaseId}`,
+            databaseTitle: databaseId,
+            position: 0,
+          },
+        },
+        properties: [
+          {
+            definition: {
+              id: propertyId,
+              databaseId,
+              name: propertyId,
+              type: "select",
+              visibility: "always_show",
+              options: { options: [] },
+              position: 0,
+              createdAt: "2026-07-24T00:00:00.000Z",
+              updatedAt: "2026-07-24T00:00:00.000Z",
+            },
+            value,
+            editable: true,
+          },
+        ],
+      }) as ContentDatabaseItem;
+
+    const filesItem = item("files-database", "Kind", "Page");
+    const projectItem = item("project-database", "Status", "In progress");
+    seedDatabaseItemDocumentCaches(queryClient, filesItem);
+    seedDatabaseItemDocumentCaches(queryClient, projectItem);
+
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "files-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "files-database",
+      properties: filesItem.properties,
+    });
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "project-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "project-database",
+      properties: projectItem.properties,
     });
   });
 
@@ -573,7 +771,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
@@ -619,7 +819,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",

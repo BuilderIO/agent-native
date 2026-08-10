@@ -14,7 +14,7 @@ O Agent Teams é executado no run-manager principal: os eventos são transmitido
 ## O modelo mental {#mental-model}
 
 - **Chat principal** — o orquestrador. Lê o seu pedido, delegados. Raramente realiza trabalho pesado.
-- **Subagentes** — executam com seu próprio thread, seu próprio prompt de sistema, seu próprio conjunto de ferramentas. Cada um mapeia para um perfil de "agente personalizado" no [workspace](/docs/workspace).
+- **Subagentes** — executam com seu próprio thread, seu próprio prompt de sistema, seu próprio conjunto de ferramentas. Cada um mapeia para um perfil de "agente personalizado" no [Recursos do Agente](/docs/agent-resources).
 - **Chips** — o cartão de visualização avançado que aparece embutido no chat principal, mostrando a etapa atual do subagente, a saída do streaming e o resumo final. Recolhido por padrão; expande para a conversa completa ao clicar.
 - **Mensagens bidirecionais** — o agente principal pode enviar acompanhamentos para um subagente em execução; um subagente pode responder quando chegar a um ponto ambíguo.
 
@@ -105,7 +105,7 @@ Três maneiras de iniciar um subagente, da menos à mais explícita:
 
 O usuário digita `@agent-name` no compositor do chat. Uma lista suspensa de subagentes do espaço de trabalho é exibida. Selecionar um insere um chip; ao enviar, o agente principal delega a mensagem a esse subagente.
 
-Os agentes personalizados residem no espaço de trabalho em `agents/<slug>.md` — um arquivo Markdown com frontmatter YAML. Consulte [Custom Agents](/docs/workspace#custom-agents) para obter o formato.
+Os agentes personalizados residem no espaço de trabalho em `agents/<slug>.md` — um arquivo Markdown com frontmatter YAML. Consulte [Custom Agents](/docs/agent-resources#custom-agents) para obter o formato.
 
 ### 2. O agente principal delega automaticamente {#auto-delegate}
 
@@ -247,7 +247,7 @@ interface AgentTask {
 
 ## Perfis de agentes personalizados {#profiles}
 
-Mapeamento de subagentes para perfis de agentes personalizados — arquivos Markdown em `agents/<slug>.md` no espaço de trabalho que aparecem no menu suspenso `@mention` e servem como alvos de delegação. [Workspace — Custom Agents](/docs/workspace#custom-agents) possui o formato completo (frontmatter, `tools`, `delegate-default`, substituições de modelo).
+Mapeamento de subagentes para perfis de agentes personalizados — arquivos Markdown em `agents/<slug>.md` no espaço de trabalho que aparecem no menu suspenso `@mention` e servem como alvos de delegação. [Recursos do Agente — Custom Agents](/docs/agent-resources#custom-agents) possui o formato completo (frontmatter, `tools`, `delegate-default`, substituições de modelo).
 
 ## Proteção de profundidade de delegação {#depth-guard}
 
@@ -327,6 +327,6 @@ Quando um subagente está no limite ou abaixo dele, a estrutura injeta uma linha
 
 ## O que vem a seguir
 
-- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — o formato do perfil
+- [**Recursos do Agente — Custom Agents**](/docs/agent-resources#custom-agents) — o formato do perfil
 - [**A2A Protocol**](/docs/a2a-protocol) — quando o "subagente" mora em um aplicativo totalmente diferente
 - [**Actions**](/docs/actions) — as ferramentas que um subagente chama

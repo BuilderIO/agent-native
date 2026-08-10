@@ -18,6 +18,10 @@ import {
 import { nanoid } from "nanoid";
 
 import {
+  isConditionalFieldVisible,
+  sanitizeConditionalValues as sanitizeVisibleValues,
+} from "../../shared/conditional.js";
+import {
   cleanSubmitterEmail,
   publicSubmitterEmail,
 } from "../../shared/submitter-email.js";
@@ -158,43 +162,26 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   // Parse form fields and build whitelist of valid field IDs
   const fields: FormField[] = JSON.parse(form.fields);
   const fieldMap = new Map(fields.map((f) => [f.id, f]));
-  const rawData =
+  const submittedData =
     body.data && typeof body.data === "object" && !Array.isArray(body.data)
       ? (body.data as Record<string, unknown>)
       : {};
 
   // Whitelist: only accept keys matching form field IDs
-  const data: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(rawData)) {
+  const whitelistedData: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(submittedData)) {
     const field = fieldMap.get(key);
     if (!field) continue; // Strip unknown fields
-    data[key] = value;
+    whitelistedData[key] = value;
   }
+
+  const data = sanitizeVisibleValues(fields, whitelistedData);
 
   // Validate required fields and field-specific constraints. Recompute
   // conditional visibility on the server so direct POSTs cannot submit hidden
   // field values or bypass client-side validation.
-  function isFieldVisible(field: FormField): boolean {
-    if (!field.conditional) return true;
-    const { fieldId, operator, value: condValue } = field.conditional;
-    const fieldVal = String(data[fieldId] ?? "");
-    switch (operator) {
-      case "equals":
-        return fieldVal === condValue;
-      case "not_equals":
-        return fieldVal !== condValue;
-      case "contains":
-        return fieldVal.includes(condValue);
-      default:
-        return true;
-    }
-  }
-
   for (const field of fields) {
-    if (!isFieldVisible(field)) {
-      delete data[field.id];
-      continue;
-    }
+    if (field.conditional && !isConditionalFieldVisible(field, data)) continue;
 
     const val = data[field.id];
     if (field.required && isEmptySubmissionValue(val)) {
@@ -268,13 +255,17 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 
   if (settings.emailOnNewResponses === true && form.ownerEmail) {
     try {
-      await sendNewResponseEmail({
-        to: form.ownerEmail,
-        formTitle: form.title,
-        fields,
-        data,
-        submittedAt: now,
-      });
+      await runWithRequestContext(
+        { userEmail: form.ownerEmail, orgId: form.orgId ?? undefined },
+        () =>
+          sendNewResponseEmail({
+            to: form.ownerEmail!,
+            formTitle: form.title,
+            fields,
+            data,
+            submittedAt: now,
+          }),
+      );
     } catch (error) {
       // Email is best-effort — a provider outage must not reject a public
       // submission that was already persisted successfully.

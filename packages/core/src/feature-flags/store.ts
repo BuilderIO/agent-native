@@ -89,11 +89,16 @@ export async function getFeatureFlagRules(
   if (!getFeatureFlagDefinition(key)) return defaultFeatureFlagRules();
   // An organization-specific rule overrides the global rule. The fallback is
   // what makes global exact-org targeting meaningful for callers in an org.
-  const stored = scope.orgId?.trim()
-    ? ((await getOrgSetting(scope.orgId, settingKey(key))) ??
-      (await getSetting(settingKey(key))))
-    : await getSetting(settingKey(key));
-  return normalizeFeatureFlagRules(stored);
+  // Most flags have no org override, so `??` made the common path two serial
+  // round trips; both settings rows are independent, so read them together.
+  const orgId = scope.orgId?.trim();
+  if (!orgId)
+    return normalizeFeatureFlagRules(await getSetting(settingKey(key)));
+  const [orgStored, globalStored] = await Promise.all([
+    getOrgSetting(orgId, settingKey(key)),
+    getSetting(settingKey(key)),
+  ]);
+  return normalizeFeatureFlagRules(orgStored ?? globalStored);
 }
 
 /**

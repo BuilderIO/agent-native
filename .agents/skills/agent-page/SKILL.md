@@ -1,8 +1,8 @@
 ---
 name: agent-page
 description: >-
-  The full-page Agent surface (/agent) with Context, Files, Connections, Jobs,
-  and Access tabs. Use when mounting the Agent page in a template, adding an
+  The full-page Agent surface (/agent) with Context, Files, Connections,
+  Automations, and Access tabs. Use when mounting the Agent page in a template, adding an
   app-specific tab, surfacing context transparency, MCP servers, A2A agents,
   recurring jobs, or external-client connect flows in the UI.
 metadata:
@@ -32,7 +32,7 @@ everything that can influence the agent. Design principles:
 | `context` | System-vs-conversation split meter, provenance-grouped system sections (governance tiers: required/inherited/user), live-thread manifest. Backed by `context-preview-get` / `context-manifest-get` (see `context-xray` skill). |
 | `files` | ResourcesPanel (skills, instructions, memory, uploads) with the virtual `mcp-servers/` folder hidden (`showMcpServers={false}`). |
 | `connections` | MCP server management (both scopes, admin-gated org writes) plus A2A remote agents this app can call. |
-| `jobs` | Recurring jobs (personal + org) and automations (personal) with pause/resume/delete (see `recurring-jobs` skill). |
+| `jobs` | **Automations**: personal and organization Scheduled/Event tasks with pause/resume/delete. The `jobs` hash is stable for compatibility (see `automations` and `recurring-jobs`). |
 | `access` | Copyable MCP URL and A2A agent-card URL, per-client connect steps (Claude, ChatGPT, Cursor, Claude Code, Codex, Other) from `packages/core/src/shared/mcp-connect-content.ts` (shared with the `/mcp/connect` route — edit the shared module, never fork copy), static-token fallback link. Grants/scopes/revocation UI is future work. |
 
 ## Mounting In A Template
@@ -53,7 +53,10 @@ everything that can influence the agent. Design principles:
 
 ## Scope
 
-The page-level Personal/Organization toggle passes `scope` (and
-`canManageOrg`) to every tab via `AgentPageTabProps`. Hide nothing silently:
-if a capability is personal-only today (e.g. automations), the org view says
-so honestly instead of faking an org variant.
+The page currently passes personal `scope` (and `canManageOrg`) to tabs via
+`AgentPageTabProps`; it does not expose a page-level Personal/Organization
+toggle. A tab may render its own scoped sections where the underlying actions
+support them. The Automations tab shows personal and organization sections for
+both Scheduled and Event triggers. Organization event automations remain
+creator-run: administrators can manage them, but cannot retarget the creator's
+identity.

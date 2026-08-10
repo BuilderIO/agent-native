@@ -29,6 +29,7 @@ import nodePath from "node:path";
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
+import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -216,6 +217,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;
+  }
+  if (
+    entry.planMode &&
+    typeof entry.planMode === "object" &&
+    !Array.isArray(entry.planMode)
+  ) {
+    out.planMode = entry.planMode;
   }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
@@ -573,6 +581,34 @@ export async function autoDiscoverActions(
   return registry;
 }
 
+// `CORE_ACTION_GROUPS` lives in `framework-tools.ts` so the group filter can
+// resolve a kit by name without importing this module. Re-exported here
+// because this is where callers have always found it.
+export { CORE_ACTION_GROUPS };
+
+/**
+ * Core actions with no `frameworkTools` switch, and why:
+ *
+ * - `upload-image` is load-bearing for ordinary work.
+ * - The email catalog is mounted everywhere on purpose so Dispatch can ask any
+ *   app what it sends without that app opting in (see its comment below). It is
+ *   a read surface, not the `email` group's send capability.
+ * - MCP tools and org service tokens are already governed by `mcp.enabled`.
+ */
+export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
+  "upload-image",
+  "list-transactional-emails",
+  "render-transactional-email-preview",
+  "list-email-log",
+  "list-email-activity",
+  "list-email-engagement",
+  "create-org-service-token",
+  "list-org-service-tokens",
+  "revoke-org-service-token",
+  "list-mcp-tools",
+  "call-mcp-tool",
+]);
+
 export async function mergeCoreSharingActions(
   registry: Record<string, ActionEntry>,
 ): Promise<void> {
@@ -595,6 +631,29 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    // Transactional email catalog - mounted everywhere so Dispatch can ask any
+    // app what it sends without that app opting in.
+    [
+      "list-transactional-emails",
+      () => import("../email-catalog/actions/list-transactional-emails.js"),
+    ],
+    [
+      "render-transactional-email-preview",
+      () =>
+        import("../email-catalog/actions/render-transactional-email-preview.js"),
+    ],
+    [
+      "list-email-log",
+      () => import("../email-catalog/actions/list-email-log.js"),
+    ],
+    [
+      "list-email-activity",
+      () => import("../email-catalog/actions/list-email-activity.js"),
+    ],
+    [
+      "list-email-engagement",
+      () => import("../email-catalog/actions/list-email-engagement.js"),
+    ],
     [
       "get-feature-flags",
       () => import("../feature-flags/actions/get-feature-flags.js"),
@@ -617,6 +676,14 @@ export async function mergeCoreSharingActions(
     [
       "manage-recurring-job",
       () => import("../jobs/actions/manage-recurring-job.js"),
+    ],
+    [
+      "run-automation-now",
+      () => import("../jobs/actions/run-automation-now.js"),
+    ],
+    [
+      "list-automation-runs",
+      () => import("../jobs/actions/list-automation-runs.js"),
     ],
     [
       "list-automations",
@@ -657,6 +724,23 @@ export async function mergeCoreSharingActions(
     [
       "set-localization-preference",
       () => import("../localization/actions/set-localization-preference.js"),
+    ],
+    [
+      "get-user-profile",
+      () => import("../user-profile/actions/get-user-profile.js"),
+    ],
+    [
+      "update-user-profile",
+      () => import("../user-profile/actions/update-user-profile.js"),
+    ],
+    [
+      "get-auth-methods",
+      () => import("../user-profile/actions/get-auth-methods.js"),
+    ],
+    ["set-password", () => import("../user-profile/actions/set-password.js")],
+    [
+      "change-password",
+      () => import("../user-profile/actions/change-password.js"),
     ],
     [
       "change-appearance",
@@ -762,6 +846,12 @@ export async function mergeCoreSharingActions(
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),
+          // Pre-resolved copy of what `resolveFrameworkGroup` would compute
+          // from the name anyway. Kept so an entry read in isolation still
+          // reports its kit; the filters no longer depend on it.
+          ...(CORE_ACTION_GROUPS[name]
+            ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
+            : {}),
         };
       }
     } catch {

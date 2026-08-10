@@ -33,7 +33,7 @@ import {
   IconDownload,
   IconRefresh,
   IconLoader2,
-  IconDots,
+  IconDotsVertical,
   IconLock,
   IconArchive,
 } from "@tabler/icons-react";
@@ -85,6 +85,7 @@ import {
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
 import { normalizeFields } from "@/lib/normalize-fields";
+import { getPublishedFormUrl } from "@/lib/public-form-link";
 import { cn } from "@/lib/utils";
 
 type Translator = ReturnType<typeof useT>;
@@ -175,8 +176,8 @@ export function FormBuilderPage() {
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const publishedFormUrl =
-    form?.status === "published" && typeof window !== "undefined"
-      ? `${window.location.origin}${appPath(`/f/${form.slug}`)}`
+    form && typeof window !== "undefined"
+      ? getPublishedFormUrl(form, window.location.origin)
       : undefined;
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState("");
@@ -290,6 +291,18 @@ export function FormBuilderPage() {
           },
         });
       }, 500);
+    },
+    [updateForm],
+  );
+
+  const saveImmediately = useCallback(
+    async (data: Parameters<typeof updateForm.mutate>[0]) => {
+      clearTimeout(saveTimeout.current);
+      try {
+        await updateForm.mutateAsync(data);
+      } finally {
+        fieldsDirty.current = false;
+      }
     },
     [updateForm],
   );
@@ -533,16 +546,11 @@ export function FormBuilderPage() {
   }
 
   function copyShareLink() {
-    if (loadedForm.status !== "published") {
+    if (!publishedFormUrl) {
       toast.info(t("builder.publishBeforeCopyToast"));
       return;
     }
-    if (isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
-    const url = `${window.location.origin}${appPath(`/f/${loadedForm.slug}`)}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(publishedFormUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success(t("builder.linkCopiedToast"));
@@ -611,11 +619,7 @@ export function FormBuilderPage() {
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
-                  <a
-                    href={appPath(`/f/${form.slug}`)}
-                    target="_blank"
-                    rel="noopener"
-                  >
+                  <a href={publishedFormUrl} target="_blank" rel="noopener">
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -626,20 +630,15 @@ export function FormBuilderPage() {
             </Tooltip>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
+          {form.status === "published" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
-                  disabled={form.status !== "published"}
-                  aria-label={
-                    form.status === "published"
-                      ? t("builder.copyPublicFormLink")
-                      : t("builder.publishBeforeCopyPublicFormLink")
-                  }
+                  aria-label={t("builder.copyPublicFormLink")}
                 >
                   <span className="relative inline-flex h-4 w-4 items-center justify-center">
                     <IconCopy
@@ -660,16 +659,14 @@ export function FormBuilderPage() {
                     />
                   </span>
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {form.status === "published"
-                ? copied
+              </TooltipTrigger>
+              <TooltipContent>
+                {copied
                   ? t("builder.publicLinkCopied")
-                  : t("builder.copyPublishedPublicLink")
-                : t("builder.publishBeforeCopyPublicLink")}
-            </TooltipContent>
-          </Tooltip>
+                  : t("builder.copyPublishedPublicLink")}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -731,12 +728,12 @@ export function FormBuilderPage() {
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="icon"
                       className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
-                      <IconDots className="h-4 w-4" />
+                      <IconDotsVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
@@ -868,8 +865,17 @@ export function FormBuilderPage() {
               key={JSON.stringify(form.settings)}
               form={form}
               onSave={(settings) => {
-                save({ id: form.id, settings });
-                toast.success(t("builder.settingsSaved"));
+                void saveImmediately({ id: form.id, settings })
+                  .then(() => toast.success(t("builder.settingsSaved")))
+                  .catch((error: unknown) => {
+                    toast.error(
+                      error instanceof Error && error.message
+                        ? error.message
+                        : t("builder.saveFailed", {
+                            defaultValue: "Failed to save changes",
+                          }),
+                    );
+                  });
               }}
             />
           </div>
@@ -883,8 +889,17 @@ export function FormBuilderPage() {
               key={JSON.stringify(form.settings?.integrations)}
               form={form}
               onSave={(settings) => {
-                save({ id: form.id, settings });
-                toast.success(t("builder.integrationsSaved"));
+                void saveImmediately({ id: form.id, settings })
+                  .then(() => toast.success(t("builder.integrationsSaved")))
+                  .catch((error: unknown) => {
+                    toast.error(
+                      error instanceof Error && error.message
+                        ? error.message
+                        : t("builder.saveFailed", {
+                            defaultValue: "Failed to save changes",
+                          }),
+                    );
+                  });
               }}
             />
           </div>
@@ -1069,6 +1084,7 @@ function BuilderContent({
                   >
                     <FieldPropertiesPanel
                       field={field}
+                      fields={fields}
                       onChange={onUpdateField}
                       onDelete={() => onDeleteField(field.id)}
                     />

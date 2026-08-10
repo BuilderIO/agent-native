@@ -6,11 +6,41 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip.js";
 import { cn } from "../utils.js";
+
+export {
+  VisualScrubInput,
+  resolvePendingScrubCommit,
+  type PendingScrubCommit,
+  type ScrubInputChangeMeta,
+  type ScrubInputProps,
+} from "./scrub-input.js";
+export {
+  formatScrubValue,
+  getScrubStepFromEvent,
+  normalizeScrubNumber,
+  parseScrubExpression,
+  roundScrubDragValue,
+  scrubSnapsToInteger,
+  SCRUB_DRAG_THRESHOLD_PX,
+  startScrubDrag,
+  updateScrubDrag,
+  type ParsedScrubExpression,
+  type ScrubDragState,
+  type ScrubDragTick,
+  type ScrubExpressionOptions,
+} from "./scrub-input-utils.js";
 
 export type VisualControlValue = string | number | boolean;
 
@@ -43,13 +73,6 @@ function clampNumber(value: number, min?: number, max?: number) {
 function formatNumber(value: number, unit?: string) {
   const rounded = Number.isInteger(value) ? value : Number(value.toFixed(2));
   return unit ? `${rounded}${unit}` : String(rounded);
-}
-
-function parseDraftNumber(value: string, fallback: number) {
-  const match = value.trim().match(/-?\d+(?:\.\d+)?/);
-  if (!match) return fallback;
-  const next = Number(match[0]);
-  return Number.isFinite(next) ? next : fallback;
 }
 
 interface RgbaColor {
@@ -243,11 +266,11 @@ export function VisualInspectorPanel({
   return (
     <aside
       className={cn(
-        "w-64 overflow-hidden rounded-xl border border-border bg-card/95 text-card-foreground shadow-2xl shadow-black/35 backdrop-blur",
+        "flex w-64 flex-col overflow-hidden rounded-xl border border-border bg-card/95 text-card-foreground shadow-2xl shadow-black/35 backdrop-blur",
         className,
       )}
     >
-      <div className="flex min-h-10 items-start justify-between gap-2 border-b border-border/70 px-3 py-2.5">
+      <div className="flex min-h-10 shrink-0 items-start justify-between gap-2 border-b border-border/70 px-3 py-2.5">
         <div className="min-w-0">
           <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {title}
@@ -260,7 +283,7 @@ export function VisualInspectorPanel({
         </div>
         {headerAction}
       </div>
-      <div className="max-h-[min(680px,calc(100vh-7rem))] overflow-y-auto p-2">
+      <div className="min-h-0 flex-[1_1_auto] max-h-[min(680px,calc(100vh-7rem))] overflow-y-auto p-2">
         {children}
       </div>
     </aside>
@@ -362,6 +385,11 @@ export function VisualColorPicker({
   documentColorsLabel = "Document colors",
   transparentLabel = "Transparent",
   className,
+  contentProps,
+  mixed = false,
+  mixedLabel = "Mixed",
+  variant = "outline",
+  glyph,
 }: {
   label: string;
   value: string;
@@ -372,6 +400,17 @@ export function VisualColorPicker({
   documentColorsLabel?: string;
   transparentLabel?: string;
   className?: string;
+  contentProps?: Omit<
+    ComponentPropsWithoutRef<typeof PopoverContent>,
+    "children"
+  > &
+    Record<`data-${string}`, string | undefined>;
+  mixed?: boolean;
+  mixedLabel?: string;
+  /** `swatch` drops the value text and caret for dense horizontal toolbars. */
+  variant?: "outline" | "filled" | "swatch";
+  /** With `swatch`, renders this over a bar of the current color instead of a plain square. */
+  glyph?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -433,42 +472,93 @@ export function VisualColorPicker({
         .filter(Boolean) as string[],
     ),
   ).slice(0, 16);
-  const displayValue =
-    value === "transparent" || color.a === 0
+  const displayValue = mixed
+    ? mixedLabel
+    : value === "transparent" || color.a === 0
       ? transparentLabel
       : colorHex.replace(/^#/, "");
   const hsv = rgbaToHsv(color);
+  const { className: contentClassName, ...popoverContentProps } =
+    contentProps ?? {};
+
+  const trigger = (
+    <PopoverTrigger asChild>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn(
+          "flex h-7 cursor-pointer items-center rounded-md shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          variant === "swatch"
+            ? "w-7 shrink-0 justify-center border-0 hover:bg-accent"
+            : "w-full gap-1.5 px-2 text-[11px]",
+          variant === "filled" && "border-0 bg-muted/80 hover:bg-muted",
+          variant === "outline" &&
+            "border border-border bg-background/70 hover:bg-accent/60",
+          className,
+        )}
+      >
+        {glyph && variant === "swatch" ? (
+          /* A real underline rather than a stacked bar: the browser places
+             it against the glyph's baseline, so the pair cannot drift out of
+             alignment the way hand-positioned boxes do. The current color
+             can be anything (including near-white), so a plain colored
+             underline can vanish against this toolbar's own light
+             background — the four cardinal drop-shadows fake a thin outline
+             around the underline itself (a box-shadow/border can't reach a
+             text-decoration) that stays visible regardless of the color. */
+          <span
+            aria-hidden="true"
+            className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px] [filter:drop-shadow(0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(-0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(0_0.5px_0_rgba(0,0,0,0.25))_drop-shadow(0_-0.5px_0_rgba(0,0,0,0.25))]"
+            style={mixed ? undefined : { textDecorationColor: value }}
+          >
+            {glyph}
+          </span>
+        ) : (
+          <span
+            className="size-4 shrink-0 rounded-[3px] border border-border/70"
+            style={swatchBackground(mixed ? "transparent" : value)}
+          />
+        )}
+        {variant !== "swatch" && (
+          <>
+            <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
+              {displayValue}
+            </span>
+            <span
+              aria-hidden="true"
+              className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
+            />
+          </>
+        )}
+      </button>
+    </PopoverTrigger>
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          className={cn(
-            "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background/70 px-2 text-[11px] shadow-none transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            className,
-          )}
-        >
-          <span
-            className="size-4 shrink-0 rounded-[3px] border border-border/70"
-            style={swatchBackground(value)}
-          />
-          <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
-            {displayValue}
-          </span>
-          <span
-            aria-hidden="true"
-            className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
-          />
-        </button>
-      </PopoverTrigger>
+      {/* A bare swatch shows a color but never says which property it paints.
+          The hex a native title would add is unreliable for colors this
+          control cannot parse, so name the property and leave it at that. */}
+      {variant === "swatch" ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        trigger
+      )}
       <PopoverContent
         side="left"
         align="start"
         sideOffset={8}
-        className="z-[10000] w-[252px] p-0 text-[11px] shadow-xl"
+        className={cn(
+          "z-[10000] w-[252px] p-0 text-[11px] shadow-xl",
+          contentClassName,
+        )}
         onFocusOutside={(event) => event.preventDefault()}
+        {...popoverContentProps}
       >
         <div className="rounded-md bg-popover text-popover-foreground">
           <VisualSaturationBrightnessField
@@ -788,7 +878,7 @@ export function VisualSegmentedControl({
   className,
 }: {
   options: VisualControlOption[];
-  value: string;
+  value: string | null;
   onChange: (value: string) => void;
   className?: string;
 }) {
@@ -876,137 +966,6 @@ export function VisualSliderControl({
       <span className="w-9 text-right text-[11px] tabular-nums text-muted-foreground">
         {formatNumber(safeValue, unit)}
       </span>
-    </div>
-  );
-}
-
-export function VisualScrubInput({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step = 1,
-  unit,
-  disabled = false,
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  unit?: string;
-  disabled?: boolean;
-}) {
-  const id = useId();
-  const [draft, setDraft] = useState(() => formatNumber(value, unit));
-  const [focused, setFocused] = useState(false);
-  const dragRef = useRef<{
-    pointerId: number;
-    prevX: number;
-    dragged: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!focused) setDraft(formatNumber(value, unit));
-  }, [focused, unit, value]);
-
-  const commit = (nextDraft = draft) => {
-    const parsed = parseDraftNumber(nextDraft, value);
-    const next = clampNumber(parsed, min, max);
-    onChange(next);
-    setDraft(formatNumber(next, unit));
-  };
-
-  const setNext = (next: number) => {
-    const clamped = clampNumber(next, min, max);
-    onChange(clamped);
-    setDraft(formatNumber(clamped, unit));
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commit();
-      event.currentTarget.blur();
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setDraft(formatNumber(value, unit));
-      event.currentTarget.blur();
-      return;
-    }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      const mult =
-        event.shiftKey || event.metaKey ? 10 : event.altKey ? 0.1 : 1;
-      const direction = event.key === "ArrowUp" ? 1 : -1;
-      const base = parseDraftNumber(draft, value);
-      setNext(base + direction * step * mult);
-    }
-  };
-
-  const onPointerDown = (event: PointerEvent<HTMLLabelElement>) => {
-    if (disabled || event.button !== 0) return;
-    event.preventDefault();
-    dragRef.current = {
-      pointerId: event.pointerId,
-      prevX: event.clientX,
-      dragged: false,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: PointerEvent<HTMLLabelElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const delta = event.clientX - drag.prevX;
-    if (delta === 0) return;
-    drag.prevX = event.clientX;
-    drag.dragged = true;
-    const mult = event.shiftKey || event.metaKey ? 10 : event.altKey ? 0.1 : 1;
-    setNext(value + delta * step * mult);
-  };
-
-  const onPointerUp = (event: PointerEvent<HTMLLabelElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    dragRef.current = null;
-    if (!drag.dragged) {
-      document.getElementById(id)?.focus();
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <label
-        htmlFor={id}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        className={cn(
-          "flex w-8 shrink-0 cursor-ew-resize select-none items-center justify-center rounded border border-transparent px-1 text-[10px] font-semibold text-muted-foreground hover:border-border hover:bg-accent/60",
-          disabled && "cursor-not-allowed opacity-50",
-        )}
-      >
-        {label}
-      </label>
-      <input
-        id={id}
-        value={draft}
-        disabled={disabled}
-        onFocus={() => setFocused(true)}
-        onBlur={() => {
-          setFocused(false);
-          commit();
-        }}
-        onChange={(event) => setDraft(event.currentTarget.value)}
-        onKeyDown={onKeyDown}
-        className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background/70 px-2 text-right text-[11px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-50"
-      />
     </div>
   );
 }

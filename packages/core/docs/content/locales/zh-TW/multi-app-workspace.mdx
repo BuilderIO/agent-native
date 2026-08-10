@@ -5,7 +5,7 @@ description: "在一個單一儲存庫中託管許多 Agent-Native 應用程式�
 
 # 多應用工作區
 
-> **哪個工作區檔案？** 此頁面涵蓋 **部署形狀** - 一個單一儲存庫、許多應用程式、共用驗證和統一部署。對於代理自訂層（代理資源：`AGENTS.md`、`LEARNINGS.md`、個人記憶、skills、自訂代理），請參閱 [代理資源](/docs/workspace)；有關治理（誰審查、核准和擁有什麼），請參閱 [Workspace Governance](/docs/workspace-management)。
+> **哪個工作區檔案？** 此頁面涵蓋 **部署形狀** - 一個單一儲存庫、許多應用程式、共用驗證和統一部署。對於代理自訂層（代理資源：`AGENTS.md`、`LEARNINGS.md`、個人記憶、skills、自訂代理），請參閱 [代理資源](/docs/agent-resources)；有關治理（誰審查、核准和擁有什麼），請參閱 [Workspace Governance](/docs/workspace-management)。
 
 當對內部工具進行振動編碼需要一個下午時，您不會停下來。一個團隊最終得到了一個 CRM、一個支援收件箱、一個儀表板、一個操作主控台——十個小應用程式，每個應用程式都是獨立搭建的。這很好，直到您需要更改所有內容為止。
 
@@ -218,7 +218,7 @@ pnpm dev
 
 使用 `packages/shared` 作為應隨儲存庫附帶的程式碼級預設值：外掛、共用 actions、共用 React 程式碼、檔案系統 `AGENTS.md` 和檔案系統 skills。將 Dispatch 工作區資源用於管理員希望在不更改程式碼的情況下進行管理的執行時可編輯全域脈絡。
 
-調度資源的範圍為**所有應用程式**（每個應用程式在執行時繼承它們，沒有複製或同步步驟）或**選定的應用程式**（為每個應用程式授予特定於應用程式的脈絡）。請參閱 [代理資源](/docs/workspace#global-resources) 了解完整的資源模型表、路徑約定和推薦的入門包。
+調度資源的範圍為**所有應用程式**（每個應用程式在執行時繼承它們，沒有複製或同步步驟）或**選定的應用程式**（為每個應用程式授予特定於應用程式的脈絡）。請參閱 [代理資源](/docs/agent-resources#global-resources) 了解完整的資源模型表、路徑約定和推薦的入門包。
 
 ## 驗證和RBAC {#auth-and-rbac}
 
@@ -256,7 +256,7 @@ my-company-platform/
 
 一些入門流程是開箱即用的工作區感知型：
 
-- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Builder `/cli-auth`**: clicking "Connect Builder" (free tier available) from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## 共用憑證 {#shared-credentials}
@@ -415,7 +415,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ## 另請參閱 {#see-also}
 
-- [代理資源](/docs/workspace) - 工作區中每個應用共用的自訂層（`AGENTS.md`、`LEARNINGS.md`、個人記憶、skills、自訂代理）。
+- [代理資源](/docs/agent-resources) - 工作區中每個應用共用的自訂層（`AGENTS.md`、`LEARNINGS.md`、個人記憶、skills、自訂代理）。
 - [Workspace Governance](/docs/workspace-management) — 分支、CODEOWNERS、一個儲存庫中多個應用的 PR 審核。
 - [Multi-Tenancy](/docs/multi-tenancy) — 組織、角色和每個組織的資料隔離。
 - [Cross-App SSO](/docs/cross-app-sso) — 用於單獨域部署的身分聯合。

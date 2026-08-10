@@ -1,3 +1,5 @@
+import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
@@ -99,6 +101,7 @@ interface Meeting {
   recordingId?: string | null;
   recordingDurationMs?: number | null;
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
+  visibility?: "private" | "org" | "public" | null;
   shareTranscript?: boolean | null;
   summaryMd?: string | null;
   userNotesMd?: string | null;
@@ -492,14 +495,6 @@ export default function MeetingDetailRoute() {
     });
   };
 
-  const handleSeek = (ms: number) => {
-    if (!meeting?.recordingId) return;
-    // /r/:recordingId's `t` param is seconds (see parseTimeParam in
-    // r.$recordingId.tsx), while transcript segments use ms timestamps.
-    const seconds = Math.max(0, Math.floor(ms / 1000));
-    navigate(`/r/${meeting.recordingId}?t=${seconds}`);
-  };
-
   const handleJumpToSegment = (segmentIndex: number) => {
     transcriptScrollToRef.current?.(segmentIndex);
   };
@@ -542,6 +537,30 @@ export default function MeetingDetailRoute() {
 
   const handleEndMeeting = () => {
     if (!meeting) return;
+    // The meeting share link is valid independently of the stop call, so copy
+    // it while the user's click still counts as activation instead of waiting
+    // on the mutation. The public meeting page resolves `visibility = public`
+    // rows only — anything else would hand the user a link that 404s for the
+    // people they send it to.
+    if (meeting.visibility === "public" && typeof window !== "undefined") {
+      const shareUrl = `${window.location.origin}${appPath(
+        `/share/meeting/${meeting.id}`,
+      )}`;
+      void writeClipboardText(shareUrl).then((copied) => {
+        if (copied) {
+          toast.success(t("recordRoute.linkCopied"));
+          return;
+        }
+        toast(t("meetingDetail.share"), {
+          action: {
+            label: t("recordRoute.copyLinkAction"),
+            onClick: () => {
+              void writeClipboardText(shareUrl);
+            },
+          },
+        });
+      });
+    }
     // Optimistic: flip the live badge off immediately rather than waiting
     // for the next 2s poll — stop-meeting-recording stamps actualEnd and
     // flips transcriptStatus server-side.
@@ -949,8 +968,6 @@ export default function MeetingDetailRoute() {
           <TranscriptBubbles
             segments={segments}
             isLive={isLive}
-            recordingId={meeting.recordingId}
-            onSeek={handleSeek}
             registerScrollTo={(fn) => {
               transcriptScrollToRef.current = fn;
             }}

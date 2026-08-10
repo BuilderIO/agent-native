@@ -1,10 +1,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { getUserSetting, putUserSetting, settingsStore } = vi.hoisted(() => {
+  const settingsStore = new Map<string, Record<string, unknown>>();
+  return {
+    settingsStore,
+    getUserSetting: vi.fn(async (email: string, key: string) => {
+      return settingsStore.get(`${email}:${key}`) ?? null;
+    }),
+    putUserSetting: vi.fn(
+      async (email: string, key: string, value: Record<string, unknown>) => {
+        settingsStore.set(`${email}:${key}`, value);
+      },
+    ),
+  };
+});
+
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting,
+  putUserSetting,
+}));
+
+vi.mock("../db/index.js", () => ({
+  getDb: () => testDb,
+}));
+
 import {
   createCustomField,
   deleteCustomField,
 } from "../custom-fields/store.js";
-import { userConfig } from "../db/schema.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import {
   getTaskCardFieldIds,
@@ -12,9 +35,7 @@ import {
   setTaskCardFieldIds,
 } from "./store.js";
 
-vi.mock("../db/index.js", () => ({
-  getDb: () => testDb,
-}));
+const SETTING_KEY = "visible-task-fields";
 
 type TestDb = Awaited<ReturnType<typeof createInMemoryTasksDb>>;
 
@@ -23,6 +44,9 @@ let testDb: TestDb["testDb"];
 
 beforeEach(async () => {
   ({ client, testDb } = await createInMemoryTasksDb());
+  settingsStore.clear();
+  getUserSetting.mockClear();
+  putUserSetting.mockClear();
 });
 
 afterEach(() => {
@@ -30,7 +54,7 @@ afterEach(() => {
 });
 
 describe("user config store", () => {
-  it("returns default field ids by name when no row exists", async () => {
+  it("returns default field ids by name when no setting exists", async () => {
     const priority = await createCustomField({
       ownerEmail: "alice@example.com",
       title: "Priority",
@@ -46,9 +70,10 @@ describe("user config store", () => {
     await expect(
       getTaskCardFieldIds({ ownerEmail: "alice@example.com" }),
     ).resolves.toEqual([priority.id, dueDate.id]);
+    expect(putUserSetting).not.toHaveBeenCalled();
   });
 
-  it("persists and reads stored field ids", async () => {
+  it("persists and reads stored field ids through settings", async () => {
     const first = await createCustomField({
       ownerEmail: "alice@example.com",
       title: "Estimate",
@@ -65,6 +90,11 @@ describe("user config store", () => {
       fieldIds: [second.id, first.id],
     });
 
+    expect(putUserSetting).toHaveBeenCalledWith(
+      "alice@example.com",
+      SETTING_KEY,
+      { fieldIds: [second.id, first.id] },
+    );
     await expect(
       getTaskCardFieldIds({ ownerEmail: "alice@example.com" }),
     ).resolves.toEqual([second.id, first.id]);
@@ -105,10 +135,8 @@ describe("user config store", () => {
       type: "text",
     });
 
-    await testDb.insert(userConfig).values({
-      ownerEmail: "alice@example.com",
-      taskCardFieldIdsJson: JSON.stringify([field.id, "fld_missing"]),
-      updatedAt: "2026-07-01T10:00:00.000Z",
+    settingsStore.set(`alice@example.com:${SETTING_KEY}`, {
+      fieldIds: [field.id, "fld_missing"],
     });
 
     await expect(
@@ -129,6 +157,7 @@ describe("user config store", () => {
         fieldIds: ["fld_missing"],
       }),
     ).rejects.toThrow("fieldIds must reference existing custom fields.");
+    expect(putUserSetting).not.toHaveBeenCalled();
   });
 
   it("removes a field id from stored prefs", async () => {
@@ -183,5 +212,23 @@ describe("user config store", () => {
     await expect(
       getTaskCardFieldIds({ ownerEmail: "alice@example.com" }),
     ).resolves.toEqual([second.id]);
+  });
+
+  it("does not write a setting when pruning with nothing stored", async () => {
+    const field = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Priority",
+      type: "text",
+    });
+
+    await deleteCustomField({
+      ownerEmail: "alice@example.com",
+      fieldId: field.id,
+    });
+
+    expect(putUserSetting).not.toHaveBeenCalled();
+    await expect(
+      getUserSetting("alice@example.com", SETTING_KEY),
+    ).resolves.toBeNull();
   });
 });

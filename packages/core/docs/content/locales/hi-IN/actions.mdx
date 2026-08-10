@@ -87,7 +87,7 @@ Actions आपके ऐप द्वारा किए जाने वाल�
 
 यदि UI और एजेंट दोनों को कुछ करने की ज़रूरत है, तो कार्रवाई के लिए पहुंचें - कस्टम नहीं
 मार्ग. जब रूट-आकार का प्रोटोकॉल सही कॉल होता है, तो देखें [Actions को प्राथमिकता दें
-ऐप संचालन के लिए](/docs/server#actions-first).
+ऐप संचालन के लिए](/docs/server-overview#actions-first).
 
 ## एक क्रिया से प्रारंभ करें {#hello-action}
 
@@ -249,7 +249,7 @@ Default POST है; `http: { method: "GET" }` इसे GET बनाता ह
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — डिफ़ॉल्ट `POST`. `GET` actions स्वतः-चिह्नित `readOnly` हैं, इसलिए सफल कॉल UI पोल-रीफ्रेश को ट्रिगर नहीं करते हैं।
 - **`http: { path: "..." }`** — `/_agent-native/actions/` के अंतर्गत माउंटेड URL को ओवरराइड करें। फ़ाइल नाम पर डिफ़ॉल्ट. **पथ ओवरराइड केवल प्रत्यक्ष HTTP कॉलर्स के लिए URL को बदलता है** - `useActionQuery`, `useActionMutation`, और `callAction` हमेशा इस ओवरराइड की परवाह किए बिना `/_agent-native/actions/<name>` को कॉल करते हैं, इसलिए पथ को ओवरराइड करने से वे हुक 404 हो जाते हैं। पथ ओवरराइड का उपयोग केवल बाहरी HTTP कॉलर्स के लिए करें। यह भी ध्यान दें कि ओवरराइड पथ में `:param` रूट सेगमेंट को `run()` आर्ग्स में **नहीं** पार्स किया गया है - केवल क्वेरी-स्ट्रिंग पैरामीटर और JSON बॉडी फ़ील्ड हैं।
 - **`http: false`** - HTTP एंडपॉइंट को पूरी तरह से अक्षम करें। केवल एजेंट + CLI.
-- **`readOnly: true`** - स्पष्ट रूप से उन POST actions के लिए भी पोल-रीफ्रेश को छोड़ दें जो उत्परिवर्तन नहीं करते हैं।
+- **`readOnly: true`** - स्पष्ट रूप से उन POST actions के लिए भी पोल-रीफ्रेश को छोड़ दें जो उत्परिवर्तन नहीं करते हैं। यह **एक्सेस कंट्रोल नहीं है**: यह इस बात को सीमित नहीं करता कि action को कौन कॉल कर सकता है, और यह `useActionQuery`, `useActionMutation` या किसी भी क्लाइंट hook को प्रभावित नहीं करता। इसका एकमात्र प्रभाव कॉल के बाद के रिफ़्रेश इवेंट को रोकना और action को राइट-ऑडिटिंग से बाहर रखना है। मॉडल से action छिपाने के लिए `agentTool: false` का उपयोग करें; कॉल करने वालों को सीमित करने के लिए ऊपर दिए गए auth/access विकल्पों का उपयोग करें।
 - **`parallelSafe: true`** - एक परिवर्तनशील क्रिया को अन्य समान-टर्न टूल कॉल के साथ समवर्ती रूप से चलाने की अनुमति दें। इसे केवल तभी सेट करें जब कार्रवाई आंतरिक रूप से समवर्ती-सुरक्षित और ऑर्डर-स्वतंत्र हो; actions को डिफ़ॉल्ट रूप से क्रमबद्ध रूप से बदलना।
 
 ### कार्य सतह को छोटा रखें {#small-surface}
@@ -374,12 +374,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

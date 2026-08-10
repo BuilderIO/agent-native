@@ -5,9 +5,9 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 
 # 自動化
 
-**自動化**是一條規則：_當 X 發生時，執行 Y_ — 用自然語言描述。代理執行指令，因此自動化可以存取代理可以在互動式聊天中使用的每個操作、工具和 MCP 伺服器。
+**自動化**是代理依排程或在事件發生時執行的工作：_當 X 發生時，執行 Y_。**Scheduled** 和 **Event** 是兩種觸發類型，而不是兩個獨立產品。
 
-自動化透過 `web-request` 工具使用**事件觸發器**、**自然語言條件**和**出站 HTTP** 擴充功能 [recurring jobs](/docs/recurring-jobs)。它們使用與重複作業相同的 `jobs/<name>.md` 檔案格式、儲存和“建立三種方式”工作流程 - 請參閱 [Recurring Jobs](/docs/recurring-jobs#job-file) 了解共用格式。本頁面僅涵蓋事件驅動自動化的新增內容。
+框架最初將排程自動化公開為 **Recurring Jobs**。該名稱、`jobs/<name>.md` 路徑和 `manage-jobs` 工具會為相容性保留。新的產品指南使用 **Automations** 作為總稱；維護舊排程工作或使用組織範圍及進階欄位時，請參閱 [Recurring Jobs](/docs/recurring-jobs)。
 
 <Diagram id="doc-block-1d1aaq0" title={"當X發生時，做Y"} summary={"總線上觸發事件，可選的自然語言條件對其進行門控，代理執行具有完整工具存取權限的自動化主體。"}>
 
@@ -72,9 +72,15 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 
 代理發現可用事件，確認計畫，並為您編寫自動化。
 
-### 來自設定 UI
+### 從 Automations 介面
 
-自動化出現在設定面板中。使用者可以在那裡檢視、啟用/停用和刪除它們。
+在完整的 Agent 頁面中開啟 **Automations**，檢視和管理排程自動化及事件觸發自動化。相容 URL 仍為 `/agent#jobs`，因此現有連結和書籤會繼續運作。
+
+<Callout tone="warning">
+
+`manage-automations` 支援個人和組織範圍的 Scheduled 與 Event 自動化。組織 Event 自動化對成員可見，但始終以建立者身分執行；管理員可以管理定義，但不能變更該執行身分。
+
+</Callout>
 
 第三條路徑 - 透過 `resourcePut` 手動寫入 `jobs/<name>.md` 檔案 - 與 [recurring jobs](/docs/recurring-jobs#creating) 的工作方式完全相同。對於事件驅動的自動化，您可以將下面的事件觸發 frontmatter 新增到同一檔案中。事件觸發作業設定 `schedule: ""` 並提供 `triggerType: event`、`event` 名稱和可選的 `condition`：
 
@@ -172,11 +178,11 @@ emit(
     customerEmail: "jane@example.com",
     total: 49.99,
   },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
-自動化觸發的發出中繼資料範圍中的 `owner` - 僅評估同一使用者擁有的自動化（或共用自動化）。
+發出中繼資料中的 `owner` 決定哪些自動化可以觸發。個人和組織 Event 自動化都必須與 `createdBy` 完全相符。
 
 ## 條件 {#conditions}
 
@@ -228,7 +234,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## 代理工具 {#agent-tools}
 
-所有自動化操作均透過帶有 `action` 參數的單一 `manage-automations` 工具存取：
+個人和組織自動化都使用帶 `action` 參數的 `manage-automations`：
 
 | 行動          | 目的                                                 |
 | ------------- | ---------------------------------------------------- |
@@ -240,6 +246,8 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | `fire-test`   | 發出 `test.event.fired` 事件來驗證自動化             |
 
 附加工具：`web-request` — 出站 HTTP 替換為 `${keys.NAME}`。
+
+`manage-automations` 支援組織範圍、模型覆寫和嚴格執行的 MCP 允許清單。`manage-jobs` 仍是舊 schedule-only 整合和傳遞中繼資料的相容工具。
 
 ## API 端點 {#api}
 
@@ -280,7 +288,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -361,6 +370,7 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ```yaml
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"

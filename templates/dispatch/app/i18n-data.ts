@@ -1,5 +1,6 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
 
+import { chatFirstPageTranslations } from "./chat-first-pages";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
@@ -37,6 +38,16 @@ const enUS = {
     deliveryDescription:
       "Manage message destinations and check the outbound delivery queue.",
     openDelivery: "Open delivery",
+    chatFirstTitle: "Chat-first workspace",
+    chatFirstDescription:
+      "Keep chats at the center and open workspace apps in a contextual pane beside them. This preference only changes your local Dispatch shell.",
+    chatFirstAriaLabel: "Use chat-first navigation",
+    chatFirstSessionWatchDescription:
+      "Session watch and follow-up messaging work in this browser pane too. Local CLI subscription detection stays in the Electron app; Dispatch uses workspace/provider credentials.",
+    chatFirstStorageUnavailable:
+      "This browser is not allowing local preferences, so Chat-first mode cannot be persisted.",
+    chatFirstStorageBlocked:
+      "This browser blocked local preferences, so Chat-first mode was not changed.",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, voice, and other controls. Use the Automations page for scheduled and event-triggered jobs.",
@@ -266,6 +277,7 @@ const enUS = {
   },
   dispatch: {
     nav: {
+      admin: "Admin",
       automations: "Automations",
       approvals: "Approvals",
       delivery: "Delivery",
@@ -276,6 +288,18 @@ const enUS = {
       agent: "Agent",
     },
     pages: {
+      adminDescription: "Workspace controls and operations",
+      adminNavigation: "Admin navigation",
+      adminWelcome: "Workspace control plane",
+      adminChooseArea:
+        "Manage apps, connections, automations, and operational tools from one place.",
+      adminChooseAreaHint: "Choose an area from the Admin navigation.",
+      adminWorkspace: "Workspace",
+      adminOperations: "Operations",
+      adminAutomation: "Automation & delivery",
+      adminConnections: "Connections",
+      adminAgentPlatform: "Agent platform",
+      adminWorkspaceExtensions: "Workspace extensions",
       dataLoadFailed: "Couldn't load data",
       dataLoadFailedDescription: "Dispatch couldn't load this data.",
       tryAgain: "Try again",
@@ -287,6 +311,23 @@ const enUS = {
         "Route work, inspect status, or create something new from one place.",
       overviewPromptPlaceholder: "Ask Dispatch anything...",
       chatPromptPlaceholder: "Ask Dispatch...",
+      browserChatUnavailableTitle: "Browser chat session unavailable",
+      browserChatUnavailableDescription:
+        "Reconnect from the Agent-Native browser extension.",
+      browserChatPlaceholder: "Ask about this page…",
+      browserChatAttachedPlaceholder: "Ask about {{page}}…",
+      browserConnectTitle: "Connect browser chat",
+      browserConnectDescription:
+        "Allow the Agent-Native Chrome extension to open this Dispatch chat session. The connection uses a one-time, short-lived ticket.",
+      browserConnectInvalid:
+        "This connection request is invalid. Start again from the extension.",
+      browserConnectConnected:
+        "Browser chat connected. You can close this tab.",
+      browserConnectConnecting: "Connecting…",
+      browserConnectButton: "Connect",
+      browserConnectOpenFromExtension:
+        "Open this page from the Agent-Native Chrome extension.",
+      browserConnectFailed: "The browser extension did not connect.",
       suggestionWorkspaceHealth: "Summarize the current workspace health",
       suggestionOnboardingApp: "Create an app for onboarding requests",
       suggestionAnalyticsAgents: "Check which agents can help with analytics",
@@ -305,6 +346,121 @@ const enUS = {
       unknownPlatform: "unknown",
       attemptsCount: "{{count}} attempts",
       noErrorMessage: "(no error message)",
+      threadDebugInspectFailure: "Inspect failed run",
+      threadDebugFailureCode: "Failure code",
+      threadDebugTerminalReason: "Terminal reason",
+      threadDebugDispatchMode: "Dispatch mode",
+      threadDebugLastStage: "Last stage",
+      threadDebugDuration: "Duration",
+      threadDebugLastProgress: "Last progress",
+      threadDebugTitle: "Thread Debug",
+      threadDebugDescription:
+        "Inspect failed agent runs, persisted threads, run events, and AI internals.",
+      threadDebugFailedRuns: "Failed runs",
+      threadDebugThreads: "Threads",
+      threadDebugSource: "Source",
+      threadDebugAllSources: "All sources",
+      threadDebugOwner: "Owner email",
+      threadDebugStatus: "Status",
+      threadDebugAllStatuses: "All statuses",
+      threadDebugErrored: "Errored",
+      threadDebugAborted: "Aborted",
+      threadDebugTruncated: "Truncated",
+      threadDebugRange: "Time range",
+      threadDebugRange24h: "Last 24 hours",
+      threadDebugRange7d: "Last 7 days",
+      threadDebugRange30d: "Last 30 days",
+      threadDebugFailureResults: "failed runs",
+      threadDebugCurrentScope: "current scope",
+      threadDebugPartialResults: "Partial results",
+      threadDebugUnavailableSources: "Unavailable sources:",
+      threadDebugDisconnected: "disconnected",
+      threadDebugUnsupported: "unsupported",
+      threadDebugUnavailable: "unavailable",
+      threadDebugRefreshFailures: "Refresh failed runs",
+      threadDebugNoFailures: "No failed runs found.",
+      threadDebugCurrentDatabase: "Current Dispatch DB",
+      threadDebugSearchPlaceholder: "Search threads or email",
+      threadDebugSearch: "Search",
+      threadDebugLookupPlaceholder: "Paste thread or request/run ID",
+      threadDebugInspect: "Inspect",
+      threadDebugAdminScope: "admin scope",
+      threadDebugOwnScope: "own scope",
+      threadDebugResults: "results",
+      threadDebugRefreshThreads: "Refresh threads",
+      threadDebugNoThreads: "No threads found.",
+      threadDebugSelectPrompt: "Select a failed run or thread to inspect.",
+      chatFirstWorkspaceApps: "Workspace apps",
+      chatFirstCreateWorkspaceApp: "Create workspace app",
+      chatFirstOpenApp: "Open {{name}}",
+      chatFirstAppsLoadError: "Workspace apps could not be loaded",
+      chatFirstNoWorkspaceApps: "No workspace apps yet.",
+      chatFirstCreateApp: "Create app",
+      chatFirstRetry: "Retry",
+      chatFirstUnpinApp: "Unpin {{name}}",
+      chatFirstPinApp: "Pin {{name}}",
+      chatFirstRemovePinned: "Remove from pinned apps",
+      chatFirstPinTop: "Pin app to the top",
+      chatFirstOpenSideSurfaces: "Open side surfaces",
+      chatFirstCloseTab: "Close {{name}}",
+      chatFirstClose: "Close",
+      chatFirstCloseOthers: "Close others",
+      chatFirstCloseToRight: "Close to the right",
+      chatFirstCloseAll: "Close all",
+      chatFirstBrowserAgentHint: "Ask the agent to open a web URL.",
+      chatFirstUnavailable: "This surface is not available here.",
+      chatFirstOpenActivity: "Open activity",
+      chatFirstDeferred: "Deferred",
+      chatFirstSurfaceBrowserLabel: "Browser",
+      chatFirstSurfaceBrowserDescription:
+        "Open a regular web page with address-bar controls.",
+      chatFirstSurfaceBrowserReason: "Ask the agent to open a web URL.",
+      chatFirstSurfaceTerminalLabel: "Terminal",
+      chatFirstSurfaceTerminalDescription:
+        "Run commands beside the conversation.",
+      chatFirstSurfaceTerminalReason:
+        "Deferred in this release: the existing terminal is a standalone host surface; an embedded pane needs a shared PTY lifecycle.",
+      chatFirstSurfaceFilesLabel: "Files",
+      chatFirstSurfaceFilesDescription: "Browse the active workspace tree.",
+      chatFirstSurfaceFilesReason:
+        "Deferred in this release: this shared pane contract does not expose a bounded workspace tree yet.",
+      chatFirstSurfaceDiffLabel: "Diff",
+      chatFirstSurfaceDiffDescription: "Review the current changeset.",
+      chatFirstSurfaceDiffReason:
+        "Deferred in this release: diff blocks remain available in chat while a shared changed-file source is defined.",
+      chatFirstSurfaceSideChatLabel: "Side chat",
+      chatFirstSurfaceSideChatDescription:
+        "Watch and message another session beside the main chat.",
+      chatFirstSurfaceAgentsLabel: "Agents",
+      chatFirstSurfaceAgentsDescription:
+        "Review agent sessions and watch one beside the conversation.",
+      chatFirstSurfaceSideChatReason:
+        "Choose Watch and message from any chat row.",
+      chatFirstSurfaceAgentsReason:
+        "Review recent runs or watch one beside this conversation.",
+      chatFirstAppView: "Contextual app view",
+      chatFirstContextualView: "Contextual view · {{view}}",
+      chatFirstWorkspaceApp: "Workspace app",
+      chatFirstCloseAppPane: "Close app pane",
+      chatFirstAppUnavailable: "This workspace app is no longer available.",
+      chatFirstLoadingApp: "Loading app",
+      chatFirstBrowserBack: "Back",
+      chatFirstBrowserForward: "Forward",
+      chatFirstBrowserReload: "Reload page",
+      chatFirstBrowserAddress: "Browser address",
+      chatFirstBrowserOpenExternal: "Open in external browser",
+      chatFirstBrowserClose: "Close browser",
+      chatFirstBrowserPage: "Browser page",
+      chatFirstBrowserInvalidUrl: "Enter a full http(s) URL to navigate.",
+      chatFirstWatchingSession: "Watching {{name}}",
+      chatFirstSession: "session",
+      chatFirstStopWatchingSession: "Stop watching session",
+      chatFirstStopWatching: "Stop watching",
+      chatFirstWatchedSession: "Watched session",
+      chatFirstSessionMessagePlaceholder: "Message this session…",
+      chatFirstAgentsTitle: "Subagents",
+      chatFirstUntitledAgentSession: "Untitled agent session",
+      chatFirstAgentChatSession: "Agent chat session",
     },
   },
 };
@@ -430,6 +586,16 @@ export const messagesByLocale = {
       deliveryTitle: "投递",
       deliveryDescription: "管理消息目的地并查看出站投递队列。",
       openDelivery: "打开投递",
+      chatFirstTitle: "聊天优先工作区",
+      chatFirstDescription:
+        "让聊天保持中心位置，并在旁边的上下文面板中打开工作区应用。此偏好只会更改你在 Dispatch 中的本地界面。",
+      chatFirstAriaLabel: "使用聊天优先导航",
+      chatFirstSessionWatchDescription:
+        "会话监看和后续消息也可在此浏览器面板中使用。本地 CLI 订阅检测保留在 Electron 应用中；Dispatch 使用工作区/提供商凭据。",
+      chatFirstStorageUnavailable:
+        "此浏览器不允许使用本地偏好设置，因此无法保存聊天优先模式。",
+      chatFirstStorageBlocked:
+        "此浏览器阻止了本地偏好设置，因此未更改聊天优先模式。",
       agentTitle: "管理代理",
       agentDescription:
         "管理代理的模型、API 密钥、语音和其他控制项。定时与事件触发的任务请使用自动化页面。",
@@ -652,6 +818,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "管理",
         automations: "自动化",
         approvals: "批准",
         delivery: "投递",
@@ -662,6 +829,18 @@ export const messagesByLocale = {
         agent: "代理",
       },
       pages: {
+        ...chatFirstPageTranslations["zh-CN"],
+        adminDescription: "工作区控制与运营",
+        adminNavigation: "管理导航",
+        adminWelcome: "工作区控制中心",
+        adminChooseArea: "在一个地方管理应用、连接、自动化和运营工具。",
+        adminChooseAreaHint: "从管理导航中选择一个区域。",
+        adminWorkspace: "工作区",
+        adminOperations: "运营",
+        adminAutomation: "自动化与投递",
+        adminConnections: "连接",
+        adminAgentPlatform: "代理平台",
+        adminWorkspaceExtensions: "工作区扩展",
         dataLoadFailed: "无法加载数据",
         dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
         tryAgain: "重试",
@@ -672,6 +851,21 @@ export const messagesByLocale = {
         chatAcrossAppsDescription: "在一个地方分派工作、检查状态或创建新内容。",
         overviewPromptPlaceholder: "向 Dispatch 提问...",
         chatPromptPlaceholder: "询问 Dispatch...",
+        browserChatUnavailableTitle: "浏览器聊天会话不可用",
+        browserChatUnavailableDescription:
+          "请从 Agent-Native 浏览器扩展重新连接。",
+        browserChatPlaceholder: "询问此页面…",
+        browserChatAttachedPlaceholder: "询问 {{page}}…",
+        browserConnectTitle: "连接浏览器聊天",
+        browserConnectDescription:
+          "允许 Agent-Native Chrome 扩展打开此 Dispatch 聊天会话。连接使用一次性的短期票据。",
+        browserConnectInvalid: "此连接请求无效。请从扩展重新开始。",
+        browserConnectConnected: "浏览器聊天已连接。你可以关闭此标签页。",
+        browserConnectConnecting: "正在连接…",
+        browserConnectButton: "连接",
+        browserConnectOpenFromExtension:
+          "请从 Agent-Native Chrome 扩展打开此页面。",
+        browserConnectFailed: "浏览器扩展未能连接。",
         suggestionWorkspaceHealth: "总结当前工作区运行状况",
         suggestionOnboardingApp: "为入职请求创建一个应用",
         suggestionAnalyticsAgents: "查看哪些代理可以协助分析",
@@ -689,6 +883,50 @@ export const messagesByLocale = {
         unknownPlatform: "未知",
         attemptsCount: "{{count}} 次尝试",
         noErrorMessage: "（无错误消息）",
+        threadDebugInspectFailure: "检查失败的运行",
+        threadDebugFailureCode: "失败代码",
+        threadDebugTerminalReason: "终止原因",
+        threadDebugDispatchMode: "调度模式",
+        threadDebugLastStage: "最后阶段",
+        threadDebugDuration: "持续时间",
+        threadDebugLastProgress: "最后进度",
+        threadDebugTitle: "线程调试",
+        threadDebugDescription:
+          "检查失败的代理运行、已保存的线程、运行事件和 AI 内部数据。",
+        threadDebugFailedRuns: "失败的运行",
+        threadDebugThreads: "线程",
+        threadDebugSource: "来源",
+        threadDebugAllSources: "所有来源",
+        threadDebugOwner: "所有者邮箱",
+        threadDebugStatus: "状态",
+        threadDebugAllStatuses: "所有状态",
+        threadDebugErrored: "发生错误",
+        threadDebugAborted: "已中止",
+        threadDebugTruncated: "已截断",
+        threadDebugRange: "时间范围",
+        threadDebugRange24h: "过去 24 小时",
+        threadDebugRange7d: "过去 7 天",
+        threadDebugRange30d: "过去 30 天",
+        threadDebugFailureResults: "个失败运行",
+        threadDebugCurrentScope: "当前范围",
+        threadDebugPartialResults: "部分结果",
+        threadDebugUnavailableSources: "不可用的来源：",
+        threadDebugDisconnected: "已断开连接",
+        threadDebugUnsupported: "不支持",
+        threadDebugUnavailable: "不可用",
+        threadDebugRefreshFailures: "刷新失败运行",
+        threadDebugNoFailures: "未找到失败运行。",
+        threadDebugCurrentDatabase: "当前 Dispatch 数据库",
+        threadDebugSearchPlaceholder: "搜索标题、预览、消息和工具",
+        threadDebugSearch: "搜索",
+        threadDebugLookupPlaceholder: "粘贴线程或请求/运行 ID",
+        threadDebugInspect: "检查",
+        threadDebugAdminScope: "管理员范围",
+        threadDebugOwnScope: "自己的范围",
+        threadDebugResults: "条结果",
+        threadDebugRefreshThreads: "刷新线程",
+        threadDebugNoThreads: "未找到线程。",
+        threadDebugSelectPrompt: "选择一个失败运行或线程进行检查。",
       },
     },
   }),
@@ -728,6 +966,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gestiona destinos de mensajes y revisa la cola de entrega saliente.",
       openDelivery: "Abrir entrega",
+      chatFirstTitle: "Espacio de trabajo centrado en el chat",
+      chatFirstDescription:
+        "Deja los chats en el centro y abre las apps del espacio de trabajo en un panel contextual junto a ellos. Esta preferencia solo cambia tu shell local de Dispatch.",
+      chatFirstAriaLabel: "Usar navegación centrada en el chat",
+      chatFirstSessionWatchDescription:
+        "Puedes observar sesiones y enviar mensajes de seguimiento desde este panel del navegador. La detección de suscripciones CLI locales permanece en la app de Electron; Dispatch usa credenciales del espacio de trabajo/proveedor.",
+      chatFirstStorageUnavailable:
+        "Este navegador no permite las preferencias locales, por lo que el modo centrado en el chat no se puede guardar.",
+      chatFirstStorageBlocked:
+        "Este navegador bloqueó las preferencias locales, por lo que no se cambió el modo centrado en el chat.",
       agentTitle: "Gestionar agente",
       agentDescription:
         "Gestiona el modelo del agente, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
@@ -973,6 +1221,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administración",
         automations: "Automatizaciones",
         approvals: "Aprobaciones",
         delivery: "Entrega",
@@ -983,6 +1232,20 @@ export const messagesByLocale = {
         agent: "Agente",
       },
       pages: {
+        ...chatFirstPageTranslations["es-ES"],
+        adminDescription: "Controles y operaciones del espacio de trabajo",
+        adminNavigation: "Navegación de administración",
+        adminWelcome: "Panel de control del espacio de trabajo",
+        adminChooseArea:
+          "Gestiona aplicaciones, conexiones, automatizaciones y herramientas operativas desde un solo lugar.",
+        adminChooseAreaHint:
+          "Elige un área en la navegación de administración.",
+        adminWorkspace: "Espacio de trabajo",
+        adminOperations: "Operaciones",
+        adminAutomation: "Automatización y entrega",
+        adminConnections: "Conexiones",
+        adminAgentPlatform: "Plataforma de agentes",
+        adminWorkspaceExtensions: "Extensiones del espacio de trabajo",
         dataLoadFailed: "No se pudieron cargar los datos",
         dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
         tryAgain: "Intentar de nuevo",
@@ -994,6 +1257,24 @@ export const messagesByLocale = {
           "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
         overviewPromptPlaceholder: "Pregunta lo que quieras a Dispatch...",
         chatPromptPlaceholder: "Pregunta a Dispatch...",
+        browserChatUnavailableTitle:
+          "La sesión de chat del navegador no está disponible",
+        browserChatUnavailableDescription:
+          "Vuelve a conectarte desde la extensión Agent-Native.",
+        browserChatPlaceholder: "Pregunta sobre esta página…",
+        browserChatAttachedPlaceholder: "Pregunta sobre {{page}}…",
+        browserConnectTitle: "Conectar el chat del navegador",
+        browserConnectDescription:
+          "Permite que la extensión de Chrome Agent-Native abra esta sesión de Dispatch. La conexión usa un ticket único y de corta duración.",
+        browserConnectInvalid:
+          "Esta solicitud de conexión no es válida. Vuelve a empezar desde la extensión.",
+        browserConnectConnected:
+          "El chat del navegador está conectado. Puedes cerrar esta pestaña.",
+        browserConnectConnecting: "Conectando…",
+        browserConnectButton: "Conectar",
+        browserConnectOpenFromExtension:
+          "Abre esta página desde la extensión de Chrome Agent-Native.",
+        browserConnectFailed: "La extensión del navegador no se conectó.",
         suggestionWorkspaceHealth:
           "Resume el estado actual del espacio de trabajo",
         suggestionOnboardingApp:
@@ -1015,6 +1296,53 @@ export const messagesByLocale = {
         unknownPlatform: "desconocido",
         attemptsCount: "{{count}} intentos",
         noErrorMessage: "(sin mensaje de error)",
+        threadDebugInspectFailure: "Inspeccionar ejecución fallida",
+        threadDebugFailureCode: "Código de error",
+        threadDebugTerminalReason: "Motivo de finalización",
+        threadDebugDispatchMode: "Modo de despacho",
+        threadDebugLastStage: "Última etapa",
+        threadDebugDuration: "Duración",
+        threadDebugLastProgress: "Último progreso",
+        threadDebugTitle: "Depuración de hilos",
+        threadDebugDescription:
+          "Inspecciona ejecuciones fallidas del agente, hilos guardados, eventos de ejecución y datos internos de IA.",
+        threadDebugFailedRuns: "Ejecuciones fallidas",
+        threadDebugThreads: "Hilos",
+        threadDebugSource: "Origen",
+        threadDebugAllSources: "Todos los orígenes",
+        threadDebugOwner: "Correo del propietario",
+        threadDebugStatus: "Estado",
+        threadDebugAllStatuses: "Todos los estados",
+        threadDebugErrored: "Con error",
+        threadDebugAborted: "Abortadas",
+        threadDebugTruncated: "Truncadas",
+        threadDebugRange: "Intervalo de tiempo",
+        threadDebugRange24h: "Últimas 24 horas",
+        threadDebugRange7d: "Últimos 7 días",
+        threadDebugRange30d: "Últimos 30 días",
+        threadDebugFailureResults: "ejecuciones fallidas",
+        threadDebugCurrentScope: "ámbito actual",
+        threadDebugPartialResults: "Resultados parciales",
+        threadDebugUnavailableSources: "Orígenes no disponibles:",
+        threadDebugDisconnected: "desconectado",
+        threadDebugUnsupported: "no compatible",
+        threadDebugUnavailable: "no disponible",
+        threadDebugRefreshFailures: "Actualizar ejecuciones fallidas",
+        threadDebugNoFailures: "No se encontraron ejecuciones fallidas.",
+        threadDebugCurrentDatabase: "Base de datos actual de Dispatch",
+        threadDebugSearchPlaceholder:
+          "Buscar título, vista previa, mensajes y herramientas",
+        threadDebugSearch: "Buscar",
+        threadDebugLookupPlaceholder:
+          "Pega un ID de hilo o de solicitud/ejecución",
+        threadDebugInspect: "Inspeccionar",
+        threadDebugAdminScope: "ámbito de administrador",
+        threadDebugOwnScope: "ámbito propio",
+        threadDebugResults: "resultados",
+        threadDebugRefreshThreads: "Actualizar hilos",
+        threadDebugNoThreads: "No se encontraron hilos.",
+        threadDebugSelectPrompt:
+          "Selecciona una ejecución fallida o un hilo para inspeccionarlo.",
       },
     },
   }),
@@ -1054,6 +1382,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gérez les destinations de messages et consultez la file d’attente sortante.",
       openDelivery: "Ouvrir la livraison",
+      chatFirstTitle: "Espace de travail axé sur le chat",
+      chatFirstDescription:
+        "Gardez les chats au centre et ouvrez les apps de l’espace de travail dans un panneau contextuel à côté. Cette préférence ne modifie que votre interface locale Dispatch.",
+      chatFirstAriaLabel: "Utiliser la navigation axée sur le chat",
+      chatFirstSessionWatchDescription:
+        "Le suivi des sessions et les messages de suivi fonctionnent aussi dans ce panneau du navigateur. La détection des abonnements CLI locaux reste dans l’app Electron ; Dispatch utilise les identifiants de l’espace de travail/fournisseur.",
+      chatFirstStorageUnavailable:
+        "Ce navigateur n’autorise pas les préférences locales ; le mode axé sur le chat ne peut donc pas être conservé.",
+      chatFirstStorageBlocked:
+        "Ce navigateur a bloqué les préférences locales ; le mode axé sur le chat n’a pas été modifié.",
       agentTitle: "Gérer l’agent",
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, la voix et les autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
@@ -1299,6 +1637,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administration",
         automations: "Automatisations",
         approvals: "Approbations",
         delivery: "Livraison",
@@ -1309,6 +1648,20 @@ export const messagesByLocale = {
         agent: "Agent",
       },
       pages: {
+        ...chatFirstPageTranslations["fr-FR"],
+        adminDescription: "Contrôles et opérations de l’espace de travail",
+        adminNavigation: "Navigation d’administration",
+        adminWelcome: "Centre de contrôle de l’espace de travail",
+        adminChooseArea:
+          "Gérez les applications, connexions, automatisations et outils opérationnels depuis un seul endroit.",
+        adminChooseAreaHint:
+          "Choisissez une section dans la navigation d’administration.",
+        adminWorkspace: "Espace de travail",
+        adminOperations: "Opérations",
+        adminAutomation: "Automatisation et livraison",
+        adminConnections: "Connexions",
+        adminAgentPlatform: "Plateforme d’agents",
+        adminWorkspaceExtensions: "Extensions de l’espace de travail",
         dataLoadFailed: "Impossible de charger les données",
         dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
         tryAgain: "Réessayer",
@@ -1320,6 +1673,25 @@ export const messagesByLocale = {
           "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
         overviewPromptPlaceholder: "Demandez n’importe quoi à Dispatch…",
         chatPromptPlaceholder: "Demandez à Dispatch…",
+        browserChatUnavailableTitle:
+          "La session de chat du navigateur est indisponible",
+        browserChatUnavailableDescription:
+          "Reconnectez-vous depuis l’extension Agent-Native.",
+        browserChatPlaceholder: "Posez une question sur cette page…",
+        browserChatAttachedPlaceholder: "Posez une question sur {{page}}…",
+        browserConnectTitle: "Connecter le chat du navigateur",
+        browserConnectDescription:
+          "Autorisez l’extension Chrome Agent-Native à ouvrir cette session Dispatch. La connexion utilise un ticket unique de courte durée.",
+        browserConnectInvalid:
+          "Cette demande de connexion est invalide. Recommencez depuis l’extension.",
+        browserConnectConnected:
+          "Le chat du navigateur est connecté. Vous pouvez fermer cet onglet.",
+        browserConnectConnecting: "Connexion…",
+        browserConnectButton: "Connecter",
+        browserConnectOpenFromExtension:
+          "Ouvrez cette page depuis l’extension Chrome Agent-Native.",
+        browserConnectFailed:
+          "L’extension du navigateur ne s’est pas connectée.",
         suggestionWorkspaceHealth:
           "Résumer l’état actuel de l’espace de travail",
         suggestionOnboardingApp:
@@ -1341,6 +1713,53 @@ export const messagesByLocale = {
         unknownPlatform: "inconnu",
         attemptsCount: "{{count}} tentatives",
         noErrorMessage: "(aucun message d’erreur)",
+        threadDebugInspectFailure: "Inspecter l’exécution échouée",
+        threadDebugFailureCode: "Code d’échec",
+        threadDebugTerminalReason: "Raison de l’arrêt",
+        threadDebugDispatchMode: "Mode de répartition",
+        threadDebugLastStage: "Dernière étape",
+        threadDebugDuration: "Durée",
+        threadDebugLastProgress: "Dernière progression",
+        threadDebugTitle: "Débogage des fils",
+        threadDebugDescription:
+          "Inspectez les exécutions d’agent échouées, les fils persistés, les événements d’exécution et les données internes de l’IA.",
+        threadDebugFailedRuns: "Exécutions échouées",
+        threadDebugThreads: "Fils",
+        threadDebugSource: "Source",
+        threadDebugAllSources: "Toutes les sources",
+        threadDebugOwner: "Adresse e-mail du propriétaire",
+        threadDebugStatus: "État",
+        threadDebugAllStatuses: "Tous les états",
+        threadDebugErrored: "En erreur",
+        threadDebugAborted: "Interrompues",
+        threadDebugTruncated: "Tronquées",
+        threadDebugRange: "Plage de temps",
+        threadDebugRange24h: "24 dernières heures",
+        threadDebugRange7d: "7 derniers jours",
+        threadDebugRange30d: "30 derniers jours",
+        threadDebugFailureResults: "exécutions échouées",
+        threadDebugCurrentScope: "portée actuelle",
+        threadDebugPartialResults: "Résultats partiels",
+        threadDebugUnavailableSources: "Sources indisponibles :",
+        threadDebugDisconnected: "déconnecté",
+        threadDebugUnsupported: "non pris en charge",
+        threadDebugUnavailable: "indisponible",
+        threadDebugRefreshFailures: "Actualiser les exécutions échouées",
+        threadDebugNoFailures: "Aucune exécution échouée trouvée.",
+        threadDebugCurrentDatabase: "Base de données Dispatch actuelle",
+        threadDebugSearchPlaceholder:
+          "Rechercher dans le titre, l’aperçu, les messages et les outils",
+        threadDebugSearch: "Rechercher",
+        threadDebugLookupPlaceholder:
+          "Collez un ID de fil ou de requête/exécution",
+        threadDebugInspect: "Inspecter",
+        threadDebugAdminScope: "portée administrateur",
+        threadDebugOwnScope: "portée personnelle",
+        threadDebugResults: "résultats",
+        threadDebugRefreshThreads: "Actualiser les fils",
+        threadDebugNoThreads: "Aucun fil trouvé.",
+        threadDebugSelectPrompt:
+          "Sélectionnez une exécution échouée ou un fil à inspecter.",
       },
     },
   }),
@@ -1380,6 +1799,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Nachrichtenziele verwalten und die ausgehende Zustellungswarteschlange prüfen.",
       openDelivery: "Zustellung öffnen",
+      chatFirstTitle: "Chat-zentrierter Arbeitsbereich",
+      chatFirstDescription:
+        "Chats bleiben im Mittelpunkt, während Workspace-Apps in einem kontextbezogenen Bereich daneben geöffnet werden. Diese Einstellung ändert nur deine lokale Dispatch-Oberfläche.",
+      chatFirstAriaLabel: "Chat-zentrierte Navigation verwenden",
+      chatFirstSessionWatchDescription:
+        "Sessions können auch in diesem Browserbereich beobachtet und mit Folgemeldungen versehen werden. Die Erkennung lokaler CLI-Abos bleibt in der Electron-App; Dispatch verwendet Workspace-/Anbieter-Anmeldedaten.",
+      chatFirstStorageUnavailable:
+        "Dieser Browser lässt lokale Einstellungen nicht zu. Der chat-zentrierte Modus kann daher nicht gespeichert werden.",
+      chatFirstStorageBlocked:
+        "Dieser Browser hat lokale Einstellungen blockiert. Der chat-zentrierte Modus wurde nicht geändert.",
       agentTitle: "Agent verwalten",
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Sprache und weitere Steuerungen des Agents. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
@@ -1614,6 +2043,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administration",
         automations: "Automatisierungen",
         approvals: "Freigaben",
         delivery: "Zustellung",
@@ -1624,6 +2054,20 @@ export const messagesByLocale = {
         agent: "Agent",
       },
       pages: {
+        ...chatFirstPageTranslations["de-DE"],
+        adminDescription: "Arbeitsbereichssteuerung und -betrieb",
+        adminNavigation: "Administrationsnavigation",
+        adminWelcome: "Arbeitsbereichsleitstelle",
+        adminChooseArea:
+          "Verwalte Apps, Verbindungen, Automatisierungen und Betriebstools an einem Ort.",
+        adminChooseAreaHint:
+          "Wähle einen Bereich in der Administrationsnavigation.",
+        adminWorkspace: "Arbeitsbereich",
+        adminOperations: "Betrieb",
+        adminAutomation: "Automatisierung und Zustellung",
+        adminConnections: "Verbindungen",
+        adminAgentPlatform: "Agentenplattform",
+        adminWorkspaceExtensions: "Arbeitsbereichserweiterungen",
         dataLoadFailed: "Daten konnten nicht geladen werden",
         dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
         tryAgain: "Erneut versuchen",
@@ -1635,6 +2079,24 @@ export const messagesByLocale = {
           "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
         overviewPromptPlaceholder: "Frage Dispatch alles...",
         chatPromptPlaceholder: "Dispatch fragen...",
+        browserChatUnavailableTitle: "Browser-Chat-Sitzung nicht verfügbar",
+        browserChatUnavailableDescription:
+          "Stelle die Verbindung über die Agent-Native-Erweiterung erneut her.",
+        browserChatPlaceholder: "Zu dieser Seite fragen…",
+        browserChatAttachedPlaceholder: "Zu {{page}} fragen…",
+        browserConnectTitle: "Browser-Chat verbinden",
+        browserConnectDescription:
+          "Erlaube der Agent-Native Chrome-Erweiterung, diese Dispatch-Sitzung zu öffnen. Die Verbindung verwendet ein einmaliges, kurzlebiges Ticket.",
+        browserConnectInvalid:
+          "Diese Verbindungsanfrage ist ungültig. Starte erneut über die Erweiterung.",
+        browserConnectConnected:
+          "Browser-Chat verbunden. Du kannst diesen Tab schließen.",
+        browserConnectConnecting: "Verbindung wird hergestellt…",
+        browserConnectButton: "Verbinden",
+        browserConnectOpenFromExtension:
+          "Öffne diese Seite über die Agent-Native Chrome-Erweiterung.",
+        browserConnectFailed:
+          "Die Browser-Erweiterung konnte keine Verbindung herstellen.",
         suggestionWorkspaceHealth:
           "Aktuellen Zustand des Workspace zusammenfassen",
         suggestionOnboardingApp: "Eine App für Onboarding-Anfragen erstellen",
@@ -1655,6 +2117,52 @@ export const messagesByLocale = {
         unknownPlatform: "unbekannt",
         attemptsCount: "{{count}} Versuche",
         noErrorMessage: "(keine Fehlermeldung)",
+        threadDebugInspectFailure: "Fehlgeschlagenen Lauf untersuchen",
+        threadDebugFailureCode: "Fehlercode",
+        threadDebugTerminalReason: "Beendigungsgrund",
+        threadDebugDispatchMode: "Dispatch-Modus",
+        threadDebugLastStage: "Letzte Phase",
+        threadDebugDuration: "Dauer",
+        threadDebugLastProgress: "Letzter Fortschritt",
+        threadDebugTitle: "Thread-Debugging",
+        threadDebugDescription:
+          "Fehlgeschlagene Agent-Läufe, gespeicherte Threads, Laufereignisse und KI-Interna untersuchen.",
+        threadDebugFailedRuns: "Fehlgeschlagene Läufe",
+        threadDebugThreads: "Threads",
+        threadDebugSource: "Quelle",
+        threadDebugAllSources: "Alle Quellen",
+        threadDebugOwner: "E-Mail des Eigentümers",
+        threadDebugStatus: "Status",
+        threadDebugAllStatuses: "Alle Statuswerte",
+        threadDebugErrored: "Fehlerhaft",
+        threadDebugAborted: "Abgebrochen",
+        threadDebugTruncated: "Abgeschnitten",
+        threadDebugRange: "Zeitraum",
+        threadDebugRange24h: "Letzte 24 Stunden",
+        threadDebugRange7d: "Letzte 7 Tage",
+        threadDebugRange30d: "Letzte 30 Tage",
+        threadDebugFailureResults: "fehlgeschlagene Läufe",
+        threadDebugCurrentScope: "aktueller Bereich",
+        threadDebugPartialResults: "Teilergebnisse",
+        threadDebugUnavailableSources: "Nicht verfügbare Quellen:",
+        threadDebugDisconnected: "getrennt",
+        threadDebugUnsupported: "nicht unterstützt",
+        threadDebugUnavailable: "nicht verfügbar",
+        threadDebugRefreshFailures: "Fehlgeschlagene Läufe aktualisieren",
+        threadDebugNoFailures: "Keine fehlgeschlagenen Läufe gefunden.",
+        threadDebugCurrentDatabase: "Aktuelle Dispatch-Datenbank",
+        threadDebugSearchPlaceholder:
+          "Titel, Vorschau, Nachrichten und Tools durchsuchen",
+        threadDebugSearch: "Suchen",
+        threadDebugLookupPlaceholder: "Thread- oder Anfrage-/Lauf-ID einfügen",
+        threadDebugInspect: "Untersuchen",
+        threadDebugAdminScope: "Admin-Bereich",
+        threadDebugOwnScope: "eigener Bereich",
+        threadDebugResults: "Ergebnisse",
+        threadDebugRefreshThreads: "Threads aktualisieren",
+        threadDebugNoThreads: "Keine Threads gefunden.",
+        threadDebugSelectPrompt:
+          "Einen fehlgeschlagenen Lauf oder Thread zum Untersuchen auswählen.",
       },
     },
   }),
@@ -1693,6 +2201,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "メッセージの送信先を管理し、送信キューを確認します。",
       openDelivery: "配信を開く",
+      chatFirstTitle: "チャット中心のワークスペース",
+      chatFirstDescription:
+        "チャットを中心に保ち、ワークスペースアプリを隣のコンテキストパネルで開きます。この設定で変わるのはローカルの Dispatch シェルだけです。",
+      chatFirstAriaLabel: "チャット中心のナビゲーションを使用",
+      chatFirstSessionWatchDescription:
+        "このブラウザパネルでもセッションの監視とフォローアップメッセージを利用できます。ローカル CLI サブスクリプションの検出は Electron アプリに残り、Dispatch はワークスペース/プロバイダーの認証情報を使用します。",
+      chatFirstStorageUnavailable:
+        "このブラウザではローカル設定が許可されないため、チャット中心モードを保存できません。",
+      chatFirstStorageBlocked:
+        "このブラウザがローカル設定をブロックしたため、チャット中心モードは変更されませんでした。",
       agentTitle: "エージェントを管理",
       agentDescription:
         "エージェントのモデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
@@ -1925,6 +2443,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "管理",
         automations: "自動化",
         approvals: "承認",
         delivery: "配信",
@@ -1935,6 +2454,19 @@ export const messagesByLocale = {
         agent: "エージェント",
       },
       pages: {
+        ...chatFirstPageTranslations["ja-JP"],
+        adminDescription: "ワークスペースの管理と運用",
+        adminNavigation: "管理ナビゲーション",
+        adminWelcome: "ワークスペースのコントロールプレーン",
+        adminChooseArea:
+          "アプリ、接続、オートメーション、運用ツールを 1 か所で管理します。",
+        adminChooseAreaHint: "管理ナビゲーションから領域を選択してください。",
+        adminWorkspace: "ワークスペース",
+        adminOperations: "運用",
+        adminAutomation: "自動化と配信",
+        adminConnections: "接続",
+        adminAgentPlatform: "エージェントプラットフォーム",
+        adminWorkspaceExtensions: "ワークスペース拡張機能",
         dataLoadFailed: "データを読み込めませんでした",
         dataLoadFailedDescription:
           "Dispatch はこのデータを読み込めませんでした。",
@@ -1947,6 +2479,23 @@ export const messagesByLocale = {
           "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
         overviewPromptPlaceholder: "Dispatch に何でも質問...",
         chatPromptPlaceholder: "Dispatch に質問...",
+        browserChatUnavailableTitle: "ブラウザーチャットを利用できません",
+        browserChatUnavailableDescription:
+          "Agent-Native ブラウザー拡張機能から再接続してください。",
+        browserChatPlaceholder: "このページについて質問…",
+        browserChatAttachedPlaceholder: "{{page}} について質問…",
+        browserConnectTitle: "ブラウザーチャットを接続",
+        browserConnectDescription:
+          "Agent-Native Chrome 拡張機能がこの Dispatch チャットを開くことを許可します。接続には一度だけ使える短期チケットを使用します。",
+        browserConnectInvalid:
+          "この接続リクエストは無効です。拡張機能からやり直してください。",
+        browserConnectConnected:
+          "ブラウザーチャットに接続しました。このタブを閉じられます。",
+        browserConnectConnecting: "接続中…",
+        browserConnectButton: "接続",
+        browserConnectOpenFromExtension:
+          "Agent-Native Chrome 拡張機能からこのページを開いてください。",
+        browserConnectFailed: "ブラウザー拡張機能に接続できませんでした。",
         suggestionWorkspaceHealth: "現在のワークスペース状況を要約",
         suggestionOnboardingApp: "オンボーディング依頼用のアプリを作成",
         suggestionAnalyticsAgents: "分析を支援できるエージェントを確認",
@@ -1965,6 +2514,53 @@ export const messagesByLocale = {
         unknownPlatform: "不明",
         attemptsCount: "{{count}} 回試行",
         noErrorMessage: "（エラーメッセージなし）",
+        threadDebugInspectFailure: "失敗した実行を調査",
+        threadDebugFailureCode: "失敗コード",
+        threadDebugTerminalReason: "終了理由",
+        threadDebugDispatchMode: "ディスパッチモード",
+        threadDebugLastStage: "最終ステージ",
+        threadDebugDuration: "所要時間",
+        threadDebugLastProgress: "最終進捗",
+        threadDebugTitle: "スレッドデバッグ",
+        threadDebugDescription:
+          "失敗したエージェント実行、保存済みスレッド、実行イベント、AI 内部データを調査します。",
+        threadDebugFailedRuns: "失敗した実行",
+        threadDebugThreads: "スレッド",
+        threadDebugSource: "ソース",
+        threadDebugAllSources: "すべてのソース",
+        threadDebugOwner: "所有者のメール",
+        threadDebugStatus: "ステータス",
+        threadDebugAllStatuses: "すべてのステータス",
+        threadDebugErrored: "エラー",
+        threadDebugAborted: "中止",
+        threadDebugTruncated: "切り詰め",
+        threadDebugRange: "期間",
+        threadDebugRange24h: "過去 24 時間",
+        threadDebugRange7d: "過去 7 日間",
+        threadDebugRange30d: "過去 30 日間",
+        threadDebugFailureResults: "件の失敗した実行",
+        threadDebugCurrentScope: "現在の範囲",
+        threadDebugPartialResults: "一部の結果",
+        threadDebugUnavailableSources: "利用できないソース：",
+        threadDebugDisconnected: "切断済み",
+        threadDebugUnsupported: "未対応",
+        threadDebugUnavailable: "利用不可",
+        threadDebugRefreshFailures: "失敗した実行を更新",
+        threadDebugNoFailures: "失敗した実行は見つかりませんでした。",
+        threadDebugCurrentDatabase: "現在の Dispatch DB",
+        threadDebugSearchPlaceholder:
+          "タイトル、プレビュー、メッセージ、ツールを検索",
+        threadDebugSearch: "検索",
+        threadDebugLookupPlaceholder:
+          "スレッド ID またはリクエスト/実行 ID を貼り付け",
+        threadDebugInspect: "調査",
+        threadDebugAdminScope: "管理者範囲",
+        threadDebugOwnScope: "自分の範囲",
+        threadDebugResults: "件の結果",
+        threadDebugRefreshThreads: "スレッドを更新",
+        threadDebugNoThreads: "スレッドは見つかりませんでした。",
+        threadDebugSelectPrompt:
+          "失敗した実行またはスレッドを選択して調査します。",
       },
     },
   }),
@@ -2003,6 +2599,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "메시지 대상을 관리하고 발신 전달 대기열을 확인합니다.",
       openDelivery: "전달 열기",
+      chatFirstTitle: "채팅 중심 작업공간",
+      chatFirstDescription:
+        "채팅을 중심에 두고 작업공간 앱을 옆의 컨텍스트 패널에서 엽니다. 이 설정은 로컬 Dispatch 셸만 변경합니다.",
+      chatFirstAriaLabel: "채팅 중심 탐색 사용",
+      chatFirstSessionWatchDescription:
+        "이 브라우저 패널에서도 세션을 지켜보고 후속 메시지를 보낼 수 있습니다. 로컬 CLI 구독 감지는 Electron 앱에 남아 있으며, Dispatch는 작업공간/공급자 자격 증명을 사용합니다.",
+      chatFirstStorageUnavailable:
+        "이 브라우저에서는 로컬 환경설정을 허용하지 않아 채팅 중심 모드를 저장할 수 없습니다.",
+      chatFirstStorageBlocked:
+        "이 브라우저가 로컬 환경설정을 차단하여 채팅 중심 모드가 변경되지 않았습니다.",
       agentTitle: "에이전트 관리",
       agentDescription:
         "에이전트의 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
@@ -2232,6 +2838,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "관리",
         automations: "자동화",
         approvals: "승인",
         delivery: "전달",
@@ -2242,6 +2849,18 @@ export const messagesByLocale = {
         agent: "에이전트",
       },
       pages: {
+        ...chatFirstPageTranslations["ko-KR"],
+        adminDescription: "워크스페이스 제어 및 운영",
+        adminNavigation: "관리 탐색",
+        adminWelcome: "워크스페이스 제어 센터",
+        adminChooseArea: "한곳에서 앱, 연결, 자동화 및 운영 도구를 관리하세요.",
+        adminChooseAreaHint: "관리 탐색에서 영역을 선택하세요.",
+        adminWorkspace: "워크스페이스",
+        adminOperations: "운영",
+        adminAutomation: "자동화 및 전달",
+        adminConnections: "연결",
+        adminAgentPlatform: "에이전트 플랫폼",
+        adminWorkspaceExtensions: "워크스페이스 확장",
         dataLoadFailed: "데이터를 불러올 수 없습니다",
         dataLoadFailedDescription:
           "Dispatch에서 이 데이터를 불러오지 못했습니다.",
@@ -2254,6 +2873,23 @@ export const messagesByLocale = {
           "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
         overviewPromptPlaceholder: "Dispatch에 무엇이든 물어보세요...",
         chatPromptPlaceholder: "Dispatch에 질문...",
+        browserChatUnavailableTitle: "브라우저 채팅 세션을 사용할 수 없음",
+        browserChatUnavailableDescription:
+          "Agent-Native 브라우저 확장 프로그램에서 다시 연결하세요.",
+        browserChatPlaceholder: "이 페이지에 대해 질문…",
+        browserChatAttachedPlaceholder: "{{page}}에 대해 질문…",
+        browserConnectTitle: "브라우저 채팅 연결",
+        browserConnectDescription:
+          "Agent-Native Chrome 확장 프로그램이 이 Dispatch 채팅 세션을 열도록 허용합니다. 연결에는 일회용 단기 티켓이 사용됩니다.",
+        browserConnectInvalid:
+          "잘못된 연결 요청입니다. 확장 프로그램에서 다시 시작하세요.",
+        browserConnectConnected:
+          "브라우저 채팅이 연결되었습니다. 이 탭을 닫아도 됩니다.",
+        browserConnectConnecting: "연결 중…",
+        browserConnectButton: "연결",
+        browserConnectOpenFromExtension:
+          "Agent-Native Chrome 확장 프로그램에서 이 페이지를 여세요.",
+        browserConnectFailed: "브라우저 확장 프로그램이 연결되지 않았습니다.",
         suggestionWorkspaceHealth: "현재 워크스페이스 상태 요약",
         suggestionOnboardingApp: "온보딩 요청용 앱 만들기",
         suggestionAnalyticsAgents: "분석을 지원할 수 있는 에이전트 확인",
@@ -2271,6 +2907,50 @@ export const messagesByLocale = {
         unknownPlatform: "알 수 없음",
         attemptsCount: "{{count}}회 시도",
         noErrorMessage: "(오류 메시지 없음)",
+        threadDebugInspectFailure: "실패한 실행 검사",
+        threadDebugFailureCode: "실패 코드",
+        threadDebugTerminalReason: "종료 사유",
+        threadDebugDispatchMode: "디스패치 모드",
+        threadDebugLastStage: "마지막 단계",
+        threadDebugDuration: "소요 시간",
+        threadDebugLastProgress: "마지막 진행",
+        threadDebugTitle: "스레드 디버그",
+        threadDebugDescription:
+          "실패한 에이전트 실행, 저장된 스레드, 실행 이벤트, AI 내부 데이터를 검사합니다.",
+        threadDebugFailedRuns: "실패한 실행",
+        threadDebugThreads: "스레드",
+        threadDebugSource: "소스",
+        threadDebugAllSources: "모든 소스",
+        threadDebugOwner: "소유자 이메일",
+        threadDebugStatus: "상태",
+        threadDebugAllStatuses: "모든 상태",
+        threadDebugErrored: "오류",
+        threadDebugAborted: "중단됨",
+        threadDebugTruncated: "잘림",
+        threadDebugRange: "시간 범위",
+        threadDebugRange24h: "지난 24시간",
+        threadDebugRange7d: "지난 7일",
+        threadDebugRange30d: "지난 30일",
+        threadDebugFailureResults: "개의 실패한 실행",
+        threadDebugCurrentScope: "현재 범위",
+        threadDebugPartialResults: "일부 결과",
+        threadDebugUnavailableSources: "사용할 수 없는 소스:",
+        threadDebugDisconnected: "연결 끊김",
+        threadDebugUnsupported: "지원되지 않음",
+        threadDebugUnavailable: "사용할 수 없음",
+        threadDebugRefreshFailures: "실패한 실행 새로고침",
+        threadDebugNoFailures: "실패한 실행을 찾을 수 없습니다.",
+        threadDebugCurrentDatabase: "현재 Dispatch DB",
+        threadDebugSearchPlaceholder: "제목, 미리보기, 메시지, 도구 검색",
+        threadDebugSearch: "검색",
+        threadDebugLookupPlaceholder: "스레드 또는 요청/실행 ID 붙여넣기",
+        threadDebugInspect: "검사",
+        threadDebugAdminScope: "관리자 범위",
+        threadDebugOwnScope: "내 범위",
+        threadDebugResults: "개 결과",
+        threadDebugRefreshThreads: "스레드 새로고침",
+        threadDebugNoThreads: "스레드를 찾을 수 없습니다.",
+        threadDebugSelectPrompt: "검사할 실패한 실행 또는 스레드를 선택하세요.",
       },
     },
   }),
@@ -2310,6 +2990,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gerencie destinos de mensagens e verifique a fila de entrega de saída.",
       openDelivery: "Abrir entrega",
+      chatFirstTitle: "Espaço de trabalho com foco no chat",
+      chatFirstDescription:
+        "Mantenha os chats no centro e abra os apps do workspace em um painel contextual ao lado. Esta preferência altera apenas o shell local do Dispatch.",
+      chatFirstAriaLabel: "Usar navegação com foco no chat",
+      chatFirstSessionWatchDescription:
+        "O acompanhamento de sessões e as mensagens de acompanhamento também funcionam neste painel do navegador. A detecção de assinaturas CLI locais continua no app Electron; o Dispatch usa credenciais do workspace/provedor.",
+      chatFirstStorageUnavailable:
+        "Este navegador não permite preferências locais, então o modo com foco no chat não pode ser salvo.",
+      chatFirstStorageBlocked:
+        "Este navegador bloqueou as preferências locais, então o modo com foco no chat não foi alterado.",
       agentTitle: "Gerenciar agente",
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
@@ -2551,6 +3241,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administração",
         automations: "Automações",
         approvals: "Aprovações",
         delivery: "Entrega",
@@ -2561,6 +3252,19 @@ export const messagesByLocale = {
         agent: "Agente",
       },
       pages: {
+        ...chatFirstPageTranslations["pt-BR"],
+        adminDescription: "Controles e operações do espaço de trabalho",
+        adminNavigation: "Navegação de administração",
+        adminWelcome: "Central de controle do espaço de trabalho",
+        adminChooseArea:
+          "Gerencie apps, conexões, automações e ferramentas operacionais em um só lugar.",
+        adminChooseAreaHint: "Escolha uma área na navegação de administração.",
+        adminWorkspace: "Espaço de trabalho",
+        adminOperations: "Operações",
+        adminAutomation: "Automação e entrega",
+        adminConnections: "Conexões",
+        adminAgentPlatform: "Plataforma de agentes",
+        adminWorkspaceExtensions: "Extensões do espaço de trabalho",
         dataLoadFailed: "Não foi possível carregar os dados",
         dataLoadFailedDescription:
           "O Dispatch não conseguiu carregar estes dados.",
@@ -2573,6 +3277,23 @@ export const messagesByLocale = {
           "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
         overviewPromptPlaceholder: "Pergunte qualquer coisa ao Dispatch...",
         chatPromptPlaceholder: "Pergunte ao Dispatch...",
+        browserChatUnavailableTitle: "Sessão de chat do navegador indisponível",
+        browserChatUnavailableDescription:
+          "Reconecte pela extensão Agent-Native.",
+        browserChatPlaceholder: "Pergunte sobre esta página…",
+        browserChatAttachedPlaceholder: "Pergunte sobre {{page}}…",
+        browserConnectTitle: "Conectar chat do navegador",
+        browserConnectDescription:
+          "Permita que a extensão Agent-Native do Chrome abra esta sessão do Dispatch. A conexão usa um ticket único e de curta duração.",
+        browserConnectInvalid:
+          "Esta solicitação de conexão é inválida. Recomece pela extensão.",
+        browserConnectConnected:
+          "Chat do navegador conectado. Você pode fechar esta aba.",
+        browserConnectConnecting: "Conectando…",
+        browserConnectButton: "Conectar",
+        browserConnectOpenFromExtension:
+          "Abra esta página pela extensão Agent-Native do Chrome.",
+        browserConnectFailed: "A extensão do navegador não se conectou.",
         suggestionWorkspaceHealth:
           "Resumir a integridade atual do espaço de trabalho",
         suggestionOnboardingApp: "Criar um app para solicitações de integração",
@@ -2593,6 +3314,53 @@ export const messagesByLocale = {
         unknownPlatform: "desconhecido",
         attemptsCount: "{{count}} tentativas",
         noErrorMessage: "(sem mensagem de erro)",
+        threadDebugInspectFailure: "Inspecionar execução com falha",
+        threadDebugFailureCode: "Código da falha",
+        threadDebugTerminalReason: "Motivo do encerramento",
+        threadDebugDispatchMode: "Modo de despacho",
+        threadDebugLastStage: "Última etapa",
+        threadDebugDuration: "Duração",
+        threadDebugLastProgress: "Último progresso",
+        threadDebugTitle: "Depuração de threads",
+        threadDebugDescription:
+          "Inspecione execuções de agente com falha, threads persistidas, eventos de execução e dados internos de IA.",
+        threadDebugFailedRuns: "Execuções com falha",
+        threadDebugThreads: "Threads",
+        threadDebugSource: "Fonte",
+        threadDebugAllSources: "Todas as fontes",
+        threadDebugOwner: "E-mail do proprietário",
+        threadDebugStatus: "Status",
+        threadDebugAllStatuses: "Todos os status",
+        threadDebugErrored: "Com erro",
+        threadDebugAborted: "Abortadas",
+        threadDebugTruncated: "Truncadas",
+        threadDebugRange: "Intervalo de tempo",
+        threadDebugRange24h: "Últimas 24 horas",
+        threadDebugRange7d: "Últimos 7 dias",
+        threadDebugRange30d: "Últimos 30 dias",
+        threadDebugFailureResults: "execuções com falha",
+        threadDebugCurrentScope: "escopo atual",
+        threadDebugPartialResults: "Resultados parciais",
+        threadDebugUnavailableSources: "Fontes indisponíveis:",
+        threadDebugDisconnected: "desconectada",
+        threadDebugUnsupported: "não compatível",
+        threadDebugUnavailable: "indisponível",
+        threadDebugRefreshFailures: "Atualizar execuções com falha",
+        threadDebugNoFailures: "Nenhuma execução com falha encontrada.",
+        threadDebugCurrentDatabase: "Banco de dados atual do Dispatch",
+        threadDebugSearchPlaceholder:
+          "Buscar título, prévia, mensagens e ferramentas",
+        threadDebugSearch: "Buscar",
+        threadDebugLookupPlaceholder:
+          "Cole o ID da thread ou da solicitação/execução",
+        threadDebugInspect: "Inspecionar",
+        threadDebugAdminScope: "escopo de administrador",
+        threadDebugOwnScope: "escopo próprio",
+        threadDebugResults: "resultados",
+        threadDebugRefreshThreads: "Atualizar threads",
+        threadDebugNoThreads: "Nenhuma thread encontrada.",
+        threadDebugSelectPrompt:
+          "Selecione uma execução com falha ou uma thread para inspecionar.",
       },
     },
   }),
@@ -2629,6 +3397,16 @@ export const messagesByLocale = {
       deliveryTitle: "डिलीवरी",
       deliveryDescription: "संदेश गंतव्य प्रबंधित करें और आउटबाउंड डिलीवरी कतार जांचें।",
       openDelivery: "डिलीवरी खोलें",
+      chatFirstTitle: "चैट-केंद्रित कार्यक्षेत्र",
+      chatFirstDescription:
+        "चैट को केंद्र में रखें और कार्यक्षेत्र ऐप्स को बगल के संदर्भ पैनल में खोलें। यह प्राथमिकता केवल आपके स्थानीय Dispatch शेल को बदलती है।",
+      chatFirstAriaLabel: "चैट-केंद्रित नेविगेशन का उपयोग करें",
+      chatFirstSessionWatchDescription:
+        "इस ब्राउज़र पैनल में भी सत्र देखना और फ़ॉलो-अप संदेश भेजना काम करता है। स्थानीय CLI सदस्यता पहचान Electron ऐप में रहती है; Dispatch कार्यक्षेत्र/प्रदाता क्रेडेंशियल का उपयोग करता है।",
+      chatFirstStorageUnavailable:
+        "यह ब्राउज़र स्थानीय प्राथमिकताओं की अनुमति नहीं देता, इसलिए चैट-केंद्रित मोड सहेजा नहीं जा सकता।",
+      chatFirstStorageBlocked:
+        "इस ब्राउज़र ने स्थानीय प्राथमिकताओं को ब्लॉक कर दिया, इसलिए चैट-केंद्रित मोड बदला नहीं गया।",
       agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
@@ -2855,6 +3633,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "व्यवस्थापक",
         automations: "ऑटोमेशन",
         approvals: "अनुमोदन",
         delivery: "डिलीवरी",
@@ -2865,6 +3644,19 @@ export const messagesByLocale = {
         agent: "एजेंट",
       },
       pages: {
+        ...chatFirstPageTranslations["hi-IN"],
+        adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
+        adminNavigation: "व्यवस्थापक नेविगेशन",
+        adminWelcome: "वर्कस्पेस नियंत्रण केंद्र",
+        adminChooseArea:
+          "ऐप्स, कनेक्शन, ऑटोमेशन और संचालन टूल एक ही जगह से प्रबंधित करें।",
+        adminChooseAreaHint: "व्यवस्थापक नेविगेशन से कोई क्षेत्र चुनें।",
+        adminWorkspace: "वर्कस्पेस",
+        adminOperations: "संचालन",
+        adminAutomation: "ऑटोमेशन और डिलीवरी",
+        adminConnections: "कनेक्शन",
+        adminAgentPlatform: "एजेंट प्लेटफ़ॉर्म",
+        adminWorkspaceExtensions: "वर्कस्पेस एक्सटेंशन",
         dataLoadFailed: "डेटा लोड नहीं हो सका",
         dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
         tryAgain: "फिर से कोशिश करें",
@@ -2876,6 +3668,22 @@ export const messagesByLocale = {
           "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
         overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
         chatPromptPlaceholder: "Dispatch से पूछें...",
+        browserChatUnavailableTitle: "ब्राउज़र चैट सत्र उपलब्ध नहीं है",
+        browserChatUnavailableDescription:
+          "Agent-Native ब्राउज़र एक्सटेंशन से फिर से कनेक्ट करें।",
+        browserChatPlaceholder: "इस पेज के बारे में पूछें…",
+        browserChatAttachedPlaceholder: "{{page}} के बारे में पूछें…",
+        browserConnectTitle: "ब्राउज़र चैट कनेक्ट करें",
+        browserConnectDescription:
+          "Agent-Native Chrome एक्सटेंशन को यह Dispatch चैट सत्र खोलने दें। कनेक्शन एक बार उपयोग होने वाला अल्पकालिक टिकट इस्तेमाल करता है।",
+        browserConnectInvalid: "यह कनेक्शन अनुरोध अमान्य है। एक्सटेंशन से फिर शुरू करें।",
+        browserConnectConnected:
+          "ब्राउज़र चैट कनेक्ट हो गई है। आप यह टैब बंद कर सकते हैं।",
+        browserConnectConnecting: "कनेक्ट हो रहा है…",
+        browserConnectButton: "कनेक्ट करें",
+        browserConnectOpenFromExtension:
+          "यह पेज Agent-Native Chrome एक्सटेंशन से खोलें।",
+        browserConnectFailed: "ब्राउज़र एक्सटेंशन कनेक्ट नहीं हुआ।",
         suggestionWorkspaceHealth: "वर्तमान कार्यस्थान की स्थिति का सार बताएँ",
         suggestionOnboardingApp: "ऑनबोर्डिंग अनुरोधों के लिए ऐप बनाएँ",
         suggestionAnalyticsAgents: "देखें कि कौन से एजेंट विश्लेषण में मदद कर सकते हैं",
@@ -2893,6 +3701,50 @@ export const messagesByLocale = {
         unknownPlatform: "अज्ञात",
         attemptsCount: "{{count}} प्रयास",
         noErrorMessage: "(कोई त्रुटि संदेश नहीं)",
+        threadDebugInspectFailure: "विफल रन की जाँच करें",
+        threadDebugFailureCode: "विफलता कोड",
+        threadDebugTerminalReason: "समाप्ति का कारण",
+        threadDebugDispatchMode: "डिस्पैच मोड",
+        threadDebugLastStage: "अंतिम चरण",
+        threadDebugDuration: "अवधि",
+        threadDebugLastProgress: "अंतिम प्रगति",
+        threadDebugTitle: "थ्रेड डीबग",
+        threadDebugDescription:
+          "विफल एजेंट रन, सहेजे गए थ्रेड, रन इवेंट और AI की आंतरिक जानकारी की जाँच करें।",
+        threadDebugFailedRuns: "विफल रन",
+        threadDebugThreads: "थ्रेड",
+        threadDebugSource: "स्रोत",
+        threadDebugAllSources: "सभी स्रोत",
+        threadDebugOwner: "स्वामी का ईमेल",
+        threadDebugStatus: "स्थिति",
+        threadDebugAllStatuses: "सभी स्थितियाँ",
+        threadDebugErrored: "त्रुटि हुई",
+        threadDebugAborted: "निरस्त",
+        threadDebugTruncated: "काटा गया",
+        threadDebugRange: "समय सीमा",
+        threadDebugRange24h: "पिछले 24 घंटे",
+        threadDebugRange7d: "पिछले 7 दिन",
+        threadDebugRange30d: "पिछले 30 दिन",
+        threadDebugFailureResults: "विफल रन",
+        threadDebugCurrentScope: "मौजूदा दायरा",
+        threadDebugPartialResults: "आंशिक परिणाम",
+        threadDebugUnavailableSources: "अनुपलब्ध स्रोत:",
+        threadDebugDisconnected: "डिस्कनेक्ट किया गया",
+        threadDebugUnsupported: "असमर्थित",
+        threadDebugUnavailable: "अनुपलब्ध",
+        threadDebugRefreshFailures: "विफल रन रीफ़्रेश करें",
+        threadDebugNoFailures: "कोई विफल रन नहीं मिला।",
+        threadDebugCurrentDatabase: "मौजूदा Dispatch डेटाबेस",
+        threadDebugSearchPlaceholder: "शीर्षक, पूर्वावलोकन, संदेश और टूल खोजें",
+        threadDebugSearch: "खोजें",
+        threadDebugLookupPlaceholder: "थ्रेड या अनुरोध/रन ID पेस्ट करें",
+        threadDebugInspect: "जाँच करें",
+        threadDebugAdminScope: "व्यवस्थापक दायरा",
+        threadDebugOwnScope: "अपना दायरा",
+        threadDebugResults: "परिणाम",
+        threadDebugRefreshThreads: "थ्रेड रीफ़्रेश करें",
+        threadDebugNoThreads: "कोई थ्रेड नहीं मिला।",
+        threadDebugSelectPrompt: "जाँचने के लिए कोई विफल रन या थ्रेड चुनें।",
       },
     },
   }),
@@ -2929,6 +3781,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "إدارة وجهات الرسائل وفحص قائمة انتظار التسليم الصادرة.",
       openDelivery: "فتح التسليم",
+      chatFirstTitle: "مساحة عمل تركز على الدردشة",
+      chatFirstDescription:
+        "أبقِ الدردشات في المركز وافتح تطبيقات مساحة العمل في لوحة سياقية بجانبها. يغيّر هذا التفضيل واجهة Dispatch المحلية فقط.",
+      chatFirstAriaLabel: "استخدام التنقل المتمحور حول الدردشة",
+      chatFirstSessionWatchDescription:
+        "تعمل مراقبة الجلسات وإرسال رسائل المتابعة أيضًا في لوحة المتصفح هذه. يبقى اكتشاف اشتراكات CLI المحلية في تطبيق Electron؛ ويستخدم Dispatch بيانات اعتماد مساحة العمل/الموفر.",
+      chatFirstStorageUnavailable:
+        "لا يسمح هذا المتصفح بالتفضيلات المحلية، لذلك لا يمكن حفظ وضع التركيز على الدردشة.",
+      chatFirstStorageBlocked:
+        "حظر هذا المتصفح التفضيلات المحلية، لذلك لم يتم تغيير وضع التركيز على الدردشة.",
       agentTitle: "إدارة الوكيل",
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
@@ -3194,6 +4056,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "الإدارة",
         automations: "الأتمتة",
         approvals: "الموافقات",
         delivery: "التسليم",
@@ -3204,6 +4067,19 @@ export const messagesByLocale = {
         agent: "الوكيل",
       },
       pages: {
+        ...chatFirstPageTranslations["ar-SA"],
+        adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
+        adminNavigation: "تنقل الإدارة",
+        adminWelcome: "مركز التحكم في مساحة العمل",
+        adminChooseArea:
+          "أدر التطبيقات والاتصالات والأتمتة وأدوات التشغيل من مكان واحد.",
+        adminChooseAreaHint: "اختر قسمًا من تنقل الإدارة.",
+        adminWorkspace: "مساحة العمل",
+        adminOperations: "التشغيل",
+        adminAutomation: "الأتمتة والتسليم",
+        adminConnections: "الاتصالات",
+        adminAgentPlatform: "منصة الوكلاء",
+        adminWorkspaceExtensions: "امتدادات مساحة العمل",
         dataLoadFailed: "تعذر تحميل البيانات",
         dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
         tryAgain: "حاول مرة أخرى",
@@ -3215,6 +4091,23 @@ export const messagesByLocale = {
           "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
         overviewPromptPlaceholder: "اسأل Dispatch عن أي شيء...",
         chatPromptPlaceholder: "اسأل Dispatch...",
+        browserChatUnavailableTitle: "جلسة دردشة المتصفح غير متاحة",
+        browserChatUnavailableDescription:
+          "أعد الاتصال من إضافة Agent-Native للمتصفح.",
+        browserChatPlaceholder: "اسأل عن هذه الصفحة…",
+        browserChatAttachedPlaceholder: "اسأل عن {{page}}…",
+        browserConnectTitle: "ربط دردشة المتصفح",
+        browserConnectDescription:
+          "اسمح لإضافة Agent-Native في Chrome بفتح جلسة Dispatch هذه. يستخدم الاتصال تذكرة قصيرة الأجل لمرة واحدة.",
+        browserConnectInvalid:
+          "طلب الاتصال هذا غير صالح. ابدأ مرة أخرى من الإضافة.",
+        browserConnectConnected:
+          "تم ربط دردشة المتصفح. يمكنك إغلاق علامة التبويب هذه.",
+        browserConnectConnecting: "جارٍ الاتصال…",
+        browserConnectButton: "اتصال",
+        browserConnectOpenFromExtension:
+          "افتح هذه الصفحة من إضافة Agent-Native في Chrome.",
+        browserConnectFailed: "لم تتصل إضافة المتصفح.",
         suggestionWorkspaceHealth: "لخّص حالة مساحة العمل الحالية",
         suggestionOnboardingApp: "أنشئ تطبيقًا لطلبات الإعداد",
         suggestionAnalyticsAgents:
@@ -3234,6 +4127,53 @@ export const messagesByLocale = {
         unknownPlatform: "غير معروف",
         attemptsCount: "{{count}} محاولات",
         noErrorMessage: "(لا توجد رسالة خطأ)",
+        threadDebugInspectFailure: "فحص التشغيل الفاشل",
+        threadDebugFailureCode: "رمز الفشل",
+        threadDebugTerminalReason: "سبب الإنهاء",
+        threadDebugDispatchMode: "وضع التوزيع",
+        threadDebugLastStage: "المرحلة الأخيرة",
+        threadDebugDuration: "المدة",
+        threadDebugLastProgress: "آخر تقدم",
+        threadDebugTitle: "تصحيح أخطاء سلاسل المحادثات",
+        threadDebugDescription:
+          "افحص عمليات الوكيل الفاشلة وسلاسل المحادثات المحفوظة وأحداث التشغيل وبيانات الذكاء الاصطناعي الداخلية.",
+        threadDebugFailedRuns: "عمليات التشغيل الفاشلة",
+        threadDebugThreads: "سلاسل المحادثات",
+        threadDebugSource: "المصدر",
+        threadDebugAllSources: "كل المصادر",
+        threadDebugOwner: "البريد الإلكتروني للمالك",
+        threadDebugStatus: "الحالة",
+        threadDebugAllStatuses: "كل الحالات",
+        threadDebugErrored: "حدث خطأ",
+        threadDebugAborted: "تم الإجهاض",
+        threadDebugTruncated: "مقتطع",
+        threadDebugRange: "النطاق الزمني",
+        threadDebugRange24h: "آخر 24 ساعة",
+        threadDebugRange7d: "آخر 7 أيام",
+        threadDebugRange30d: "آخر 30 يومًا",
+        threadDebugFailureResults: "عمليات تشغيل فاشلة",
+        threadDebugCurrentScope: "النطاق الحالي",
+        threadDebugPartialResults: "نتائج جزئية",
+        threadDebugUnavailableSources: "مصادر غير متاحة:",
+        threadDebugDisconnected: "غير متصل",
+        threadDebugUnsupported: "غير مدعوم",
+        threadDebugUnavailable: "غير متاح",
+        threadDebugRefreshFailures: "تحديث عمليات التشغيل الفاشلة",
+        threadDebugNoFailures: "لم يتم العثور على عمليات تشغيل فاشلة.",
+        threadDebugCurrentDatabase: "قاعدة بيانات Dispatch الحالية",
+        threadDebugSearchPlaceholder:
+          "البحث في العنوان والمعاينة والرسائل والأدوات",
+        threadDebugSearch: "بحث",
+        threadDebugLookupPlaceholder:
+          "الصق معرّف سلسلة محادثات أو معرّف طلب/تشغيل",
+        threadDebugInspect: "فحص",
+        threadDebugAdminScope: "نطاق المسؤول",
+        threadDebugOwnScope: "نطاقي",
+        threadDebugResults: "نتائج",
+        threadDebugRefreshThreads: "تحديث سلاسل المحادثات",
+        threadDebugNoThreads: "لم يتم العثور على سلاسل محادثات.",
+        threadDebugSelectPrompt:
+          "اختر عملية تشغيل فاشلة أو سلسلة محادثات لفحصها.",
       },
     },
   }),

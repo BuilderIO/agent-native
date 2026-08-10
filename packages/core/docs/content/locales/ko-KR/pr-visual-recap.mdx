@@ -180,7 +180,7 @@ npx @agent-native/recap-cli@latest recap doctor
 - **더 저렴한 모델을 고정하세요.** Claude의 경우, 간단하거나 작은 저장소에는 `VISUAL_RECAP_MODEL=claude-haiku-4-5`를 설정하세요 — 가장 저렴한 Claude 등급입니다. `claude-sonnet-5`(기본값)는 균형 잡힌 등급입니다.
 - **더 저렴한 모델로 Codex로 전환하세요.** `VISUAL_RECAP_AGENT=codex`와 `VISUAL_RECAP_MODEL=gpt-5.6-luna`(가장 저렴한 GPT-5.6 등급) 또는 `gpt-5.6-terra`(중간 등급)를 설정하고, 추론 토큰 비용을 더 줄이려면 `VISUAL_RECAP_REASONING=low`를 설정하세요. 추론 깊이는 Codex에만 적용됩니다.
 - **더 저렴한 OpenAI 호환 제공업체를 지정하세요.** `VISUAL_RECAP_AGENT=openai-compatible`을 DeepSeek, Kimi 또는 다른 OpenAI 호환 엔드포인트를 대상으로 하는 `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`와 함께 설정하세요.
-- **요약 빈도를 줄이세요.** 설치된 워크플로의 `on.pull_request.types`를 `[opened, synchronize, reopened, ready_for_review, closed]`에서 `[opened, ready_for_review, closed]`로 편집하면, 모든 푸시가 아니라 PR이 열릴 때와 병합될 때만 요약이 실행됩니다.
+- **요약 빈도를 줄이세요.** 설치된 워크플로의 `on.pull_request.types`를 `[opened, synchronize, reopened, ready_for_review, labeled, closed]`에서 `[opened, ready_for_review, closed]`로 편집하면, 모든 푸시가 아니라 PR이 열릴 때와 병합될 때만 요약이 실행됩니다.
 
 각 실행은 실제로 소비한 비용을 기록합니다. 워크플로의 `recap usage` 단계가 게시된 계획에 토큰 및 비용 사용량을 첨부하므로, 추측하는 대신 실행별 실제 지출을 확인할 수 있습니다.
 
@@ -479,10 +479,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -502,6 +503,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

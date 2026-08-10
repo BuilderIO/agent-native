@@ -15,7 +15,7 @@ import {
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { VideoPlayer, type VideoPlayerHandle } from "./video-player";
+import { clampSeek, VideoPlayer, type VideoPlayerHandle } from "./video-player";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   // Re-exported by `@/lib/utils`, which video-player.tsx (and its children)
@@ -27,6 +27,11 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "",
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  // Pulled in transitively by PlaybackCommentOverlay's avatar lookup.
+  useAvatarUrl: () => null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -61,7 +66,15 @@ describe("VideoPlayer playback", () => {
   let onPause = vi.fn<() => void>();
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ playbackPosition: null }),
+      }),
+    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -90,6 +103,7 @@ describe("VideoPlayer playback", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -156,6 +170,228 @@ describe("VideoPlayer playback", () => {
     expect(onPlay).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps owner playback on the same-origin media request path", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            role="owner"
+            videoUrl="/api/video/recording-1"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    expect(video.hasAttribute("crossorigin")).toBe(false);
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="videoPlayer.playClip"]',
+        )
+        ?.click();
+    });
+
+    expect(video.paused).toBe(false);
+  });
+
+  it("reloads stable media URLs when the stored media version changes", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="raw"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=raw");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="repaired"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=repaired");
+  });
+
+  it("starts after an intro cut instead of rewinding into the excluded range", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 0, endMs: 3_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    Object.defineProperty(video, "duration", {
+      configurable: true,
+      value: 10,
+    });
+
+    act(() => {
+      video.dispatchEvent(new Event("loadeddata"));
+    });
+    expect(video.currentTime).toBe(3);
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="videoPlayer.playClip"]',
+        )
+        ?.click();
+    });
+
+    expect(video.currentTime).toBe(3);
+    expect(video.paused).toBe(false);
+  });
+
+  it("shows the edited duration without exposing cut ranges", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 2_000, endMs: 4_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.querySelector('[title^="Cut:"]')).toBeNull();
+    expect(container.textContent).toContain("0:00/0:08");
+    expect(container.textContent).not.toContain("0:00/0:10");
+    expect(container.textContent).not.toContain("10 sec");
+  });
+
+  it("stops a hung play attempt and leaves playback retryable", () => {
+    const video = getVideo();
+    const playSpy = vi
+      .spyOn(video, "play")
+      .mockReturnValue(new Promise<void>(() => {}));
+    const pauseSpy = vi.spyOn(video, "pause");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const centerPlay = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+
+    act(() => {
+      centerPlay?.click();
+    });
+    expect(container.textContent).toContain("Starting playback");
+
+    act(() => {
+      vi.advanceTimersByTime(15_000);
+    });
+
+    expect(container.textContent).not.toContain("Starting playback");
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "Playback is taking too long to start. Try again.",
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[clips] playback issue: play-start-timeout",
+      expect.objectContaining({ recordingId: "recording-1" }),
+    );
+
+    const retry = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+    act(() => {
+      retry?.click();
+    });
+
+    expect(playSpy).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Starting playback");
+  });
+
+  it("shows buffering instead of starting playback after playback has begun", async () => {
+    const video = getVideo();
+    const centerPlay = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+
+    await act(async () => {
+      centerPlay?.click();
+      await Promise.resolve();
+    });
+
+    const playSpy = vi
+      .spyOn(video, "play")
+      .mockReturnValue(new Promise<void>(() => {}));
+
+    act(() => {
+      handleRef.current?.play();
+    });
+
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Buffering");
+    expect(container.textContent).not.toContain("Starting playback");
+  });
+
+  it.each(["AbortError", "NotAllowedError"])(
+    "keeps %s play rejections as retryable non-errors",
+    async (name) => {
+      const video = getVideo();
+      vi.spyOn(video, "play").mockRejectedValue(
+        new DOMException("Expected playback rejection", name),
+      );
+      const centerPlay = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="videoPlayer.playClip"]',
+      );
+
+      await act(async () => {
+        centerPlay?.click();
+        await Promise.resolve();
+      });
+      act(() => {
+        vi.advanceTimersByTime(15_000);
+      });
+
+      expect(container.textContent).not.toContain("Starting playback");
+      expect(container.textContent).not.toContain("Could not start playback");
+      expect(container.textContent).not.toContain(
+        "Playback is taking too long to start",
+      );
+      expect(
+        container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+      ).not.toBeNull();
+    },
+  );
+
   it("rewinds an ended autoplay player when replay is requested", () => {
     const video = getVideo();
     Object.defineProperty(video, "ended", {
@@ -166,6 +402,32 @@ describe("VideoPlayer playback", () => {
 
     act(() => {
       handleRef.current?.play();
+    });
+
+    expect(video.currentTime).toBe(0);
+    expect(video.paused).toBe(false);
+  });
+
+  it("replays from the start when the surface is clicked after the clip ended", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+
+    act(() => {
+      surface.click();
+    });
+    expect(video.paused).toBe(false);
+
+    // Reaching end of stream can fire "ended" while the browser leaves paused
+    // false (MSE end-of-stream / DB-duration mismatch). The play button must
+    // still restart from the beginning rather than pausing a finished clip.
+    video.currentTime = 10;
+    Object.defineProperty(video, "ended", { configurable: true, value: true });
+    act(() => {
+      video.dispatchEvent(new Event("ended"));
+    });
+
+    act(() => {
+      surface.click();
     });
 
     expect(video.currentTime).toBe(0);
@@ -227,5 +489,47 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("clampSeek", () => {
+  const videoWith = (duration: number): HTMLVideoElement =>
+    ({ duration, seekable: { length: 0 } }) as unknown as HTMLVideoElement;
+
+  it("returns integer millisecond inputs unchanged", () => {
+    const v = videoWith(600);
+    // Clamping used to route through seconds (ms / 1000 -> Math.floor(sec *
+    // 1000)), which loses 1ms for ~1% of integers. The timeupdate handler
+    // treated that delta as a real seek target and pulled playback backwards,
+    // flushing the decoder and replaying the last fraction of a second.
+    for (let ms = 0; ms <= 600_000; ms++) {
+      if (clampSeek(ms, v, 600_000) !== ms) {
+        throw new Error(`clampSeek(${ms}) === ${clampSeek(ms, v, 600_000)}`);
+      }
+    }
+    expect(clampSeek(1001, v, 600_000)).toBe(1001);
+  });
+
+  it("clamps past the end to the resolved duration", () => {
+    const v = videoWith(600);
+    expect(clampSeek(700_000, v, 600_000)).toBe(600_000);
+  });
+
+  it("falls back to video duration, then seekable, when duration is unresolved", () => {
+    expect(clampSeek(700_000, videoWith(600), 0)).toBe(600_000);
+
+    const seekableOnly = {
+      duration: Number.POSITIVE_INFINITY,
+      seekable: { length: 1, end: () => 30 },
+    } as unknown as HTMLVideoElement;
+    expect(clampSeek(90_000, seekableOnly, 0)).toBe(30_000);
+  });
+
+  it("floors a fractional bound rather than exceeding it", () => {
+    expect(clampSeek(90_000, videoWith(30.0005), 0)).toBe(30_000);
+  });
+
+  it("never returns a negative time", () => {
+    expect(clampSeek(-5, videoWith(600), 600_000)).toBe(0);
   });
 });

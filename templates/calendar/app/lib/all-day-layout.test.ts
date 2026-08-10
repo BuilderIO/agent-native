@@ -47,6 +47,29 @@ describe("all-day layout", () => {
     ).toEqual({ startCol: 0, endCol: 6 });
   });
 
+  it("places a full-day out-of-office event on its semantic date across timezones", () => {
+    const crossTimezoneEvent: CalendarEvent = {
+      ...event(
+        "ooo",
+        "2026-07-17T10:00:00.000Z",
+        "2026-07-18T10:00:00.000Z",
+        "outOfOffice",
+      ),
+      allDay: false,
+      startTimeZone: "Pacific/Kiritimati",
+      endTimeZone: "Pacific/Kiritimati",
+    };
+    const visibleDays = Array.from(
+      { length: 3 },
+      (_, index) => new Date(2026, 6, 17 + index),
+    );
+
+    expect(getAllDaySpan(crossTimezoneEvent, visibleDays)).toEqual({
+      startCol: 1,
+      endCol: 1,
+    });
+  });
+
   it("assigns overlapping spans to deterministic non-overlapping rows", () => {
     const layout = layoutAllDayEvents(
       [

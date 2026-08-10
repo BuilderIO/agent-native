@@ -1,6 +1,8 @@
 export interface CalendarEvent {
   id: string;
   title: string;
+  /** Client-facing provenance for a display label synthesized from an absent title. */
+  titleIsGenerated?: boolean;
   description: string;
   start: string; // ISO 8601
   end: string; // ISO 8601
@@ -138,10 +140,13 @@ export interface CalendarEventDraft {
   endTimeZone?: string;
   location?: string;
   allDay?: boolean;
+  fullDay?: boolean;
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  outOfOfficeProperties?: CalendarEvent["outOfOfficeProperties"];
   transparency?: "opaque" | "transparent";
   visibility?: "default" | "public" | "private" | "confidential";
   colorId?: string;
+  recurrence?: string[];
   reminders?: CalendarEvent["reminders"];
   remindersUseDefault?: boolean;
   attachments?: CalendarEvent["attachments"];

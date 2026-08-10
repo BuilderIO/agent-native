@@ -428,6 +428,23 @@ Al igual que `callAgent()`, la CLI usa de forma predeterminada async + poll (`in
 
 El destino se resuelve de la misma manera que `agentNative.invoke()`: por ID de aplicación del espacio de trabajo, por nombre de aplicación, o por una URL completa — así que el mismo comando funciona contra una aplicación hermana en un espacio de trabajo multiaplicación o contra un par A2A arbitrario en otro lugar.
 
+## Actividad del agente delegado {#delegated-agent-activity}
+
+Los pares de Agent Native pueden adjuntar a los mensajes de estado de la tarea
+una parte `data` opcional con `kind: "agent-native/agent-activity"`. Contiene
+una instantánea acotada de los resúmenes de razonamiento visibles para el
+usuario, los nombres y estados de las herramientas, el tiempo transcurrido y el
+texto progresivo de la respuesta. La aplicación que llama muestra estas
+actualizaciones como una ejecución de agente anidada y contrae el historial de
+trabajo cuando termina la tarea delegada.
+
+La parte de actividad nunca incluye entradas ni resultados de herramientas,
+credenciales o razonamiento oculto del proveedor. Trátala como datos de
+presentación no fiables, nunca como identidad, autorización, aprobación,
+enrutamiento o validación de artefactos. Los pares A2A externos pueden omitir la
+extensión; su estado normal y su respuesta final siguen apareciendo en la misma
+vista de agente delegado.
+
 ## Ciclo de vida de la tarea {#task-lifecycle}
 
 Cada mensaje crea una tarea que pasa por estos estados:

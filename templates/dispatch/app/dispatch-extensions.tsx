@@ -1,5 +1,4 @@
 import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";
-import { IconBrain } from "@tabler/icons-react";
 
 /**
  * Local Dispatch extensions for this generated workspace.
@@ -17,6 +16,7 @@ import { IconBrain } from "@tabler/icons-react";
  *       {
  *         id: "reports",
  *         to: "/reports",
+ *         adminTo: "/admin/reports",
  *         label: "Reports",
  *         icon: IconChartBar,
  *         section: "operations",
@@ -26,14 +26,6 @@ import { IconBrain } from "@tabler/icons-react";
  *   } satisfies DispatchExtensionConfig;
  */
 export const dispatchExtensions = {
-  navItems: [
-    {
-      id: "agent",
-      to: "/agent",
-      label: "Agent",
-      icon: IconBrain,
-      section: "operations",
-    },
-  ],
+  navItems: [],
   queryKeys: [],
 } satisfies DispatchExtensionConfig;

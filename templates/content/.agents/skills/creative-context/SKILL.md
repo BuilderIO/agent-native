@@ -78,6 +78,14 @@ When the user corrects reused context, call `record-context-feedback` against
 the exact item/version and signal whether it was unhelpful, incorrect, or
 outdated. Never invent a source or silently overwrite source history.
 
+## Submitting to a governed context
+
+To submit a document to a governed Creative Context, use the Context tab or
+`manage-context-membership`; the app flushes live collaboration and captures
+one immutable Markdown version. Reuse only its opaque native clone reference.
+Use `operation="submit-latest"` with a Library membership id when its native
+update status reports `update-available`.
+
 ## Content reuse
 
 Search voice, terminology, audience, and factual evidence as separate intents.

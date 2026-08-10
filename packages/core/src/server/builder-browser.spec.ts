@@ -10,8 +10,15 @@ import {
   BUILDER_AGENT_NATIVE_TEMPLATE_PARAM,
   BUILDER_CALLBACK_PATH,
   BUILDER_CONNECT_PARAM,
+  BUILDER_RELAY_FLOW_HEADER,
+  BUILDER_RELAY_SECRET_ENV,
+  BUILDER_RELAY_SIGNATURE_HEADER,
+  BUILDER_RELAY_TIMESTAMP_HEADER,
   BUILDER_SIGNUP_SOURCE_PARAM,
   BUILDER_STATE_PARAM,
+  createBuilderProject,
+  createBuilderRelayRequest,
+  findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
@@ -20,13 +27,18 @@ import {
   getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
   resolveBuilderCallbackReturnUrl,
+  resolveBuilderPreviewRelayParentOrigin,
+  resolveBuilderPreviewRelayTargetOrigin,
   runBuilderAgent,
   signBuilderConnectToken,
   signBuilderCallbackState,
+  signBuilderPreviewRelayState,
   verifyBuilderConnectToken,
   verifyBuilderCallbackState,
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
+  verifyBuilderRelayRequest,
+  type BuilderRelayCredentials,
 } from "./builder-browser.js";
 
 function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
@@ -410,6 +422,13 @@ describe("Builder callback CSRF state", () => {
         );
         expect(params.get(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM)).toBe("clips");
       }
+      expect(parsed.searchParams.get("utm_source")).toBe("agent-native");
+      expect(parsed.searchParams.get("utm_medium")).toBe("product");
+      expect(parsed.searchParams.get("utm_campaign")).toBe("onboarding");
+      expect(parsed.searchParams.get("utm_content")).toBe(
+        "connect_builder_card",
+      );
+      expect(redirectUrl.searchParams.has("utm_source")).toBe(false);
     });
 
     it("preserves APP_BASE_PATH in the surfaced connect URL", () => {
@@ -500,6 +519,142 @@ describe("Builder callback CSRF state", () => {
       expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
       );
+    });
+
+    it("derives the relay requestOrigin from x-forwarded-host so verification passes behind the preview proxy", () => {
+      process.env.NODE_ENV = "production";
+      process.env[BUILDER_RELAY_SECRET_ENV] =
+        "builder-relay-secret-example-at-least-32-characters";
+
+      const previewOrigin = "https://preview-example.builderio.xyz";
+
+      // The relay POST lands on the internal loopback host, but the preview
+      // proxy forwards the public host that minted the signed state.
+      const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8094",
+        "x-forwarded-host": "preview-example.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserOriginForEvent(event)).toBe(previewOrigin);
+
+      const now = Date.UTC(2026, 6, 14, 18, 0, 0);
+      const relay = signBuilderPreviewRelayState({
+        ownerEmail: "owner@example.com",
+        targetOrigin: previewOrigin,
+        basePath: "/clips",
+        now,
+      });
+      const credentials: BuilderRelayCredentials = {
+        privateKey: "private-key-example",
+        publicKey: "public-key-example",
+        userId: "user-example",
+        orgName: "Example Organization",
+        orgKind: "space",
+        subscription: null,
+        subscriptionLevel: null,
+        subscriptionName: null,
+        isEnterprise: null,
+        isFreeAccount: null,
+      };
+      const request = createBuilderRelayRequest(relay.state, credentials, {
+        now,
+      });
+      const relayHeaders = {
+        timestamp: request.headers[BUILDER_RELAY_TIMESTAMP_HEADER],
+        flowId: request.headers[BUILDER_RELAY_FLOW_HEADER],
+        signature: request.headers[BUILDER_RELAY_SIGNATURE_HEADER],
+      };
+
+      // The fix: requestOrigin is the forwarded host and matches targetOrigin.
+      expect(
+        verifyBuilderRelayRequest({
+          body: request.body,
+          ...relayHeaders,
+          requestOrigin: getBuilderBrowserOriginForEvent(event),
+          requestBasePath: "/clips",
+          now,
+        }),
+      ).not.toBeNull();
+
+      // The old behavior used the internal loopback origin and failed.
+      expect(
+        verifyBuilderRelayRequest({
+          body: request.body,
+          ...relayHeaders,
+          requestOrigin: "http://127.0.0.1:8094",
+          requestBasePath: "/clips",
+          now,
+        }),
+      ).toBeNull();
+    });
+
+    it("uses the immutable Netlify deploy URL as the relay destination", () => {
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "agent-native-content";
+
+      expect(
+        resolveBuilderPreviewRelayTargetOrigin(
+          "https://deploy-preview-2382--agent-native-content.netlify.app",
+        ),
+      ).toBe(
+        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app",
+      );
+    });
+
+    it("rejects an immutable Netlify deploy URL for a different site", () => {
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "different-site";
+      const previewOrigin =
+        "https://deploy-preview-2382--agent-native-content.netlify.app";
+
+      expect(resolveBuilderPreviewRelayTargetOrigin(previewOrigin)).toBe(
+        previewOrigin,
+      );
+    });
+
+    it("leaves non-Netlify preview origins unchanged", () => {
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "agent-native-content";
+      const previewOrigin = "https://preview-example.builderio.xyz";
+
+      expect(resolveBuilderPreviewRelayTargetOrigin(previewOrigin)).toBe(
+        previewOrigin,
+      );
+    });
+
+    it("keeps the visible preview opener separate from the immutable relay target", () => {
+      expect(
+        resolveBuilderPreviewRelayParentOrigin({
+          openerOrigin:
+            "https://deploy-preview-2382--agent-native-content.netlify.app",
+          targetOrigin:
+            "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app",
+        }),
+      ).toBe("https://deploy-preview-2382--agent-native-content.netlify.app");
+    });
+
+    it("falls back to the signed relay target for an unsafe opener", () => {
+      const targetOrigin =
+        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app";
+      expect(
+        resolveBuilderPreviewRelayParentOrigin({
+          openerOrigin: "https://attacker.example",
+          targetOrigin,
+        }),
+      ).toBe(targetOrigin);
+    });
+
+    it("rejects an unsigned Netlify opener for a different site", () => {
+      const targetOrigin =
+        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app";
+      expect(
+        resolveBuilderPreviewRelayParentOrigin({
+          openerOrigin:
+            "https://deploy-preview-2382--attacker-site.netlify.app",
+          targetOrigin,
+        }),
+      ).toBe(targetOrigin);
     });
 
     it("returns users to the preview opener after a gateway callback", () => {
@@ -635,7 +790,7 @@ describe("Builder callback CSRF state", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it("uses the configured Builder user id instead of caller email", async () => {
+    it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
       process.env.BUILDER_USER_ID = "builder-user-123";
@@ -657,12 +812,80 @@ describe("Builder callback CSRF state", () => {
       await runBuilderAgent({
         prompt: "Create an app",
         projectId: "project-123",
+        userEmail: "brent@builder.io",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.userEmail).toBe("brent@builder.io");
+      expect(body.userId).toBeUndefined();
+    });
+
+    it("bounds a stalled agent run instead of leaving the MCP request hanging", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      const fetchSpy = vi
+        .fn()
+        .mockRejectedValue(
+          new DOMException("request timed out", "TimeoutError"),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }),
+      ).rejects.toThrow("Builder agent run timed out after 30000ms");
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+
+    it("falls back to the credential user when the caller email is not a Space member", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "User not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              branchName: "qa-branch",
+              projectId: "project-123",
+              url: "https://builder.io/app/projects/project-123/branch/qa-branch",
+              status: "processing",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await runBuilderAgent({
+        prompt: "Create an app",
+        projectId: "project-123",
         userEmail: "dispatch+slack@integration.local",
       });
 
-      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-      expect(body.userId).toBe("builder-user-123");
-      expect(body.userEmail).toBeUndefined();
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const first = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(first.userEmail).toBe("dispatch+slack@integration.local");
+      const second = JSON.parse(fetchSpy.mock.calls[1][1].body);
+      expect(second.userId).toBe("builder-user-123");
+      expect(second.userEmail).toBeUndefined();
+      expect(result.branchName).toBe("qa-branch");
     });
 
     it("rejects a blank branchName from Builder instead of returning an unusable run", async () => {
@@ -750,6 +973,113 @@ describe("Builder callback CSRF state", () => {
           userEmail: "dispatch+slack@integration.local",
         }),
       ).rejects.toThrow("Builder agent run returned a non-Builder url");
+    });
+  });
+
+  describe("Builder project API", () => {
+    beforeEach(() => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+      process.env.BUILDER_APP_HOST = "https://builder.io";
+    });
+
+    it("creates a project from a connected repository", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: "success",
+            project: {
+              id: "project-123",
+              name: "Agent-Native Workspace",
+              repoUrl:
+                "https://github.com/BuilderIO/builder-agent-native-workspace",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await createBuilderProject({
+        name: "Agent-Native Workspace",
+        repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
+      });
+
+      expect(result).toEqual({
+        projectId: "project-123",
+        name: "Agent-Native Workspace",
+        repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
+        browserUrl: "https://builder.io/app/projects/project-123",
+        created: true,
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+        "https://api.test.builder.io/projects/create?apiKey=pub-test",
+      );
+      expect(JSON.parse(fetchSpy.mock.calls[0]?.[1].body)).toEqual({
+        source: {
+          kind: "repo",
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        },
+        name: "Agent-Native Workspace",
+      });
+    });
+
+    it("reuses a project already connected to the workspace repository", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: "success",
+            projects: [
+              {
+                id: "project-other",
+                name: "Other",
+                repoUrl: "https://github.com/BuilderIO/other",
+              },
+              {
+                id: "project-123",
+                name: "Agent-Native Workspace",
+                repoUrl:
+                  "https://github.com/BuilderIO/builder-agent-native-workspace.git",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        findBuilderProjectForRepo({
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        }),
+      ).resolves.toMatchObject({
+        projectId: "project-123",
+        created: false,
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+        "https://api.test.builder.io/projects?apiKey=pub-test&includeHidden=true",
+      );
+    });
+
+    it("bounds a stalled project lookup instead of leaving provisioning hanging", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockRejectedValue(new DOMException("request timed out", "AbortError"));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        findBuilderProjectForRepo({
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        }),
+      ).rejects.toThrow("Builder project lookup timed out after 30000ms");
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
   });
 });

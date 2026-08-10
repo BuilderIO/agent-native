@@ -375,17 +375,17 @@ function App() {
 
 ### Options {#usedbsync-options}
 
-| Option             | Type               | Description                                                                            |
-| ------------------ | ------------------ | -------------------------------------------------------------------------------------- |
-| `queryClient`      | `QueryClient?`     | React-query client for cache invalidation                                              |
-| `queryKeys`        | `string[]?`        | Deprecated and ignored; kept for old call sites                                        |
-| `pollUrl`          | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                    |
-| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only |
-| `interval`         | `number?`          | Polling interval in ms. Default: `2000`                                                |
-| `fallbackInterval` | `number?`          | Fallback polling interval when SSE is unavailable. Default: `15000`                    |
-| `pauseWhenHidden`  | `boolean?`         | Pause polling when the browser tab is hidden. Default: `true`                          |
-| `ignoreSource`     | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes         |
-| `onEvent`          | `(data) => void`   | Optional callback when SSE/polling receives a change event                             |
+| Option             | Type               | Description                                                                                                                                                   |
+| ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `queryClient`      | `QueryClient?`     | React-query client for cache invalidation                                                                                                                     |
+| `queryKeys`        | `string[]?`        | Deprecated and ignored; kept for old call sites                                                                                                               |
+| `pollUrl`          | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                                                                                           |
+| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`; pass `false` to use polling only                                                                        |
+| `interval`         | `number?`          | Polling interval in ms. Default: `2000`                                                                                                                       |
+| `fallbackInterval` | `number?`          | Fallback polling interval when SSE is unavailable. Default: `60000`                                                                                           |
+| `pauseWhenHidden`  | `boolean?`         | Pause polling when the browser tab is hidden. Default: `false` — hidden tabs keep SSE connected and poll no faster than every 10s while active, 60s once idle |
+| `ignoreSource`     | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes                                                                                |
+| `onEvent`          | `(data) => void`   | Optional callback when SSE/polling receives a change event                                                                                                    |
 
 For normal CRUD, prefer `useActionQuery` and `useActionMutation`; mutating actions emit `source: "action"` and those hooks refetch automatically.
 

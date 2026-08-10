@@ -76,6 +76,17 @@ describe("generate-image-batch", () => {
     getDbMock.mockReturnValue(createDb());
   });
 
+  it("advertises only the compact agent-facing generation contract", () => {
+    const fullShape = (action.schema as any).shape;
+    const agentShape = (action.agentInputSchema as any).shape;
+
+    expect(fullShape.libraryId.isOptional()).toBe(false);
+    expect(agentShape.libraryId.isOptional()).toBe(false);
+    expect(agentShape).not.toHaveProperty("variantScopeId");
+    expect(agentShape).not.toHaveProperty("creativeContextRequestId");
+    expect(agentShape).not.toHaveProperty("callerAppId");
+  });
+
   it("validates sessionId before spawning slot generations", async () => {
     requireGenerationSessionInLibraryMock.mockRejectedValue(
       new Error("Generation session does not belong to this library."),

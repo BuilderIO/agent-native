@@ -124,7 +124,7 @@ export function DailyProgress({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-4 sm:p-5">
+    <div className="relative overflow-hidden rounded-2xl bg-card p-4 sm:p-5">
       <div className="macros-summary-grid">
         {/* Left Side */}
         <div className="space-y-8 flex flex-col justify-center">
@@ -134,7 +134,7 @@ export function DailyProgress({
                 {t("daily.summary")}
               </p>
             </div>
-            <div className="px-3 py-1.5 rounded-full bg-muted/40 border border-border flex items-center">
+            <div className="px-3 py-1.5 rounded-full bg-muted/40 flex items-center">
               <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest leading-none">
                 {t("daily.goalWithValue", { value: goalCalories })}
               </span>
@@ -215,7 +215,7 @@ export function DailyProgress({
               ].map((m) => (
                 <div
                   key={m.label}
-                  className="p-2.5 sm:p-3 rounded-xl bg-muted/30 border border-border"
+                  className="p-2.5 sm:p-3 rounded-xl bg-muted/30"
                 >
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
                     {m.label}
@@ -230,14 +230,14 @@ export function DailyProgress({
         </div>
 
         {/* Right Side: Charts */}
-        <div className="macros-summary-chart border-l border-border pl-8 flex-col justify-center transition-all duration-300">
+        <div className="macros-summary-chart flex-col justify-center transition-all duration-300">
           <Tabs
             value={activeChart}
             onValueChange={setActiveChart}
             className="flex flex-col space-y-6"
           >
             <div className="flex items-center justify-between">
-              <TabsList className="bg-muted/40 border border-border h-8">
+              <TabsList className="bg-muted/40 h-8">
                 <TabsTrigger
                   value="weight"
                   className="gap-2 text-[10px] uppercase tracking-wider h-6 px-3"

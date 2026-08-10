@@ -70,25 +70,26 @@ export function splitStreamingTextGraphemes(text: string): string[] {
   // Incremental path: new text extends the cached text
   if (_segCache && text.startsWith(_segCache.text)) {
     const prevLen = _segCache.text.length;
-    // Re-segment from (prevLen - OVERLAP) to include the overlap so any
-    // grapheme that was split across the boundary is correctly re-assembled.
-    const overlapStart = Math.max(0, prevLen - SEGMENTER_OVERLAP);
+    const cached = _segCache.graphemes;
+    // Walk back over cached graphemes until at least OVERLAP characters have
+    // been released, so the re-segmented suffix starts on a known grapheme
+    // boundary. Slicing at a fixed character offset instead would cut a
+    // cluster (surrogate pair, ZWJ sequence) in half, and segmenting that
+    // partial cluster in isolation yields a different grapheme count than the
+    // cache holds for the same region — which silently drops characters.
+    let stableCount = cached.length;
+    let releasedChars = 0;
+    while (stableCount > 0 && releasedChars < SEGMENTER_OVERLAP) {
+      stableCount--;
+      releasedChars += cached[stableCount]!.length;
+    }
+    const overlapStart = prevLen - releasedChars;
     const suffix = text.slice(overlapStart);
     const newGraphemes = Array.from(
       segmenter.segment(suffix),
       (entry) => entry.segment,
     );
-    // Drop graphemes that correspond to the overlap region from the cache so
-    // we don't double-count them.
-    const overlapGraphemes = Array.from(
-      segmenter.segment(text.slice(overlapStart, prevLen)),
-      (entry) => entry.segment,
-    );
-    const stableGraphemes = _segCache.graphemes.slice(
-      0,
-      _segCache.graphemes.length - overlapGraphemes.length,
-    );
-    const merged = stableGraphemes.concat(newGraphemes);
+    const merged = cached.slice(0, stableCount).concat(newGraphemes);
     _segCache = { text, graphemes: merged };
     return merged;
   }

@@ -7,13 +7,23 @@ description: "代理本机应用程序的工作原理：首先是 actions、SQL 
 
 代理本机应用程序如何在幕后工作 - 原则和架构。此页为合同；有关以这种方式构建的愿景和案例，请参阅 [What Is Agent-Native?](/docs/what-is-agent-native)。
 
+## 三个层次 {#three-layers}
+
+Agent Native 是一个 framework，而不是单个模板：
+
+- **Core - framework：** 所有应用都可以使用的基础运行时和数据契约。
+- **Toolkit - 可选的可复用组件：** 应用可以采用、组合或 fork 的共享 UI 和产品系统。
+- **Templates - 可选的应用：** 构建在 Core 之上的完整领域应用，通常使用 Toolkit，也可以 fork 并作为起点使用。
+
+Core 是基础。Toolkit 和 Templates 都是可选的。
+
 ## 架构 {#the-architecture}
 
 每个代理本机应用程序都由三部分协同工作：
 
-- **代理** — 读取数据、写入数据、运行 actions 和修改代码的自主 AI。可使用 skills 和说明进行定制。
+- **代理** — 读取数据、写入数据、运行 actions 并使用已配置工具的自主 AI。可使用 skills 和说明进行定制。
 - **应用** — 试剂周围的产品表面。一开始这可能只是操作、丰富的聊天、小型控制平面或带有仪表板、流程和可视化的完整 React 界面。
-- **计算机** — 数据库、浏览器、代码执行。代理直接使用SQL和内置工具进行工作； MCP 服务器是可选的附加组件，而不是基础。
+- **计算机** — 数据库、浏览器、代码执行。代理通过应用的操作和数据表面工作；应用可以通过 MCP 暴露同一个操作表面，而外部 MCP 服务器仍是可选附加组件，不是基础。
 
 <Diagram id="doc-block-sight" title={"代理、应用程序和计算机"} summary={"三层在一个共享的 SQL 存储上协同工作。代理和应用程序读取和写入相同的数据。"}>
 
@@ -23,7 +33,7 @@ description: "代理本机应用程序的工作原理：首先是 actions、SQL 
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >读取和写入数据、运行 actions、修改代码</small
+        >读取和写入数据、运行 actions、使用已配置工具</small
       >
     </div>
     <div class="diagram-card">
@@ -114,14 +124,13 @@ Skills 和 actions 一起工作。一项技能教代理如何做一类
 如何在 `search-crm` 和 `create-brief` actions 获取的同时总结证据
 并写入实际数据。
 
-管理架构的六项规则：
+管理架构的五项规则：
 
 1. **数据存在于 SQL** - 所有应用程序状态都通过 Drizzle ORM 存在于数据库中
 2. **所有 AI 都通过代理** - 无内联 LLM 调用
 3. **Actions 用于代理操作** — 复杂的工作作为 actions 运行
 4. **实时同步使 UI 保持同步** — 通过 SSE 进行数据库更改流，并以轮询作为通用回退
-5. **代理可以修改代码** - 应用程序会随着您的使用而不断发展
-6. **SQL 中的应用程序状态** — 临时 UI 状态存在于数据库中，代理和 UI 都可读
+5. **应用程序状态存储在 SQL 中** - 临时 UI 状态位于数据库中，代理和 UI 都可以读取
 
 ## 四个区域清单 {#four-area-checklist}
 
@@ -241,10 +250,12 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 生产代理聊天插件默认将原始 SQL 工具设为只读
-(`databaseTools: "read"`)，因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，
+(`frameworkTools: { database: "read" }`)，因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，
 并通过类型化应用 actions 执行写入。只有在刻意的维护界面也需要公开带范围限制的
-`db-exec` / `db-patch` 时，才设置 `databaseTools: "write"`（或 `true`）；
-设置 `databaseTools: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
+`db-exec` / `db-patch` 时，才设置 `database: "write"`（或 `true`）；
+设置 `database: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
+
+`frameworkTools` 以同样的方式管理框架自带的其余工具：分享、审阅评论、版本历史、feature flags、本地化、审计、Context X-Ray、个人资料、自动化、docs、resources、web、跨应用委派、聊天和邮件。完整列表、`"minimal"` 预设，以及为什么关闭分组仍保留其 HTTP 路由，请参见 [Production Agent Tools](/docs/deployment#production-agent-tools)。
 
 ## 代理聊天桥 {#agent-chat-bridge}
 
@@ -264,7 +275,7 @@ sendToAgentChat({
 
 - **人工智能是不确定的。**您需要对话流来提供反馈和迭代——而不是一次性按钮。
 - **上下文很重要。**代理拥有您的完整代码库、说明、skills 和历史记录。内联调用则没有这些。
-- **代理可以做更多事情。**它可以运行 actions、浏览网页、修改代码以及将多个步骤链接在一起。
+- **代理可以做更多事情。**它可以运行 actions、浏览网页以及将多个步骤链接在一起。
 - **无头执行。**因为一切都通过代理进行，所以任何应用程序都可以完全由 Slack、Telegram 或其他代理通过 [A2A](/docs/a2a-protocol) 驱动。
 
 ## Actions系统 {#actions-system}
@@ -391,17 +402,13 @@ UI 在路线变更时写入此信息；代理在采取任何操作之前都会�
 
 有关完整的协议/表面矩阵（MCP 服务器和 OAuth、MCP 应用程序、A2A、深层链接、本机聊天小部件、AgentChatRuntime 连接器、Agent Web 以及 ACP 和 A2UI 的适配器范围），以及选择产品形状（无头、丰富聊天、嵌入式边车或完整应用程序），请参阅[Agent Surfaces](/docs/agent-surfaces)。
 
-## 代理修改代码 {#agent-modifies-code}
+## 应用代码与定制 {#agent-modifies-code}
 
-这是一个功能，而不是一个错误。代理可以安全地编辑应用程序的源代码：组件、路由、样式、actions。
-
-没有需要破坏的共享代码库。您拥有该应用程序，代理会随着时间的推移为您改进它：
-
-1. 分叉模板（例如分析模板）
-2. 通过询问代理进行定制
-3. “为同期群分析添加新的图表类型”——代理构建它
-4. “连接到我们的 Stripe 帐户”- 代理编写集成
-5. 您的应用无需手动开发即可不断改进
+嵌入式代理默认不编辑应用程序源代码。只有当主机有意授予
+repository/workspace 写入工具时，它才能编辑源代码。在普通的已部署
+应用中，代理通过 actions、SQL 支持的状态和已配置的集成来工作。
+Templates 是完整的应用程序，您可以在自己的代码库和开发流程中 fork
+并定制它们。
 
 ## 默认为便携式 {#hosting-agnostic}
 
@@ -412,7 +419,7 @@ UI 在路线变更时写入此信息；代理在采取任何操作之前都会�
 
 ## 工作区 {#workspace}
 
-每个用户都会获得一个个人**工作空间** - 指令、skills、内存、自定义子代理、计划作业和连接的 MCP 服务器 - 全部存储在 SQL 而不是文件中。这使得 Claude 代码级定制可以在多租户 SaaS 中实现，而无需为每个用户启动一个容器。参见[Workspace](/docs/workspace)。
+每个用户都会获得一个个人**工作空间** - 指令、skills、内存、自定义子代理、计划作业和连接的 MCP 服务器 - 全部存储在 SQL 而不是文件中。这使得 Claude 代码级定制可以在多租户 SaaS 中实现，而无需为每个用户启动一个容器。参见[代理资源](/docs/agent-resources)。
 
 ## 相关构建块 {#building-blocks}
 
@@ -425,10 +432,10 @@ UI 在路线变更时写入此信息；代理在采取任何操作之前都会�
 
 ## 您免费获得的东西 {#what-you-get-for-free}
 
-采用该框架很有价值，主要是因为您不再需要构建什么。一旦您的应用遵循这六个规则，您就继承了：
+采用该框架很有价值，主要是因为您不再需要构建什么。一旦您的应用遵循这五个规则，您就继承了：
 
 - **一个操作 = 每个表面。** 使用 `defineAction()` 定义的每个操作同时是一个代理工具、类型安全前端挂钩 (`useActionQuery` / `useActionMutation`)、框架拥有的 HTTP 传输、CLI 命令、用于外部客户端的 MCP 工具以及用于其他代理本机应用程序的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据添加深层链接和 MCP 应用 UI，无需第二次实现。
-- **每个用户一个完整的工作区。** Skills、共享 `LEARNINGS.md`、个人 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划作业、连接的 MCP 服务器 — 所有 SQL 支持，无需开发盒。参见[Workspace](/docs/workspace)。
+- **每个用户一个完整的工作区。** Skills、共享 `LEARNINGS.md`、个人 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划作业、连接的 MCP 服务器 — 所有 SQL 支持，无需开发盒。参见[代理资源](/docs/agent-resources)。
 - **插入 React 组件。** `<AgentPanel />` 和 `<AgentSidebar />` 在应用程序中的任何位置呈现聊天 + 工作区。参见[Drop-in Agent](/docs/drop-in-agent)。
 - **BYO 代理聊天运行时。** 相同的聊天 UI 可以位于 OpenAI 代理、OpenAI 响应、Claude 代理 SDK、Vercel AI SDK、AG-UI 或您自己的规范化 HTTP 流之上。参见[Native 聊天界面](/docs/native-chat-ui#byo-agent-runtimes)。
 - **代理和 UI 之间的实时同步。**同一进程立即通过 `/_agent-native/events` 写入流；轻量级轮询使无服务器、cron 和跨进程写入保持收敛。改变 actions 会自动使操作支持的查询失效，因此无需手动刷新即可显示代理创建的记录。请参阅下面的 [Live Sync](#polling-sync)。

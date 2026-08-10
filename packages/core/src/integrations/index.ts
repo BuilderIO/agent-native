@@ -61,6 +61,7 @@ export {
 } from "./plugin.js";
 
 export {
+  createRemoteDevice,
   getRemoteComputerCapabilities,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
@@ -69,8 +70,13 @@ export {
 export {
   claimNextComputerCommand,
   enqueueComputerCommand,
+  getRemoteCommand,
   listRemoteCommandsForOwner,
 } from "./remote-commands-store.js";
+export {
+  createRemoteBrowserActionEntries,
+  type CreateRemoteBrowserActionEntriesOptions,
+} from "./remote-browser-actions.js";
 export {
   assertValidComputerCommandEnvelope,
   computeComputerActionHash,
@@ -114,7 +120,11 @@ export type {
 } from "./remote-types.js";
 
 // Adapters
-export { slackAdapter, type SlackAdapterOptions } from "./adapters/slack.js";
+export {
+  resolveSlackBotTokenForIncoming,
+  slackAdapter,
+  type SlackAdapterOptions,
+} from "./adapters/slack.js";
 export { telegramAdapter } from "./adapters/telegram.js";
 export { whatsappAdapter } from "./adapters/whatsapp.js";
 export { discordAdapter } from "./adapters/discord.js";

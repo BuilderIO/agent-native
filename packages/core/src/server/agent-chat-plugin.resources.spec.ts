@@ -305,6 +305,22 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("uses runtime-scoped instructions and excludes development instructions", async () => {
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: "",
+      agentsMd: "# Legacy instructions",
+      runtimeAgentsMd: "# Runtime instructions",
+      developmentAgentsMd: "# Development instructions",
+      skills: {},
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test");
+
+    expect(prompt).toContain("# Runtime instructions");
+    expect(prompt).not.toContain("# Development instructions");
+    expect(prompt).not.toContain("# Legacy instructions");
+  });
+
   it("loads bounded package context providers into every prompt path", async () => {
     const unregister = registerPromptContextProvider({
       id: "creative-context-test",
@@ -524,6 +540,75 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<context-budget-note>");
     expect(prompt).toContain("docs-search");
     expect(prompt).toContain("tool-search");
+  });
+
+  it("keeps cross-app discovery and names what it dropped when compact context overflows", async () => {
+    // 30 peers with real descriptions is a ~14,000-character block: large
+    // enough that the old greedy fitter had no room left for it.
+    mocks.discoverAgents.mockResolvedValueOnce(
+      Array.from({ length: 30 }, (_, index) => ({
+        id: index === 0 ? "analytics" : `app-${index}`,
+        name: index === 0 ? "Analytics" : `App ${index}`,
+        description: `Query product data ${index}. ${"capability detail ".repeat(20)}`,
+      })) as never,
+    );
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: `# Workspace\n${"workspace ".repeat(2_000)}`,
+      agentsMd: `# Template\n${"template ".repeat(2_000)}`,
+      skills: Object.fromEntries(
+        Array.from({ length: 80 }, (_, index) => [
+          `skill-${index}`,
+          {
+            meta: {
+              name: `skill-${index}`,
+              description: `Runtime workflow ${index} ${"detail ".repeat(40)}`,
+              scope: "both",
+            },
+            content: `# Skill ${index}`,
+            dir: `.agents/skills/skill-${index}`,
+            extraFiles: [],
+          },
+        ]),
+      ),
+    });
+    mocks.resourceGetByPath.mockImplementation(async (_owner, path) => {
+      if (path === "AGENTS.md" || path === "LEARNINGS.md") {
+        return { content: `# ${path}\n${"instruction ".repeat(2_000)}` };
+      }
+      return null;
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+      expect(prompt).toContain("<available-apps>");
+      expect(prompt).toContain("Analytics (analytics)");
+      expect(prompt).toContain("describe-workspace-apps");
+      expect(prompt).toContain("<context-note>");
+      expect(prompt).toMatch(/section\(s\) did not fit the 48,000-character/);
+      expect(prompt).toContain("Treat them as unread, not as absent");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("startup context exceeded"),
+      );
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("required startup context alone exceeds"),
+      );
+      expect(promptResourceManifestSections(prompt)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Available workspace apps",
+            governance: "required",
+          }),
+          expect.objectContaining({
+            label: "Context budget note",
+            governance: "required",
+          }),
+        ]),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("excludes scope: dev skills from the compact skills summary", async () => {

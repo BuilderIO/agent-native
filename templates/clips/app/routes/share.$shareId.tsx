@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -32,7 +33,13 @@ import {
   type LoaderFunctionArgs,
   type MetaFunction,
 } from "react-router";
-import { Link, useLoaderData, useNavigate, useParams } from "react-router";
+import {
+  Link,
+  useLoaderData,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -41,6 +48,7 @@ import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
+import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
@@ -82,6 +90,7 @@ import {
   buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
+import { resolveDashboardRedirect } from "../../shared/share-dashboard-redirect";
 import { privateShareLoaderData } from "../../shared/share-loader-response";
 import {
   buildClipsShareMeta,
@@ -135,12 +144,6 @@ function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
   if (!trimmed) return null;
   return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
-}
-
-function buildSignInHref(returnTo: string): string {
-  return agentNativePath(
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo)}`,
-  );
 }
 
 function shouldShowGeneratedTitleSkeleton(
@@ -290,6 +293,8 @@ const CLIPS_AGENT_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
+const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
+const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 
 type ViewerPlatform = "mac" | "windows" | "linux";
 
@@ -344,6 +349,7 @@ export default function ShareRoute() {
   const loaderData = useLoaderData<typeof loader>() as SharePageLoaderData;
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
@@ -400,6 +406,7 @@ export default function ShareRoute() {
   }, [recordingId, attribution.ref, attribution.via]);
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
+  const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
   const [password, setPassword] = useState<string | null>(() => {
     if (typeof window === "undefined" || !shareId) return null;
     try {
@@ -415,6 +422,7 @@ export default function ShareRoute() {
     null,
   );
   const [processingTimeout, setProcessingTimeout] = useState(false);
+  const [panel, setPanel] = useState("comments");
   const requireSignIn = useCallback(
     (intent: "comment" | "react") => setSignInIntent(intent),
     [],
@@ -458,7 +466,26 @@ export default function ShareRoute() {
       // page auto-upgrades from "Processing" to the real player the moment
       // the server flips status to 'ready' and writes videoUrl. Mirrors
       // r.$recordingId.tsx's playerDataQ.refetchInterval.
-      if (rec.status !== "ready" || !rec.videoUrl) return 2000;
+      if (rec.status !== "ready" || !rec.videoUrl) {
+        readyMediaPollRef.current = null;
+        return 2000;
+      }
+      const mediaKey = [
+        rec.id,
+        rec.durationMs ?? "",
+        rec.videoSizeBytes ?? "",
+        rec.videoFormat ?? "",
+      ].join(":");
+      const now = Date.now();
+      if (readyMediaPollRef.current?.key !== mediaKey) {
+        readyMediaPollRef.current = {
+          key: mediaKey,
+          until: now + READY_MEDIA_SETTLE_POLL_MS,
+        };
+      }
+      if (now < readyMediaPollRef.current.until) {
+        return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+      }
       // Also keep polling while a transcript is pending so "Transcribing…"
       // auto-flips to the ready transcript (or to the failure card). The
       // public payload has no transcript.cleanup field (that's authenticated
@@ -499,6 +526,17 @@ export default function ShareRoute() {
     viewerRole === "admin" ||
     viewerRole === "editor";
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
+  const viewerCanOpenDashboard = Boolean(
+    dataQ.data?.data?.viewer?.canOpenDashboard,
+  );
+  useEffect(() => {
+    if (!viewerCanEdit && panel === "insights") {
+      setPanel("comments");
+    }
+  }, [panel, viewerCanEdit]);
+
+  const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
+  const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -521,6 +559,21 @@ export default function ShareRoute() {
     if (!recording) return;
     document.title = clipsSharePageTitle(recording.title);
   }, [recording?.title]);
+
+  // /share/:id and /r/:id render the same clip, so anyone who can open the
+  // authenticated page goes straight there rather than through a redundant
+  // "open dashboard" button. `canOpenDashboard` is the server's own
+  // `canOpenDirectRecordingPage` verdict; deriving it from the display role
+  // instead would bounce viewers between the two routes forever, since /r
+  // sends anyone it rejects back here.
+  useEffect(() => {
+    const target = resolveDashboardRedirect({
+      recordingId: recording?.id,
+      canOpenDashboard: viewerCanOpenDashboard,
+      search: searchParams.toString(),
+    });
+    if (target) navigate(target, { replace: true });
+  }, [viewerCanOpenDashboard, recording?.id, searchParams, navigate]);
 
   // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
   // agent mounted in the side panel has no navigation context. Write it
@@ -579,13 +632,13 @@ export default function ShareRoute() {
 
   usePlayerShortcuts({ playerRef });
 
+  const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(
+    null,
+  );
+
   const tracking = useViewTracking({
     recordingId: shareId ?? "",
-    videoRef: {
-      get current() {
-        return playerRef.current?.video ?? null;
-      },
-    } as any,
+    videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
     trackOpenWithoutVideo: isLoomEmbedBacked,
   });
@@ -688,7 +741,10 @@ export default function ShareRoute() {
           action={
             shareId ? (
               <Button asChild size="sm">
-                <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
+                <a
+                  href={buildSignInReturnHref({ returnTo: `/r/${shareId}` })}
+                  className="gap-1.5"
+                >
                   <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   {t("sharePage.signIn")}
                 </a>
@@ -724,7 +780,9 @@ export default function ShareRoute() {
       !explicitFailure && !verificationPending && processingTimeout;
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
-    const signInHref = buildSignInHref(`/r/${recording.id}`);
+    const signInHref = buildSignInReturnHref({
+      returnTo: `/r/${recording.id}`,
+    });
     const detail = failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")
@@ -809,12 +867,6 @@ export default function ShareRoute() {
                   {t("sharePage.signInIfYours")}
                 </a>
               </Button>
-            ) : canManageStorage && isFailure ? (
-              <Button asChild size="sm">
-                <a href={appPath(`/r/${recording.id}`)}>
-                  {t("sharePage.openDashboard")}
-                </a>
-              </Button>
             ) : null}
             <Button
               onClick={() => {
@@ -866,19 +918,14 @@ export default function ShareRoute() {
           </div>
 
           <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
-            {viewerCanEdit ? (
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href={appPath(`/r/${recording.id}`)}
-                  className="min-w-0 gap-1.5"
-                >
-                  <span className="truncate">
-                    {t("sharePage.openDashboard")}
-                  </span>
-                  <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
-                </a>
-              </Button>
-            ) : session ? null : (
+            <RecordingViewsBadge
+              recordingId={recording.id}
+              viewCount={viewCount}
+              agentViewCount={agentViewCount}
+              canViewDetails={viewerCanEdit}
+              onOpenInsights={() => setPanel("insights")}
+            />
+            {session ? null : (
               <Button variant="ghost" size="sm" asChild>
                 <a
                   href={appPath("/")}
@@ -944,12 +991,15 @@ export default function ShareRoute() {
                 initialVisibility={recording.visibility}
                 initialRole={viewerIsOwner ? "owner" : undefined}
                 videoUrl={recording.videoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
-                  <IconShare3 className="h-4 w-4" />
+                  {recording.visibility !== "public" ? (
+                    <IconShare3 className="h-4 w-4" />
+                  ) : null}
                   {t("sharePage.share")}
                 </Button>
               </ShareRecordingPopover>
@@ -961,8 +1011,13 @@ export default function ShareRoute() {
           <div className="aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
             <VideoPlayer
               ref={playerRef}
+              onVideoElementChange={setTrackedVideoEl}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              mediaVersion={[
+                recording.videoSizeBytes ?? "",
+                recording.updatedAt ?? "",
+              ].join(":")}
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
@@ -977,22 +1032,13 @@ export default function ShareRoute() {
               cta={firstCta}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
+              onCommentClick={() => setPanel("comments")}
               className="h-full w-full rounded-none sm:rounded-xl"
             />
           </div>
 
           <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-start sm:px-0 sm:pb-0">
             <div className="min-w-0 flex-1">
-              {showTitleSkeleton ? (
-                <Skeleton
-                  aria-label={t("sharePage.generatingTitle")}
-                  className="h-5 w-72 max-w-full"
-                />
-              ) : (
-                <h2 className="break-words text-base font-semibold leading-tight">
-                  {visibleTitle}
-                </h2>
-              )}
               {recording.description ? (
                 <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
                   {recording.description}
@@ -1057,8 +1103,14 @@ export default function ShareRoute() {
       </div>
 
       <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
-        <Tabs defaultValue="comments" className="flex h-full flex-col">
-          <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
+        <Tabs
+          value={panel}
+          onValueChange={setPanel}
+          className="flex h-full flex-col"
+        >
+          <TabsList
+            className={`mx-3 mt-3 grid w-auto ${viewerCanEdit ? "grid-cols-4" : "grid-cols-3"}`}
+          >
             <TabsTrigger value="comments" className="text-xs gap-1">
               {t("recordingPage.activity")}
               {comments.length > 0 ? (
@@ -1073,9 +1125,11 @@ export default function ShareRoute() {
             <TabsTrigger value="agent" className="text-xs">
               {t("sharePage.agent")}
             </TabsTrigger>
-            <TabsTrigger value="insights" className="text-xs">
-              {t("sharePage.insights")}
-            </TabsTrigger>
+            {viewerCanEdit ? (
+              <TabsTrigger value="insights" className="text-xs">
+                {t("sharePage.insights")}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
           <TabsContent
             value="agent"
@@ -1085,6 +1139,7 @@ export default function ShareRoute() {
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
+                missingApiKeySetupLayout="sidebar"
                 suggestions={[
                   t("recordingPage.summarizeClip"),
                   t("recordingPage.findKeyMoments"),
@@ -1142,19 +1197,17 @@ export default function ShareRoute() {
               presentation="share"
             />
           </TabsContent>
-          <TabsContent
-            value="insights"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
-          >
-            {viewerCanEdit ? (
+          {viewerCanEdit ? (
+            <TabsContent
+              value="insights"
+              className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            >
               <InsightsPanel
                 recordingId={recording.id}
                 durationMs={recording.durationMs}
               />
-            ) : (
-              <PublicInsightsState />
-            )}
-          </TabsContent>
+            </TabsContent>
+          ) : null}
         </Tabs>
       </aside>
 
@@ -1267,20 +1320,6 @@ function PublicAgentEmptyState({
           </a>
         </Button>
       </div>
-    </div>
-  );
-}
-
-function PublicInsightsState() {
-  const t = useT();
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <p className="text-sm font-medium text-foreground">
-        {t("sharePage.ownerInsights")}
-      </p>
-      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        {t("sharePage.ownerInsightsDescription")}
-      </p>
     </div>
   );
 }

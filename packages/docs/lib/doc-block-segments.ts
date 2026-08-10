@@ -10,6 +10,25 @@ import {
   registerLibraryBlockConfigs,
   type MdxJsxNode,
 } from "../../core/src/client/blocks/server";
+import {
+  accordionSchema,
+  accordionMdx,
+} from "../app/components/blocks/accordion.config";
+import { badgeSchema, badgeMdx } from "../app/components/blocks/badge.config";
+import {
+  bannerSchema,
+  bannerMdx,
+} from "../app/components/blocks/banner.config";
+import { cardsSchema, cardsMdx } from "../app/components/blocks/cards.config";
+import {
+  comparisonSchema,
+  comparisonMdx,
+} from "../app/components/blocks/comparison.config";
+import {
+  noticeSchema,
+  noticeMdx,
+} from "../app/components/blocks/notice.config";
+import { stepsSchema, stepsMdx } from "../app/components/blocks/steps.config";
 
 const BLOCK_TYPE_ALIASES: Record<string, string> = {
   "an-diagram": "diagram",
@@ -84,10 +103,33 @@ const BASE_MDX_ATTRS = new Set(["id", "title", "summary", "editable"]);
 
 let cachedConfigRegistry: BlockRegistry | null = null;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const DOCS_EXTRA_BLOCKS: Array<{ type: string; schema: any; mdx: any }> = [
+  { type: "steps", schema: stepsSchema, mdx: stepsMdx },
+  { type: "cards", schema: cardsSchema, mdx: cardsMdx },
+  { type: "comparison", schema: comparisonSchema, mdx: comparisonMdx },
+  { type: "notice", schema: noticeSchema, mdx: noticeMdx },
+  { type: "banner", schema: bannerSchema, mdx: bannerMdx },
+  { type: "accordion", schema: accordionSchema, mdx: accordionMdx },
+  { type: "badge", schema: badgeSchema, mdx: badgeMdx },
+];
+
 function getDocBlockConfigRegistry(): BlockRegistry {
   if (cachedConfigRegistry) return cachedConfigRegistry;
   const registry = new BlockRegistry();
   registerLibraryBlockConfigs(registry);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stub = () => null as any;
+  for (const cfg of DOCS_EXTRA_BLOCKS) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (registry as any).register({
+      ...cfg,
+      Read: stub,
+      placement: ["block"],
+      label: cfg.type,
+      description: "",
+    });
+  }
   cachedConfigRegistry = registry;
   return registry;
 }
@@ -483,7 +525,7 @@ export function validateDocBlock(
 
   let data: unknown;
   if (type === "mermaid") {
-    data = { code: body.trim() };
+    data = { source: body.trim() };
   } else {
     const trimmed = body.trim();
     if (!trimmed) {

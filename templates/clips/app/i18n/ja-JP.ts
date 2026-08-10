@@ -295,7 +295,6 @@ const messages = {
       "ストレージが接続されました。このクリップをチェック中...",
     signInToFinish: "サインインして終了します",
     signInIfYours: "これがあなたのものである場合はサインインしてください",
-    openDashboard: "ダッシュボードを開く",
     checkAgain: "再確認",
     backToHome: "家に戻る",
     generatingTitle: "タイトルの生成",
@@ -462,6 +461,9 @@ const messages = {
     agentLinkUnavailable: "エージェント用リンクを作成できませんでした。",
     retryAgentLink: "再試行",
     gifPreview: "GIF プレビュー",
+    copyEmailPreview: "メールプレビューをコピー",
+    emailPreviewCopied: "メールプレビューをコピーしました",
+    emailPreviewCopyFailed: "メールプレビューをコピーできませんでした",
     openPlayer: "プレーヤーを開く",
     chooseFile: "ファイルを選択してください",
     remove: "取り除く",
@@ -491,6 +493,7 @@ const messages = {
     makePublicAndCopy: "公開してコピーする",
     copy: "コピー",
     addPeopleByEmail: "メールで人を追加",
+    invite: "招待",
     notifyPeople: "人々に通知する",
     peopleWithAccess: "アクセスできる人",
     ownerRole: "所有者",
@@ -558,6 +561,8 @@ const messages = {
     useColor: "{{color}} を使用してください",
     logo: "ロゴ",
     logoPreview: "ロゴのプレビュー",
+    logoUsage: "共有メールと公開クリップページで受信者に表示されます。",
+    emailHeaderPreview: "共有メールのヘッダー",
     dropReplace: "新しい画像をドロップして置き換えます",
     dropHere: "ここに PNG / JPG / SVG をドロップしてください",
     uploading: "アップロード中…",
@@ -626,6 +631,7 @@ const messages = {
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
+    preferencesTitle: "環境設定",
     languageTitle: "言語",
     languageDescription:
       "このアカウントのインターフェイス言語を選択します。Clips はデバイス間で設定を記憶します。",
@@ -655,10 +661,6 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
 ### 追加
 
 - Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
-    profile: "プロフィール",
-    email: "メール",
-    displayName: "表示名",
-    displayNamePlaceholder: "あなたの名前",
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
@@ -667,9 +669,16 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     transcriptCleanupDescription:
       "まずネイティブの文字起こしを表示し、利用可能になったらバックグラウンドで整形します。",
     notifications: "通知",
+    sharing: "共有",
+    defaultVisibility: "新しい録画のデフォルトの公開範囲",
+    defaultVisibilityDescription:
+      "作成するすべての録画に適用されます。録画ごとに公開範囲を変更できます。",
+    visibilityPrivate: "非公開 - 自分のみ",
+    visibilityOrg: "組織 - ワークスペースの全員",
+    visibilityPublic: "公開 - リンクを知っている全員",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
-      "誰かがコメント、リアクション、または録画を共有したときにメールを受け取ります。",
+      "誰かがあなたの録画にコメントまたはリアクションしたときにメールを受け取ります。",
     saved: "設定を保存しました",
     saveFailed: "保存に失敗しました",
     builderConnectedToast: "Builder.io に接続しました",
@@ -678,12 +687,12 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "Builder.io は Clips アップロードの主要な保存先です。独自バケットが必要な場合は S3 も利用できます。",
     checkingBuilder: "Builder.io を確認中",
     builderConnected: "Builder.io 接続済み",
-    connectBuilder: "Builder.io を使用 (無料)",
+    connectBuilder: "Builder.io を使用",
     builderConnectedFor: "{{orgName}} で Builder.io を使用中です。",
     builderConnectedGeneric:
       "新しいクリップは接続済みの Builder.io プロバイダーを使用します。",
     builderIncludes:
-      "新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしを含みます。",
+      "Builder.io の無料プランには、新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしが含まれます。",
     s3Title: "S3 互換ストレージ",
     secondary: "セカンダリ",
     active: "有効",
@@ -710,8 +719,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     s3RegionInvalid:
       '有効なリージョン（例: us-east-1）または "auto" を入力してください',
     apiSetup: "AI 設定",
-    apiSetupDescription:
-      "Builder.io の無料クレジット、または自分の LLM キーで AI を接続します。",
+    apiSetupDescription: "Clips の AI 接続方法を選択します。",
     builderEasySetup: "Builder.io 無料クレジット",
     builderAiAvailable:
       "Clips では付属の AI クレジットとマネージド文字起こしを利用できます。",
@@ -719,8 +727,13 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "含まれる AI クレジット、オブジェクトストレージ、アップロード、管理された文字起こしには、まず Builder.io を使用します。",
     providerKeyTitle: "独自のプロバイダーキーを使用",
     providerKeyDescription:
-      "プロバイダー課金で使用する Anthropic、OpenAI、Gemini、Groq、OpenRouter のキーを追加します。",
+      "プロバイダー課金で使用する Anthropic、OpenAI、OpenRouter、Gemini、Groq、Mistral、Cohere、Ollama を選択します。",
     providerKeysSet: "{{count}} 件設定済み",
+    providerActionTitle: "AI プロバイダー",
+    providerActionDescription:
+      "Builder.io には無料プランがあります。カスタムキーも使用できます。",
+    providerManage: "管理",
+    providerCustomKeys: "カスタムキー",
     checkingProviderKeys: "プロバイダーキーを確認中…",
     keySet: "設定済み",
     keyCleared: "ストレージ認証情報をクリアしました",
@@ -798,6 +811,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "組織はまだありません。開始するには組織スイッチャーから作成してください。",
     description: "組織管理: ブランド、メンバー、招待。",
     adminsOnlyBranding: "ブランドを編集できるのは管理者のみです。",
+    brandingLoadFailed: "組織のブランド情報を読み込めませんでした。",
     members: "メンバー",
     pendingInvites: "保留中の招待",
     noPendingInvites: "保留中の招待はありません。",
@@ -818,11 +832,24 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     recentViewers: "最近の視聴者",
     noViewers: "視聴者はまだいません。",
     anonymous: "匿名",
-    anon: "匿名",
     moreViewers: "+{{count}} 件",
     viewedBy: "視聴者",
     someone: "誰か",
     noViewsYet: "まだ再生されていません。",
+    viewsCount_one: "{{count}} 回視聴",
+    viewsCount_other: "{{count}} 回視聴",
+    agentViewsCount_one: "AI エージェント {{count}} 回視聴",
+    agentViewsCount_other: "AI エージェント {{count}} 回視聴",
+    totalViewsSummary: "合計 {{total}} 回視聴、ユニーク視聴者 {{unique}} 人",
+    viewsTab: "視聴",
+    insightsTab: "インサイト",
+    humanViews: "人による視聴",
+    agentViews: "AI エージェントの視聴",
+    noAgentViewsYet: "AI エージェントによる視聴はまだありません。",
+    unknownAgent: "不明なエージェント",
+    totalVideoViews: "動画の合計視聴数",
+    averageCompletionRate: "平均完了率",
+    moreInsights: "インサイトをもっと見る",
   },
   libraryGrid: {
     spaceRoot: "スペースのルート",
@@ -845,6 +872,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     loadFailedBody:
       "このリストの読み込み中に問題が発生しました。録画は安全に保存されています — もう一度お試しください。",
     retry: "再試行",
+    paginationRange: "{{total}} 件中 {{start}}–{{end}} 件",
+    paginationPrevious: "前へ",
+    paginationNext: "次へ",
+    paginationPage: "{{page}} / {{totalPages}} ページ",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
@@ -924,6 +955,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     replyingTo: "返信先",
     commentAt: "コメント位置",
     writeReply: "返信を書く...",
+    editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
     mentionSomeone: "メンバーをメンション",
@@ -1089,6 +1121,19 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     spaceCreated: "スペースを作成しました",
     createFailed: "スペースを作成できませんでした",
   },
+  spaceDialog: {
+    deleteSpace: "スペースを削除",
+    renameSpace: "スペース名を変更",
+    deleteTitle: "「{{name}}」を削除しますか？",
+    deleteDescription:
+      "スペースを削除し、すべての録画から削除します。この操作は元に戻せません。",
+    renamed: "スペース名を変更しました",
+    deleted: "「{{name}}」を削除しました",
+    renameFailed: "スペース名の変更に失敗しました",
+    deleteFailed: "スペースの削除に失敗しました",
+    renaming: "名前を変更中...",
+    deleting: "削除中...",
+  },
   signInPrompt: {
     title: "{{intent}}するにはログイン",
     description:
@@ -1117,7 +1162,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    connectBuilder: "Builder.io を使用 (無料)",
+    connectBuilder: "Builder.io を使用",
     free: "無料",
     configureS3: "S3 互換ストレージを設定",
     whyPrompt: "なぜこれが表示されていますか？",
@@ -1252,10 +1297,15 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     cameraOff: "Camera off (ローカライズ済み)",
     includeCameraAria: "Include camera in this recording (ローカライズ済み)",
     startRecording: "Start recording (ローカライズ済み)",
+    micOffConfirmTitle: "Record without a microphone? (ローカライズ済み)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (ローカライズ済み)",
+    startWithoutMic: "Start anyway (ローカライズ済み)",
     uploadVideo: "Upload video (ローカライズ済み)",
     importLoom: "Import Loom (ローカライズ済み)",
     importing: "Importing... (ローカライズ済み)",
     import: "Import (ローカライズ済み)",
+    recordNew: "新規録画",
   },
   playerSettings: {
     title: "Settings (ローカライズ済み)",
@@ -1306,6 +1356,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     couldNotImportLoom: "Could not import that Loom. (ローカライズ済み)",
     recordingReadyToUpload: "Recording is ready to upload (ローカライズ済み)",
     recordingSaved: "Recording saved (ローカライズ済み)",
+    linkCopied: "リンクをコピーしました",
+    copyLinkAction: "リンクをコピー",
     noLocalRecordingData:
       "No local recording data is available to download. (ローカライズ済み)",
     recordingDownloadStarted: "Recording download started (ローカライズ済み)",
@@ -1327,12 +1379,32 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     downloadDesktopApp: "Download desktop app (ローカライズ済み)",
     technicalDetails: "Technical details (ローカライズ済み)",
     whatToCheck: "What to check (ローカライズ済み)",
-    downloadRecording: "Download recording (ローカライズ済み)",
+    downloadRecording: "Download (ローカライズ済み)",
     openRecorderInTab: "Open recorder in tab (ローカライズ済み)",
     connectStorageToFinish:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
+  },
+  importRoute: {
+    pageTitle: "Loom をインポート — Clips",
+    title: "Loom をインポート",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "インポート",
+    helperText:
+      "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
+    stageFetching: "動画を取り込んでいます…",
+    stageUploading: "元の映像をアップロードしています…",
+    stageTranscript:
+      "音声と画面の映像をエージェントが読み取れるようにしています…",
+    stageFinalizing: "Agent-Native にしています…",
+    importingSubtitle:
+      "ただの録画を Agent-Native なプリミティブに変えています。",
+    doneHeading: "完了です！あなたの動画は今：",
+    benefitTranscript: "音声と画面の映像、すべて検索可能",
+    benefitQueryable: "エージェントが理解しクエリ可能",
+    benefitSummaries: "オンデマンドで即座に要約とクリップ",
+    benefitPrimitive: "第一級の Agent-Native プリミティブ",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (ローカライズ済み)",
@@ -1396,6 +1468,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
   clipsFinalRaw: {
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
+    selectAll: "すべて選択",
+    deselectAll: "すべて選択解除",
     move: "移動",
     moveSelected: "選択した {{count}} 件を移動",
     current: "現在",
@@ -1485,6 +1559,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
     connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
+    googleMayShowWarning: "Google アクセスを確認",
+    googleNotVerifiedTitle: "接続前にアプリを確認してください",
+    googleWarningBeforeAdvanced:
+      "アプリ名と要求される Calendar へのアクセスが、信頼する Clips のデプロイと一致することを確認してください。Google に未確認アプリの警告が表示された場合や、見覚えのない識別情報が表示された場合は中止し、ワークスペース管理者に連絡してください。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (ローカライズ済み)",
     getDesktopApp: "Get desktop app (ローカライズ済み)",

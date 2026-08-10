@@ -19,6 +19,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS: WorkspaceConnectionProvider[] = [
   "gmail",
   "google_drive",
   "hubspot",
+  "salesforce",
   "jira",
   "sentry",
   "granola",

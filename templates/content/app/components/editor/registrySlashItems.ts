@@ -104,10 +104,13 @@ export function buildRegistrySlashItems(
     //     not a content-authoring block.
     //   - `inline-database` is registered in Phase 2 for render/round-trip
     //     compatibility; Phase 3 owns the `/database` insertion flow.
+    //   - `callout` duplicates Content's native Notion-style Callout command.
+    //     Keep one unambiguous authoring choice; the registry remains available
+    //     for rendering and round-tripping saved `<Callout>` blocks.
     //   - `source-component` is emitted by provider hydration to preserve
     //     source-native blocks; users should not author raw preservation
     //     markers by hand.
-    // The genuinely document-friendly rich blocks (callout, decision, diagram,
+    // The genuinely document-friendly rich blocks (decision, diagram,
     // wireframe, and the dev-doc/structured set) ARE offered.
     includeSpec: (spec) =>
       ![
@@ -115,6 +118,7 @@ export function buildRegistrySlashItems(
         "question-form",
         "visual-questions",
         "inline-database",
+        "callout",
         "source-component",
       ].includes(spec.type),
     toItem: (spec, insert) => ({

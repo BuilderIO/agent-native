@@ -256,6 +256,7 @@ All settings are stored in the `observability-config` key:
   capturePrompts: false,   // Store prompt content in traces
   captureToolArgs: false,  // Store action input arguments
   captureToolResults: false, // Store action results
+  captureLlmSpans: true,   // Emit one $ai_span per tool call to PostHog
   evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
   exporters: []            // OTLP export targets
 }
@@ -290,6 +291,55 @@ All auto-mounted at `/_agent-native/observability/`:
 | GET    | `/experiments/:id/results` | Get results                    |
 
 All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
+
+## PostHog LLM analytics {#posthog}
+
+When `POSTHOG_API_KEY` is set, every instrumented run is mirrored to PostHog's
+LLM analytics as a full trace tree:
+
+| Event            | Emitted per | Carries                                                 |
+| ---------------- | ----------- | ------------------------------------------------------- |
+| `$ai_trace`      | agent run   | Latency, error state, token totals, cost                |
+| `$ai_generation` | model call  | Model, provider, tokens, cost, tool definitions offered |
+| `$ai_span`       | tool call   | Tool name, duration, error state                        |
+
+Nodes share the run id as `$ai_trace_id`, so PostHog renders one tree per run.
+`$ai_session_id` is the conversation thread; the browser session is sent
+separately as `$session_id` so a trace links to its session replay.
+
+The browser session id travels on the `X-Agent-Native-Session-Id` header. Both
+the agent chat and the action client (`useActionQuery` / `useActionMutation` /
+`callAction`) send it, and the server exposes it to actions and agent runs alike
+as `RequestContext.browserSessionId` — so an action the UI calls and an action
+the agent calls during the same visit correlate. The id rotates after 30 idle
+minutes by default; to correlate a workflow under an id of your own, pin it once
+at startup:
+
+```ts
+import { setAnalyticsSessionId } from "@agent-native/core/client/analytics";
+
+// Pinned ids opt out of idle rotation. Call clearAnalyticsSessionId() to
+// return to the rotating default.
+setAnalyticsSessionId(myWorkflowId);
+```
+
+Tool calls always appear (PostHog derives its tool tags from them), but their
+**arguments** require `captureToolArgs` and message content requires
+`capturePrompts`. When those are off the fields are omitted entirely rather than
+sent empty, so an unrecorded prompt is never mistaken for an empty one.
+
+Errors carry a structured `$ai_error` with the terminal code and whether the
+failure was retryable, and exceptions captured during a run carry the run's
+`$ai_trace_id` — so an issue in error tracking and the trace it came from link
+to each other.
+
+### Feedback in PostHog
+
+Thumbs, category, and free-text feedback all emit `$ai_feedback`. PostHog's LLM
+analytics feedback view reads a `survey sent` event instead, so set
+`POSTHOG_AI_FEEDBACK_SURVEY_ID` (and `POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID`
+for multi-question surveys) to populate it. Without a survey id no survey event
+is sent.
 
 ## Export to external platforms {#export}
 
@@ -331,9 +381,15 @@ The agent loop emits three span kinds:
 
 Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
 
-## Error reporting (Sentry) {#sentry}
+## Error reporting (Sentry or PostHog) {#sentry}
 
 Server-side errors that escape Nitro route handlers are reported to Sentry when a DSN is configured. Without it the SDK silently no-ops, so it's safe to leave the env vars unset in dev. Browser and server events can go to the same Sentry project; split them into separate projects only when you want operational separation for ownership, volume, quotas, or alert routing.
+
+Sentry is not required. Error reporting fans out to every configured backend, so
+setting only `POSTHOG_API_KEY` gives full server-side error tracking with no
+Sentry project at all — see [Tracking](/docs/tracking#posthog-error-tracking).
+Configure both and each error goes to both. The noise-filtering rules below are
+shared by every backend rather than being Sentry-specific.
 
 | Surface            | SDK               | Env var                                                        | Notes                                                                 |
 | ------------------ | ----------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -382,3 +438,4 @@ Identity fields explicitly set via `setUser({ id, email, username })` are preser
 - [**Tracking**](/docs/tracking) — product analytics (PostHog, Mixpanel, Amplitude) for your app's own events
 - [**Actions**](/docs/actions) — the operations that appear as tool calls in traces
 - [**Security**](/docs/security) — data scoping and credential handling
+- [**Toolkit piece: Observability Kit**](/docs/toolkit-observability) — the dashboard and feedback UI built on this data model

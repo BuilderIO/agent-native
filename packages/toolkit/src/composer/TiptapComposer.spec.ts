@@ -8,8 +8,10 @@ import {
   canRemoveVoicePreview,
   compactComposerModelName,
   compactComposerReasoningEffortLabel,
+  composerModelCostTier,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
+  getComposerSendTooltipKey,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
   getComposerReasoningEffortOptions,
@@ -22,6 +24,7 @@ import {
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldShowModelSelectorSkeleton,
+  shouldShowOnlyConnectPath,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -135,6 +138,11 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe("send");
   });
 
+  it("uses the queue tooltip when the submit will wait", () => {
+    expect(getComposerSendTooltipKey(true)).toBe("composer.queueMessage");
+    expect(getComposerSendTooltipKey(false)).toBe("composer.sendMessage");
+  });
+
   it("selects and removes context chips one Backspace at a time", () => {
     let contextItemKeys = ["dashboard", "panel"];
     let selectedKey: string | null = null;
@@ -207,7 +215,7 @@ describe("createTiptapComposerExtensions", () => {
           file,
         },
       ]),
-    ).toContain('"large.pdf" is 4.0 MB — PDFs are capped at 4 MB');
+    ).toContain('"large.pdf" is 4.0 MB. PDFs are capped at 4 MB');
     expect(
       getOversizedDocumentAttachmentError([
         {
@@ -217,6 +225,31 @@ describe("createTiptapComposerExtensions", () => {
           file,
         },
       ]),
+    ).toBeNull();
+  });
+
+  it("allows hosts to use a larger multipart document cap", () => {
+    const file = new File(
+      [new Uint8Array(4 * 1024 * 1024 + 1)],
+      "reference.pdf",
+      { type: "application/pdf" },
+    );
+
+    expect(
+      getOversizedDocumentAttachmentError(
+        [
+          {
+            type: "document",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            file,
+          },
+        ],
+        {
+          maxBytes: 50 * 1024 * 1024,
+          label: "Slides reference files",
+        },
+      ),
     ).toBeNull();
   });
 
@@ -347,6 +380,41 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldShowModelSelectorSkeleton(true, 0)).toBe(true);
     expect(shouldShowModelSelectorSkeleton(true, 2)).toBe(false);
     expect(shouldShowModelSelectorSkeleton(false, 0)).toBe(false);
+  });
+
+  it("replaces the model list with connect CTAs only when nothing is configured", () => {
+    const unconfigured = [{ configured: false }, { configured: false }];
+    expect(shouldShowOnlyConnectPath(true, unconfigured)).toBe(true);
+    expect(
+      shouldShowOnlyConnectPath(true, [
+        { configured: true },
+        { configured: false },
+      ]),
+    ).toBe(false);
+    // No CTA to fall back on — keep the list rather than empty the popover.
+    expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
+  });
+});
+
+describe("composerModelCostTier", () => {
+  it("tiers each provider's entry, mid, and flagship models", () => {
+    expect(composerModelCostTier("gpt-5-6-luna")).toBe(1);
+    expect(composerModelCostTier("gpt-5.6-terra")).toBe(2);
+    expect(composerModelCostTier("openai/gpt-5.6-sol")).toBe(3);
+    expect(composerModelCostTier("claude-haiku-4-5")).toBe(1);
+    expect(composerModelCostTier("claude-sonnet-5")).toBe(2);
+    expect(composerModelCostTier("anthropic/claude-opus-4.8")).toBe(3);
+    expect(composerModelCostTier("claude-fable-5")).toBe(3);
+    expect(composerModelCostTier("gemini-3-1-flash-lite")).toBe(1);
+    expect(composerModelCostTier("gemini-3-1-pro")).toBe(3);
+  });
+
+  it("returns undefined for unmapped models so no cost label renders", () => {
+    // A guessed tier is worse than none — these render without a `$` label.
+    expect(composerModelCostTier("auto")).toBeUndefined();
+    expect(composerModelCostTier("z-ai/glm-5.2")).toBeUndefined();
+    expect(composerModelCostTier("kimi-k2-5")).toBeUndefined();
+    expect(composerModelCostTier("")).toBeUndefined();
   });
 });
 

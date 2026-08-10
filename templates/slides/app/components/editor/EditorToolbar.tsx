@@ -17,8 +17,6 @@ import {
   IconLayoutSidebar,
   IconPhoto,
   IconHistory,
-  IconArrowBackUp,
-  IconArrowForwardUp,
   IconFolderOpen,
   IconSettings,
   IconSchema,
@@ -29,13 +27,14 @@ import {
   IconAdjustments,
   IconPencilPlus,
   IconPin,
-  IconWand,
-  IconUpload,
+  IconTool,
+  IconDownload,
   IconSun,
   IconMoon,
   IconDotsVertical,
-  IconPalette,
   IconLoader2,
+  IconArrowBackUp,
+  IconArrowForwardUp,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useState, useRef, useEffect } from "react";
@@ -46,6 +45,7 @@ import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
@@ -57,15 +57,23 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
+import {
+  defaultSlideContent,
+  useDecks,
+  useSaveState,
+} from "@/context/DeckContext";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
+import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
+import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
 import { shortcutLabel } from "@/lib/utils";
 
+import { commitActiveEditThenRun } from "./commit-active-edit";
+import { EditorActionCluster } from "./EditorActionCluster";
 import { ExportMenu } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
@@ -87,12 +95,11 @@ interface EditorToolbarProps {
   historyOpen: boolean;
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
-  onUndo: () => void;
-  onRedo: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
   currentSlide?: Slide;
-  onUpdateSlide?: (updates: Partial<Omit<Slide, "id">>) => void;
+  onUpdateSlide?: (
+    updates: Partial<Omit<Slide, "id">>,
+    slideIdOverride?: string,
+  ) => void;
   /** Active users on the current slide (from collab awareness) */
   activeUsers?: CollabUser[];
   /** Whether the agent has a durable presence entry on this slide */
@@ -123,18 +130,32 @@ interface EditorToolbarProps {
   pinMode?: boolean;
   /** Toggle comment-pin drop mode */
   onTogglePinMode?: () => void;
+  /** Whether the add-text-box tool is active */
+  textBoxMode?: boolean;
+  /** Toggle the add-text-box tool */
+  onToggleTextBoxMode?: () => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
   onExportPdf?: () => void;
   /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
+  /** Create the deck in the user's Google Drive as native Google Slides */
+  onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   /** Active deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
   onSetAspectRatio?: (ratio: AspectRatio) => void;
-  /** Title of the design system linked to this deck, if any */
-  designSystemTitle?: string | null;
+  /** Insert a blank slide after the current one */
+  onAddEmptySlide?: () => void;
+  /** Duplicate the current slide */
+  onDuplicateCurrentSlide?: () => void;
+  /** Id of the current slide, so an agent add-slide lands in the right place */
+  currentSlideId?: string;
+  /** True while an agent add-slide request is in flight */
+  addSlideGenerating?: boolean;
+  /** Called when an agent add-slide request is submitted */
+  onAddSlideGeneratingChange?: (generating: boolean) => void;
 }
 
 const slideLayoutOptions: { value: SlideLayout; labelKey: string }[] = [
@@ -158,6 +179,18 @@ const backgroundOptions = [
   "bg-gradient-to-br from-[#0a0a0a] to-[#0f1a14]",
   "bg-[#ffffff]",
 ];
+
+const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+const TOOLBAR_ICON_BUTTON_CLASS =
+  "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
+
+/** Native <input type="color"> only accepts 3/6-digit hex — fall back to
+ * black for gradients or other raw CSS values so the picker still opens. */
+function toColorInputValue(background: string | undefined): string {
+  return background && HEX_COLOR_PATTERN.test(background)
+    ? background
+    : "#000000";
+}
 
 /** Popover anchored to a button ref */
 function ToolbarPopover({
@@ -226,10 +259,6 @@ export default function EditorToolbar({
   assetsButtonRef,
   onShowHistory,
   historyButtonRef,
-  onUndo,
-  onRedo,
-  canUndo,
-  canRedo,
   currentSlide,
   onUpdateSlide,
   activeUsers,
@@ -247,19 +276,25 @@ export default function EditorToolbar({
   onToggleDrawMode,
   pinMode,
   onTogglePinMode,
+  textBoxMode,
+  onToggleTextBoxMode,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
+  onExportGoogleSlides,
   aspectRatio,
   onSetAspectRatio,
-  designSystemTitle,
+  onAddEmptySlide,
+  onDuplicateCurrentSlide,
+  currentSlideId,
+  addSlideGenerating = false,
+  onAddSlideGeneratingChange,
   canEdit = true,
 }: EditorToolbarProps) {
   const t = useT();
-  // Mirror Google Slides: the share dialog exposes both the editor URL
-  // (primary) and the presentation URL (secondary). Access is enforced on
-  // the deck, not the URL shape — anyone with at least viewer access can
-  // open either link.
+  // Public decks default to the read-only presentation URL so recipients do
+  // not get sent through the editor's auth gate. Restricted decks keep the
+  // editor URL primary, where auth resolves viewer access.
   const editorUrl =
     typeof window === "undefined"
       ? `/deck/${deckId}`
@@ -268,6 +303,21 @@ export default function EditorToolbar({
     typeof window === "undefined"
       ? `/p/${deckId}`
       : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
+  const shareLinks = {
+    editor: {
+      url: editorUrl,
+      label: t("editorToolbar.editorLink"),
+      description: t("editorToolbar.editorLinkDescription"),
+    },
+    presentation: {
+      url: presentationUrl,
+      label: t("editorToolbar.presentationLink"),
+      description: t("editorToolbar.presentationLinkDescription"),
+    },
+  };
+  const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
+  const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const secondaryShareLink = shareLinks[shareLinkOrder.secondary];
 
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
@@ -287,6 +337,9 @@ export default function EditorToolbar({
   }, []);
 
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
+  const isCustomBackground =
+    !!currentSlide?.background &&
+    !backgroundOptions.includes(currentSlide.background);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
 
@@ -298,15 +351,19 @@ export default function EditorToolbar({
     setLayoutOpen(false);
   };
   const [toolsOpen, setToolsOpen] = useState(false);
-  const toolsRef = useRef<HTMLButtonElement>(null);
+  // The contextual toolbar hosts the action cluster whenever it is on screen.
+  // That row rides on SlideEditor, which only mounts for a real slide, so an
+  // empty deck must keep this fallback or it has no way to add one.
+  const contextToolbarVisible = canEdit && Boolean(currentSlide);
+  const { undo, redo, canUndo, canRedo, getDeck } = useDecks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
-  // The four secondary tools share an "active when something is on" indicator
-  // so the dot on the consolidated button reflects any of them.
+  // The secondary tools share an "active when something is on" indicator so
+  // the dot on the consolidated button reflects any of them.
   const anyToolActive = Boolean(
     animationsOpen || tweaksOpen || drawMode || pinMode,
   );
@@ -399,10 +456,10 @@ export default function EditorToolbar({
         <TooltipTrigger asChild>
           <Link
             to="/"
-            className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0"
+            className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
             aria-label={t("editorToolbar.backToDecks")}
           >
-            <IconArrowLeft className="w-4 h-4 text-muted-foreground" />
+            <IconArrowLeft className="size-4 text-muted-foreground" />
           </Link>
         </TooltipTrigger>
         <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
@@ -413,16 +470,36 @@ export default function EditorToolbar({
         <TooltipTrigger asChild>
           <button
             onClick={onToggleSidebar}
-            className={`md:hidden p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 ${
+            className={`${TOOLBAR_ICON_BUTTON_CLASS} md:hidden hover:bg-accent ${
               sidebarOpen ? "text-muted-foreground" : "text-muted-foreground/70"
             }`}
             aria-label={t("editorToolbar.toggleSlideList")}
           >
-            <IconLayoutSidebar className="w-4 h-4" />
+            <IconLayoutSidebar className="size-4" />
           </button>
         </TooltipTrigger>
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
+
+      {/* Add slide and the text-box tool live at the head of the contextual
+       * toolbar below. That row is desktop-only and needs a slide to mount on,
+       * so keep a fallback here for narrow screens and empty decks. */}
+      {canEdit && (
+        <EditorActionCluster
+          className={contextToolbarVisible ? "lg:hidden" : undefined}
+          deckId={deckId}
+          deckTitle={deckTitle}
+          currentSlideId={currentSlideId}
+          slideCount={slideCount}
+          currentSlideIndex={currentSlideIndex}
+          addSlideGenerating={addSlideGenerating}
+          onAddSlideGeneratingChange={onAddSlideGeneratingChange}
+          onAddEmptySlide={onAddEmptySlide}
+          onDuplicateCurrentSlide={onDuplicateCurrentSlide}
+          textBoxMode={textBoxMode}
+          onToggleTextBoxMode={onToggleTextBoxMode}
+        />
+      )}
 
       {/* Deck title */}
       <input
@@ -437,26 +514,6 @@ export default function EditorToolbar({
       <span className="text-xs text-muted-foreground/70 flex-shrink-0 hidden sm:inline">
         {currentSlideIndex + 1}/{slideCount}
       </span>
-
-      {deck.designSystemId && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="hidden max-w-[180px] items-center gap-1.5 rounded-md border border-border bg-accent/35 px-2 py-1 text-xs text-muted-foreground sm:flex">
-              <IconPalette className="h-3.5 w-3.5 shrink-0 text-[#609FF8]" />
-              <span className="truncate">
-                {designSystemTitle || t("editorToolbar.designSystem")}
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            {designSystemTitle
-              ? t("editorToolbar.usingDesignSystem", {
-                  title: designSystemTitle,
-                })
-              : t("editorToolbar.usingLinkedDesignSystem")}
-          </TooltipContent>
-        </Tooltip>
-      )}
 
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
@@ -479,14 +536,14 @@ export default function EditorToolbar({
                   closeAll();
                   setLayoutOpen(!layoutOpen);
                 }}
-                className={`flex items-center gap-1 p-2.5 sm:px-2 sm:py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} ${
                   layoutOpen
                     ? "text-foreground/90 bg-accent"
                     : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
                 }`}
                 aria-label={t("editorToolbar.slideSettings")}
               >
-                <IconSettings className="w-3.5 h-3.5" />
+                <IconSettings className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent>{t("editorToolbar.slideSettings")}</TooltipContent>
@@ -499,7 +556,7 @@ export default function EditorToolbar({
           >
             <div className="py-1.5">
               {/* Layout section */}
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.layout")}
               </div>
               {slideLayoutOptions.map((opt) => (
@@ -519,7 +576,7 @@ export default function EditorToolbar({
 
               {/* Background section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.background")}
               </div>
               <div className="px-3 pb-2">
@@ -537,12 +594,35 @@ export default function EditorToolbar({
                       }`}
                     />
                   ))}
+                  <label
+                    className={`relative w-10 h-7 rounded-md border cursor-pointer overflow-hidden transition-all ${
+                      isCustomBackground
+                        ? "border-[#609FF8] ring-1 ring-[#609FF8]/30"
+                        : "border-border hover:border-foreground/20"
+                    }`}
+                    style={{
+                      background: isCustomBackground
+                        ? currentSlide.background
+                        : "conic-gradient(from 180deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)",
+                    }}
+                    title={t("editorToolbar.customColor")}
+                  >
+                    <input
+                      type="color"
+                      value={toColorInputValue(currentSlide.background)}
+                      onChange={(e) => {
+                        onUpdateSlide!({ background: e.target.value });
+                      }}
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      aria-label={t("editorToolbar.customColor")}
+                    />
+                  </label>
                 </div>
               </div>
 
               {/* Image & Assets section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.media")}
               </div>
               <button
@@ -570,27 +650,46 @@ export default function EditorToolbar({
 
               {/* Diagrams section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.diagrams")}
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!onUpdateSlide || !currentSlide) return;
-                  const mermaidTemplate = `<div class="fmd-slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:60px 80px;font-family:'Poppins',sans-serif;">
-<div class="mermaid">
-graph TD
+                  // Pin the slide this insert targets before the async
+                  // import/parse below, so navigating to another slide in the
+                  // meantime can't redirect where the diagram lands.
+                  const targetSlideId = currentSlide.id;
+                  const defaultMermaidDefinition = `graph TD
     A[Start] --> B{Decision}
     B -->|Yes| C[Action A]
     B -->|No| D[Action B]
     C --> E[End]
-    D --> E
-</div>
-</div>`;
-                  onUpdateSlide({
-                    content: mermaidTemplate,
-                    layout: "blank",
-                  });
-                  setLayoutOpen(false);
+    D --> E`;
+                  try {
+                    const { convertMermaidToExcalidraw } =
+                      await import("./MermaidToExcalidrawPanel");
+                    const data = await convertMermaidToExcalidraw(
+                      defaultMermaidDefinition,
+                    );
+                    // The target slide may have been deleted while the import/
+                    // parse above was in flight — patch-deck rejects the whole
+                    // batch for a missing slide id, so re-check with the live
+                    // deck (not the stale `currentSlide` this closure captured)
+                    // and drop the result instead of enqueueing a dead op.
+                    const stillExists = getDeck(deckId)?.slides.some(
+                      (s) => s.id === targetSlideId,
+                    );
+                    if (!stillExists) return;
+                    onUpdateSlide({ excalidrawData: data }, targetSlideId);
+                    setLayoutOpen(false);
+                  } catch (err) {
+                    console.error("Insert Mermaid diagram failed:", err);
+                    toast.error(t("editorToolbar.insertMermaidFailed"), {
+                      description:
+                        err instanceof Error ? err.message : undefined,
+                    });
+                  }
                 }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
@@ -619,6 +718,8 @@ graph TD
                   <button
                     onClick={async () => {
                       if (!onUpdateSlide || !currentSlide) return;
+                      // Same pinning as the insert handler above.
+                      const targetSlideId = currentSlide.id;
                       try {
                         const match = currentSlide.content.match(
                           /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
@@ -629,13 +730,22 @@ graph TD
                         const data = await convertMermaidToExcalidraw(
                           match[1].trim(),
                         );
-                        onUpdateSlide({ excalidrawData: data });
+                        // Same stale-target guard as the insert handler above.
+                        const stillExists = getDeck(deckId)?.slides.some(
+                          (s) => s.id === targetSlideId,
+                        );
+                        if (!stillExists) return;
+                        onUpdateSlide({ excalidrawData: data }, targetSlideId);
                         setLayoutOpen(false);
-                      } catch (err: any) {
+                      } catch (err) {
                         console.error("Mermaid to Excalidraw failed:", err);
+                        toast.error(t("editorToolbar.convertMermaidFailed"), {
+                          description:
+                            err instanceof Error ? err.message : undefined,
+                        });
                       }
                     }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-accent/50 transition-colors"
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
                   >
                     <IconTransform className="w-3 h-3" />
                     {t("editorToolbar.convertMermaidToExcalidraw")}
@@ -657,7 +767,7 @@ graph TD
 
               {/* Transitions section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.transition")}
               </div>
               <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -689,8 +799,8 @@ graph TD
               {/* Aspect Ratio section (deck-level) */}
               {onSetAspectRatio && (
                 <>
-                  <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-                  <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                  <div className="mx-2 my-1.5 border-t border-border" />
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                     {t("editorToolbar.aspectRatio")}
                   </div>
                   <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -704,7 +814,7 @@ graph TD
                               className={`px-1.5 py-1 rounded text-[10px] font-medium border ${
                                 active
                                   ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
-                                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50 border-transparent"
                               }`}
                             >
                               {r}
@@ -732,158 +842,89 @@ graph TD
           onToggleTweaks ||
           onToggleDrawMode ||
           onTogglePinMode) && (
-          <>
+          <DropdownMenu
+            open={toolsOpen}
+            onOpenChange={(open) => {
+              if (open) setLayoutOpen(false);
+              setToolsOpen(open);
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  ref={toolsRef}
-                  onClick={() => {
-                    closeAll();
-                    setToolsOpen(!toolsOpen);
-                  }}
-                  className={`relative p-1.5 rounded cursor-pointer flex-shrink-0 ${
-                    anyToolActive || toolsOpen
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
-                  }`}
-                  aria-label={t("editorToolbar.slideTools")}
-                >
-                  <IconWand className="w-4 h-4" />
-                  {anyToolActive && !toolsOpen && (
-                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
-                  )}
-                </button>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className={`${TOOLBAR_ICON_BUTTON_CLASS} relative cursor-pointer ${
+                      anyToolActive || toolsOpen
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
+                    }`}
+                    aria-label={t("editorToolbar.slideTools")}
+                  >
+                    <IconTool className="size-4" />
+                    {anyToolActive && !toolsOpen && (
+                      <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>{t("editorToolbar.slideTools")}</TooltipContent>
             </Tooltip>
-            <ToolbarPopover
-              open={toolsOpen}
-              anchorRef={toolsRef}
-              onClose={() => setToolsOpen(false)}
-              width={200}
-            >
-              <div className="py-1.5">
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuGroup>
                 {currentSlide && onToggleAnimations && (
-                  <button
-                    onClick={() => {
-                      onToggleAnimations();
-                      setToolsOpen(false);
-                    }}
-                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                  <DropdownMenuItem
+                    onSelect={onToggleAnimations}
+                    className={
                       animationsOpen
-                        ? "text-[#609FF8] bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
                   >
-                    <IconBolt className="w-3.5 h-3.5" />
+                    <IconBolt className="size-4" />
                     {t("editorToolbar.elementAnimations")}
-                  </button>
+                  </DropdownMenuItem>
                 )}
                 {onToggleTweaks && (
-                  <button
-                    onClick={() => {
-                      onToggleTweaks();
-                      setToolsOpen(false);
-                    }}
-                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                  <DropdownMenuItem
+                    onSelect={onToggleTweaks}
+                    className={
                       tweaksOpen
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
                   >
-                    <IconAdjustments className="w-3.5 h-3.5" />
+                    <IconAdjustments className="size-4" />
                     {t("editorToolbar.tweaks")}
-                  </button>
+                  </DropdownMenuItem>
                 )}
                 {onToggleDrawMode && (
-                  <button
-                    onClick={() => {
-                      onToggleDrawMode();
-                      setToolsOpen(false);
-                    }}
+                  <DropdownMenuItem
+                    onSelect={onToggleDrawMode}
                     data-toolbar-draw-button
-                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                      drawMode
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                    className={
+                      drawMode ? "bg-accent text-accent-foreground" : undefined
+                    }
                   >
-                    <IconPencilPlus className="w-3.5 h-3.5" />
+                    <IconPencilPlus className="size-4" />
                     {t("editorToolbar.drawOnSlide")}
-                  </button>
+                  </DropdownMenuItem>
                 )}
                 {onTogglePinMode && (
-                  <button
-                    onClick={() => {
-                      onTogglePinMode();
-                      setToolsOpen(false);
-                    }}
+                  <DropdownMenuItem
+                    onSelect={onTogglePinMode}
                     data-toolbar-pin-button
-                    className={`flex items-start gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                      pinMode
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                    className={
+                      pinMode ? "bg-accent text-accent-foreground" : undefined
+                    }
                   >
-                    <IconPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                    <span className="flex flex-col items-start min-w-0">
-                      <span>{t("editorToolbar.pinComments")}</span>
-                      <span className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">
-                        {t("editorToolbar.pinCommentsDescription")}
-                      </span>
-                    </span>
-                  </button>
+                    <IconPin className="size-4" />
+                    {t("editorToolbar.pinComments")}
+                  </DropdownMenuItem>
                 )}
-              </div>
-            </ToolbarPopover>
-          </>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-
-      {/* Edit-only cluster — undo/redo */}
-      {canEdit && (
-        <>
-          {/* Separator */}
-          <div className="hidden h-5 w-px flex-shrink-0 bg-border/70 sm:block" />
-
-          {/* Undo/Redo */}
-          <div className="flex items-center flex-shrink-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onUndo}
-                  disabled={!canUndo}
-                  className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-                  aria-label={t("editorToolbar.undo")}
-                >
-                  <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("editorToolbar.undoWithShortcut", {
-                  shortcut: shortcutLabel("cmd+z"),
-                })}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onRedo}
-                  disabled={!canRedo}
-                  className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-                  aria-label={t("editorToolbar.redo")}
-                >
-                  <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("editorToolbar.redoWithShortcut", {
-                  shortcut: shortcutLabel("cmd+shift+z"),
-                })}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </>
-      )}
 
       {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
           nothing when idle. Only meaningful for editors. */}
@@ -910,14 +951,14 @@ graph TD
           <TooltipTrigger asChild>
             <button
               onClick={onToggleComments}
-              className={`relative p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} relative ${
                 commentsOpen
                   ? "text-foreground bg-accent"
                   : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
               }`}
               aria-label={t("editorToolbar.comments")}
             >
-              <IconMessage className="w-3.5 h-3.5" />
+              <IconMessage className="size-4" />
               {unresolvedCommentCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#609FF8] text-[8px] font-bold text-black flex items-center justify-center leading-none">
                   {unresolvedCommentCount > 9 ? "9+" : unresolvedCommentCount}
@@ -937,6 +978,7 @@ graph TD
           onDuplicate={onDuplicateDeck ?? (() => {})}
           onExportPdf={onExportPdf ?? (() => {})}
           onExportPptx={onExportPptx ?? (() => {})}
+          onExportGoogleSlides={onExportGoogleSlides}
         />
       </div>
 
@@ -946,14 +988,12 @@ graph TD
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
-          shareUrl={editorUrl}
-          shareUrlLabel={t("editorToolbar.editorLink")}
-          shareUrlDescription={t("editorToolbar.editorLinkDescription")}
-          secondaryShareUrl={presentationUrl}
-          secondaryShareUrlLabel={t("editorToolbar.presentationLink")}
-          secondaryShareUrlDescription={t(
-            "editorToolbar.presentationLinkDescription",
-          )}
+          shareUrl={primaryShareLink.url}
+          shareUrlLabel={primaryShareLink.label}
+          shareUrlDescription={primaryShareLink.description}
+          secondaryShareUrl={secondaryShareLink.url}
+          secondaryShareUrlLabel={secondaryShareLink.label}
+          secondaryShareUrlDescription={secondaryShareLink.description}
           shareTabs={{
             tabs: [
               {
@@ -1001,16 +1041,39 @@ graph TD
             <DropdownMenuTrigger asChild>
               <button
                 ref={historyButtonRef}
-                className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 text-muted-foreground hover:text-foreground/70 cursor-pointer"
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
                 aria-label={t("editorToolbar.more")}
               >
-                <IconDotsVertical className="w-4 h-4" />
+                <IconDotsVertical className="size-4" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-48">
+          {canEdit && (
+            <>
+              <DropdownMenuItem
+                disabled={!canUndo}
+                onSelect={() => commitActiveEditThenRun(undo)}
+              >
+                <IconArrowBackUp className="w-4 h-4 mr-2" />
+                {t("editorToolbar.undoWithShortcut", {
+                  shortcut: shortcutLabel("Cmd+Z"),
+                })}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!canRedo}
+                onSelect={() => commitActiveEditThenRun(redo)}
+              >
+                <IconArrowForwardUp className="w-4 h-4 mr-2" />
+                {t("editorToolbar.redoWithShortcut", {
+                  shortcut: shortcutLabel("Cmd+Shift+Z"),
+                })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem
             disabled={importing}
             onSelect={() => fileInputRef.current?.click()}
@@ -1018,7 +1081,7 @@ graph TD
             {importing ? (
               <IconLoader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              <IconUpload className="w-4 h-4 mr-2" />
+              <IconDownload className="w-4 h-4 mr-2" />
             )}
             {importing
               ? t("editorToolbar.importing")

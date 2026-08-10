@@ -6,6 +6,11 @@ import {
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import {
+  getRequestUserEmail,
+  hasRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -75,7 +80,47 @@ describe("framework request handler", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS;
     vi.restoreAllMocks();
+  });
+
+  it("runs a hand-written /api route inside an identity-free RequestContext", async () => {
+    // The privilege-escalation regression: a hand-written `/api/*` route has no
+    // ALS store of its own, so `getRequestUserEmail()` used to answer with the
+    // deploy's AGENT_USER_EMAIL and admin-check the caller as that identity.
+    vi.stubEnv("AGENT_USER_EMAIL", "deploy-admin@example.com");
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    let sawContext: boolean | undefined;
+    let sawEmail: string | undefined = "unset";
+    nitroApp.h3["~middleware"].push((_event: any, next: () => unknown) => {
+      sawContext = hasRequestContext();
+      sawEmail = getRequestUserEmail();
+      return next();
+    });
+
+    await dispatch(nitroApp, "/api/coach/users/someone@example.com");
+
+    expect(sawContext).toBe(true);
+    expect(sawEmail).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
+  it("lets a handler's own request context shadow the boundary store", async () => {
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp);
+
+    let sawEmail: string | undefined;
+    nitroApp.h3["~middleware"].push((_event: any, next: () => unknown) =>
+      runWithRequestContext({ userEmail: "alice@example.com" }, () => {
+        sawEmail = getRequestUserEmail();
+        return next();
+      }),
+    );
+
+    await dispatch(nitroApp, "/api/coach/users");
+    expect(sawEmail).toBe("alice@example.com");
   });
 
   it("dispatches bare framework routes with a mount-relative pathname", async () => {
@@ -333,6 +378,22 @@ describe("framework request handler", () => {
     release();
   });
 
+  it("does not hold the static speculation-rules route on plugin bootstrap", async () => {
+    const nitroApp = createNitroApp();
+    process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
+    getH3App(nitroApp).use("/_agent-native/speculation-rules.json", () => ({
+      prefetch: [],
+      prerender: [],
+    }));
+    trackPluginInit(nitroApp, new Promise<void>(() => {}), {
+      paths: ["/_agent-native"],
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/speculation-rules.json"),
+    ).resolves.toEqual({ prefetch: [], prerender: [] });
+  });
+
   it("waits for matching route-scoped plugin init", async () => {
     const nitroApp = createNitroApp();
     let release!: () => void;
@@ -361,6 +422,27 @@ describe("framework request handler", () => {
     release();
 
     await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("answers with a retryable 503 when plugin init outlives the ready deadline", async () => {
+    const nitroApp = createNitroApp();
+    process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
+
+    // Never resolves — a cold boot still running when the budget runs out.
+    trackPluginInit(nitroApp, new Promise<void>(() => {}), {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const event: any = {};
+    await expect(
+      dispatch(nitroApp, "/_agent-native/agent-chat", (e) => {
+        Object.assign(event, e);
+      }),
+    ).resolves.toEqual({
+      error: "agent-native routes are still initializing",
+    });
+    expect(event.res.status).toBe(503);
+    expect(event.res.headers.get("retry-after")).toBe("5");
   });
 
   it("installs the readiness gate when async plugin init is tracked first", async () => {

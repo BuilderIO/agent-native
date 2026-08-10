@@ -1,5 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -7,6 +8,7 @@ import {
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconPlus,
+  IconLoader2,
   IconDots,
   IconTrash,
   IconCopy,
@@ -100,11 +102,9 @@ export function FormsListPage() {
   }, [forms]);
 
   function handleCreate() {
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("forms.untitled") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -114,16 +114,21 @@ export function FormsListPage() {
     () => (
       <Button
         onClick={handleCreate}
+        disabled={createForm.isPending}
         size="sm"
         className="min-h-10 shrink-0 cursor-pointer active:scale-[0.96] transition-[background-color,box-shadow,transform]"
       >
-        <IconPlus className="h-3.5 w-3.5" />
+        {createForm.isPending ? (
+          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <IconPlus className="h-3.5 w-3.5" />
+        )}
         <span className="hidden sm:inline">{t("forms.newForm")}</span>
         <span className="sm:hidden">{t("forms.new")}</span>
       </Button>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [createForm.isPending],
   );
   useSetHeaderActions(headerActions);
 
@@ -151,11 +156,14 @@ export function FormsListPage() {
     }
   }
 
-  function handleDelete(id: string) {
+  function handleArchive(id: string) {
+    const toastId = toast.loading(t("forms.movingToArchive"));
     deleteForm.mutate(
       { id },
       {
-        onSuccess: () => toast.success(t("forms.movedToArchive")),
+        onSuccess: () =>
+          toast.success(t("forms.movedToArchive"), { id: toastId }),
+        onError: () => toast.error(t("forms.archiveFailed"), { id: toastId }),
       },
     );
   }
@@ -211,6 +219,9 @@ export function FormsListPage() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
+    const toastId = purge
+      ? undefined
+      : toast.loading(t("forms.movingToArchive"));
     setBulkDeletePending(true);
     try {
       await Promise.all(
@@ -235,10 +246,15 @@ export function FormsListPage() {
                 count: ids.length,
                 formattedCount: formatNumber(ids.length),
               }),
+        toastId ? { id: toastId } : undefined,
       );
       setSelectedIds(new Set());
       setSelectionMode(false);
       setBulkPurgeOpen(false);
+    } catch {
+      if (toastId) {
+        toast.error(t("forms.archiveFailed"), { id: toastId });
+      }
     } finally {
       setBulkDeletePending(false);
     }
@@ -291,9 +307,6 @@ export function FormsListPage() {
   if (error && !forms?.length) {
     const status = (error as { status?: number })?.status;
     if (status === 401) {
-      const next = encodeURIComponent(
-        window.location.pathname + window.location.search,
-      );
       return (
         <div className="flex flex-col items-center justify-center h-full gap-3">
           <p className="text-sm text-muted-foreground">
@@ -305,7 +318,7 @@ export function FormsListPage() {
             size="sm"
             className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           >
-            <Link to={`/login?next=${next}`}>{t("common.signIn")}</Link>
+            <a href={buildSignInReturnHref()}>{t("common.signIn")}</a>
           </Button>
         </div>
       );
@@ -403,7 +416,13 @@ export function FormsListPage() {
             }
             disabled={selectedCount === 0 || bulkDeletePending}
           >
-            <IconTrash className="h-3.5 w-3.5" />
+            {bulkDeletePending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isArchive ? (
+              <IconTrash className="h-3.5 w-3.5" />
+            ) : (
+              <IconArchive className="h-3.5 w-3.5" />
+            )}
             {isArchive ? t("forms.deleteForever") : t("forms.moveToArchive")}
           </Button>
           <Button
@@ -450,6 +469,9 @@ export function FormsListPage() {
         <div className="forms-list-shell overflow-hidden bg-card">
           {forms.map((form: any) => {
             const selected = selectedIds.has(form.id);
+            const formHref = isArchive
+              ? `/forms/${form.id}/responses`
+              : `/forms/${form.id}`;
             const dateLabel =
               isArchive && (form as any).deletedAt
                 ? t("forms.deletedDate", {
@@ -462,6 +484,20 @@ export function FormsListPage() {
                     month: "short",
                     day: "numeric",
                   });
+            const formDetails = (
+              <>
+                <div className="flex min-w-0 items-center gap-2">
+                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {form.title}
+                  </h3>
+                </div>
+                {form.description && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {form.description}
+                  </p>
+                )}
+              </>
+            );
 
             return (
               <div
@@ -477,16 +513,22 @@ export function FormsListPage() {
                 role="button"
                 tabIndex={0}
                 aria-pressed={selectionMode ? selected : undefined}
-                onClick={() => {
+                onClick={(event) => {
+                  if (
+                    event.defaultPrevented ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey ||
+                    event.button !== 0
+                  ) {
+                    return;
+                  }
                   if (selectionMode) {
                     toggleSelection(form.id);
                     return;
                   }
-                  navigate(
-                    isArchive
-                      ? `/forms/${form.id}/responses`
-                      : `/forms/${form.id}`,
-                  );
+                  navigate(formHref);
                 }}
                 onKeyDown={(e) => {
                   if (
@@ -498,11 +540,7 @@ export function FormsListPage() {
                       toggleSelection(form.id);
                       return;
                     }
-                    navigate(
-                      isArchive
-                        ? `/forms/${form.id}/responses`
-                        : `/forms/${form.id}`,
-                    );
+                    navigate(formHref);
                   }
                 }}
               >
@@ -519,15 +557,16 @@ export function FormsListPage() {
                     />
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {form.title}
-                      </h3>
-                    </div>
-                    {form.description && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {form.description}
-                      </p>
+                    {selectionMode ? (
+                      formDetails
+                    ) : (
+                      <Link
+                        to={formHref}
+                        className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {formDetails}
+                      </Link>
                     )}
                   </div>
                 </div>
@@ -669,11 +708,11 @@ export function FormsListPage() {
                                   className="text-destructive"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDelete(form.id);
+                                    handleArchive(form.id);
                                   }}
                                 >
-                                  <IconTrash className="h-4 w-4 me-2" />
-                                  {t("common.delete")}
+                                  <IconArchive className="h-4 w-4 me-2" />
+                                  {t("forms.moveToArchive")}
                                 </DropdownMenuItem>
                               </>
                             );

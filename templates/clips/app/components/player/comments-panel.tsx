@@ -1,4 +1,7 @@
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconSend,
@@ -12,7 +15,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { type Ref, useEffect, useMemo, useRef, useState } from "react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -28,6 +31,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import { REACTION_EMOJIS } from "./reaction-emojis";
 import { msToClock } from "./scrubber";
 
 function makeTempId() {
@@ -56,8 +60,6 @@ const defaultLens: CommentsLens = {
   applyComments: (data, next) =>
     data ? { ...(data as object), comments: next } : data,
 };
-
-const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂"];
 
 export interface Comment {
   id: string;
@@ -127,6 +129,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const replyComposerRef = useRef<HTMLTextAreaElement>(null);
 
   const queryClient = useQueryClient();
@@ -275,6 +279,41 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
   });
 
+  const updateComment = useActionMutation("update-comment", {
+    onMutate: async (vars: any) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
+      const updatedAt = new Date().toISOString();
+      patchComments((list) =>
+        list.map((comment) =>
+          comment.id === vars.id
+            ? { ...comment, content: vars.content, updatedAt }
+            : comment,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_err, vars: any, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      setEditingId(vars.id);
+      setEditDraft(vars.content);
+    },
+    onSuccess: (data: any) => {
+      if (!data?.id || !data?.content || !data?.updatedAt) return;
+      patchComments((list) =>
+        list.map((comment) =>
+          comment.id === data.id
+            ? {
+                ...comment,
+                content: data.content,
+                updatedAt: data.updatedAt,
+              }
+            : comment,
+        ),
+      );
+    },
+  });
+
   // Group by thread
   const threads = useMemo(() => {
     const map = new Map<string, Comment[]>();
@@ -334,6 +373,27 @@ export function CommentsPanel(props: CommentsPanelProps) {
     setTimeout(() => replyComposerRef.current?.focus(), 0);
   }
 
+  function startEditing(comment: Comment) {
+    setEditingId(comment.id);
+    setEditDraft(comment.content);
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditDraft("");
+  }
+
+  function submitEdit(comment: Comment) {
+    const content = editDraft.trim();
+    if (!content) return;
+    if (content === comment.content) {
+      cancelEditing();
+      return;
+    }
+    cancelEditing();
+    updateComment.mutate({ id: comment.id, content });
+  }
+
   const composer = (
     <CommentComposer
       draft={draft}
@@ -377,6 +437,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
                       resolve.mutate({ id, resolved })
                     }
                     onDelete={(id) => remove.mutate({ id })}
+                    isEditing={editingId === root.id}
+                    editDraft={editDraft}
+                    onEditDraftChange={setEditDraft}
+                    onStartEdit={() => startEditing(root)}
+                    onCancelEdit={cancelEditing}
+                    onSaveEdit={() => submitEdit(root)}
                     onReact={(commentId, emoji) =>
                       reactToComment.mutate({ commentId, emoji })
                     }
@@ -395,6 +461,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
                               resolve.mutate({ id, resolved })
                             }
                             onDelete={(id) => remove.mutate({ id })}
+                            isEditing={editingId === r.id}
+                            editDraft={editDraft}
+                            onEditDraftChange={setEditDraft}
+                            onStartEdit={() => startEditing(r)}
+                            onCancelEdit={cancelEditing}
+                            onSaveEdit={() => submitEdit(r)}
                             onReact={(commentId, emoji) =>
                               reactToComment.mutate({ commentId, emoji })
                             }
@@ -665,27 +737,95 @@ function InlineReplyComposer({
   );
 }
 
+function InlineEditComposer({
+  draft,
+  originalContent,
+  onDraftChange,
+  onCancel,
+  onSubmit,
+}: {
+  draft: string;
+  originalContent: string;
+  onDraftChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const t = useT();
+  const normalizedDraft = draft.trim();
+
+  return (
+    <div className="mt-2 rounded-lg border border-border bg-muted/20 p-2">
+      <Textarea
+        autoFocus
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        aria-label={t("commentsPanel.editComment")}
+        className="min-h-16 resize-none bg-background text-sm"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey)
+          ) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
+      />
+      <div className="mt-2 flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button
+          size="sm"
+          onClick={onSubmit}
+          disabled={
+            !normalizedDraft || normalizedDraft === originalContent.trim()
+          }
+        >
+          {t("common.save")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CommentCard({
   comment,
   currentUserEmail,
+  editDraft,
+  isEditing,
   onSeek,
   onReply,
   onResolve,
   onDelete,
+  onEditDraftChange,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
   onReact,
   onUnauthenticated,
   isReply,
 }: {
   comment: Comment;
   currentUserEmail?: string;
+  editDraft: string;
+  isEditing: boolean;
   onSeek: (ms: number) => void;
   onReply: () => void;
   onResolve: (id: string, resolved: boolean) => void;
   onDelete: (id: string) => void;
+  onEditDraftChange: (value: string) => void;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
   onReact: (commentId: string, emoji: string) => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
   isReply?: boolean;
 }) {
+  const t = useT();
   // Local override forces a synchronous re-render the instant the user clicks
   // an emoji — independent of React Query cache propagation. It's cleared as
   // soon as the prop (server-confirmed) catches up to whatever we showed.
@@ -695,7 +835,10 @@ function CommentCard({
   }, [comment.emojiReactionsJson]);
 
   const reactions = parseReactions(localJson ?? comment.emojiReactionsJson);
-  const isOwner = currentUserEmail && comment.authorEmail === currentUserEmail;
+  const isOwner =
+    !!currentUserEmail &&
+    comment.authorEmail.trim().toLowerCase() ===
+      currentUserEmail.trim().toLowerCase();
 
   function toggleEmoji(emoji: string) {
     if (!currentUserEmail) return reactions;
@@ -719,10 +862,14 @@ function CommentCard({
   }
 
   const commentContent = linkifyCommentContent(comment.content);
+  const avatarUrl = useAvatarUrl(comment.authorEmail);
 
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
       <Avatar className="h-7 w-7 shrink-0">
+        {avatarUrl ? (
+          <AvatarImage src={avatarUrl} alt={displayName(comment)} />
+        ) : null}
         <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
           {initials(displayName(comment))}
         </AvatarFallback>
@@ -749,74 +896,89 @@ function CommentCard({
             </span>
           ) : null}
         </div>
-        <p className="text-sm text-foreground whitespace-pre-wrap break-words mt-0.5">
-          {commentContent}
-        </p>
+        {isEditing ? (
+          <InlineEditComposer
+            draft={editDraft}
+            originalContent={comment.content}
+            onDraftChange={onEditDraftChange}
+            onCancel={onCancelEdit}
+            onSubmit={onSaveEdit}
+          />
+        ) : (
+          <>
+            <p className="text-sm text-foreground whitespace-pre-wrap break-words mt-0.5">
+              {commentContent}
+            </p>
 
-        <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
-          <button
-            onClick={onReply}
-            className="hover:text-foreground flex items-center gap-1"
-          >
-            <IconCornerDownRight className="h-3 w-3" />
-            Reply
-          </button>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <button className="hover:text-foreground flex items-center gap-1">
-                <IconMoodSmile className="h-3 w-3" /> React
+            <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+              <button
+                onClick={onReply}
+                className="hover:text-foreground flex items-center gap-1"
+              >
+                <IconCornerDownRight className="h-3 w-3" />
+                Reply
               </button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="p-1 w-auto">
-              <div className="flex gap-0.5">
-                {COMMENT_EMOJIS.map((e) => (
-                  <button
-                    key={e}
-                    onClick={() => {
-                      if (!currentUserEmail) {
-                        onUnauthenticated?.("react");
-                        return;
-                      }
-                      setLocalJson(JSON.stringify(toggleEmoji(e)));
-                      onReact(comment.id, e);
-                    }}
-                    className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"
-                  >
-                    {e}
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="hover:text-foreground flex items-center gap-1">
+                    <IconMoodSmile className="h-3 w-3" /> React
                   </button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+                </PopoverTrigger>
+                <PopoverContent side="top" align="start" className="p-1 w-auto">
+                  <div className="flex gap-0.5">
+                    {REACTION_EMOJIS.map((e) => (
+                      <button
+                        key={e}
+                        onClick={() => {
+                          if (!currentUserEmail) {
+                            onUnauthenticated?.("react");
+                            return;
+                          }
+                          setLocalJson(JSON.stringify(toggleEmoji(e)));
+                          onReact(comment.id, e);
+                        }}
+                        className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
 
-          {currentUserEmail ? (
-            <button
-              onClick={() => onResolve(comment.id, !comment.resolved)}
-              className="hover:text-foreground"
-            >
-              {comment.resolved ? "Unresolve" : "Resolve"}
-            </button>
-          ) : null}
-
-          {isOwner ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="ml-auto hover:text-foreground">
-                  <IconDots className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="text-red-600"
-                  onSelect={() => onDelete(comment.id)}
+              {currentUserEmail ? (
+                <button
+                  onClick={() => onResolve(comment.id, !comment.resolved)}
+                  className="hover:text-foreground"
                 >
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
+                  {comment.resolved ? "Unresolve" : "Resolve"}
+                </button>
+              ) : null}
+
+              {isOwner ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="ml-auto hover:text-foreground">
+                      <IconDots className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={onStartEdit}>
+                      {t("commentsPanel.editComment")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-red-600"
+                      onSelect={() => onDelete(comment.id)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+            </div>
+          </>
+        )}
 
         {Object.keys(reactions).length > 0 ? (
           <div className="flex flex-wrap gap-1 mt-1.5">

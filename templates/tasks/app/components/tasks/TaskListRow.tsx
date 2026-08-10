@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChecks, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -55,6 +56,7 @@ export function TaskListRow({
   onBeginExit,
   onExitAfterComplete,
 }: TaskListRowProps) {
+  const t = useT();
   const selected = selection.state.selectedItems.some(
     (entry) => entry.id === item.id,
   );
@@ -122,7 +124,11 @@ export function TaskListRow({
               onClick={
                 rowSelection.selectionMode ? rowSelection.selectRow : undefined
               }
-              aria-label={`Mark ${displayTitle} ${displayDone ? "incomplete" : "complete"}`}
+              aria-label={
+                displayDone
+                  ? t("tasks.markIncompleteAriaLabel", { title: displayTitle })
+                  : t("tasks.markCompleteAriaLabel", { title: displayTitle })
+              }
             />
 
             <div className="min-w-0 flex-1">
@@ -133,7 +139,7 @@ export function TaskListRow({
                   value={item.title}
                   onSave={onUpdateTitle}
                   onDisplayTitleChange={setDisplayTitle}
-                  ariaLabel="Edit title"
+                  ariaLabel={t("common.editTitleAriaLabel")}
                   disabled={busy}
                   titleDragProps={rowDrag.titleDragProps}
                   displayDone={displayDone}
@@ -149,7 +155,9 @@ export function TaskListRow({
             </div>
 
             <RowActionsMenu
-              ariaLabel={`Actions for ${displayTitle}`}
+              ariaLabel={t("common.rowActionsAriaLabel", {
+                title: displayTitle,
+              })}
               disabled={busy || rowSelection.selectionMode}
             >
               <DropdownMenuItem
@@ -157,14 +165,14 @@ export function TaskListRow({
                 onSelect={() => selection.actions.startSelection(item.id)}
               >
                 <IconChecks className="size-4" />
-                Select
+                {t("selection.select")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
                 onSelect={onRequestDelete}
               >
                 <IconTrash className="size-4" />
-                Delete
+                {t("common.delete")}
               </DropdownMenuItem>
             </RowActionsMenu>
           </>
@@ -203,6 +211,7 @@ function TaskListRowFieldBadges({ fields }: { fields?: TaskFieldValue[] }) {
 }
 
 function TaskListRowFieldStrip({ fields }: { fields?: TaskFieldValue[] }) {
+  const t = useT();
   const { fieldIds } = useVisibleTaskFieldIds();
   const items = taskCardDisplayFields(fieldIds, fields);
   const columnCount = Math.min(fieldIds.length, TASK_CARD_FIELD_LIMIT);
@@ -213,7 +222,7 @@ function TaskListRowFieldStrip({ fields }: { fields?: TaskFieldValue[] }) {
       style={{
         gridTemplateColumns: `repeat(${columnCount}, minmax(6.5rem, 8rem))`,
       }}
-      aria-label="Visible task fields"
+      aria-label={t("tasks.visibleTaskFieldsAriaLabel")}
     >
       {items.map((item) => (
         <div

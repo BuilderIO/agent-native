@@ -36,11 +36,16 @@ interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
   onAttachmentError?: (message: string) => void;
   /**
+   * Show the "Create Extension" entry. Extensions are optional and hidden
+   * unless the host explicitly enables their agent tool surface.
+   */
+  extensionTools?: boolean;
+  /**
    * "full" (default): full + menu with Upload File, Create Skill, Schedule Task,
-   * Automation, Extension, MCP Server. "upload-only": clicking + opens the file
-   * picker directly — no popover, no other modes. Use for prompt popovers
-   * (create extension, create deck, create dashboard, etc.) where the only thing
-   * to attach is a file.
+   * Automation, and MCP Server. Extension is included only when
+   * `extensionTools` is true. "upload-only": clicking + opens the file picker
+   * directly — no popover, no other modes. Use for prompt popovers where the
+   * only thing to attach is a file.
    */
   mode?: "full" | "upload-only";
 }
@@ -50,6 +55,12 @@ type View = "menu" | "skill-upload";
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
 const EMBED_PROTOCOL = "agent-native.embed";
 const EMBED_VERSION = 1;
+
+export function isExtensionComposerMenuEnabled(
+  extensionTools?: boolean,
+): boolean {
+  return extensionTools === true;
+}
 
 interface EmbedEnvelope<TPayload = unknown> {
   protocol?: string;
@@ -233,6 +244,7 @@ function UploadOnlyAttachButton({
 export function ComposerPlusMenu({
   onSelectMode,
   onAttachmentError,
+  extensionTools = false,
   mode = "full",
 }: ComposerPlusMenuProps) {
   if (mode === "upload-only") {
@@ -242,6 +254,7 @@ export function ComposerPlusMenu({
     <ComposerPlusMenuFull
       onSelectMode={onSelectMode}
       onAttachmentError={onAttachmentError}
+      extensionTools={extensionTools}
     />
   );
 }
@@ -249,7 +262,11 @@ export function ComposerPlusMenu({
 function ComposerPlusMenuFull({
   onSelectMode,
   onAttachmentError,
-}: Pick<ComposerPlusMenuProps, "onSelectMode" | "onAttachmentError">) {
+  extensionTools,
+}: Pick<
+  ComposerPlusMenuProps,
+  "onSelectMode" | "onAttachmentError" | "extensionTools"
+>) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
   const resources = adapters.resources!;
@@ -267,8 +284,9 @@ function ComposerPlusMenuFull({
   const canCreateOrgMcp =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const hasOrg = !!org?.orgId;
-  const defaultMcpScope: "org" | "user" =
-    hasOrg && canCreateOrgMcp ? "org" : "user";
+  // Composer connections belong to the person asking for them. Organization
+  // sharing remains an explicit choice for owners and admins in the dialog.
+  const defaultMcpScope: "user" = "user";
   const createMcp = resources.useCreateMcpServer!();
   const McpIntegrationDialog = resources.McpIntegrationDialog;
 
@@ -432,15 +450,19 @@ function ComposerPlusMenuFull({
         setOpen(false);
       },
     },
-    {
-      icon: <IconTool className="h-3.5 w-3.5" />,
-      label: "Create Extension",
-      desc: "Build a mini app extension",
-      action: () => {
-        onSelectMode?.("extension");
-        setOpen(false);
-      },
-    },
+    ...(isExtensionComposerMenuEnabled(extensionTools)
+      ? [
+          {
+            icon: <IconTool className="h-3.5 w-3.5" />,
+            label: "Create Extension",
+            desc: "Build a mini app extension",
+            action: () => {
+              onSelectMode?.("extension");
+              setOpen(false);
+            },
+          },
+        ]
+      : []),
     ...(showMcpIntegrations
       ? [
           {
@@ -490,14 +512,17 @@ function ComposerPlusMenuFull({
       <Popover open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <IconPlus className="h-4 w-4" />
-              </button>
-            </PopoverTrigger>
+            <span className="inline-flex shrink-0">
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Add..."
+                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <IconPlus className="h-4 w-4" />
+                </button>
+              </PopoverTrigger>
+            </span>
           </TooltipTrigger>
           <TooltipContent>Add...</TooltipContent>
         </Tooltip>

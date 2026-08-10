@@ -39,7 +39,10 @@ import {
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "../../shared/session-replay-diagnostics.js";
 import { getDb, schema } from "../db/index.js";
-import { resolveAnalyticsEventDimensions } from "./first-party-analytics.js";
+import {
+  resolveAnalyticsEventDimensions,
+  touchPublicKeyLastUsedAt,
+} from "./first-party-analytics.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -797,6 +800,82 @@ function replayConsoleRepeat(payload: Record<string, unknown>): number {
   return repeat !== null && repeat > 0 ? repeat : 1;
 }
 
+const RRWEB_INCREMENTAL_SNAPSHOT = 3;
+const RRWEB_MOUSE_INTERACTION_SOURCE = 2;
+const RRWEB_MOUSE_CLICK = 2;
+const RAGE_CLICK_MIN_CLICKS = 3;
+const RAGE_CLICK_WINDOW_MS = 1_000;
+const RAGE_CLICK_RADIUS_PX = 30;
+
+interface ReplayClickPoint {
+  at: number;
+  x: number;
+  y: number;
+  target: number | null;
+}
+
+function replayClickPoint(event: unknown): ReplayClickPoint | null {
+  const record = replayRecord(event);
+  if (replayInteger(record.type) !== RRWEB_INCREMENTAL_SNAPSHOT) return null;
+  const data = replayRecord(record.data);
+  if (replayInteger(data.source) !== RRWEB_MOUSE_INTERACTION_SOURCE)
+    return null;
+  if (replayInteger(data.type) !== RRWEB_MOUSE_CLICK) return null;
+  const at = replayInteger(record.timestamp);
+  if (at === null) return null;
+  return {
+    at,
+    x: replayInteger(data.x) ?? 0,
+    y: replayInteger(data.y) ?? 0,
+    target: replayInteger(data.id),
+  };
+}
+
+function sameRageClickTarget(
+  cluster: ReplayClickPoint,
+  click: ReplayClickPoint,
+): boolean {
+  if (cluster.target !== null && click.target !== null) {
+    return cluster.target === click.target;
+  }
+  return (
+    Math.abs(cluster.x - click.x) <= RAGE_CLICK_RADIUS_PX &&
+    Math.abs(cluster.y - click.y) <= RAGE_CLICK_RADIUS_PX
+  );
+}
+
+/**
+ * Rage-click counter over rrweb click events: `RAGE_CLICK_MIN_CLICKS` clicks on
+ * the same target (or within a small radius) with no more than
+ * `RAGE_CLICK_WINDOW_MS` between consecutive clicks counts as one rage click.
+ * Chunks arrive in separate ingest requests and are merged with `max`, so this
+ * is a per-batch lower bound, not a session total.
+ */
+function countRageClicks(events: unknown[]): number {
+  let rageClicks = 0;
+  let cluster: ReplayClickPoint | null = null;
+  let clusterSize = 0;
+  for (const event of events) {
+    const click = replayClickPoint(event);
+    if (!click) continue;
+    const active = cluster;
+    if (
+      active &&
+      click.at - active.at <= RAGE_CLICK_WINDOW_MS &&
+      click.at >= active.at &&
+      sameRageClickTarget(active, click)
+    ) {
+      clusterSize += 1;
+      active.at = click.at;
+      if (clusterSize === RAGE_CLICK_MIN_CLICKS) rageClicks += 1;
+      continue;
+    }
+    cluster = click;
+    clusterSize = 1;
+  }
+  return rageClicks;
+}
+
 function deriveReplaySignals({
   body,
   metadata,
@@ -885,7 +964,7 @@ function deriveReplaySignals({
         body.rageClicks,
         metadata.rageClickCount,
         metadata.rageClicks,
-      ) ?? 0,
+      ) ?? countRageClicks(events),
     privacyMode:
       replayString(body.privacyMode) ||
       replayString(body.privacy_mode) ||
@@ -1578,10 +1657,7 @@ export async function recordSessionReplayChunks(
     })
     .where(eq(schema.sessionRecordings.id, recording.id));
 
-  await db
-    .update(schema.analyticsPublicKeys)
-    .set({ lastUsedAt: ingestedAt })
-    .where(eq(schema.analyticsPublicKeys.id, key.id));
+  await touchPublicKeyLastUsedAt(key.id, ingestedAt);
 
   recordChange({
     source: "session-recordings",

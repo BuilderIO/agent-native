@@ -29,6 +29,7 @@ import { getDb, schema } from "../db/index.js";
 const REMINDER_INTERVAL_MS = 60 * 1000;
 const REMINDER_WINDOW_MS = 5 * 60 * 1000;
 let skippingLogged = false;
+let running = false;
 
 const meetingReminderSchema = z.object({
   meetingId: z.string(),
@@ -114,9 +115,15 @@ export default function registerMeetingRemindersJob(): void {
     return;
   }
   setInterval(() => {
-    runMeetingRemindersOnce().catch((err) =>
-      console.error("[meeting-reminders] interval failed:", err),
-    );
+    if (running) return;
+    running = true;
+    runMeetingRemindersOnce()
+      .catch((err) =>
+        console.error("[meeting-reminders] interval failed:", err),
+      )
+      .finally(() => {
+        running = false;
+      });
   }, REMINDER_INTERVAL_MS);
   console.log(
     `[meeting-reminders] Recurring meeting reminders every ${REMINDER_INTERVAL_MS / 1000}s.`,

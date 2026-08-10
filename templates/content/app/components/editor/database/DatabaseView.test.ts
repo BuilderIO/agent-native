@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import type {
   ContentDatabaseItem,
   ContentDatabaseResponse,
@@ -20,6 +22,7 @@ import {
   databaseBulkMultiSelectValueAfterOperation,
   builderSourceContinuationKey,
   builderSourceContinuationFetchedCountDetail,
+  builderSourceContinuationFailureDecision,
   builderSourceContinuationWatchdogDelay,
   builderSourceContinuationProgressPercent,
   builderSourceContinuationWatchdogDecision,
@@ -45,18 +48,199 @@ import {
   databaseSearchExpandedItemLimit,
   databaseSearchExpansionIsPending,
   databaseAttachedBuilderSources,
+  databaseActiveBuilderReview,
   databaseNextBuilderContinuationSource,
   databaseNextBuilderContinuationWatchdogSource,
   databaseNextBuilderHydrationSource,
   databasePreviewItem,
+  databaseItemPagePath,
   databaseRecordBuilderContinuationAttempt,
   databaseSourceOperationIsPending,
+  databaseSourceChangeSetsAreComplete,
+  databaseTableShouldShowBlockingLoader,
+  databaseViewRequiresCompleteClientDataset,
   pendingMutationSourceId,
+  previewDocumentSaveResult,
   releaseDatabaseSourceOperation,
   previewDraftNeedsConflict,
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
 } from "./DatabaseView";
+
+describe("database source page projections", () => {
+  it("does not present page-scoped review counts as complete", () => {
+    expect(
+      databaseSourceChangeSetsAreComplete({
+        projection: { rows: "page", changeSets: "page" },
+      } as ContentDatabaseSource),
+    ).toBe(false);
+    expect(
+      databaseSourceChangeSetsAreComplete({
+        projection: { rows: "complete", changeSets: "complete" },
+      } as ContentDatabaseSource),
+    ).toBe(true);
+    expect(databaseSourceChangeSetsAreComplete(null)).toBe(true);
+  });
+
+  it("shows page review changes while the complete review loads", () => {
+    const page = {
+      sourceId: "source-1",
+    } as unknown as ContentDatabaseSourceReviewPayload;
+    const complete = {
+      sourceId: "source-1",
+      preparedRowLimit: 100,
+    } as unknown as ContentDatabaseSourceReviewPayload;
+    expect(
+      databaseActiveBuilderReview({
+        prepared: null,
+        complete: null,
+        page,
+        open: true,
+      }),
+    ).toBe(page);
+    expect(
+      databaseActiveBuilderReview({
+        prepared: null,
+        complete,
+        page,
+        open: true,
+      }),
+    ).toBe(complete);
+  });
+});
+
+describe("database table loading", () => {
+  it("keeps useful rows visible while a constrained result refetches", () => {
+    expect(databaseTableShouldShowBlockingLoader(true, 100)).toBe(false);
+    expect(databaseTableShouldShowBlockingLoader(true, 0)).toBe(true);
+    expect(databaseTableShouldShowBlockingLoader(false, 0)).toBe(false);
+  });
+
+  it("keeps constrained tables bounded while preserving complete calendar data", () => {
+    expect(
+      databaseViewRequiresCompleteClientDataset({
+        viewType: "table",
+        activeConstraintCount: 1,
+        grouped: false,
+      }),
+    ).toBe(false);
+    expect(
+      databaseViewRequiresCompleteClientDataset({
+        viewType: "calendar",
+        activeConstraintCount: 0,
+        grouped: false,
+      }),
+    ).toBe(true);
+    expect(
+      databaseViewRequiresCompleteClientDataset({
+        viewType: "table",
+        activeConstraintCount: 1,
+        grouped: false,
+        tableQueryMode: "client-required",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("database preview property saves", () => {
+  it("carries the database and its page through full-page navigation", () => {
+    expect(
+      databaseItemPagePath("row-1", "database & one", "database/page"),
+    ).toBe(
+      "/page/row-1?databaseId=database+%26+one&databaseDocumentId=database%2Fpage",
+    );
+  });
+
+  it("treats a body changed outside a title-only save as a conflict", () => {
+    const baseline = {
+      title: "Before",
+      content: "Body A",
+      loadedUpdatedAt: "v0",
+      loadedContentWasEmpty: false,
+    };
+    const result = previewDocumentSaveResult({
+      baseline,
+      payload: { ...baseline, title: "Local title" },
+      contentChanged: false,
+      result: {
+        id: "document",
+        title: "Local title",
+        content: "Body B from another tab",
+        updatedAt: "v2",
+        softDeletedDatabaseIds: [],
+      } as unknown as Parameters<typeof previewDocumentSaveResult>[0]["result"],
+    });
+
+    expect(result).toMatchObject({
+      outcome: "deferred",
+      reason: "conflict",
+      conflictSnapshot: {
+        lastSaved: baseline,
+        pending: {
+          title: "Local title",
+          content: "Body B from another tab",
+          loadedUpdatedAt: "v2",
+        },
+      },
+    });
+  });
+
+  it("rebases a title-only save only when its observed body is unchanged", () => {
+    const result = previewDocumentSaveResult({
+      payload: {
+        title: "Local title",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+      contentChanged: false,
+      result: {
+        id: "document",
+        title: "Local title",
+        content: "Body A",
+        updatedAt: "v1",
+        softDeletedDatabaseIds: [],
+      } as unknown as Parameters<typeof previewDocumentSaveResult>[0]["result"],
+    });
+
+    expect(result).toEqual({
+      outcome: "saved",
+      loadedUpdatedAt: "v1",
+      loadedContentWasEmpty: false,
+    });
+  });
+
+  it("threads the containing database document through scalar and block property editors", () => {
+    const source = readFileSync(
+      new URL("./DatabaseView.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toMatch(
+      /<DocumentProperties[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+    );
+    expect(source).toMatch(
+      /<DocumentBlockFields[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+    );
+  });
+
+  it("does not refetch Content after the document mutation patches its caches", () => {
+    const source = readFileSync(
+      new URL("./DatabaseView.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+    const onSaved = source.match(
+      /onSaved: \(persistedPayload\) => \{([\s\S]*?)\n    \},\n    onError:/,
+    )?.[1];
+
+    expect(onSaved).toBeDefined();
+    expect(onSaved).not.toContain("invalidateQueries");
+  });
+});
 
 describe("Builder required publishing fields", () => {
   const source = {
@@ -291,6 +475,12 @@ describe("Builder source continuation state", () => {
     expect(builderSourceContinuationWatchdogDelay(2)).toBe(20_000);
     expect(builderSourceContinuationWatchdogDelay(3)).toBe(30_000);
     expect(builderSourceContinuationWatchdogDelay(20)).toBe(30_000);
+  });
+
+  it("retries one transient continuation failure before surfacing an error", () => {
+    expect(builderSourceContinuationFailureDecision(1)).toBe("retry");
+    expect(builderSourceContinuationFailureDecision(2)).toBe("error");
+    expect(builderSourceContinuationFailureDecision(20)).toBe("error");
   });
 
   it("keeps a direct retry attempted until the watchdog backoff retries it", () => {
@@ -983,6 +1173,7 @@ describe("large database authoring", () => {
       },
       createdItemId: "created-item",
       createdDocumentId: "created-document",
+      createdDocumentUpdatedAt: "2026-07-13T11:59:59.000Z",
     } as unknown as ContentDatabaseResponse;
 
     const createdItem = databaseCreatedItemForImmediatePreview(response, {
@@ -1002,6 +1193,8 @@ describe("large database authoring", () => {
         parentId: "database-document",
         title: "New QA row",
         content: "",
+        createdAt: "2026-07-13T11:59:59.000Z",
+        updatedAt: "2026-07-13T11:59:59.000Z",
       },
     });
     expect(

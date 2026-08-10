@@ -180,6 +180,57 @@ describe("previewDocumentSaveController", () => {
     expect(save).toHaveBeenLastCalledWith(DOC, { title: "T1", content: "C2" });
   });
 
+  it("rebases trailing edits onto the timestamp returned by its own save", async () => {
+    let resolveFirst:
+      | ((value: {
+          outcome: "saved";
+          loadedUpdatedAt: string;
+          loadedContentWasEmpty: boolean;
+        }) => void)
+      | undefined;
+    const save = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        outcome: "saved",
+        loadedUpdatedAt: "after-second-save",
+        loadedContentWasEmpty: false,
+      });
+    const c = makeController({
+      save,
+      init: {
+        title: "T0",
+        content: "",
+        loadedUpdatedAt: "before-first-save",
+        loadedContentWasEmpty: true,
+      },
+    });
+
+    c.changeContent("C1");
+    vi.advanceTimersByTime(450);
+    await flushMicrotasks();
+    c.changeContent("C2");
+
+    resolveFirst?.({
+      outcome: "saved",
+      loadedUpdatedAt: "after-first-save",
+      loadedContentWasEmpty: false,
+    });
+    await flushMicrotasks();
+
+    expect(save).toHaveBeenLastCalledWith(DOC, {
+      title: "T0",
+      content: "C2",
+      loadedUpdatedAt: "after-first-save",
+      loadedContentWasEmpty: false,
+    });
+  });
+
   it("flush does NOT duplicate-save when the in-flight save already covers the latest payload", async () => {
     let resolveFirst: (() => void) | undefined;
     const save = vi
@@ -385,6 +436,66 @@ describe("previewDocumentSaveController", () => {
     await c.flush();
     expect(save).toHaveBeenLastCalledWith(DOC, c.pending);
     expect(c.lastSaved.content).toBe("My local draft");
+  });
+
+  it("preserves a server body when resolving a title-only conflict", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Before",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+    });
+
+    c.changeTitle("Local title");
+    c.rebasePending({
+      title: "External title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+
+    expect(c.pending).toEqual({
+      title: "Local title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+    await c.flush();
+    expect(save).toHaveBeenCalledExactlyOnceWith(DOC, c.pending);
+  });
+
+  it("preserves a server title when resolving a body-only conflict", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Before",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+    });
+
+    c.changeContent("Local body");
+    c.rebasePending({
+      title: "External title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+
+    expect(c.pending).toEqual({
+      title: "External title",
+      content: "Local body",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+    await c.flush();
+    expect(save).toHaveBeenCalledExactlyOnceWith(DOC, c.pending);
   });
 
   it("title and content edits both flush together in one payload", async () => {

@@ -1,6 +1,5 @@
 import { readBody, getSession } from "@agent-native/core/server";
 import * as chrono from "chrono-node";
-import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -8,11 +7,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { db, schema } from "../db/index.js";
 import {
-  cancelScheduledJobForOwner,
-  createScheduledJobRecord,
-  listPendingJobs,
   scheduleEmailSend,
   scheduleSnooze,
   sendScheduledJobNowForOwner,
@@ -59,135 +54,6 @@ export function parseNlDate(input: string, timezone: string): Date | null {
 }
 
 // ─── Route Handlers ───────────────────────────────────────────────────────────
-
-/** GET /api/scheduled-jobs — list pending/processing jobs */
-export const listScheduledJobs = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
-  if (!session?.email) {
-    const { createError } = await import("h3");
-    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
-  }
-  return listPendingJobs(session.email);
-});
-
-/** POST /api/scheduled-jobs — create a new job */
-export const createScheduledJob = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
-  const body = await readBody(event);
-  const { type, emailId, threadId, accountEmail, payload, runAt } = body as {
-    type: "snooze" | "send_later";
-    emailId?: string;
-    threadId?: string;
-    accountEmail?: string;
-    payload?: Record<string, unknown>;
-    runAt: number;
-  };
-
-  if (!type || !runAt) {
-    setResponseStatus(event, 400);
-    return { error: "type and runAt are required" };
-  }
-
-  if (type !== "snooze" && type !== "send_later") {
-    setResponseStatus(event, 400);
-    return { error: "type must be 'snooze' or 'send_later'" };
-  }
-
-  if (!Number.isFinite(runAt) || runAt <= Date.now()) {
-    setResponseStatus(event, 400);
-    return { error: "runAt must be a future timestamp" };
-  }
-
-  if (!session?.email) {
-    setResponseStatus(event, 401);
-    return { error: "Unauthenticated" };
-  }
-  const ownerEmail = session.email;
-  const job = await createScheduledJobRecord({
-    type,
-    ownerEmail,
-    emailId: emailId ?? null,
-    threadId: threadId ?? null,
-    accountEmail: accountEmail ?? (payload as any)?.accountEmail ?? null,
-    payload,
-    runAt,
-  });
-  setResponseStatus(event, 201);
-  return job;
-});
-
-/** PATCH /api/scheduled-jobs/:id — reschedule (update runAt, reset to pending) */
-export const updateScheduledJob = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
-  if (!session?.email) {
-    setResponseStatus(event, 401);
-    return { error: "Unauthenticated" };
-  }
-  const ownerEmail = session.email;
-  const id = getRouterParam(event, "id");
-  if (!id) {
-    setResponseStatus(event, 400);
-    return { error: "id required" };
-  }
-
-  const body = await readBody(event);
-  const { runAt } = body as { runAt?: number };
-
-  if (!runAt || !Number.isFinite(runAt) || runAt <= Date.now()) {
-    setResponseStatus(event, 400);
-    return { error: "runAt must be a future timestamp" };
-  }
-
-  const [existing] = await db
-    .select()
-    .from(schema.scheduledJobs)
-    .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
-    );
-
-  if (!existing) {
-    setResponseStatus(event, 404);
-    return { error: "Job not found" };
-  }
-
-  await db
-    .update(schema.scheduledJobs)
-    .set({ runAt, status: "pending" } as any)
-    .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
-    );
-
-  return { ...existing, runAt, status: "pending" };
-});
-
-/** DELETE /api/scheduled-jobs/:id — cancel (set status = cancelled) */
-export const deleteScheduledJob = defineEventHandler(async (event: H3Event) => {
-  const session = await getSession(event);
-  if (!session?.email) {
-    setResponseStatus(event, 401);
-    return { error: "Unauthenticated" };
-  }
-  const ownerEmail = session.email;
-  const id = getRouterParam(event, "id");
-  if (!id) {
-    setResponseStatus(event, 400);
-    return { error: "id required" };
-  }
-
-  const cancelled = await cancelScheduledJobForOwner(ownerEmail, id);
-  if (!cancelled) {
-    setResponseStatus(event, 404);
-    return { error: "Job not found" };
-  }
-
-  return { ok: true, job: cancelled };
-});
 
 /** POST /api/scheduled-jobs/:id/send-now — send a pending scheduled email now */
 export const sendScheduledJobNow = defineEventHandler(

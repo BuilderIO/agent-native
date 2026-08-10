@@ -9,7 +9,8 @@ import {
 } from "../server/tasks/store.js";
 
 export default defineAction({
-  description: "Create a new task with a title.",
+  description:
+    "Create an incomplete task directly on the task list. Use create-inbox-item for a quick capture to triage later.",
   schema: z.object({
     title: z.string().min(1).describe("Task title"),
   }),

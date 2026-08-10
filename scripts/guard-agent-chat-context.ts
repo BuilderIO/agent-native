@@ -4,6 +4,13 @@ import { pathToFileURL } from "node:url";
 
 export const MAX_DECLARED_STARTER_TOOLS = 40;
 
+// Mirrors COMPACT_PROMPT_RESOURCE_MAX_CHARS in
+// packages/core/src/server/agent-chat/prompt-resources.ts. Templates run the
+// compact prompt, which hard-slices each injected resource at this length with
+// no build-time signal — analytics silently lost 39% of its AGENTS.md,
+// including its entire "answer this in one bounded call" workflow section.
+export const MAX_AGENT_INSTRUCTION_CHARS = 6_000;
+
 export type AgentChatContextPolicy = {
   file: string;
   leanPrompt: boolean;
@@ -142,6 +149,49 @@ export function discoverAgentChatPlugins(repoRoot: string): string[] {
   return files.sort();
 }
 
+export function discoverAgentInstructionFiles(repoRoot: string): string[] {
+  const files: string[] = [];
+  const templatesDir = path.join(repoRoot, "templates");
+  if (existsSync(templatesDir)) {
+    for (const entry of readdirSync(templatesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(templatesDir, entry.name, "AGENTS.md");
+      if (existsSync(candidate)) files.push(candidate);
+    }
+  }
+  for (const template of ["default", "headless", "workspace-core"]) {
+    const candidate = path.join(
+      repoRoot,
+      "packages/core/src/templates",
+      template,
+      "AGENTS.md",
+    );
+    if (existsSync(candidate)) files.push(candidate);
+  }
+  return files.sort();
+}
+
+export function checkAgentInstructionSizes(repoRoot: string): {
+  sizes: Array<{ file: string; chars: number; overCap: boolean }>;
+  errors: string[];
+} {
+  const sizes: Array<{ file: string; chars: number; overCap: boolean }> = [];
+  const errors: string[] = [];
+  for (const file of discoverAgentInstructionFiles(repoRoot)) {
+    const chars = readFileSync(file, "utf8").trim().length;
+    const relative = path.relative(repoRoot, file);
+    const overCap = chars > MAX_AGENT_INSTRUCTION_CHARS;
+    sizes.push({ file: relative, chars, overCap });
+    if (!overCap) continue;
+
+    const dropped = chars - MAX_AGENT_INSTRUCTION_CHARS;
+    errors.push(
+      `${relative}: ${chars} characters exceeds the ${MAX_AGENT_INSTRUCTION_CHARS}-character compact-prompt cap; the last ${dropped} characters are silently dropped before the model sees them. Move detail into .agents/skills/* and point at it from the skills list.`,
+    );
+  }
+  return { sizes, errors };
+}
+
 export function checkAgentChatContextPolicies(repoRoot: string): {
   policies: AgentChatContextPolicy[];
   errors: string[];
@@ -161,6 +211,13 @@ export function checkAgentChatContextPolicies(repoRoot: string): {
 function main(): void {
   const repoRoot = path.resolve(import.meta.dirname, "..");
   const result = checkAgentChatContextPolicies(repoRoot);
+  const instructions = checkAgentInstructionSizes(repoRoot);
+  for (const entry of instructions.sizes) {
+    console.log(
+      `[guard:agent-chat-context] ${entry.file}: ${entry.chars}/${MAX_AGENT_INSTRUCTION_CHARS} instruction chars${entry.overCap ? " (OVER CAP)" : ""}`,
+    );
+  }
+  result.errors.push(...instructions.errors);
   for (const policy of result.policies) {
     const count =
       policy.starterToolCount === null

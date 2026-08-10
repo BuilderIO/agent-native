@@ -261,7 +261,7 @@ describe("remote relay stores", () => {
     );
     expect(querySql(updateCall![0])).toContain("owner_email = ?");
     expect(querySql(updateCall![0])).toContain(
-      "((org_id IS NULL AND ? IS NULL) OR org_id = ?)",
+      "((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)",
     );
     expect(queryArgs(updateCall![0]).slice(2)).toEqual([
       "device-1",

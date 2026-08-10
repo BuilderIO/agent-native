@@ -6,6 +6,7 @@ import type { Doc as YDoc } from "yjs";
 
 import { cn } from "../utils.js";
 import { BubbleToolbar, type BubbleToolbarItem } from "./BubbleToolbar.js";
+import { DragHandle } from "./DragHandle.js";
 import {
   createSharedEditorExtensions,
   type RichMarkdownDialect,
@@ -14,7 +15,12 @@ import {
   type SharedEditorFeatures,
 } from "./extensions.js";
 import type { ImageUploadFn } from "./ImageExtension.js";
-import { SlashCommandMenu, type SlashCommandItem } from "./SlashCommandMenu.js";
+import {
+  DEFAULT_SLASH_COMMANDS,
+  filterSlashCommandItems,
+  SlashCommandMenu,
+  type SlashCommandItem,
+} from "./SlashCommandMenu.js";
 import {
   useCollabReconcile,
   getEditorMarkdown,
@@ -32,6 +38,8 @@ export interface SharedRichEditorProps {
   preset?: RichMarkdownEditorPreset;
   /** Toggle individual base extensions (tables/tasks/link/codeBlock/image). */
   features?: SharedEditorFeatures;
+  /** Show the Notion-style block grip and action menu. Defaults to `true`. */
+  dragHandle?: boolean;
   /**
    * Injectable image uploader for the shared image block. Used only when
    * `features.image` is on. Pass `uploadEditorImage` (the framework
@@ -136,6 +144,7 @@ export function SharedRichEditor({
   dialect = "gfm",
   preset = "plan",
   features,
+  dragHandle = true,
   onImageUpload = null,
   extraExtensions,
   placeholder = "Type '/' for commands...",
@@ -165,6 +174,23 @@ export function SharedRichEditor({
   onChangeRef.current = onChange;
   onBlurRef.current = onBlur;
 
+  const effectiveExtraExtensions = useMemo(() => {
+    const extras = extraExtensions ?? [];
+    if (
+      !dragHandle ||
+      extras.some((extension) => extension.name === "dragHandle")
+    ) {
+      return extras;
+    }
+
+    return [
+      DragHandle.configure({
+        wrapperSelector: ".an-rich-md-wrapper",
+      }),
+      ...extras,
+    ];
+  }, [dragHandle, extraExtensions]);
+
   const extensions = useMemo(
     () =>
       createSharedEditorExtensions({
@@ -172,7 +198,7 @@ export function SharedRichEditor({
         preset,
         placeholder,
         features,
-        extraExtensions,
+        extraExtensions: effectiveExtraExtensions,
         onImageUpload,
         collab: ydoc ? { ydoc, awareness, user } : null,
         disableHistory,
@@ -187,7 +213,7 @@ export function SharedRichEditor({
       placeholder,
       preset,
       features,
-      extraExtensions,
+      effectiveExtraExtensions,
       onImageUpload,
       ydoc,
       awareness,
@@ -199,6 +225,12 @@ export function SharedRichEditor({
   );
 
   const collab = !!ydoc;
+
+  const effectiveSlashItems = useMemo(
+    () =>
+      filterSlashCommandItems(slashItems ?? DEFAULT_SLASH_COMMANDS, features),
+    [features, slashItems],
+  );
 
   // The collab hook needs the editor, but useEditor's `onUpdate` needs the
   // hook's guards. Break the cycle with a ref: `onUpdate` reads the guards
@@ -313,7 +345,7 @@ export function SharedRichEditor({
         <BubbleToolbar editor={editor} buildItems={buildBubbleItems} />
       ) : null}
       {editable ? (
-        <SlashCommandMenu editor={editor} items={slashItems} />
+        <SlashCommandMenu editor={editor} items={effectiveSlashItems} />
       ) : null}
       <EditorContent editor={editor} />
     </div>

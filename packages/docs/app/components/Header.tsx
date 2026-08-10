@@ -2,12 +2,21 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { IconMessage } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
-import { Link, NavLink, useLocation } from "react-router";
+import { Link, NavLink, useLocation, useNavigate } from "react-router";
 
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
-import ThemeToggle from "./ThemeToggle";
+import ThemeToggle, { useDocsTheme } from "./ThemeToggle";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
+
+const DOCS_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
@@ -29,7 +38,7 @@ function SearchTrigger({
     <button
       onClick={onClick}
       aria-label={label}
-      className="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
+      className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
     >
       <svg
         width="14"
@@ -117,12 +126,27 @@ export default function Header() {
   const { open, setOpen, everOpened, openModal } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { locale } = useLocale();
+  const { theme } = useDocsTheme();
   const isHome =
     sitePathForLocale(location.pathname, DEFAULT_DOCS_LOCALE) === "/";
   const [scrolled, setScrolled] = useState(false);
   const t = useT();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
+
+  const copySvgToClipboard = async (src: string) => {
+    try {
+      const response = await fetch(src);
+      if (!response.ok) return;
+      const svg = await response.text();
+      await navigator.clipboard.writeText(svg);
+    } catch {
+      // Network or clipboard-permission failures have nothing actionable to
+      // surface here; just avoid copying an error response or throwing an
+      // unhandled rejection.
+    }
+  };
 
   useEffect(() => {
     if (!isHome) return;
@@ -162,48 +186,86 @@ export default function Header() {
         className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
         <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
-          <Link
-            data-an-prefetch="render"
-            to={localizedPath("/")}
-            aria-label="Agent-Native"
-            className="flex min-w-0 shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
-          >
-            <img
-              src="/agent-native-icon-light.svg"
-              alt=""
-              className="block h-6 w-6 min-[380px]:hidden dark:hidden"
-              aria-hidden="true"
-              loading="lazy"
-              decoding="async"
-            />
-            <img
-              src="/agent-native-icon-dark.svg"
-              alt=""
-              className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
-              aria-hidden="true"
-              loading="lazy"
-              decoding="async"
-            />
-            <img
-              src="/agent-native-logo-light.svg"
-              alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto min-[380px]:block dark:hidden"
-              loading="lazy"
-              decoding="async"
-            />
-            <img
-              src="/agent-native-logo-dark.svg"
-              alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto min-[380px]:dark:block"
-              loading="lazy"
-              decoding="async"
-            />
-          </Link>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <Link
+                data-an-prefetch="viewport"
+                to={localizedPath("/")}
+                aria-label="Agent-Native"
+                className="flex min-w-0 shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
+                suppressHydrationWarning
+              >
+                <img
+                  src="/agent-native-icon-light.svg"
+                  alt=""
+                  className="block h-6 w-6 min-[380px]:hidden dark:hidden"
+                  aria-hidden="true"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <img
+                  src="/agent-native-icon-dark.svg"
+                  alt=""
+                  className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
+                  aria-hidden="true"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <img
+                  src="/agent-native-logo-light.svg"
+                  alt="Agent-Native"
+                  width={1023}
+                  height={120}
+                  className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <img
+                  src="/agent-native-logo-dark.svg"
+                  alt="Agent-Native"
+                  width={1023}
+                  height={120}
+                  className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:dark:block"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </Link>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                onSelect={() =>
+                  void copySvgToClipboard(
+                    theme === "dark"
+                      ? "/agent-native-icon-dark.svg"
+                      : "/agent-native-icon-light.svg",
+                  )
+                }
+              >
+                {t("header.copyLogoSvg")}
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() =>
+                  void copySvgToClipboard(
+                    theme === "dark"
+                      ? "/agent-native-logo-dark.svg"
+                      : "/agent-native-logo-light.svg",
+                  )
+                }
+              >
+                {t("header.copyWordmark")}
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() => navigate(localizedPath("/brand"))}
+              >
+                {t("header.brandAssets")}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
 
           {/* Desktop nav links */}
           <div className="hidden lg:flex items-center gap-5 text-sm">
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -212,7 +274,7 @@ export default function Header() {
               {t("header.docs")}
             </NavLink>
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -246,6 +308,7 @@ export default function Header() {
 
           <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
+              url={DOCS_FEEDBACK_URL}
               label={feedbackLabel}
               placeholder={feedbackPlaceholder}
               trigger={
@@ -260,16 +323,20 @@ export default function Header() {
               align="end"
               side="bottom"
             />
-            <SearchTrigger
-              onClick={openModal}
-              label={t("header.searchAria")}
-              placeholder={t("header.searchPlaceholder")}
-            />
-            <div className="flex shrink-0 items-center">
+            <div className="hidden lg:block">
+              <SearchTrigger
+                onClick={openModal}
+                label={t("header.searchAria")}
+                placeholder={t("header.searchPlaceholder")}
+              />
+            </div>
+            <div className="hidden shrink-0 items-center lg:flex">
               <DocsLanguagePicker />
               <DocsLanguageSuggestion />
             </div>
-            <ThemeToggle />
+            <div className="hidden lg:block">
+              <ThemeToggle />
+            </div>
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
@@ -296,8 +363,20 @@ export default function Header() {
         {/* Mobile dropdown menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <SearchTrigger
+                onClick={() => {
+                  closeMobileMenu();
+                  openModal();
+                }}
+                label={t("header.searchAria")}
+                placeholder={t("header.searchPlaceholder")}
+              />
+              <DocsLanguagePicker />
+              <ThemeToggle />
+            </div>
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -307,7 +386,7 @@ export default function Header() {
               {t("header.docs")}
             </NavLink>
             <NavLink
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
@@ -339,6 +418,7 @@ export default function Header() {
               </span>
             </a>
             <FeedbackButton
+              url={DOCS_FEEDBACK_URL}
               label={feedbackLabel}
               placeholder={feedbackPlaceholder}
               trigger={

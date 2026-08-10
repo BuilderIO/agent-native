@@ -136,6 +136,16 @@ The transcript included by `view-screen` is only a bounded preview. When its
 show where transcription ended. Call `get-recording-player-data` before
 judging completeness or quoting the full transcript.
 
+Desktop native transcripts merge the microphone and system-audio streams while
+removing overlapping duplicate speech and low-speech Whisper hallucinations. Keep
+system audio enabled when the meeting audio comes from another app.
+
+Native transcript first is a hard rule, not a preference: cloud transcription is
+fallback-only for Clips recordings. Cleanup and transcript-backed title/summary
+generation run in the durable post-finalize path, so never hide a usable native
+transcript behind failed metadata work, and keep heuristic titles replaceable
+until the agent refinement lands.
+
 Clips never routes recording/meeting audio to OpenAI for transcription. (Groq's endpoint is OpenAI-_compatible_ in request shape only — the audio goes to Groq, not OpenAI.)
 
 If no native transcript exists and no cloud fallback is available (no Builder connection and no Groq key), the action writes `status="failed"` so the UI can show a friendly prompt.
@@ -170,6 +180,38 @@ registerRequiredSecret({
 ```
 
 It is not marked `required: true` — videos still upload and play without a Groq key when video storage is connected, since native transcription (and Builder when connected) already cover the common case. The API Keys & Connections panel surfaces it so the user can add the Groq fallback if they want it.
+
+## AI setup, providers, and credits
+
+AI setup must be visible and paid-account-backed. Lead with Builder.io Connect
+for managed credits, object storage, uploads, and transcription. BYOK belongs in
+the agent sidebar's API Keys & Connections panel; template settings may signpost
+that panel but must not create a second credential vault.
+
+Which provider powers what:
+
+| Surface                                    | Provider                                  |
+| ------------------------------------------ | ----------------------------------------- |
+| Agent chat                                 | Anthropic / OpenAI                        |
+| Cleanup, titles, meeting notes             | Gemini (Builder-managed or BYOK)          |
+| Recording transcripts                      | Native first, then Builder Gemini or Groq |
+| Desktop voice dictation                    | Optional third-party speech provider      |
+
+Any optional third-party speech provider is limited to desktop voice dictation
+and is never used for recording transcripts.
+
+Use `get-builder-credit-status` when the user asks whether Builder.io credit
+limits are pausing backup transcription, transcript cleanup, summaries, or AI
+title generation. Treat an exhausted status as an FYI and upgrade path, not an
+app error: say so clearly and point the user at Builder.io credits/upgrade.
+Native browser/macOS capture remains the first transcript source regardless.
+
+## Bounded voice context
+
+Dictation cleanup, clip title/cleanup, and meeting summaries should pass bounded
+`voiceContext` to the shared cleanup/transcription path whenever active app
+context, learned vocabulary, user notes, or AGENTS.md preferences are available.
+Pass a bounded summary — never a whole transcript, document, or catalog.
 
 ## Live transcription during recording
 

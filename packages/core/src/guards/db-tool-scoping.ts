@@ -103,7 +103,7 @@ export function scanDbToolScoping(options: DbToolScopingOptions): GuardResult {
     const tables = extractTableCalls(contents);
     for (const table of tables) {
       if (hasRawDbScope(table.body)) continue;
-      if (Object.hasOwn(denylist, table.sqlName)) {
+      if (Object.prototype.hasOwnProperty.call(denylist, table.sqlName)) {
         seenAllowed.add(table.sqlName);
         continue;
       }

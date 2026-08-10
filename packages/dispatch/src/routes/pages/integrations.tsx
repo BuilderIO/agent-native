@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -247,7 +248,7 @@ function ConnectorCard({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group flex flex-col items-start gap-2 rounded-2xl border bg-card p-5 text-left transition hover:border-foreground/20 hover:bg-card/80 cursor-pointer"
+        className="group flex flex-col items-start gap-2 rounded-2xl bg-card p-5 text-left transition-[background-color] hover:bg-card/80 cursor-pointer"
       >
         <div className="flex w-full items-start justify-between gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted">
@@ -430,7 +431,7 @@ export default function ConnectionsRoute() {
       )}
 
       {apps.length > 0 && (
-        <Collapsible className="mt-6 rounded-2xl border bg-card">
+        <Collapsible className="mt-6 rounded-2xl bg-card">
           <CollapsibleTrigger className="group flex w-full items-center justify-between px-4 py-3 text-sm">
             <span className="flex items-center gap-2 text-muted-foreground">
               <IconPlugConnected size={14} />
@@ -449,9 +450,9 @@ export default function ConnectionsRoute() {
             </div>
             <div className="flex items-center justify-end gap-1.5 border-t px-4 py-2.5 text-xs text-muted-foreground">
               <IconLink size={12} />
-              <a href="/vault" className="hover:underline">
+              <Link to="/admin/vault" className="hover:underline">
                 Open vault for advanced sharing
-              </a>
+              </Link>
             </div>
           </CollapsibleContent>
         </Collapsible>

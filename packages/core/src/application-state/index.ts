@@ -2,11 +2,14 @@
 export {
   appStateGet,
   appStateGetMany,
+  appStateGetManyEntries,
   appStatePut,
   appStateDelete,
   appStateCompareAndSet,
+  appStateCompareAndSetMany,
   appStateList,
   appStateDeleteByPrefix,
+  type AppStateCompareAndSetOperation,
 } from "./store.js";
 
 // Emitter (for SSE wiring)
@@ -20,6 +23,8 @@ export {
 // H3 route handlers (for templates)
 export {
   getState,
+  getStateMany,
+  MAX_APP_STATE_BATCH_KEYS,
   putState,
   deleteState,
   listComposeDrafts,
@@ -35,6 +40,7 @@ export {
   writeAppState,
   deleteAppState,
   compareAndSetAppState,
+  compareAndSetManyAppState,
   listAppState,
   deleteAppStateByPrefix,
   readAppStateForCurrentTab,

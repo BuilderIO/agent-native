@@ -23,7 +23,9 @@ const npmPublishAllowlist = new Set([
 // consumed through `workspace:` and must stay ignored by changesets until npm
 // trusted publishing is configured for them.
 const workspaceOnlyPackageAllowlist = new Set([
+  "@agent-native/agent-browser-extension",
   "@agent-native/agent-chrome-extension",
+  "@agent-native/browser-control-extension-core",
   "@agent-native/desktop-app",
   "@agent-native/docs",
   "@agent-native/frame",

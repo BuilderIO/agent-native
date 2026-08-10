@@ -18,25 +18,42 @@ The tracking system provides a single `track()` call that fans out to all regist
 ## How It Works
 
 1. At server startup, `registerBuiltinProviders()` checks env vars and registers any configured providers.
-2. Application code calls `track(eventName, properties, meta)` from actions, plugins, or server routes.
+2. Application code calls `track(eventName, properties, source)` from actions, plugins, or server routes.
 3. The registry fans out the event to every registered provider. Errors are caught and logged -- a failing provider never crashes the caller.
 4. Built-in providers batch HTTP calls (flush every 10 seconds or 50 events, whichever comes first).
 
 ## API
 
-### `track(name, properties?, meta?)`
+### `track(name, properties?, source?)`
 
-Fire an analytics event.
+Fire an analytics event. `source` is either a `{ userId, anonymousId, sessionId }`
+meta object or an action's `ctx` passed straight through.
 
 ```ts
 import { track } from "@agent-native/core/tracking";
 
+// From an action — pass ctx; userId comes from ctx.userEmail.
+run: async ({ name }, ctx) => {
+  track("meal.logged", { mealName: name, calories: 350 }, ctx);
+};
+
+// From a plugin or route with no ctx.
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
   { userId: "user@example.com" },
 );
 ```
+
+The caller's browser session comes from the ambient request context
+(`RequestContext.browserSessionId`, set from the `X-Agent-Native-Session-Id`
+header), so it resolves the same whether the UI called the action or the agent
+did. Pass `sessionId` in the meta object to override it — routes that run
+outside a request context, such as `/_agent-native/track`, do exactly that.
+Providers map it to their own session field: `$session_id` for PostHog (which
+joins the event to session replay), `session_id` as a property for Mixpanel and
+Amplitude, a top-level `sessionId` for webhooks and Agent Native Analytics. It
+is absent for callers with no browser — cron, CLI, MCP, A2A.
 
 ### `identify(userId, traits?)`
 
@@ -79,7 +96,7 @@ Set the env var and the provider auto-registers at startup. No SDK dependencies 
 
 | Provider               | Env vars                                                                                                                                           |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostHog                | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`)                                                    |
+| PostHog                | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`), `POSTHOG_ERROR_TRACKING=false` (optional opt-out) |
 | Mixpanel               | `MIXPANEL_TOKEN`                                                                                                                                   |
 | Amplitude              | `AMPLITUDE_API_KEY`                                                                                                                                |
 | Agent Native Analytics | `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` (server), `AGENT_NATIVE_ANALYTICS_ENDPOINT` (optional, defaults to `https://analytics.agent-native.com/track`) |
@@ -88,6 +105,56 @@ Set the env var and the provider auto-registers at startup. No SDK dependencies 
 Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
+
+## Error Capture
+
+Exceptions fan out through `server/capture-error.ts` to every registered
+backend — Sentry, PostHog, and the tracking providers — from one `captureError()`
+call. Backends are additive: configuring a second one does not displace the
+first, and no backend is required for the others to work.
+
+Emit through `captureError()` / `captureException()`. Never hand-roll a
+`track("$exception", …)`: each backend needs its own payload shape and the
+providers build it.
+
+- **Provider-agnostic wiring must not live in a provider plugin.** The Nitro
+  `error` hook is in `core-routes-plugin.ts`, not `sentry-plugin.ts`, because
+  that plugin returns early when no `SENTRY_DSN` is set — hooking route errors
+  there meant an app on any other backend silently reported none.
+- **Every backend applies `server/error-noise-filter.ts`.** It holds
+  production-tuned drop rules (expected 4xx, access-control rejections, Lambda
+  freeze/thaw `socket hang up`). A backend that skips it receives a firehose;
+  the `socket hang up` rule alone is ~10k events/day.
+- **A backend can accept a malformed payload and still show a count.** PostHog
+  ingested the framework's camelCase `$exception` for a long time and rendered
+  empty, ungroupable issues — which reads as coverage, not as breakage. When
+  adding or changing a backend, check what an event looks like in its UI, not
+  just that the request returned 200.
+- **Attribute the error.** Without a user id, server exceptions land under
+  `anonymous` and split one person in two against their browser events. Pass
+  `aiTraceId` for anything inside an agent run so the issue and the LLM trace
+  resolve to each other.
+
+Symbolication is per-backend and not automatic: the framework uploads no source
+maps to PostHog, so minified browser stacks stay minified there. Known gap, not
+a bug to re-diagnose.
+
+### Browser keys and the SSR shell
+
+Public keys (`POSTHOG_PUBLIC_KEY`, the Sentry client DSN) ship inside the
+CDN-cached SSR shell — publishable and identical for every visitor. Server keys
+never do, and are never a fallback for a public one: `POSTHOG_API_KEY` may be a
+private key and this value lands in public HTML.
+
+Browser errors post directly to the backend rather than through
+`/_agent-native/track`, because that route requires a resolved session and
+relaying would drop every signed-out crash.
+
+When adding a client config field, update **both** `server/posthog-config.ts`
+and the mirrored worker emitter in `deploy/build.ts` — the worker bundles a
+string copy and cannot import the module, so a one-sided edit drops the config
+silently in deployed builds. `posthog-config.spec.ts` pins the two outputs
+together.
 
 ## Default Baseline Events
 
@@ -160,7 +227,7 @@ Other framework-level baseline events:
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
-- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded.
+- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
 
@@ -199,6 +266,10 @@ interface TrackingEvent {
 | `packages/core/src/tracking/registry.ts`  | `track()`, `identify()`, `registerTrackingProvider()`, `flushTracking()`                                            |
 | `packages/core/src/tracking/providers.ts` | Built-in providers (PostHog, Mixpanel, Amplitude, Agent Native Analytics, Webhook) and `registerBuiltinProviders()` |
 | `packages/core/src/tracking/types.ts`     | `TrackingEvent` and `TrackingProvider` interfaces                                                                   |
+| `packages/core/src/tracking/posthog-exception.ts` | `$exception_list` builder + stack-frame parser (isomorphic: server and browser)                             |
+| `packages/core/src/tracking/redaction.ts` | Shared bounding/redaction helpers used by every exception emitter                                                   |
+| `packages/core/src/server/error-noise-filter.ts` | Provider-agnostic drop rules, applied by both Sentry `beforeSend` and the route error hook                   |
+| `packages/core/src/server/posthog-config.ts` | Public browser PostHog config (mirrored in `deploy/build.ts`)                                                    |
 
 ## Related Skills
 

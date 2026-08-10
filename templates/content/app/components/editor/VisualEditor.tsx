@@ -18,10 +18,13 @@ import {
   parseRegistryBlockData,
 } from "@shared/nfm-registry";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
-import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
+import {
+  isNodeEmpty,
+  type Editor as CoreEditor,
+  type Extensions,
+} from "@tiptap/core";
 import Blockquote from "@tiptap/extension-blockquote";
 import Link from "@tiptap/extension-link";
-import Placeholder from "@tiptap/extension-placeholder";
 import { Table as BaseTable } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
@@ -29,7 +32,14 @@ import { TableRow } from "@tiptap/extension-table-row";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  AllSelection,
+  NodeSelection,
+  Selection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -355,8 +365,7 @@ const NotionBlockquote = Blockquote.extend({
   },
 });
 
-const DEFAULT_EMPTY_BLOCK_PLACEHOLDER =
-  "Press ‘space’ for AI or ‘/’ for commands";
+const DEFAULT_EMPTY_BLOCK_PLACEHOLDER = "Press ‘/’ for commands";
 
 const CONTENT_RECENT_EDIT_TTL_MS = 6_000;
 const RECENT_EDIT_MARKER_WIDTH = 2;
@@ -926,6 +935,47 @@ export function shouldPersistLocalFileEditorUpdate({
   return Boolean(transactionUiEvent);
 }
 
+export function shouldPersistCollaborativeEditorUpdate({
+  collab,
+  editorFocused,
+  userInitiated,
+}: {
+  collab: boolean;
+  editorFocused: boolean;
+  userInitiated: boolean;
+}) {
+  // Collaborative mount/reconcile normalization can produce a local-looking
+  // transaction after the remote Y.Doc has loaded. If the editor is not
+  // focused and no human input event preceded the transaction, it has no
+  // authority to overwrite SQL. Focused commands and explicit user-intent
+  // transactions remain persistable; structural/media actions additionally
+  // use their immediate proof-of-save callbacks.
+  return !collab || editorFocused || userInitiated;
+}
+
+export function isUserInitiatedCollaborativeEditorUpdate({
+  editorFocused,
+  explicitUserEdit,
+  recentUserEditIntent,
+  transactionUiEvent,
+}: {
+  editorFocused: boolean;
+  explicitUserEdit: boolean;
+  recentUserEditIntent: boolean;
+  transactionUiEvent: unknown;
+}) {
+  // A recent input event is useful for grouping the follow-up transactions
+  // produced while the editor still owns focus. Once focus has left, however,
+  // only provenance on this exact transaction may authorize persistence;
+  // otherwise mount/Yjs normalization could borrow a stale two-second intent
+  // window and overwrite canonical SQL.
+  return (
+    explicitUserEdit ||
+    Boolean(transactionUiEvent) ||
+    (editorFocused && recentUserEditIntent)
+  );
+}
+
 function isEffectivelyEmptyEditorContent(value: string): boolean {
   const normalized = value.trim();
   return normalized === "" || normalized === "<empty-block/>";
@@ -975,19 +1025,22 @@ interface VisualEditorExtensionOptions {
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
   referenceDepth?: number;
+  emptyBlockPlaceholder?: string;
+  onMediaSourceCommitted?: (
+    editor: CoreEditor,
+    transaction: Transaction,
+  ) => void;
 }
 
-function hasAncestorType(
+export function hasAncestorType(
   editor: CoreEditor,
   pos: number,
   typeName: string,
 ): boolean {
   const doc = editor.state.doc;
-  const positions = [
-    Math.max(0, pos - 1),
-    pos,
-    Math.min(doc.content.size, pos + 1),
-  ];
+  const clampPosition = (candidate: number) =>
+    Math.min(doc.content.size, Math.max(0, candidate));
+  const positions = [...new Set([pos - 1, pos, pos + 1].map(clampPosition))];
 
   return positions.some((candidatePos) => {
     const resolvedPos = doc.resolve(candidatePos);
@@ -1001,6 +1054,88 @@ function hasAncestorType(
 }
 
 type MediaNodeType = "image" | "video" | "audio";
+
+const MEDIA_NODE_TYPES = new Set<MediaNodeType>(["image", "video", "audio"]);
+
+function mediaSourceCounts(doc: ProseMirrorNode) {
+  const counts = new Map<string, number>();
+  doc.descendants((node) => {
+    if (!MEDIA_NODE_TYPES.has(node.type.name as MediaNodeType)) return true;
+    const src = typeof node.attrs.src === "string" ? node.attrs.src : "";
+    if (!src) return false;
+    const key = `${node.type.name}\u0000${src}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return false;
+  });
+  return counts;
+}
+
+export function didCommitMediaSource(transaction: Transaction): boolean {
+  if (!transaction.docChanged) return false;
+  const before = mediaSourceCounts(transaction.before);
+  const after = mediaSourceCounts(transaction.doc);
+  return [...after].some(([key, count]) => count > (before.get(key) ?? 0));
+}
+
+const MediaSourceCommit = Extension.create<{
+  onMediaSourceCommitted?: (
+    editor: CoreEditor,
+    transaction: Transaction,
+  ) => void;
+}>({
+  name: "mediaSourceCommit",
+  addOptions() {
+    return { onMediaSourceCommitted: undefined };
+  },
+  onTransaction({ editor, transaction }) {
+    if (didCommitMediaSource(transaction)) {
+      this.options.onMediaSourceCommitted?.(editor, transaction);
+    }
+  },
+});
+
+/**
+ * Empty media nodes are transient editor UI, not durable document content.
+ *
+ * Persisting the placeholder before its async upload/link enrichment finishes
+ * lets the SQL echo reconcile the empty `src` back into the live Y.Doc. That
+ * can erase a successfully uploaded image or embedded video. Keep the local
+ * draft out of autosave until it has a source; uploads inserted by drop/paste
+ * are covered by their `uploadId` even when the selection is elsewhere.
+ */
+export function shouldSkipMediaDraftPersistence(editor: CoreEditor): boolean {
+  let hasPendingUpload = false;
+  editor.state.doc.descendants((node) => {
+    if (
+      MEDIA_NODE_TYPES.has(node.type.name as MediaNodeType) &&
+      Boolean(node.attrs.uploadId)
+    ) {
+      hasPendingUpload = true;
+      return false;
+    }
+    return !hasPendingUpload;
+  });
+  if (hasPendingUpload) return true;
+
+  const { selection } = editor.state;
+  if (!(selection instanceof NodeSelection)) return false;
+  return (
+    MEDIA_NODE_TYPES.has(selection.node.type.name as MediaNodeType) &&
+    !selection.node.attrs.src
+  );
+}
+
+/**
+ * Serialize only complete editor drafts. Structural slash commands explicitly
+ * ask to persist after their transaction, so this guard must live in the shared
+ * persistence path rather than only in `onUpdate`.
+ */
+export function serializeEditorDraftForPersistence(
+  editor: CoreEditor,
+): string | null {
+  if (shouldSkipMediaDraftPersistence(editor)) return null;
+  return docToNfm(editor.getJSON() as any);
+}
 
 function mediaNodeLabel(typeName: MediaNodeType) {
   if (typeName === "image") return "Image";
@@ -1088,19 +1223,21 @@ function getVisualEditorPlaceholder({
   node,
   pos,
   hasAnchor,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
 }: {
   editor: CoreEditor;
   node: ProseMirrorNode;
   pos: number;
   hasAnchor: boolean;
+  emptyBlockPlaceholder?: string;
 }): string {
   const isToggleBody =
     node.type.name === "paragraph" &&
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor
-      ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER
+    return hasAnchor && editor.isFocused
+      ? emptyBlockPlaceholder
       : EMPTY_TOGGLE_BODY_PLACEHOLDER;
   }
 
@@ -1122,7 +1259,7 @@ function getVisualEditorPlaceholder({
     return hasAnchor ? "Empty quote" : "";
   }
 
-  // Skip the long "Press 'space' for AI…" hint inside table cells — it wraps
+  // Skip the command hint inside table cells — it wraps
   // awkwardly in narrow columns and the cell itself is already an affordance.
   if (
     node.type.name === "paragraph" &&
@@ -1132,8 +1269,73 @@ function getVisualEditorPlaceholder({
     return "";
   }
 
-  return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
+  return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
 }
+
+// Tiptap's nested-placeholder cache can retain decorations when focus changes
+// or the selection crosses top-level block boundaries. Resolve only the current
+// deepest text block so old command hints cannot accumulate.
+const VisualEditorPlaceholder = Extension.create<{
+  emptyBlockPlaceholder: string;
+}>({
+  name: "visualEditorPlaceholder",
+
+  addOptions() {
+    return {
+      emptyBlockPlaceholder: DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+    };
+  },
+
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+    const { emptyBlockPlaceholder } = this.options;
+
+    return [
+      new Plugin({
+        key: new PluginKey("visualEditorPlaceholder"),
+        props: {
+          decorations: ({ doc, selection }) => {
+            if (!editor.isEditable) return DecorationSet.empty;
+
+            const { $anchor } = selection;
+            let node = $anchor.parent;
+            let pos: number;
+
+            if (node.type.isTextblock && $anchor.depth > 0) {
+              pos = $anchor.before($anchor.depth);
+            } else {
+              const adjacentNode = $anchor.nodeAfter ?? $anchor.nodeBefore;
+              if (!adjacentNode?.type.isTextblock) return DecorationSet.empty;
+              node = adjacentNode;
+              pos = $anchor.nodeAfter
+                ? $anchor.pos
+                : $anchor.pos - node.nodeSize;
+            }
+
+            if (!isNodeEmpty(node)) return DecorationSet.empty;
+
+            const placeholder = getVisualEditorPlaceholder({
+              editor,
+              node,
+              pos,
+              hasAnchor: true,
+              emptyBlockPlaceholder,
+            });
+            const classes = ["is-empty"];
+            if (editor.isEmpty) classes.push("is-editor-empty");
+
+            return DecorationSet.create(doc, [
+              Decoration.node(pos, pos + node.nodeSize, {
+                class: classes.join(" "),
+                "data-placeholder": placeholder,
+              }),
+            ]);
+          },
+        },
+      }),
+    ];
+  },
+});
 
 export async function uploadAndInsertImageFiles(
   view: EditorView,
@@ -1302,6 +1504,8 @@ export function createVisualEditorExtensions({
   onOpenNotionPageLink,
   localFilePath,
   referenceDepth = 0,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+  onMediaSourceCommitted,
 }: VisualEditorExtensionOptions = {}): Extensions {
   // Build on the SHARED editor core (StarterKit base + the Collaboration /
   // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
@@ -1336,11 +1540,8 @@ export function createVisualEditorExtensions({
       EmptyLineParagraph,
       NotionBlockquote,
       CodeBlock,
-      Placeholder.configure({
-        placeholder: getVisualEditorPlaceholder,
-        showOnlyWhenEditable: true,
-        showOnlyCurrent: true,
-        includeChildren: true,
+      VisualEditorPlaceholder.configure({
+        emptyBlockPlaceholder,
       }),
       NotionToggleBodyPlaceholder,
       Link.configure({
@@ -1368,6 +1569,7 @@ export function createVisualEditorExtensions({
         documentId,
         onAudioComment: onImageComment,
       }),
+      MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
         resizable: false,
         HTMLAttributes: { class: "notion-table" },
@@ -1684,6 +1886,15 @@ export function VisualEditor({
   onSaveContentRef.current = onSaveContent;
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
+  const onMediaSourceCommittedRef = useRef<
+    ((editor: CoreEditor, transaction: Transaction) => void) | null
+  >(null);
+  const onMediaSourceCommitted = useCallback(
+    (editor: CoreEditor, transaction: Transaction) => {
+      onMediaSourceCommittedRef.current?.(editor, transaction);
+    },
+    [],
+  );
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
     const normalized = notionPageId.replace(/-/g, "").toLowerCase();
     return (
@@ -1740,6 +1951,8 @@ export function VisualEditor({
         onOpenNotionPageLink,
         localFilePath,
         referenceDepth,
+        emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
+        onMediaSourceCommitted,
       }),
     [
       documentId,
@@ -1754,6 +1967,8 @@ export function VisualEditor({
       onOpenNotionPageLink,
       localFilePath,
       referenceDepth,
+      t,
+      onMediaSourceCommitted,
     ],
   );
 
@@ -1778,8 +1993,9 @@ export function VisualEditor({
       const guards = guardsRef.current;
       if (!guards) return false;
       try {
-        const normalized =
-          options?.markdown ?? docToNfm(editorToPersist.getJSON() as any);
+        const serialized = serializeEditorDraftForPersistence(editorToPersist);
+        if (serialized === null) return true;
+        const normalized = options?.markdown ?? serialized;
         if (localFileMode && normalized === content) return true;
         // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
         // an editor is mounting or reconciling. Content serializes that filler
@@ -1814,6 +2030,23 @@ export function VisualEditor({
     },
     [content, localFileMode, t],
   );
+  onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
+    const guards = guardsRef.current;
+    if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+    try {
+      const persisted = await persistEditorContent(editorToPersist, {
+        immediate: true,
+        userInitiated: true,
+      });
+      if (!persisted) throw new Error(t("empty.genericError"));
+    } catch (error) {
+      // The ordinary onUpdate path still queues its debounced retry. Keep the
+      // immediate durability attempt from becoming an unhandled rejection,
+      // but fail visibly instead of treating a skipped save as success.
+      toast.error(t("empty.genericError"));
+      console.error("Media source persistence error:", error);
+    }
+  };
 
   const editor = useEditor({
     extensions,
@@ -1967,12 +2200,27 @@ export function VisualEditor({
       ) {
         return;
       }
+      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: editor.isFocused,
+        explicitUserEdit:
+          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
+        recentUserEditIntent:
+          Date.now() - lastUserEditIntentAtRef.current < 2000,
+        transactionUiEvent: transaction.getMeta("uiEvent"),
+      });
+      if (
+        !shouldPersistCollaborativeEditorUpdate({
+          collab: !!ydoc,
+          editorFocused: editor.isFocused,
+          userInitiated,
+        })
+      ) {
+        return;
+      }
       if (isActiveSlashCommandDraft(editor)) return;
+      if (shouldSkipMediaDraftPersistence(editor)) return;
       persistEditorContent(editor, {
-        userInitiated:
-          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true ||
-          Date.now() - lastUserEditIntentAtRef.current < 2000 ||
-          Boolean(transaction.getMeta("uiEvent")),
+        userInitiated,
       });
     },
   });
@@ -2288,9 +2536,9 @@ export function VisualEditor({
           editor={editor}
           documentId={documentId}
           notionPageId={notionPageId}
-          onDraftCommitted={() => {
-            void persistEditorContent(editor, { userInitiated: true });
-          }}
+          onDraftCommitted={() =>
+            persistEditorContent(editor, { userInitiated: true })
+          }
           onDraftPersisted={(markdown) =>
             persistEditorContent(editor, {
               markdown,

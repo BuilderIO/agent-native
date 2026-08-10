@@ -317,6 +317,40 @@ export async function createScheduledJobRecord(input: {
   return job;
 }
 
+export async function updateScheduledJobForOwner(
+  ownerEmail: string,
+  id: string,
+  runAt: number,
+): Promise<ScheduledJobRecord | null> {
+  const [existing] = await db
+    .select()
+    .from(schema.scheduledJobs)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  if (!existing) return null;
+
+  await db
+    .update(schema.scheduledJobs)
+    .set({ runAt, status: "pending" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  return {
+    ...(existing as ScheduledJobRecord),
+    runAt,
+    status: "pending",
+  };
+}
+
 export async function scheduleSnooze(input: {
   ownerEmail: string;
   emailId: string;
@@ -722,7 +756,7 @@ export async function sendScheduledJobNowForOwner(
     throw new Error(`Scheduled email is already ${job.status}`);
   }
 
-  await db
+  const claim = await db
     .update(schema.scheduledJobs)
     .set({ status: "processing" } as any)
     .where(
@@ -732,6 +766,9 @@ export async function sendScheduledJobNowForOwner(
         eq(schema.scheduledJobs.status, "pending"),
       ),
     );
+  if (claim.rowsAffected === 0) {
+    throw new Error("Scheduled email is already processing");
+  }
 
   try {
     await sendScheduledEmail(
@@ -769,11 +806,17 @@ export async function markJobDone(id: string): Promise<void> {
     .where(eq(schema.scheduledJobs.id, id));
 }
 
-export async function markJobProcessing(id: string): Promise<void> {
-  await db
+export async function markJobProcessing(id: string): Promise<boolean> {
+  const result = await db
     .update(schema.scheduledJobs)
     .set({ status: "processing" } as any)
-    .where(eq(schema.scheduledJobs.id, id));
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "pending"),
+      ),
+    );
+  return result.rowsAffected > 0;
 }
 
 export async function getDuePendingJobs(

@@ -1,0 +1,364 @@
+---
+title: "Content: Developer Guide"
+description: "Data model, action inventory, routes, and extension points for customizing or extending the Content template."
+---
+
+# Content: Developer Guide
+
+This page is for anyone customizing the Content template or building on it: the full data model, every action grouped by area, the route surface, and the places to look when adding a feature. If you're looking for how to use the app day to day, see the [Content overview](/docs/template-content) and its linked pages instead.
+
+## Quick start
+
+```bash
+npx @agent-native/core@latest create my-content --standalone --template content
+```
+
+See [Getting started](/docs/getting-started) for the rest of the setup and the framework fundamentals (actions, application state, live sync).
+
+<FileTree
+  id="doc-block-content8"
+  title="Content template layout"
+  entries={[
+    {
+      path: "actions/",
+      note: "defineAction operations — the single source of truth",
+    },
+    {
+      path: "actions/_*.ts",
+      note: "private helpers shared between actions, not mounted as tools",
+    },
+    { path: "app/routes/", note: "React Router file routes" },
+    { path: "app/components/editor/", note: "the Tiptap/Yjs document editor" },
+    { path: "server/db/schema.ts", note: "Drizzle schema — 22 tables" },
+    { path: "shared/content-source.ts", note: "local-folder sync contract" },
+    { path: "shared/nfm.ts", note: "Notion-Flavored Markdown converter" },
+    {
+      path: "shared/properties.ts",
+      note: "property type definitions and (de)serialization",
+    },
+    {
+      path: ".agents/skills/",
+      note: "content, document-editing, notion-integration, creative-context",
+    },
+    { path: "AGENTS.md", note: "top-level agent guide" },
+  ]}
+/>
+
+## Data model
+
+Content's schema (`server/db/schema.ts`) currently defines 22 tables, not the nine a much earlier version of this doc described. Nine cover the document lifecycle, collaboration, and sync surfaces below; the other 13 belong to the inline-database and external-source subsystem, documented in full on [Databases, properties & forms](/docs/template-content-databases#data-model).
+
+| Table                                      | What it holds                                                                                            |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `documents`                                | The page tree — title, markdown content, description, icon, parent/position, favorite, visibility, space |
+| `content_spaces`                           | A personal or org workspace; owns one canonical Files database                                           |
+| `content_space_catalog_items`              | Maps a space into the current user's visible workspace catalog                                           |
+| `document_versions`                        | Full title/content snapshots for version history and restore                                             |
+| `document_preview_drafts`                  | An unsaved editor draft, kept separate from the saved document                                           |
+| `document_comments`                        | Threaded, anchor-tracked comments with `@mentions` and resolve state                                     |
+| `document_sync_links`                      | One row per Notion-linked document — remote page id, sync state, content hash, conflict flag             |
+| `builder_doc_sidecars`                     | Raw sidecar files (e.g. `.raw` Builder blocks) alongside a Builder-synced document                       |
+| `document_shares`                          | Framework shares table — per-user/per-org grants (`createSharesTable`)                                   |
+| `document_property_definitions`            | Column definitions for inline databases _(see Databases page)_                                           |
+| `content_databases`                        | Inline database objects _(see Databases page)_                                                           |
+| `content_database_items`                   | Database rows _(see Databases page)_                                                                     |
+| `content_database_body_hydration_queue`    | Queues a body-content backfill pass for source-imported rows that need one                               |
+| `content_database_sources`                 | An attached external source _(see Databases page)_                                                       |
+| `content_database_source_fields`           | Field mappings _(see Databases page)_                                                                    |
+| `content_database_source_rows`             | Row identity/provenance _(see Databases page)_                                                           |
+| `content_database_source_change_sets`      | Proposed sync changes _(see Databases page)_                                                             |
+| `content_database_source_change_reviews`   | Review decisions _(see Databases page)_                                                                  |
+| `content_database_source_executions`       | Guarded write-back attempts _(see Databases page)_                                                       |
+| `content_database_source_execution_claims` | Idempotency keys so a retried write-back can't double-write                                              |
+| `document_property_values`                 | Per-row property values _(see Databases page)_                                                           |
+| `document_block_field_contents`            | Content for secondary Blocks fields _(see Databases page)_                                               |
+
+<DataModel
+  id="doc-block-content9"
+  title="Documents, collaboration, and sync"
+  summary={
+    "documents is the page tree; every other table here hangs off it for spaces, versions, comments, Notion sync, Builder sidecars, and sharing. The inline-database and external-source subsystem is a separate, larger block on the Databases page."
+  }
+  entities={[
+    {
+      id: "documents",
+      name: "documents",
+      note: "The page tree (ownable, markdown body)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "space_id",
+          type: "id",
+          fk: "content_spaces.id",
+          nullable: true,
+        },
+        {
+          name: "parent_id",
+          type: "id",
+          fk: "documents.id",
+          nullable: true,
+          note: "infinite nesting",
+        },
+        { name: "title", type: "string" },
+        { name: "content", type: "markdown" },
+        {
+          name: "description",
+          type: "string",
+          note: "stable guidance, not a generated summary",
+        },
+        { name: "icon", type: "string", nullable: true },
+        { name: "position", type: "int", note: "sibling ordering" },
+        { name: "is_favorite", type: "bool" },
+        {
+          name: "hide_from_search",
+          type: "bool",
+          note: "org-discoverable but not listed",
+        },
+        { name: "visibility", type: "enum", note: "private | org | public" },
+        { name: "trashed_at", type: "datetime", nullable: true },
+        {
+          name: "trash_root_id",
+          type: "id",
+          nullable: true,
+          note: "marks the top of a trashed subtree",
+        },
+        { name: "owner_email", type: "string" },
+        { name: "org_id", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "content_spaces",
+      name: "content_spaces",
+      note: "A personal or org workspace; owns one canonical Files database",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "name", type: "string" },
+        { name: "kind", type: "string" },
+        { name: "files_database_id", type: "id", fk: "content_databases.id" },
+        { name: "owner_email", type: "string" },
+        { name: "org_id", type: "id", nullable: true },
+        { name: "archived_at", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "document_versions",
+      name: "document_versions",
+      note: "Full title/content snapshots for version history",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "document_id", type: "id", fk: "documents.id" },
+        { name: "title", type: "string" },
+        { name: "content", type: "markdown" },
+      ],
+    },
+    {
+      id: "document_comments",
+      name: "document_comments",
+      note: "Threaded comments with quoted-text anchors",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "document_id", type: "id", fk: "documents.id" },
+        { name: "thread_id", type: "id" },
+        {
+          name: "parent_id",
+          type: "id",
+          fk: "document_comments.id",
+          nullable: true,
+        },
+        { name: "quoted_text", type: "string", nullable: true },
+        { name: "anchor_prefix", type: "string", nullable: true },
+        { name: "anchor_suffix", type: "string", nullable: true },
+        { name: "mentions_json", type: "json", nullable: true },
+        { name: "resolved", type: "bool" },
+        {
+          name: "notion_comment_id",
+          type: "string",
+          nullable: true,
+          note: "bidirectional Notion sync",
+        },
+        { name: "notion_discussion_id", type: "string", nullable: true },
+      ],
+    },
+    {
+      id: "document_sync_links",
+      name: "document_sync_links",
+      note: "One row per Notion-linked document",
+      fields: [
+        { name: "document_id", type: "id", pk: true, fk: "documents.id" },
+        { name: "remote_page_id", type: "string" },
+        {
+          name: "state",
+          type: "enum",
+          note: "linked | syncing | error | conflict",
+        },
+        {
+          name: "last_synced_content_hash",
+          type: "string",
+          nullable: true,
+          note: "content-hash change detection",
+        },
+        { name: "has_conflict", type: "bool" },
+        { name: "sync_comments", type: "bool" },
+        { name: "last_error", type: "string", nullable: true },
+      ],
+    },
+    {
+      id: "builder_doc_sidecars",
+      name: "builder_doc_sidecars",
+      note: "Raw sidecar files for a Builder-synced document",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "document_id", type: "id", fk: "documents.id" },
+        { name: "path", type: "string" },
+        { name: "content", type: "string" },
+        { name: "content_hash", type: "string" },
+      ],
+    },
+    {
+      id: "document_shares",
+      name: "document_shares",
+      note: "Per-user and per-org grants (createSharesTable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "resource_id", type: "id", fk: "documents.id" },
+        { name: "principal_type", type: "enum", note: "user | org" },
+        { name: "principal_id", type: "string" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "content_spaces",
+      to: "documents",
+      kind: "1-n",
+      label: "owns pages",
+    },
+    { from: "documents", to: "documents", kind: "1-n", label: "has children" },
+    {
+      from: "documents",
+      to: "document_versions",
+      kind: "1-n",
+      label: "has snapshots",
+    },
+    {
+      from: "documents",
+      to: "document_comments",
+      kind: "1-n",
+      label: "has comments",
+    },
+    {
+      from: "documents",
+      to: "document_sync_links",
+      kind: "1-1",
+      label: "links to Notion",
+    },
+    {
+      from: "documents",
+      to: "builder_doc_sidecars",
+      kind: "1-n",
+      label: "has Builder sidecars",
+    },
+    {
+      from: "documents",
+      to: "document_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
+
+Content is stored as markdown. The editor converts to and from the Tiptap JSON model in memory; the SQL row is always markdown so actions, search, and Notion sync operate on one canonical format. All ownable tables carry `owner_email` and `org_id` via `ownableColumns()`, so every row is scoped to the signed-in user (and their active organization) from creation.
+
+## Action inventory {#action-inventory}
+
+Every operation is a TypeScript file in `templates/content/actions/`, auto-mounted at `POST /_agent-native/actions/:name`. Files prefixed `_` are private helpers, not mounted as tools.
+
+**Documents & pages** — `create-document`, `get-document`, `list-documents`, `search-documents`, `pull-document` (collab-aware flush-then-read), `edit-document` (find/replace), `update-document` (full rewrite), `delete-document` (soft-delete to Trash), `restore-document`, `permanently-delete-document`, `list-trashed-documents`, `move-document`, `export-document` (PDF-ready HTML, Markdown, or HTML), `transcribe-media`, `set-document-discoverability`, `set-image-alt-text`, `share-local-file-document`, `list-document-versions`, `restore-document-version`.
+
+**Comments** — `list-comments`, `add-comment`, `update-comment`, `delete-comment`.
+
+**Databases, properties & views** — `create-content-database`, `create-inline-content-database`, `get-content-database`, `list-content-databases`, `delete-content-database`, `restore-content-database`, `list-trashed-content-databases`, `add-database-item`, `duplicate-database-item`, `duplicate-database-items`, `remove-database-items`, `move-database-item`, `update-content-database-view`, `get-content-database-personal-view`, `update-content-database-personal-view`, `list-document-properties`, `configure-document-property`, `set-document-property`, `duplicate-document-property`, `delete-document-property`, `reorder-document-property`, `submit-content-database-form`.
+
+**External database sources** — `attach-content-database-source`, `disconnect-content-database-source`, `get-content-database-source`, `refresh-content-database-source`, `review-content-database-source-change-set`, `bind-content-database-source-field`, `add-content-database-source-field-property`, `suggest-source-join-key`, `list-notion-database-sources`, `list-builder-cms-models`. Builder's write-back path adds `prepare-builder-source-review`, `preview-builder-source-review`, `prepare-builder-source-execution`, `validate-builder-source-execution`, `execute-builder-source-execution`, `execute-builder-source-batch`, `cancel-prepared-builder-source-update`, `stage-builder-revision`, `stage-builder-source-bulk-update`, `materialize-builder-required-fields`, and `process-builder-body-hydration`.
+
+**Notion document sync** — `connect-notion-status`, `link-notion-page`, `create-and-link-notion-page`, `unlink-notion-page`, `list-notion-links`, `pull-notion-page`, `push-notion-page`, `refresh-notion-sync-status`, `resolve-notion-sync-conflict`, `sync-notion-comments`, `search-notion-pages`, `disconnect-notion`.
+
+**Builder CMS document sync** — `list-builder-docs`, `check-builder-doc`, `pull-builder-doc`, `push-builder-doc` (distinct from the read-only database-source path above — these round-trip a whole document).
+
+**Local folder sync** — `connect-local-folder-source`, `sync-local-folder-source`, `resolve-local-folder-conflict`, `disconnect-local-folder-source`, `export-content-source`, `import-content-source`, `sync-manifest-local-folder-source`, `remove-local-file-source`, `reveal-local-source-file`, `list-local-component-files`, `write-local-component-file`, `register-local-component-workspace`.
+
+**Spaces** — `list-content-spaces`, `create-content-space`, `ensure-content-spaces`.
+
+**Provider API escalation & staged scans** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`, `list-staged-datasets`, `query-staged-dataset`, `delete-staged-dataset`. Use these when a canned action doesn't expose the exact Notion/Builder endpoint, filter, or pagination you need — see the `notion-integration` skill.
+
+**Navigation & screen** — `view-screen`, `navigate`, `refresh-list`.
+
+## Routes {#routes}
+
+| Route                                                                                                              | What it renders                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `_app.tsx`                                                                                                         | Pathless layout — sidebar and agent panel stay mounted across navigation                                                                                     |
+| `_app._index.tsx`                                                                                                  | Landing view — the document tree                                                                                                                             |
+| `_app.page.tsx` / `_app.page._index.tsx` / `_app.page.$id.tsx`                                                     | The editor route family — `/page/:id` opens one document                                                                                                     |
+| `_app.favorites.tsx`                                                                                               | Redirects into the current space's Favorites Files-database document                                                                                         |
+| `_app.local-files.tsx`                                                                                             | `/local-files` — connect, pull, check, and push local folders                                                                                                |
+| `_app.settings.tsx`                                                                                                | Settings                                                                                                                                                     |
+| `_app.team.tsx`                                                                                                    | `/team` redirects to `/settings/organization`                                                                                                                |
+| `_app.agent.tsx`                                                                                                   | `/agent` — the full agent chat tab page                                                                                                                      |
+| `_app.extensions.tsx` + `_app.extensions._index.tsx` + `_app.extensions.$id.tsx` + `_app.extensions.$id.$slug.tsx` | `/extensions` — sandboxed widget routes (the framework's Alpine.js extension system; unrelated to the Tiptap "editor extensions" used elsewhere in this doc) |
+| `p.$id.tsx`                                                                                                        | `/p/:id` — public, read-only document view with a read-only agent chat                                                                                       |
+| `$id.tsx`                                                                                                          | Legacy `/:id` redirect to `/page/:id`                                                                                                                        |
+
+## Customizing it
+
+<AnnotatedCode
+  id="doc-block-content10"
+  title="A soft-delete action reusing shared trash logic"
+  filename="actions/delete-content-database.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport { writeAppState } from "@agent-native/core/application-state";\nimport { assertAccess } from "@agent-native/core/sharing";\nimport { z } from "zod";\n\nimport { getDb } from "../server/db/index.js";\nimport { assertContentDatabaseLifecycleAccess } from "./_content-database-lifecycle.js";\nimport { trashDocumentSubtree } from "./delete-document.js";\n\nexport default defineAction({\n  description:\n    "Soft-delete a content database without deleting its documents or rows.",\n  schema: z.object({\n    databaseId: z.string().describe("Content database ID"),\n  }),\n  run: async ({ databaseId }) => {\n    const { database } = await assertContentDatabaseLifecycleAccess(databaseId);\n    if (database.systemRole) {\n      throw new Error("System Content databases cannot be deleted");\n    }\n    await assertAccess("document", database.documentId, "admin");\n    const db = getDb();\n    const deletedAt = database.deletedAt ?? new Date().toISOString();\n    await db.transaction((tx) =>\n      trashDocumentSubtree(\n        tx as unknown as ReturnType<typeof getDb>,\n        database.documentId,\n        database.ownerEmail,\n        deletedAt,\n      ),\n    );\n\n    await writeAppState("refresh-signal", { ts: Date.now() });\n\n    return {\n      success: true,\n      databaseId,\n      documentId: database.documentId,\n      deletedAt,\n    };\n  },\n});\n'
+  }
+  annotations={[
+    {
+      lines: "18-20",
+      label: "System databases are protected",
+      note: "A database created by the framework itself (Files, Favorites, workspace catalog) carries a systemRole and refuses deletion here, so a stray delete call can't orphan a space's canonical storage.",
+    },
+    {
+      lines: "24-31",
+      label: "Reuse the document trash, don't reimplement it",
+      note: "trashDocumentSubtree is the same helper delete-document uses. A database's row documents get the identical soft-delete/restore semantics as any other page subtree instead of a second, database-specific trash implementation.",
+    },
+    {
+      lines: "33",
+      label: "Signal a UI refresh",
+      note: "Mutations outside the standard create/update/delete document actions must poke refresh-signal themselves so the open sidebar repaints.",
+    },
+  ]}
+/>
+
+The places to look when changing behavior:
+
+- **`actions/`** — every operation the agent or UI can perform. Add a new file like `actions/publish-to-wordpress.ts` using `defineAction` and both sides get it for free.
+- **`app/routes/`** — the page surface described above.
+- **`app/components/editor/`** — the Tiptap editor. Add a new node type under `extensions/` and register it in `DocumentEditor.tsx`. The bubble toolbar, slash menu, and hover previews are all component files you can edit.
+- **`.agents/skills/`** — guidance the agent reads before acting: `content`, `document-editing`, `notion-integration`, `creative-context`, plus the framework skills. Add a new skill folder when you add a capability big enough to need its own guidance.
+- **`AGENTS.md`** — the top-level agent guide with the action cheatsheet. Update it whenever you add a feature so the agent discovers it without exploring.
+- **`server/db/schema.ts`** — the data model. Content has no `db:push` script; it relies on strictly additive migrations that run on startup. Migrations must never drop, rename, or destructively alter existing tables or columns — see [Database](/docs/database#migrations).
+- **A new external-source adapter** — implement the `ContentDatabaseSourceAdapter` interface in `actions/_content-database-source-adapters.ts` (see the existing `builder-cms`, `local-table`, and `notion-database` adapters) and wire it into `attach-content-database-source`. Every adapter reads into the same change-set/review pipeline described on the [Databases page](/docs/template-content-databases#connecting-an-external-source) — a new adapter should not bypass it with a direct write.
+- **`shared/content-source.ts`** — the local-folder sync contract (filenames, frontmatter, parsing, serialization). Extend this if you change what an exported file looks like.
+- **`shared/nfm.ts`** — the Notion-Flavored Markdown converter. Extend this if you add block types that need to round-trip through Notion.
+
+The agent can make most of these changes itself — ask it to "add a tags column to documents and expose it in the sidebar" and it will update the schema, migrate, wire the UI, and write the action.
+
+## What's next
+
+- [Content overview](/docs/template-content) — what the app is and how to get started
+- [Writing & organizing documents](/docs/template-content-editing) — the non-developer view of the editor and sharing model
+- [Databases, properties & forms](/docs/template-content-databases) — the full inline-database and external-source data model
+- [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — the non-developer view of every sync surface
+- [Database](/docs/database) — the framework's Drizzle conventions and migration rules
+- [Actions](/docs/actions) — the action system every operation above is built on
+- [Sharing](/docs/sharing) — the share-grant model `document_shares` builds on

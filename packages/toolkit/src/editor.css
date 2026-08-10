@@ -8,6 +8,81 @@
   cursor: default;
 }
 
+/* Shared Notion-style block controls. Apps can override the color tokens, but
+   every SharedRichEditor gets a usable grip/menu without app-local CSS. */
+.drag-handle {
+  position: absolute;
+  display: none;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: hsl(var(--muted-foreground) / 0.45);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  z-index: 10;
+}
+
+.drag-handle:hover,
+.drag-handle:focus-visible {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  outline: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.notion-editor-is-dragging,
+.notion-editor-is-dragging * {
+  cursor: grabbing !important;
+}
+
+.notion-block--dragging {
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+
+.notion-drag-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  max-width: min(720px, calc(100vw - 48px));
+  overflow: hidden;
+  background: transparent !important;
+  box-shadow: none;
+  opacity: 0.55;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.notion-drag-preview > * {
+  margin: 0 !important;
+  max-height: 180px;
+  overflow: hidden;
+}
+
+.notion-drag-preview,
+.notion-drag-preview * {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.notion-drop-indicator {
+  position: absolute;
+  z-index: 60;
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(var(--ring));
+  box-shadow: 0 0 0 1px hsl(var(--background));
+  pointer-events: none;
+  transform: translateY(-1px);
+}
+
 .an-rich-md-loading {
   min-height: 7rem;
 }

@@ -21,18 +21,41 @@ function home(): string {
 }
 
 describe("resolveScreenMemoryStoreDir", () => {
-  it("prefers an explicit directory, then the environment override", () => {
+  it("prefers an existing explicit directory, then an existing environment override", () => {
+    const root = home();
+    const explicit = path.join(root, "explicit-clips-store");
+    const override = path.join(root, "env-clips-store");
+    fs.mkdirSync(explicit, { recursive: true });
+    fs.mkdirSync(override, { recursive: true });
+
     expect(
       resolveScreenMemoryStoreDir({
-        explicitDir: "/tmp/explicit-clips-store",
-        env: { CLIPS_SCREEN_MEMORY_DIR: "/tmp/env-clips-store" },
+        explicitDir: explicit,
+        env: { CLIPS_SCREEN_MEMORY_DIR: override },
       }),
-    ).toBe("/tmp/explicit-clips-store");
+    ).toBe(explicit);
     expect(
       resolveScreenMemoryStoreDir({
-        env: { AGENT_NATIVE_SCREEN_MEMORY_DIR: "/tmp/env-clips-store" },
+        env: { AGENT_NATIVE_SCREEN_MEMORY_DIR: override },
       }),
-    ).toBe("/tmp/env-clips-store");
+    ).toBe(override);
+  });
+
+  it("rejects explicit and environment overrides that are not directories", () => {
+    const root = home();
+    const missing = path.join(root, "missing-store");
+    const file = path.join(root, "not-a-store");
+    fs.writeFileSync(file, "not a directory");
+
+    expect(
+      resolveScreenMemoryStoreDir({ explicitDir: missing }),
+    ).toBeUndefined();
+    expect(
+      resolveScreenMemoryStoreDir({
+        env: { CLIPS_SCREEN_MEMORY_DIR: missing },
+      }),
+    ).toBeUndefined();
+    expect(resolveScreenMemoryStoreDir({ explicitDir: file })).toBeUndefined();
   });
 
   it("discovers whichever Clips store was most recently active", () => {

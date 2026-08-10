@@ -1,13 +1,17 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs dispatch"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter dispatch build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter dispatch build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter dispatch migrate:production; fi"
 publish = "templates/dispatch/dist"
 functions = "templates/dispatch/.netlify/functions-internal"
 
 [build.environment]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
+# Dispatch receives organization-admin A2A work that can outlast a foreground
+# function, including workspace-resource updates delegated by sibling apps.
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # The framework does not impose a default agent-run timeout; if a template sets

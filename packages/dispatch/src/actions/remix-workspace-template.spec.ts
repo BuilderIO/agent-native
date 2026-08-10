@@ -68,7 +68,7 @@ describe("remix-workspace-template action", () => {
     );
   });
 
-  it("starts a hosted private remix without copying data or secrets", async () => {
+  it("starts a hosted private app without copying data or secrets", async () => {
     vi.stubEnv("NODE_ENV", "production");
     mocks.startWorkspaceAppCreation.mockResolvedValue({
       mode: "builder",
@@ -88,7 +88,7 @@ describe("remix-workspace-template action", () => {
         template: "calendar",
         description: "A private scheduling workflow.",
         prompt: expect.stringContaining(
-          "private workspace remix of a curated first-party template",
+          "private workspace app from a curated first-party template",
         ),
       }),
     );

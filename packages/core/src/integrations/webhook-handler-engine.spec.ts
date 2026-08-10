@@ -9,11 +9,16 @@ const saveThreadMappingMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const getThreadMock = vi.hoisted(() => vi.fn());
 const updateThreadDataMock = vi.hoisted(() => vi.fn());
+const grantThreadUserShareMock = vi.hoisted(() => vi.fn());
+const setThreadSourceIfMissingMock = vi.hoisted(() => vi.fn());
+const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
-const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
-const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
+const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
+// The integration run goes through the resume wrapper. Delegate to the loop
+// mock so every assertion below still reads the options the loop was called
+// with.
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
@@ -29,6 +34,20 @@ const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
+const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
+const scheduleNextIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
+const heartbeatIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const waitForA2AIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const failIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationTaskOutcomeMock = vi.hoisted(() => vi.fn());
+const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
+const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -50,6 +69,43 @@ vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
   getThread: getThreadMock,
   updateThreadData: updateThreadDataMock,
+  grantThreadUserShare: grantThreadUserShareMock,
+  setThreadSourceIfMissing: setThreadSourceIfMissingMock,
+}));
+
+vi.mock("../agent/durable-background.js", () => ({
+  isInBackgroundFunctionRuntime: isInBackgroundFunctionRuntimeMock,
+}));
+
+vi.mock("../agent/run-loop-with-resume.js", () => ({
+  appendDurableContinuationContext: appendDurableContinuationContextMock,
+  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
+}));
+
+vi.mock("./integration-campaigns-store.js", () => ({
+  createIntegrationCampaign: createIntegrationCampaignMock,
+  claimIntegrationCampaign: claimIntegrationCampaignMock,
+  claimIntegrationCampaignDeliveryForTask:
+    claimIntegrationCampaignDeliveryForTaskMock,
+  scheduleNextIntegrationCampaign: scheduleNextIntegrationCampaignMock,
+  completeIntegrationCampaignTask: completeIntegrationCampaignTaskMock,
+  heartbeatIntegrationCampaign: heartbeatIntegrationCampaignMock,
+  waitForA2AIntegrationCampaign: waitForA2AIntegrationCampaignMock,
+  failIntegrationCampaign: failIntegrationCampaignMock,
+}));
+
+vi.mock("./a2a-continuations-store.js", () => ({
+  getA2AContinuationTaskOutcome: getA2AContinuationTaskOutcomeMock,
+}));
+
+vi.mock("./a2a-continuation-processor.js", () => ({
+  reconcileTerminalA2AParentIfDisabled:
+    reconcileTerminalA2AParentIfDisabledMock,
+}));
+
+vi.mock("./integration-durable-dispatch.js", () => ({
+  dispatchPendingIntegrationTask: dispatchPendingIntegrationTaskMock,
+  integrationDispatchScopeValue: vi.fn(() => null),
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -84,12 +140,7 @@ function fakeFilterInitialEngineTools(
 }
 
 vi.mock("../agent/production-agent.js", () => ({
-  getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
-  getOwnerApiKey: getOwnerApiKeyMock,
-  engineToProvider: (engineName: string) =>
-    engineName.startsWith("ai-sdk:")
-      ? engineName.slice("ai-sdk:".length)
-      : engineName,
+  resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
   filterInitialEngineTools: fakeFilterInitialEngineTools,
@@ -239,15 +290,50 @@ function pendingTask(
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    createIntegrationCampaignMock.mockResolvedValue({
+      id: "campaign-qa",
+      integrationTaskId: "task-qa",
+      threadId: "thread-qa",
+      turnId: "integration-turn-task-qa",
+      status: "pending",
+      chunkCount: 0,
+    });
+    claimIntegrationCampaignMock.mockResolvedValue({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        integrationTaskId: "task-qa",
+        threadId: "thread-qa",
+        turnId: "integration-turn-task-qa",
+        status: "processing",
+        chunkCount: 1,
+        progressRef: null,
+      },
+    });
+    scheduleNextIntegrationCampaignMock.mockResolvedValue(true);
+    completeIntegrationCampaignTaskMock.mockResolvedValue(true);
+    heartbeatIntegrationCampaignMock.mockResolvedValue(true);
+    waitForA2AIntegrationCampaignMock.mockResolvedValue(true);
+    failIntegrationCampaignMock.mockResolvedValue(true);
+    getA2AContinuationTaskOutcomeMock.mockResolvedValue("terminal-delivered");
+    dispatchPendingIntegrationTaskMock.mockResolvedValue(
+      "background-acknowledged",
+    );
+    appendDurableContinuationContextMock.mockResolvedValue(undefined);
     getThreadMappingMock.mockResolvedValue(null);
     saveThreadMappingMock.mockResolvedValue(undefined);
     createThreadMock.mockResolvedValue({ id: "thread-qa" });
     getThreadMock.mockResolvedValue({ threadData: "{}" });
     updateThreadDataMock.mockResolvedValue(undefined);
+    grantThreadUserShareMock.mockResolvedValue(undefined);
+    setThreadSourceIfMissingMock.mockResolvedValue(false);
+    isInBackgroundFunctionRuntimeMock.mockReturnValue(false);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     getOrgA2ASecretMock.mockResolvedValue(null);
-    getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
-    getOwnerApiKeyMock.mockResolvedValue(undefined);
+    resolveOwnerEngineApiKeyMock.mockResolvedValue({
+      apiKey: undefined,
+      apiKeyEnvVar: undefined,
+    });
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
@@ -363,12 +449,21 @@ describe("integration webhook handler engine resolution", () => {
         principalType: "service",
       });
 
+      // objectContaining, not an exact match: `runOptions` is handed to
+      // startRun by reference and deliberately mutated afterwards (model and
+      // engineName are filled in inside the run callback so run-manager's
+      // terminal event can read them in its `.finally()`), and it also carries
+      // attemptCount. This assertion is about which soft-timeout ceiling was
+      // chosen, so it pins those two fields and stays agnostic to the rest.
       expect(startRunMock).toHaveBeenLastCalledWith(
         expect.any(String),
         expect.any(String),
         expect.any(Function),
         expect.any(Function),
-        { useHostedSoftTimeoutDefault: true },
+        expect.objectContaining({
+          useHostedSoftTimeoutDefault: true,
+          backgroundFunction: false,
+        }),
       );
       expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -377,6 +472,169 @@ describe("integration webhook handler engine resolution", () => {
         }),
         expect.anything(),
       );
+    },
+  );
+
+  it(
+    "takes the background-function soft-timeout ceiling when durable dispatch routed the task there",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      isInBackgroundFunctionRuntimeMock.mockReturnValue(true);
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        expect.objectContaining({
+          useHostedSoftTimeoutDefault: true,
+          backgroundFunction: true,
+        }),
+      );
+    },
+  );
+
+  it(
+    "reports a run cut off at a continuation boundary as out of time, not as an empty answer",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "tool_start", tool: "gong-calls" });
+        send({ type: "auto_continue", reason: "run_timeout" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const text = sendResponse.mock.calls.at(-1)?.[0]?.text ?? "";
+      expect(text).toContain("ran out of time");
+      expect(text).not.toContain("finished without a visible answer");
+    },
+  );
+
+  it(
+    "does not report a run that resumed past a boundary and finished as out of time",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "auto_continue", reason: "network_interrupted" });
+        send({ type: "done" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const text = sendResponse.mock.calls.at(-1)?.[0]?.text ?? "";
+      expect(text).not.toContain("ran out of time");
+    },
+  );
+
+  it(
+    "grants the verified sender access to a thread owned by the integration service principal",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+
+      await processIntegrationTask(
+        pendingTask({
+          payload: JSON.stringify({
+            incoming: {
+              platform: "fake",
+              externalThreadId: "thread-qa",
+              text: "hello from slack",
+              senderName: "QA User",
+              senderEmail: "QA.User@example.com",
+              senderVerified: true,
+              platformContext: { channel: "C123" },
+              timestamp: 1001,
+            },
+          }),
+        }),
+        {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "integration@fake",
+          orgId: "org-qa",
+          principalType: "service",
+        },
+      );
+
+      expect(grantThreadUserShareMock).toHaveBeenCalledWith(
+        "thread-qa",
+        "QA.User@example.com",
+        "editor",
+        "integration@fake",
+      );
+    },
+  );
+
+  it(
+    "does not grant a redundant share when the sender already owns the thread",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+
+      await processIntegrationTask(
+        pendingTask({
+          payload: JSON.stringify({
+            incoming: {
+              platform: "fake",
+              externalThreadId: "thread-qa",
+              text: "hello from slack",
+              senderEmail: "dispatch+qa@integration.local",
+              senderVerified: true,
+              platformContext: { channel: "C123" },
+              timestamp: 1001,
+            },
+          }),
+        }),
+        {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "dispatch+qa@integration.local",
+          orgId: "org-qa",
+          principalType: "user",
+        },
+      );
+
+      expect(grantThreadUserShareMock).not.toHaveBeenCalled();
     },
   );
 
@@ -428,10 +686,15 @@ describe("integration webhook handler engine resolution", () => {
         ownerEmail: task.ownerEmail,
       });
 
-      expect(getOwnerActiveApiKeyMock).toHaveBeenCalledWith(task.ownerEmail);
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: undefined,
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "",
+      });
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: undefined,
         apiKey: undefined,
+        apiKeyEnvVar: undefined,
         model: "claude-sonnet-4-6",
       });
       expect(runAgentLoopMock).toHaveBeenCalledWith(
@@ -1039,7 +1302,10 @@ describe("integration webhook handler engine resolution", () => {
       const sendResponse = vi.fn(async () => ({
         status: "delivered" as const,
       }));
-      getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
+      resolveOwnerEngineApiKeyMock.mockResolvedValue({
+        apiKey: "openai-user-key",
+        apiKeyEnvVar: "OPENAI_API_KEY",
+      });
       const task: PendingTask = {
         id: "task-openai",
         platform: "fake",
@@ -1075,14 +1341,15 @@ describe("integration webhook handler engine resolution", () => {
         ownerEmail: task.ownerEmail,
       });
 
-      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
-        "openai",
-        task.ownerEmail,
-      );
-      expect(getOwnerActiveApiKeyMock).not.toHaveBeenCalled();
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: "ai-sdk:openai",
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "deploy-anthropic-key",
+      });
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: "ai-sdk:openai",
         apiKey: "openai-user-key",
+        apiKeyEnvVar: "OPENAI_API_KEY",
         model: "gpt-5.2",
       });
     },
@@ -1103,7 +1370,10 @@ describe("integration webhook handler engine resolution", () => {
         expect(getRequestOrgId()).toBe("org-qa");
         return "anthropic";
       });
-      getOwnerApiKeyMock.mockResolvedValue("anthropic-org-key");
+      resolveOwnerEngineApiKeyMock.mockResolvedValue({
+        apiKey: "anthropic-org-key",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      });
       getStoredModelForEngineMock.mockResolvedValueOnce("claude-sonnet-4-6");
       resolveEngineMock.mockResolvedValueOnce({
         name: "anthropic",
@@ -1131,13 +1401,15 @@ describe("integration webhook handler engine resolution", () => {
       expect(getConfiguredEngineNameForRequestMock).toHaveBeenCalledWith({
         appId: "dispatch",
       });
-      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
-        "anthropic",
-        task.ownerEmail,
-      );
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "",
+      });
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: "anthropic",
         apiKey: "anthropic-org-key",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
         model: "builder-default-model",
         appId: "dispatch",
       });
@@ -1193,111 +1465,6 @@ describe("integration webhook handler engine resolution", () => {
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
     expect(sentText).toContain("Manage agent > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
-  });
-
-  it("uses the explicit provider env key when no owner key exists in single-tenant mode", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
-    readDeployCredentialEnvMock.mockImplementation((key: string) =>
-      key === "OPENAI_API_KEY" ? "openai-env-key" : undefined,
-    );
-    const task: PendingTask = {
-      id: "task-openai-env",
-      platform: "fake",
-      externalEventKey: "fake:thread-env:1005",
-      externalThreadId: "thread-env",
-      payload: JSON.stringify({
-        incoming: {
-          platform: "fake",
-          externalThreadId: "thread-env",
-          text: "hello from slack",
-          senderName: "QA User",
-          platformContext: { channel: "C123" },
-          timestamp: 1005,
-        },
-      }),
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      status: "processing",
-      attempts: 1,
-      errorMessage: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      completedAt: null,
-    };
-
-    await processIntegrationTask(task, {
-      adapter: createAdapter(sendResponse),
-      systemPrompt: "system",
-      actions: {},
-      model: "gpt-5.2",
-      apiKey: "",
-      engine: "ai-sdk:openai",
-      ownerEmail: task.ownerEmail,
-    });
-
-    expect(readDeployCredentialEnvMock).toHaveBeenCalledWith("OPENAI_API_KEY");
-    expect(resolveEngineMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        engineOption: "ai-sdk:openai",
-        apiKey: "openai-env-key",
-      }),
-    );
-  });
-
-  it("does not fall back to deployment LLM keys in production shared mode", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
-    process.env.NODE_ENV = "production";
-    isLocalDatabaseMock.mockReturnValue(false);
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
-    readDeployCredentialEnvMock.mockImplementation((key: string) =>
-      key === "OPENAI_API_KEY" ? "openai-hosted-key" : undefined,
-    );
-    const task: PendingTask = {
-      id: "task-multitenant",
-      platform: "fake",
-      externalEventKey: "fake:thread-mt:1006",
-      externalThreadId: "thread-mt",
-      payload: JSON.stringify({
-        incoming: {
-          platform: "fake",
-          externalThreadId: "thread-mt",
-          text: "hello from slack",
-          senderName: "QA User",
-          platformContext: { channel: "C123" },
-          timestamp: 1006,
-        },
-      }),
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      status: "processing",
-      attempts: 1,
-      errorMessage: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      completedAt: null,
-    };
-
-    await processIntegrationTask(task, {
-      adapter: createAdapter(sendResponse),
-      systemPrompt: "system",
-      actions: {},
-      model: "gpt-5.2",
-      apiKey: "deploy-key",
-      engine: "ai-sdk:openai",
-      ownerEmail: task.ownerEmail,
-    });
-
-    expect(readDeployCredentialEnvMock).not.toHaveBeenCalledWith(
-      "OPENAI_API_KEY",
-    );
-    expect(resolveEngineMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        engineOption: "ai-sdk:openai",
-        apiKey: undefined,
-      }),
-    );
   });
 
   it("prefers stored model settings over the integration plugin default", async () => {
@@ -1535,7 +1702,249 @@ describe("integration webhook handler engine resolution", () => {
       });
     });
 
-    await processIntegrationTask(pendingTask({ id: "task-continuation" }), {
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-continuation" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-pending" });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(updateThreadDataMock).toHaveBeenCalled();
+    expect(waitForA2AIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-qa",
+      expect.objectContaining({ nextRunAt: expect.any(Number) }),
+    );
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("checkpoints a durable no-progress boundary without posting a cutoff reply", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        integrationTaskId: "task-campaign",
+        threadId: "thread-qa",
+        turnId: "integration-turn-task-campaign",
+        status: "processing",
+        chunkCount: 1,
+        progressRef: null,
+      },
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "Partial research" });
+      send({ type: "auto_continue", reason: "no_progress" });
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-campaign" }),
+      {
+        adapter: {
+          ...createAdapter(sendResponse),
+          startRunProgress: async () => ({
+            ref: { kind: "slack-stream", streamTs: "1719000000.000099" },
+            onEvent,
+            complete,
+          }),
+        },
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-pending" });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(scheduleNextIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-qa",
+      expect.objectContaining({
+        checkpoint: expect.stringContaining('"reason":"no_progress"'),
+        progressRef: JSON.stringify({
+          kind: "slack-stream",
+          streamTs: "1719000000.000099",
+        }),
+      }),
+    );
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignContinuation: true }),
+    );
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+    expect(startRunMock).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "thread-qa",
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({
+        noProgressTimeoutMs: 45_000,
+        turnId: "integration-turn-task-campaign",
+      }),
+    );
+    const checkpoint = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1] as string,
+    );
+    expect(checkpoint.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.stringContaining("integration-fake:thread-qa:"),
+          role: "assistant",
+          metadata: expect.not.objectContaining({
+            integrationDeliveryAttempted: true,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps campaign ownership when the successor checkpoint fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    scheduleNextIntegrationCampaignMock.mockRejectedValueOnce(
+      new Error("checkpoint unavailable"),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-schedule-failure" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-active" });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps campaign ownership when the downstream A2A wait transition fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    waitForA2AIntegrationCampaignMock.mockRejectedValueOnce(
+      new Error("wait checkpoint unavailable"),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nStill working`,
+      });
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-a2a-wait-failure" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-active" });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("resumes the same campaign turn and closes one native progress surface", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        integrationTaskId: "task-campaign",
+        threadId: "thread-qa",
+        turnId: "integration-turn-task-campaign",
+        status: "processing",
+        chunkCount: 2,
+        progressRef: JSON.stringify({
+          kind: "slack-stream",
+          streamTs: "1719000000.000099",
+        }),
+        checkpoint: JSON.stringify({ reason: "no_progress" }),
+      },
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => ({ status: "delivered" as const }));
+    const resumeRunProgress = vi.fn(async () => ({ onEvent, complete }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "Final answer after continuation" });
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-campaign" }),
+      {
+        adapter: {
+          ...createAdapter(sendResponse),
+          resumeRunProgress,
+        },
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "completed" });
+    expect(appendDurableContinuationContextMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "no_progress",
+      "thread-qa",
+    );
+    expect(resumeRunProgress).toHaveBeenCalledWith(expect.any(Object), {
+      kind: "slack-stream",
+      streamTs: "1719000000.000099",
+    });
+    expect(complete).toHaveBeenCalledOnce();
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(scheduleNextIntegrationCampaignMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      "campaign-qa",
+      expect.any(Object),
+    );
+    expect(startRunMock).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "thread-qa",
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({ turnId: "integration-turn-task-campaign" }),
+    );
+  });
+
+  it("uses the short no-progress budget only for durable campaigns", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+
+    await processIntegrationTask(pendingTask({ id: "task-standard" }), {
       adapter: createAdapter(sendResponse),
       systemPrompt: "system",
       actions: {},
@@ -1544,8 +1953,157 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
     });
 
-    expect(sendResponse).not.toHaveBeenCalled();
-    expect(updateThreadDataMock).toHaveBeenCalled();
+    await processIntegrationTask(
+      pendingTask({ id: "task-durable" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(startRunMock).toHaveBeenCalledTimes(2);
+    expect(startRunMock.mock.calls[0]?.[4]).not.toHaveProperty(
+      "noProgressTimeoutMs",
+    );
+    expect(startRunMock.mock.calls[1]?.[4]).toEqual(
+      expect.objectContaining({
+        noProgressTimeoutMs: 45_000,
+        turnId: "integration-turn-task-qa",
+      }),
+    );
+  });
+
+  it("does not finish a waiting campaign merely because no active A2A continuation remains", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    createIntegrationCampaignMock.mockResolvedValueOnce({
+      id: "campaign-qa",
+      status: "waiting",
+      progressRef: null,
+      checkpoint: JSON.stringify({ waitingForA2A: true }),
+    });
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        turnId: "integration-turn-task-a2a",
+        status: "processing",
+        chunkCount: 1,
+        progressRef: null,
+        checkpoint: JSON.stringify({ waitingForA2A: true }),
+      },
+    });
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-without-delivery",
+    );
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-a2a" }),
+      {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-pending" });
+    expect(getA2AContinuationTaskOutcomeMock).toHaveBeenCalledWith("task-a2a");
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+    expect(startRunMock).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes an exhausted stale campaign without rerunning its tools", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    createIntegrationCampaignMock.mockResolvedValueOnce({
+      id: "campaign-exhausted",
+      status: "processing",
+      progressRef: null,
+    });
+    const currentProgressRef = {
+      kind: "slack-stream",
+      streamTs: "1719000000.000999",
+    };
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "chunk-limit",
+      campaign: {
+        id: "campaign-exhausted",
+        chunkCount: 4,
+        progressRef: JSON.stringify(currentProgressRef),
+      },
+    });
+    claimIntegrationCampaignDeliveryForTaskMock.mockResolvedValueOnce({
+      id: "campaign-exhausted",
+      chunkCount: 4,
+      progressRef: JSON.stringify(currentProgressRef),
+    });
+    const complete = vi.fn(async () => ({ status: "delivered" as const }));
+    const resumeRunProgress = vi.fn(async () => ({
+      onEvent: vi.fn(),
+      complete,
+    }));
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-exhausted" }),
+      {
+        adapter: { ...createAdapter(), resumeRunProgress },
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-failed" });
+    expect(failIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-exhausted",
+      expect.objectContaining({
+        runId: expect.stringContaining("integration-delivery-"),
+        leaseToken: expect.any(String),
+      }),
+    );
+    expect(resumeRunProgress).toHaveBeenCalledWith(
+      expect.any(Object),
+      currentProgressRef,
+    );
+    expect(complete).toHaveBeenCalledOnce();
+    expect(
+      stageTaskDeliveryPayloadMock.mock.invocationCallOrder[0],
+    ).toBeLessThan(failIntegrationCampaignMock.mock.invocationCallOrder[0]!);
+    expect(startRunMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves an exhausted campaign failure across a worker crash", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    createIntegrationCampaignMock.mockResolvedValueOnce({
+      id: "campaign-exhausted",
+      status: "failed",
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-exhausted-recovery" }),
+      {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-failed" });
+    expect(startRunMock).not.toHaveBeenCalled();
   });
 
   it("keeps a resumable native progress stream open for a queued A2A continuation", async () => {
@@ -1882,6 +2440,7 @@ describe("integration webhook handler engine resolution", () => {
       "I will relay from the Analytics agent when the result is ready.",
       "The Slides agent is working on your *Launch Readiness Snapshot* deck (title, risks, next steps). The result will be posted here in this thread as soon as it's ready - hang tight!",
       "The Design agent is working on your *Launch Readiness Status Card* - it'll post the artifact URL directly here in this thread as soon as it's ready. Hang tight! :art:",
+      "The Design Ask request has been sent to Content, which will create the record and post the verified link + Content ID directly to this thread. No further action needed from me here.",
     ];
 
     for (const [index, text] of deferrals.entries()) {
@@ -2016,15 +2575,23 @@ describe("integration webhook handler engine resolution", () => {
         apiKey: "",
         ownerEmail: "dispatch+qa@integration.local",
       },
+      { enabled: true },
     );
 
     expect(result).toMatchObject({
       status: "delivery-pending",
       payload: {
+        awaitingA2ACompletion: true,
         deliveryReceipt: {
           status: "delivered",
           messageRefs: ["queued-parent-reply"],
         },
+      },
+      campaignLease: {
+        campaignId: "campaign-qa",
+        runId: expect.any(String),
+        leaseToken: expect.any(String),
+        campaignStatus: "waiting-a2a",
       },
     });
     expect(sendResponse).toHaveBeenCalledOnce();

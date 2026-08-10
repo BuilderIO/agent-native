@@ -54,4 +54,19 @@ describe("slide image replacement", () => {
     expect(updated).not.toContain("fmd-img-placeholder");
     expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
   });
+
+  it("adds a positioned background layer when the slide has no placeholder at all", () => {
+    const html = `<div class="fmd-slide"><h1>Slide with no image</h1></div>`;
+    const updated = insertImageIntoSlideHtml(html, "/uploads/drop.png");
+    const doc = new DOMParser().parseFromString(updated, "text/html");
+    const img = doc.querySelector("img");
+    const slideRoot = doc.querySelector(".fmd-slide") as HTMLElement | null;
+
+    expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
+    // Must not become a plain flex-flow sibling of the existing content
+    // (the slide is a flex column), or it visually squishes everything else.
+    expect(img?.getAttribute("style")).toContain("position: absolute");
+    expect(slideRoot?.getAttribute("style")).toContain("position: relative");
+    expect(doc.querySelector("h1")).not.toBeNull();
+  });
 });

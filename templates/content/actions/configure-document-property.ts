@@ -16,6 +16,8 @@ import {
   normalizePropertyVisibility,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -35,6 +37,12 @@ export default defineAction({
     documentId: z
       .string()
       .describe("Document ID used to scope the property workspace"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe(
+        "Database ID that owns the property; omit only for context-free entry points",
+      ),
     name: z.string().min(1).describe("Property name"),
     description: z
       .string()
@@ -95,8 +103,12 @@ export default defineAction({
     const now = new Date().toISOString();
     const name = args.name.trim();
     const type = args.type as DocumentPropertyType;
-    let optionsJson = optionsForNewProperty(type, args.options as any);
-    const database = await resolvePropertyDatabaseForDocument(document);
+    const optionsJson = optionsForNewProperty(type, args.options as any);
+    const database = await resolvePropertyDatabaseForDocument(
+      document,
+      args.databaseId,
+      "editor",
+    );
     if (!database) {
       throw new Error(
         "Properties belong to databases. Create or open a database before adding properties.",
@@ -118,83 +130,64 @@ export default defineAction({
           ),
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
-      if (existing.systemRole) {
-        throw new Error("System properties cannot be changed.");
-      }
-      if (
-        isComputedPropertyType(existing.type as DocumentPropertyType) &&
-        existing.type !== type
-      ) {
-        throw new Error("Computed property types cannot be changed.");
-      }
-
-      const existingOptions = parsePropertyOptions(existing.optionsJson);
-      const existingIsPrimaryBlocks =
-        isBlocksPropertyType(existing.type as DocumentPropertyType) &&
-        isPrimaryBlocksField(existingOptions);
-
-      // The primary "Content" Blocks field backs the document body — it can be
-      // renamed/hidden but not retyped (delete it from the database view to
-      // remove the body). Block the type switch defensively.
-      if (existingIsPrimaryBlocks && existing.type !== type) {
-        throw new Error(
-          "The primary Content (Blocks) field cannot change type. Delete it from the database view to remove the body.",
+      await db.transaction(async (tx) => {
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
         );
-      }
-
-      // Preserve the primary flag when re-saving the primary Blocks field (a
-      // rename or visibility change must NOT demote it to a normal Blocks field).
-      if (existingIsPrimaryBlocks && isBlocksPropertyType(type)) {
-        optionsJson = serializePropertyOptions({ blocks: { primary: true } });
-      }
-
-      if (existing.type !== type) {
-        await db
-          .delete(schema.documentPropertyValues)
+        let [lockedDefinition] = await tx
+          .select()
+          .from(schema.documentPropertyDefinitions)
           .where(
             and(
-              eq(schema.documentPropertyValues.propertyId, args.id),
-              eq(schema.documentPropertyValues.ownerEmail, document.ownerEmail),
+              eq(schema.documentPropertyDefinitions.id, args.id!),
+              eq(
+                schema.documentPropertyDefinitions.ownerEmail,
+                document.ownerEmail,
+              ),
+              eq(schema.documentPropertyDefinitions.databaseId, database.id),
             ),
           );
-        // Switching a Blocks field to another type drops its independent content.
-        if (
-          isBlocksPropertyType(existing.type as DocumentPropertyType) &&
-          !isBlocksPropertyType(type)
-        ) {
-          await db
-            .delete(schema.documentBlockFieldContents)
-            .where(eq(schema.documentBlockFieldContents.propertyId, args.id));
+        if (!lockedDefinition)
+          throw new Error(`Property "${args.id}" not found`);
+        if (lockedDefinition.systemRole) {
+          throw new Error("System properties cannot be changed.");
         }
-      }
+        if (
+          isComputedPropertyType(
+            lockedDefinition.type as DocumentPropertyType,
+          ) &&
+          lockedDefinition.type !== type
+        ) {
+          throw new Error("Computed property types cannot be changed.");
+        }
 
-      await db
-        .update(schema.documentPropertyDefinitions)
-        .set({
-          name,
-          ...(args.description === undefined
-            ? {}
-            : { description: args.description.trim() }),
-          type,
-          visibility:
-            args.visibility === undefined
-              ? normalizePropertyVisibility(existing.visibility)
-              : normalizePropertyVisibility(args.visibility),
-          optionsJson,
-          updatedAt: now,
-        })
-        .where(eq(schema.documentPropertyDefinitions.id, args.id));
-    } else {
-      await withPositionLock(
-        propertyDefinitionsPositionScope(database.id),
-        async () => {
-          const [maxPos] = await db
-            .select({
-              max: sql<number>`COALESCE(MAX(position), -1)`,
-            })
+        const lockedOptions = parsePropertyOptions(
+          lockedDefinition.optionsJson,
+        );
+        const lockedIsPrimaryBlocks =
+          isBlocksPropertyType(lockedDefinition.type as DocumentPropertyType) &&
+          isPrimaryBlocksField(lockedOptions);
+        if (lockedIsPrimaryBlocks && lockedDefinition.type !== type) {
+          throw new Error(
+            "The primary Content (Blocks) field cannot change type. Delete it from the database view to remove the body.",
+          );
+        }
+        if (lockedDefinition.type !== type) {
+          const memberships = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+          await lockDatabaseMemberships(
+            tx,
+            memberships.map((membership) => membership.id),
+          );
+          [lockedDefinition] = await tx
+            .select()
             .from(schema.documentPropertyDefinitions)
             .where(
               and(
+                eq(schema.documentPropertyDefinitions.id, args.id!),
                 eq(
                   schema.documentPropertyDefinitions.ownerEmail,
                   document.ownerEmail,
@@ -202,20 +195,113 @@ export default defineAction({
                 eq(schema.documentPropertyDefinitions.databaseId, database.id),
               ),
             );
+          if (!lockedDefinition) {
+            throw new Error(`Property "${args.id}" not found`);
+          }
+          const [mappedSourceField] = await tx
+            .select({ id: schema.contentDatabaseSourceFields.id })
+            .from(schema.contentDatabaseSourceFields)
+            .where(eq(schema.contentDatabaseSourceFields.propertyId, args.id!))
+            .limit(1);
+          if (mappedSourceField) {
+            throw new Error(
+              "A property bound to a source field must be unbound before changing its type.",
+            );
+          }
+          await tx
+            .delete(schema.documentPropertyValues)
+            .where(
+              and(
+                eq(schema.documentPropertyValues.propertyId, args.id!),
+                eq(
+                  schema.documentPropertyValues.ownerEmail,
+                  document.ownerEmail,
+                ),
+              ),
+            );
+          await tx
+            .delete(schema.contentDatabaseItemKeyClaims)
+            .where(
+              and(
+                eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+                eq(schema.contentDatabaseItemKeyClaims.propertyId, args.id!),
+              ),
+            );
+          if (
+            isBlocksPropertyType(
+              lockedDefinition.type as DocumentPropertyType,
+            ) &&
+            !isBlocksPropertyType(type)
+          ) {
+            await tx
+              .delete(schema.documentBlockFieldContents)
+              .where(
+                eq(schema.documentBlockFieldContents.propertyId, args.id!),
+              );
+          }
+        }
 
-          await db.insert(schema.documentPropertyDefinitions).values({
-            id: nanoid(),
-            ownerEmail: document.ownerEmail,
-            orgId: document.orgId ?? null,
-            databaseId: database.id,
+        await tx
+          .update(schema.documentPropertyDefinitions)
+          .set({
             name,
-            description: args.description?.trim() ?? "",
+            ...(args.description === undefined
+              ? {}
+              : { description: args.description.trim() }),
             type,
-            visibility: normalizePropertyVisibility(args.visibility),
-            optionsJson,
-            position: (maxPos?.max ?? -1) + 1,
-            createdAt: now,
+            visibility:
+              args.visibility === undefined
+                ? normalizePropertyVisibility(lockedDefinition.visibility)
+                : normalizePropertyVisibility(args.visibility),
+            optionsJson:
+              lockedIsPrimaryBlocks && isBlocksPropertyType(type)
+                ? serializePropertyOptions({ blocks: { primary: true } })
+                : optionsJson,
             updatedAt: now,
+          })
+          .where(eq(schema.documentPropertyDefinitions.id, args.id!));
+      });
+    } else {
+      await withPositionLock(
+        propertyDefinitionsPositionScope(database.id),
+        async () => {
+          await db.transaction(async (tx) => {
+            await lockContentDatabaseMutation(
+              tx as unknown as ReturnType<typeof getDb>,
+              database.id,
+            );
+            const [maxPos] = await tx
+              .select({
+                max: sql<number>`COALESCE(MAX(position), -1)`,
+              })
+              .from(schema.documentPropertyDefinitions)
+              .where(
+                and(
+                  eq(
+                    schema.documentPropertyDefinitions.ownerEmail,
+                    document.ownerEmail,
+                  ),
+                  eq(
+                    schema.documentPropertyDefinitions.databaseId,
+                    database.id,
+                  ),
+                ),
+              );
+
+            await tx.insert(schema.documentPropertyDefinitions).values({
+              id: nanoid(),
+              ownerEmail: document.ownerEmail,
+              orgId: document.orgId ?? null,
+              databaseId: database.id,
+              name,
+              description: args.description?.trim() ?? "",
+              type,
+              visibility: normalizePropertyVisibility(args.visibility),
+              optionsJson,
+              position: (maxPos?.max ?? -1) + 1,
+              createdAt: now,
+              updatedAt: now,
+            });
           });
         },
       );
@@ -226,7 +312,7 @@ export default defineAction({
     return {
       documentId: args.documentId,
       databaseId: database.id,
-      properties: await listPropertiesForDocument(document),
+      properties: await listPropertiesForDocument(document, database.id),
     };
   },
 });

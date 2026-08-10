@@ -66,14 +66,23 @@ describe("WorkspaceTemplateCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows template context and only links to a live app when supplied", async () => {
+  it("keeps template cards concise and moves setup context into the add flow", async () => {
     await act(async () => {
       root.render(<WorkspaceTemplateCard template={template} />);
     });
 
     expect(container.textContent).toContain("Weekly report");
-    expect(container.textContent).toContain("RevOps");
-    expect(container.textContent).toContain(
+    expect(container.textContent).not.toContain("RevOps");
+    expect(container.textContent).not.toContain(
+      "Connect your CRM after installing the app.",
+    );
+
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
+    );
+    expect(trigger).not.toBeUndefined();
+    await act(async () => trigger?.click());
+    expect(document.body.textContent).toContain(
       "Connect your CRM after installing the app.",
     );
 
@@ -95,7 +104,7 @@ describe("WorkspaceTemplateCard", () => {
     ).toBe(null);
   });
 
-  it("remixes with the default app id and allows an override", async () => {
+  it("creates an app with the default app id and allows an override", async () => {
     await act(async () => {
       root.render(
         <WorkspaceTemplateCard template={template} defaultAppId="pipeline" />,
@@ -103,7 +112,7 @@ describe("WorkspaceTemplateCard", () => {
     });
 
     const trigger = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remix into workspace"),
+      (button) => button.textContent?.includes("Add app"),
     );
     expect(trigger).not.toBeUndefined();
 
@@ -140,8 +149,37 @@ describe("WorkspaceTemplateCard", () => {
       });
     });
     expect(toast.success).toHaveBeenCalledWith(
-      "Template remixed into your workspace.",
+      "Template app creation started.",
     );
+  });
+
+  it("keeps add app inside the catalog split-button menu", async () => {
+    await act(async () => {
+      root.render(<WorkspaceTemplateCard template={template} catalog />);
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Add app"),
+      ),
+    ).toBe(false);
+
+    const optionsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open options for Weekly report"]',
+    );
+    expect(optionsButton).not.toBeNull();
+    await act(async () => {
+      optionsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    const addItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Add app"));
+    expect(addItem).not.toBeUndefined();
+    await act(async () => addItem?.click());
+    expect(document.body.textContent).toContain("Choose the URL-safe id");
   });
 
   it("accepts the list action envelope and renders installed state", async () => {
@@ -166,9 +204,9 @@ describe("WorkspaceTemplateCard", () => {
     expect(container.textContent).toContain("Curated templates");
     expect(container.textContent).toContain("Installed");
     expect(container.querySelector('a[href^="https://"]')).toBeNull();
-    const remixButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remix into workspace"),
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
     );
-    expect(remixButton).not.toHaveProperty("disabled", true);
+    expect(addButton).not.toHaveProperty("disabled", true);
   });
 });

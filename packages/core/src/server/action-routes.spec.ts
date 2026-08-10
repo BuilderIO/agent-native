@@ -9,6 +9,9 @@ const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
 );
 const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
+const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
 
 function fakeUnsignedJwt(payload: Record<string, string>): string {
   const encode = (value: Record<string, string>) =>
@@ -41,6 +44,11 @@ vi.mock("./framework-request-handler.js", () => ({
 }));
 
 vi.mock("./action-change.js", () => ({
+  actionCallIsReadOnly: (
+    entry: { readOnly?: boolean },
+    _params: unknown,
+    fallback: boolean,
+  ) => entry.readOnly ?? fallback,
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
 }));
 
@@ -55,6 +63,16 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  // Captured into the request context so code below the HTTP layer can tell a
+  // local-dev caller from a remote one. Mocked false: these specs assert
+  // ordinary remote-request behavior.
+  isLoopbackRequest: () => false,
+}));
+vi.mock("./embed-session.js", () => ({
+  resolveEmbedSessionFromRequest: (...args: unknown[]) =>
+    mockResolveEmbedSessionFromRequest(...args),
+  resolvedEmbedCapabilityScope: (session: { scope?: string } | null) =>
+    session?.scope?.startsWith("capability:") ? session.scope : undefined,
 }));
 vi.mock("../a2a-claims.js", () => ({
   verifyA2ATokenWithClaims: (...args: unknown[]) =>
@@ -75,6 +93,8 @@ describe("mountActionRoutes", () => {
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
     mockVerifyA2ATokenWithClaims.mockReset();
+    mockResolveEmbedSessionFromRequest.mockReset();
+    mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
     vi.restoreAllMocks();
   });
 
@@ -155,6 +175,97 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["PUT", "DELETE"] as const)(
+    "accepts frontend mutation RPCs for actions exposed as %s",
+    async (method) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async (params, ctx) => ({
+        ok: true,
+        params,
+        caller: ctx?.caller,
+      }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountActionRoutes(nitroApp, {
+        "delete-item": {
+          http: { method },
+          run,
+        } as any,
+      });
+
+      const frontendPost = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/delete-item",
+          json: vi.fn(async () => ({ id: "item-1" })),
+        },
+      };
+      await expect(mounted[0]!.handler(frontendPost)).resolves.toEqual({
+        ok: true,
+        params: { id: "item-1" },
+        caller: "frontend",
+      });
+      expect(run).toHaveBeenCalledOnce();
+
+      const directPost = {
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: "http://app.test/_agent-native/actions/delete-item",
+          json: vi.fn(async () => ({ id: "item-2" })),
+        },
+      };
+      await expect(mounted[0]!.handler(directPost)).resolves.toEqual({
+        error: `Method not allowed. Use ${method}.`,
+      });
+      expect(directPost).toMatchObject({ _status: 405 });
+      expect(directPost.req.json).not.toHaveBeenCalled();
+      expect(run).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["GET", "HEAD", "OPTIONS"] as const)(
+    "does not treat a frontend POST as a %s action call",
+    async (method) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountActionRoutes(nitroApp, {
+        "get-item": {
+          http: { method },
+          run,
+        } as any,
+      });
+      const event = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/get-item",
+          json: vi.fn(async () => ({})),
+        },
+      };
+
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({
+        error: `Method not allowed. Use ${method}.`,
+      });
+      expect(event).toMatchObject({ _status: 405 });
+      expect(event.req.json).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
   it("mounts package actions registered through another core module instance", async () => {
     const packageCore = await import("./action-discovery.js");
     const packageRun = vi.fn(async () => ({ source: "package" }));
@@ -220,6 +331,58 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ error: "Forbidden" });
     expect(event._status).toBe(403);
+  });
+
+  it("captures uncategorized action failures with low-cardinality context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const error = new Error("upstream failed");
+    const provider = vi.fn(() => "evt_action_failure");
+    const unregister = registerErrorCaptureProvider(
+      "action-routes-test",
+      provider,
+    );
+    const actions: Record<string, ActionEntry> = {
+      "resolve-notion-sync-conflict": {
+        run: vi.fn(async () => {
+          throw error;
+        }),
+      } as any,
+    };
+
+    try {
+      mountActionRoutes(nitroApp, actions);
+
+      const event = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/resolve-notion-sync-conflict",
+          json: async () => ({}),
+        },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect(result).toEqual({ error: "Internal server error" });
+      expect(event._status).toBe(500);
+      expect(provider).toHaveBeenCalledWith(error, {
+        route: "/_agent-native/actions/resolve-notion-sync-conflict",
+        method: "POST",
+        tags: {
+          action: "resolve-notion-sync-conflict",
+          caller: "frontend",
+          status_code: "500",
+        },
+      });
+    } finally {
+      unregister();
+    }
   });
 
   it("serializes plain string action results as JSON strings", async () => {
@@ -307,6 +470,46 @@ describe("mountActionRoutes", () => {
     expect(process.env.AGENT_USER_TIMEZONE).toBe("UTC");
   });
 
+  it("carries the browser session id header into request context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          browserSessionId: getRequestContext()?.browserSessionId,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const withSession = {
+      _method: "POST",
+      _headers: { "x-agent-native-session-id": "pinned-session-1" },
+      req: { json: async () => ({}) },
+    };
+    const withoutSession = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+
+    expect(await mounted[0].handler(withSession)).toEqual({
+      browserSessionId: "pinned-session-1",
+    });
+    expect(await mounted[0].handler(withoutSession)).toEqual({
+      browserSessionId: undefined,
+    });
+  });
+
   it("runs optional-auth actions with an anonymous request context when auth resolution returns 401", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestUserEmail } = await import("./request-context.js");
@@ -348,6 +551,107 @@ describe("mountActionRoutes", () => {
       ctxUserEmail: undefined,
       requestUserEmail: undefined,
     });
+  });
+
+  it("propagates a verified capability to a public action without impersonating its owner", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestAuthCapability, getRequestUserEmail } =
+      await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      nitroApp,
+      {
+        "get-design": {
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: false,
+          run: vi.fn(async (_args, ctx) => ({
+            ctxUserEmail: ctx?.userEmail,
+            requestUserEmail: getRequestUserEmail(),
+            authCapability: getRequestAuthCapability(),
+          })),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "GET",
+        req: {
+          url: "http://app.test/_agent-native/actions/get-design?id=design_1",
+        },
+      }),
+    ).resolves.toEqual({
+      ctxUserEmail: undefined,
+      requestUserEmail: undefined,
+      authCapability: "capability:visual-edit:design:design_1",
+    });
+  });
+
+  it("does not let a capability satisfy account-backed write action auth", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "ticket-owner@example.com",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const unauthenticated = Object.assign(new Error("Unauthenticated"), {
+      statusCode: 401,
+    });
+
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "update-design": {
+          http: { method: "POST" },
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        req: {
+          url: "http://app.test/_agent-native/actions/update-design",
+          json: async () => ({ id: "design_1" }),
+        },
+      }),
+    ).rejects.toBe(unauthenticated);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("allows HEAD for GET actions", async () => {
@@ -564,6 +868,23 @@ describe("mountActionRoutes", () => {
         baseCurrency: z.string().optional(),
         includeSeries: z.boolean().optional(),
         limit: z.number().optional(),
+        tableQuery: z
+          .object({
+            filters: z.array(
+              z.object({
+                propertyId: z.string(),
+                operator: z.string(),
+                value: z.string(),
+              }),
+            ),
+            sorts: z.array(
+              z.object({
+                propertyId: z.string(),
+                direction: z.enum(["asc", "desc"]),
+              }),
+            ),
+          })
+          .optional(),
       }),
       run: async (params: any) => ({ params }),
     });
@@ -577,7 +898,24 @@ describe("mountActionRoutes", () => {
     const result = await mounted[0].handler({
       _method: "GET",
       req: {
-        url: "http://app.test/_agent-native/actions/instrument-overview?portfolioId=p1&isin=US67066G1040&includeSeries=true&limit=5",
+        url: `http://app.test/_agent-native/actions/instrument-overview?${new URLSearchParams(
+          {
+            portfolioId: "p1",
+            isin: "US67066G1040",
+            includeSeries: "true",
+            limit: "5",
+            tableQuery: JSON.stringify({
+              filters: [
+                {
+                  propertyId: "status",
+                  operator: "equals",
+                  value: "published",
+                },
+              ],
+              sorts: [{ propertyId: "date", direction: "desc" }],
+            }),
+          },
+        )}`,
       },
     });
 
@@ -587,6 +925,16 @@ describe("mountActionRoutes", () => {
         isin: "US67066G1040",
         includeSeries: true,
         limit: 5,
+        tableQuery: {
+          filters: [
+            {
+              propertyId: "status",
+              operator: "equals",
+              value: "published",
+            },
+          ],
+          sorts: [{ propertyId: "date", direction: "desc" }],
+        },
       },
     });
   });
@@ -684,6 +1032,7 @@ describe("mountActionRoutes", () => {
     expect(allowHeaders).toContain("x-agent-native-embed-target");
     expect(allowHeaders).toContain("x-request-source");
     expect(allowHeaders).toContain("x-user-timezone");
+    expect(allowHeaders).toContain("x-agent-native-session-id");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });

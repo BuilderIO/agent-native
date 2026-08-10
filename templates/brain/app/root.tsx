@@ -11,7 +11,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { IconBrain, IconMoon, IconSun } from "@tabler/icons-react";
+import { IconHierarchy2, IconMoon, IconSun } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -179,14 +179,11 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
             {t("navigation.ops")}
           </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => navigate("/extensions")}>
-            {t("navigation.extensions")}
-          </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/settings")}>
             {t("navigation.settings")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => navigate("/agent")}
+            onSelect={() => navigate("/settings/agent")}
             keywords={[
               "agent",
               "context",
@@ -196,7 +193,7 @@ function AppContent() {
               "access",
             ]}
           >
-            <IconBrain size={16} />
+            <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>

@@ -87,7 +87,7 @@ embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surf
 
 UI와 상담원 모두가 뭔가를 해야 하는 경우 맞춤 작업이 아닌 작업을 수행하세요.
 경로. 경로 형태의 프로토콜이 올바른 호출일 _is_ 경우에는 [Actions 선호
-앱 운영용](/docs/server#actions-first).
+앱 운영용](/docs/server-overview#actions-first).
 
 ## 한 번의 작업으로 시작 {#hello-action}
 
@@ -249,7 +249,7 @@ export default defineAction({
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — 기본값 `POST`. `GET` actions는 `readOnly`로 자동 표시되므로 성공적인 호출은 UI 폴링 새로 고침을 트리거하지 않습니다.
 - **`http: { path: "..." }`** — `/_agent-native/actions/` 아래에 마운트된 URL를 재정의합니다. 기본값은 파일 이름입니다. **경로 재정의는 직접 HTTP 호출자에 대해서만 URL를 변경합니다** — `useActionQuery`, `useActionMutation` 및 `callAction`는 이 재정의에 관계없이 항상 `/_agent-native/actions/<name>`를 호출하므로 경로를 재정의하면 해당 후크가 404가 됩니다. 외부 HTTP 호출자에 대해서만 경로 재정의를 사용하세요. 또한 재정의 경로의 `:param` 경로 세그먼트는 `run()` 인수로 구문 분석되지 **않습니다**. 쿼리 문자열 매개변수와 JSON 본문 필드만 구문 분석됩니다.
 - **`http: false`** — HTTP 엔드포인트를 완전히 비활성화합니다. 상담원 + CLI만 해당.
-- **`readOnly: true`** — 변형되지 않는 POST actions에 대해서도 폴링 새로 고침을 명시적으로 건너뜁니다.
+- **`readOnly: true`** — 변형되지 않는 POST actions에 대해서도 폴링 새로 고침을 명시적으로 건너뜁니다. 이것은 접근 제어가 **아닙니다**. 누가 action을 호출할 수 있는지 제한하지 않으며, `useActionQuery`, `useActionMutation` 등 어떤 클라이언트 hook에도 영향을 주지 않습니다. 유일한 효과는 호출 후 새로고침 이벤트를 억제하고 action을 쓰기 감사 대상에서 제외하는 것입니다. 모델에서 action을 숨기려면 `agentTool: false`를, 호출자를 제한하려면 위의 인증/접근 옵션을 사용하세요.
 - **`parallelSafe: true`** — 변경 작업이 다른 동일 회전 도구 호출과 동시에 실행되도록 허용합니다. 작업이 내부적으로 동시성이 안전하고 순서에 독립적인 경우에만 이 설정을 설정하세요. 기본적으로 actions 직렬화를 변경합니다.
 
 ### 작업 표면을 작게 유지 {#small-surface}
@@ -374,12 +374,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

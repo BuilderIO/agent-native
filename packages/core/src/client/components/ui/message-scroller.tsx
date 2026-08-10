@@ -48,16 +48,22 @@ function MessageScroller({ className, ...props }: MessageScrollerRootProps) {
 
 function MessageScrollerViewport({
   className,
+  children,
   ...props
 }: MessageScrollerViewportProps) {
+  const { start: hasContentAbove } = useMessageScrollerScrollable();
+
   return (
     <ShadcnMessageScroller.Viewport
       className={cn(
         "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
+        hasContentAbove && "message-scroller-viewport--top-fade",
         className,
       )}
       {...props}
-    />
+    >
+      {children}
+    </ShadcnMessageScroller.Viewport>
   );
 }
 

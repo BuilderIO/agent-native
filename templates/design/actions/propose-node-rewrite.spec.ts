@@ -26,8 +26,7 @@ const mocks = vi.hoisted(() => {
     selectChain,
     readLiveSourceFile: vi.fn(),
     readAppState: vi.fn(),
-    writeAppState: vi.fn(),
-    compareAndSetAppState: vi.fn(),
+    compareAndSetManyAppState: vi.fn(),
     assertAccess: vi.fn(),
     nanoid: vi.fn(),
   };
@@ -38,9 +37,8 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  compareAndSetAppState: mocks.compareAndSetAppState,
+  compareAndSetManyAppState: mocks.compareAndSetManyAppState,
   readAppState: mocks.readAppState,
-  writeAppState: mocks.writeAppState,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -103,7 +101,7 @@ describe("propose-node-rewrite", () => {
       createdAt: "2026-07-16T00:00:00.000Z",
     });
     mocks.nanoid.mockReturnValue("proposal_1");
-    mocks.compareAndSetAppState.mockResolvedValue(true);
+    mocks.compareAndSetManyAppState.mockResolvedValue(true);
   });
 
   it("uses client-valid per-design and per-file application-state keys", () => {
@@ -155,15 +153,21 @@ describe("propose-node-rewrite", () => {
     expect(mocks.readAppState).toHaveBeenCalledWith(
       designRepromptPendingStateKey("design_1", "file_1"),
     );
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
-      designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
       expect.objectContaining({
-        proposalId: "node-rewrite-proposal_1",
-        repromptId: "reprompt_1",
-        baseVersionHash: "hash_base",
-        chosenIndex: 0,
+        key: designRepromptPendingStateKey("design_1", "file_1"),
       }),
-    );
+      expect.objectContaining({
+        key: designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
+        expectedValue: null,
+        nextValue: expect.objectContaining({
+          proposalId: "node-rewrite-proposal_1",
+          repromptId: "reprompt_1",
+          baseVersionHash: "hash_base",
+          chosenIndex: 0,
+        }),
+      }),
+    ]);
     expect(result.bridgeMessages).toEqual([
       expect.objectContaining({
         type: "node-html-preview",
@@ -184,7 +188,7 @@ describe("propose-node-rewrite", () => {
         variants: [{ html: "<main>Changed</main>", summary: "Changed main" }],
       }),
     ).rejects.toThrow("does not match the pending selected subtree");
-    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("fails with re-anchor guidance when the selected node is gone", async () => {
@@ -205,7 +209,7 @@ describe("propose-node-rewrite", () => {
         ],
       }),
     ).rejects.toThrow(/Target missing.+re-anchor/i);
-    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("rejects a variant containing more than one root subtree", async () => {
@@ -223,7 +227,7 @@ describe("propose-node-rewrite", () => {
         ],
       }),
     ).rejects.toThrow("exactly one root element");
-    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("rejects candidate payloads above the bounded application-state budget", async () => {
@@ -243,15 +247,11 @@ describe("propose-node-rewrite", () => {
         ],
       }),
     ).rejects.toThrow("too large to preview safely");
-    expect(mocks.writeAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("removes stale candidates when a newer request wins during proposal creation", async () => {
-    const firstPending = await mocks.readAppState();
-    mocks.readAppState
-      .mockReset()
-      .mockResolvedValueOnce(firstPending)
-      .mockResolvedValueOnce({ ...firstPending, repromptId: "reprompt_2" });
+    mocks.compareAndSetManyAppState.mockResolvedValue(false);
 
     await expect(
       action.run({
@@ -265,19 +265,6 @@ describe("propose-node-rewrite", () => {
       }),
     ).rejects.toThrow("superseded by a newer request");
 
-    const proposalKey = designRepromptProposalStateKey(
-      "design_1",
-      "file_1",
-      "reprompt_1",
-    );
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
-      proposalKey,
-      expect.objectContaining({ repromptId: "reprompt_1" }),
-    );
-    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
-      proposalKey,
-      expect.objectContaining({ repromptId: "reprompt_1" }),
-      null,
-    );
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledTimes(1);
   });
 });

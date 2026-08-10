@@ -88,6 +88,16 @@ const messages = {
     addOption: "オプションを追加",
     min: "分",
     max: "マックス",
+    conditionalVisibility: "条件付き表示",
+    conditionalVisibilityDescription:
+      "前の回答が一致した場合のみ、このフィールドを表示します。",
+    conditionField: "前の回答",
+    conditionOperator: "条件",
+    conditionEquals: "一致する",
+    conditionNotEquals: "一致しない",
+    conditionContains: "含む",
+    conditionValue: "回答",
+    conditionValuePlaceholder: "回答を入力...",
     fieldTypes: {
       text: "短いテキスト",
       email: "電子メール",
@@ -144,6 +154,7 @@ const messages = {
     integrationsTab: "連携",
     settingsSaved: "設定を保存しました",
     integrationsSaved: "連携を保存しました",
+    saveFailed: "変更を保存できませんでした",
     formTitlePlaceholder: "フォームタイトル",
     addDescriptionPlaceholder: "説明を追加...",
     dragToReorder: "ドラッグして並べ替え",
@@ -212,7 +223,7 @@ const messages = {
       googleSheetsBlurb:
         "各回答をチームで共有できるスプレッドシートに反映します。",
       googleSheetsHelp:
-        "POST データを受け取る Apps Script ウェブアプリをデプロイしてください",
+        "デプロイ済みの Apps Script /exec URL を使用し、e.postData.contents の JSON を読み取って行を追加します。",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -259,6 +270,8 @@ const messages = {
     duplicated: "フォームが複製されました",
     duplicateFailed: "フォームの複製に失敗しました",
     movedToArchive: "フォームはアーカイブに移動されました",
+    movingToArchive: "フォームをアーカイブに移動中…",
+    archiveFailed: "フォームをアーカイブに移動できませんでした",
     restored: "フォームが復元されました",
     permanentlyDeleted: "フォームは完全に削除されました",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

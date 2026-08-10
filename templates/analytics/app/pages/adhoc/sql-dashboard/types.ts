@@ -15,6 +15,7 @@ export type ChartType =
   | "table"
   | "pie"
   | "section"
+  | "funnel"
   | "heatmap"
   | "callout"
   | "extension";
@@ -84,6 +85,14 @@ export interface SqlPanelConfig {
   color?: string;
   colors?: string[];
   yFormatter?: "number" | "currency" | "percent";
+  /**
+   * Series names (a subset of the plotted `yKeys`) to plot against a second,
+   * right-hand y-axis. Line, area, and bar panels render dual axes only when
+   * at least one series stays on the left axis.
+   */
+  rightYKeys?: string[];
+  /** Value formatter for the right axis. Falls back to `yFormatter`. */
+  rightYFormatter?: "number" | "currency" | "percent";
   description?: string;
   pivot?: PivotConfig;
   /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
@@ -108,6 +117,21 @@ export interface SqlPanelConfig {
    * personal installs render in the box and receive dashboard context.
    */
   extensionSlotId?: string;
+  /**
+   * Provenance for a deliberately one-off Custom Block. New agent-authored
+   * blocks set this so the UI and telemetry can distinguish a runtime patch
+   * from legacy extension-backed panels without exposing prompt text.
+   */
+  customBlock?: {
+    authoredBy: "agent" | "user";
+    intent: "one-off";
+    scope: "dashboard";
+    nativeGapReason:
+      | "custom-visualization"
+      | "custom-interaction"
+      | "custom-layout"
+      | "other";
+  };
 }
 
 export interface SqlPanel {

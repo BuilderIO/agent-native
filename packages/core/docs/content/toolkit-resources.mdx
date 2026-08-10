@@ -33,6 +33,22 @@ for repo-backed content.
 
 ## Usage {#usage}
 
+Mount the complete panel when you want the whole browser/editor surface with
+no assembly required:
+
+```tsx
+import { ResourcesPanel } from "@agent-native/core/client/resources";
+
+<ResourcesPanel scope="personal" resourceFilter="files" />;
+```
+
+`showMcpServers`, `showOnlyRequestedScope`, `resourceTreeVariant`, and
+`mcpIntegrations` let an app hide the virtual MCP folder, lock the panel to one
+scope, render special collections as cards, or add app-owned remote MCP
+entries — all props are optional.
+
+Compose the tree and editor primitives yourself for custom chrome:
+
 ```tsx
 import {
   ResourceEditor,

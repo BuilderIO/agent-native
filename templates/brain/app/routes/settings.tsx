@@ -6,6 +6,9 @@ import {
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -24,7 +27,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { EmptyActionState, PageHeader } from "@/components/brain/Surface";
+import { EmptyActionState } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -509,7 +512,7 @@ export default function SettingsRoute() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeSection, setActiveSection] = useState("general");
+  const [activeSection, setActiveSection] = useState("integrations");
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -658,35 +661,33 @@ export default function SettingsRoute() {
 
   return (
     <div className="min-h-full bg-background">
-      <PageHeader
-        eyebrow={t("settings.eyebrow")}
-        title={t("settings.title")}
-        description={t("settings.description")}
-        actions={
-          <Button
-            size="sm"
-            className="w-full sm:w-auto"
-            disabled={saveSettings.isPending || !isDirty}
-            onClick={() => saveSettings.mutate(settings)}
-          >
-            <IconDeviceFloppy className="size-4" />
-            {saveSettings.isPending
-              ? t("common.saving")
-              : isDirty
-                ? t("common.saveChanges")
-                : t("common.saved")}
-          </Button>
-        }
-      />
+      <header className="flex items-center justify-between gap-4 px-4 py-3 sm:px-5 lg:px-7">
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">
+          {t("settings.pageTitle")}
+        </h1>
+        <Button
+          size="sm"
+          disabled={saveSettings.isPending || !isDirty}
+          onClick={() => saveSettings.mutate(settings)}
+        >
+          <IconDeviceFloppy className="size-4" />
+          {saveSettings.isPending
+            ? t("common.saving")
+            : isDirty
+              ? t("common.saveChanges")
+              : t("common.saved")}
+        </Button>
+      </header>
 
       <SettingsTabsPage
+        account={<AccountSettingsCard />}
         teamLabel={t("team.title")}
         extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}
         value={activeSection}
         onValueChange={handleSectionChange}
         general={
-          <div className="brain-settings-general-grid grid gap-5">
+          <div className="mx-auto grid w-full max-w-3xl gap-5">
             <main className="grid gap-5">
               <Card id="identity" className="scroll-mt-4">
                 <CardHeader>
@@ -718,21 +719,19 @@ export default function SettingsRoute() {
             </main>
 
             <aside className="grid content-start gap-5">
-              <Card id="language" className="scroll-mt-4">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <IconAdjustments className="size-4 text-primary" />
-                    {t("settings.languageTitle")}
-                  </CardTitle>
-                  <CardDescription>
-                    {t("settings.languageDescription")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-1.5">
-                  <Label>{t("settings.languageLabel")}</Label>
-                  <LanguagePicker label={t("settings.languageLabel")} />
-                </CardContent>
-              </Card>
+              <SettingsGroup className="scroll-mt-4">
+                <SettingsRow
+                  id="language"
+                  icon={<IconAdjustments className="text-primary" />}
+                  label={t("settings.languageTitle")}
+                  description={t("settings.languageDescription")}
+                  control={
+                    <div className="w-48">
+                      <LanguagePicker label={t("settings.languageLabel")} />
+                    </div>
+                  }
+                />
+              </SettingsGroup>
 
               <Card>
                 <CardHeader>

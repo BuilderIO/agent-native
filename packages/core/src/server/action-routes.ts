@@ -21,15 +21,22 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { notifyActionChange } from "./action-change.js";
+import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
+  readBrowserSessionIdHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { captureError } from "./capture-error.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import {
+  resolveEmbedSessionFromRequest,
+  resolvedEmbedCapabilityScope,
+} from "./embed-session.js";
+import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -56,10 +63,12 @@ function currentBuildId(): string {
  * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
+import { isLoopbackRequest } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
 
 async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   const required =
@@ -207,7 +216,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -267,6 +276,8 @@ export interface ActionRouteAuthAdapter {
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
+  /** Hosting app/template id used for app-owned action resources. */
+  appId?: string;
   /** Resolve display name from the H3 event, when available. */
   getUserNameFromEvent?: (
     event: any,
@@ -305,6 +316,19 @@ function isAuthResolutionFailure(error: unknown): boolean {
     typeof maybeStatus.statusMessage === "string" &&
     /unauthenticated|forbidden/i.test(maybeStatus.statusMessage)
   );
+}
+
+async function resolveRequestAuthCapability(
+  event: any,
+): Promise<string | undefined> {
+  try {
+    return resolvedEmbedCapabilityScope(
+      await resolveEmbedSessionFromRequest(event),
+    );
+  } catch {
+    // Invalid or unavailable embed auth must fail closed as no capability.
+    return undefined;
+  }
 }
 
 /**
@@ -346,8 +370,14 @@ export function mountActionRoutes(
           "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
         );
 
-        // Allow the declared method
-        if (effectiveMethod !== method) {
+        // Browser action calls are RPCs over the framework transport. The
+        // action's HTTP method remains authoritative for direct HTTP callers,
+        // but frontend callers must not have to duplicate it in every hook.
+        const isFrontendMutation =
+          isFrontendActionRequest(event) &&
+          FRONTEND_MUTATION_METHODS.has(method) &&
+          FRONTEND_MUTATION_METHODS.has(effectiveMethod);
+        if (effectiveMethod !== method && !isFrontendMutation) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
         }
@@ -401,6 +431,7 @@ export function mountActionRoutes(
         // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
+        const authCapability = await resolveRequestAuthCapability(event);
         // An app-supplied auth adapter runs first: it can accept caller
         // identities the framework's getSession chain doesn't understand (e.g.
         // an A2A JWT). A resolved caller is seeded onto the event context so any
@@ -485,14 +516,20 @@ export function mountActionRoutes(
             : undefined;
         }
         const timezone = readTimezoneHeader(event);
+        const browserSessionId = readBrowserSessionIdHeader(event);
 
         return runWithRequestContext(
           {
             userEmail,
             userName,
             orgId,
+            authCapability,
             timezone,
+            browserSessionId,
             requestOrigin: getRequestURL(event).origin,
+            // Captured here because this is the last layer that still holds
+            // the h3 event; everything below reads it off the request store.
+            isLoopbackRequest: isLoopbackRequest(event),
           },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a
@@ -554,7 +591,9 @@ export function mountActionRoutes(
               const result = await entry.run(params, {
                 userEmail,
                 orgId: orgId ?? null,
+                appId: options?.appId,
                 caller,
+                requestHeaders: event.headers,
                 actionName: name,
                 ...(resolvedCaller?.delegationJti
                   ? {
@@ -571,14 +610,16 @@ export function mountActionRoutes(
               // their action queries. The calling tab already refetches via
               // useActionMutation's onSuccess, so this is mainly cross-tab
               // sync (and parity with the agent's tool-call path).
-              // Explicit entry.readOnly (true OR false) wins over the method
-              // heuristic. defineAction already auto-infers GET → readOnly=true,
-              // so for actions registered through that path entry.readOnly is
-              // always set and the fallback just guards legacy wrap paths.
-              const isReadOnly =
-                typeof entry.readOnly === "boolean"
-                  ? entry.readOnly
-                  : method === "GET";
+              // A per-call Plan-mode effect wins over entry.readOnly, which
+              // wins (true OR false) over the method heuristic. defineAction
+              // already auto-infers GET → readOnly=true, so for actions
+              // registered through that path entry.readOnly is always set and
+              // the fallback just guards legacy wrap paths.
+              const isReadOnly = actionCallIsReadOnly(
+                entry,
+                params,
+                method === "GET",
+              );
               if (!isReadOnly) {
                 try {
                   await notifyActionChange({
@@ -640,7 +681,27 @@ export function mountActionRoutes(
               if (isUserFacing) {
                 return { error: msg };
               }
-              console.error(`[agent-native] action '${name}' failed:`, err);
+              const requestId = getHttpRequestTelemetryId(event);
+              const captureId = captureError(err, {
+                route: routePath,
+                method: reqMethod,
+                tags: {
+                  action: name,
+                  caller: resolvedCaller
+                    ? "a2a"
+                    : isFrontendActionRequest(event)
+                      ? "frontend"
+                      : "http",
+                  status_code: String(status),
+                },
+                ...(requestId ? { extra: { request_id: requestId } } : {}),
+              });
+              console.error(`[agent-native] action '${name}' failed:`, {
+                action: name,
+                ...(requestId ? { requestId } : {}),
+                ...(captureId ? { captureId } : {}),
+                error: err?.stack ?? String(err),
+              });
               return { error: "Internal server error" };
             }
           },

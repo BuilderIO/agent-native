@@ -89,7 +89,7 @@ search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이�
 - **Agent-Native 채팅 뒤에 숨은 자체 런타임:** 다른 프레임워크로 구축된 에이전트가 `<AssistantChat runtime={...}>`를 구동해야 하는 경우 [Agent Surfaces](/docs/agent-surfaces#byo-agent) 및 [Native 채팅 UI](/docs/native-chat-ui#byo-agent-runtimes)를 참조하세요.
 - **MCP 도구를 사용하는 앱:** 에이전트 네이티브 앱이 다른 MCP 서버에 의해 노출된 도구를 호출해야 하는 경우 [MCP Clients](/docs/mcp-clients)를 참조하세요.
 - **A2A를 통한 다른 앱 또는 에이전트:** 에이전트 기본 앱이 서로를 검색하고 위임해야 하는 경우 [Agent Mentions](/docs/agent-mentions) 및 [A2A](/docs/a2a-protocol)를 사용합니다.
-- **로컬 사용자 지정 하위 에이전트:** 에이전트 기본 작업 영역 자체 내에서 사용자 지정 에이전트 프로필을 원할 경우 [Workspace](/docs/workspace)를 사용하세요.
+- **로컬 사용자 지정 하위 에이전트:** 에이전트 기본 작업 영역 자체 내에서 사용자 지정 에이전트 프로필을 원할 경우 [에이전트 리소스](/docs/agent-resources)를 사용하세요.
 
 ## 간편한 설정 {#easy-setup}
 
@@ -511,13 +511,13 @@ ChatGPT/Claude 스타일 OAuth 앱 호스트의 경우 검색 표면은 기본�
 
 액션별 도구 외에도 MCP 서버는 안정적인 동사 세트를 노출하므로 외부 에이전트는 앱별 액션 이름을 추측하지 않고도 예측 가능한 표면을 갖습니다.
 
-| 도구                                               | 부작용        | 반품                                                                                                                                    |
-| -------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | 없음          | 작업 공간 앱 + 해당 URL / 실행 상태                                                                                                     |
-| `open_app({ app, view?, path?, params?, embed? })` | 없음          | 딥 링크 또는 동일 출처 경로; `embed: true`는 지원되는 경우 전체 앱을 인라인으로 렌더링합니다.                                           |
-| `ask_app({ app, message, async?, maxWaitMs? })`    | 에이전트 루프 | 자연어 작업을 해당 앱의 인앱 에이전트로 라우팅합니다. 오래 걸리는 작업은 `ask_app_status` 폴링을 위한 내구성 있는 `taskId`를 반환합니다 |
-| `create_workspace_app({ name, template })`         | 비계          | 작업공간 경로를 통해 부팅된 새 앱과 실행 중인 URL + 딥 링크                                                                             |
-| `list_templates`                                   | 없음          | 허용 목록에 있는 템플릿만                                                                                                               |
+| 도구                                               | 부작용        | 반품                                                                                                                                                        |
+| -------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | 없음          | 작업 공간 앱 + 해당 URL / 실행 상태                                                                                                                         |
+| `open_app({ app, view?, path?, params?, embed? })` | 없음          | 딥 링크 또는 동일 출처 경로; `embed: true`는 지원되는 경우 전체 앱을 인라인으로 렌더링합니다.                                                               |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | 에이전트 루프 | 자연어 작업을 해당 앱의 인앱 에이전트로 라우팅합니다. 오래 걸리는 작업은 `ask_app_status` 폴링을 위한 내구성 있는 `taskHandle`과 기존 `taskId`를 반환합니다 |
+| `create_workspace_app({ name, template })`         | 비계          | 작업공간 경로를 통해 부팅된 새 앱과 실행 중인 URL + 딥 링크                                                                                                 |
+| `list_templates`                                   | 없음          | 허용 목록에 있는 템플릿만                                                                                                                                   |
 
 `create_workspace_app`는 허용 목록에 없는 템플릿을 거부합니다. `packages/shared-app-config/templates.ts`의 공개 템플릿 허용 목록은 신뢰할 수 있고 CI로 보호됩니다. 외부 에이전트는 이를 확장할 수 없습니다. 동일한 이름의 템플릿 작업은 기본 제공(코어보다 템플릿 우선 순위)을 재정의합니다. `MCPConfig.builtinCrossAppTools: false`로 전체 세트를 비활성화하세요.
 
@@ -527,11 +527,16 @@ ChatGPT/Claude 스타일 OAuth 앱 호스트의 경우 검색 표면은 기본�
 
 ### 장기 실행 에이전트 요청
 
+`ask_app`이 `taskHandle`을 반환하면 해당 불투명 값을 변경하지 말고
+`ask_app_status`에 전달하세요. 호출 사이에 앱 검색 결과가 바뀌어도 원래 작업 경로가
+유지됩니다. 마이그레이션 중에는 기존 `app` 및 `taskId` 인수도 계속 허용됩니다.
+
 MCP 호스트와 게이트웨이는 하나의 긴 도구 호출 제한 시간을 공유하지 않습니다. 일부는
 5분 상한을 강제하고 다른 일부는 설정 가능합니다. 10분간 차단되는 `tools/call`을
 중심으로 외부 에이전트 통합을 설계하지 마세요. `ask-agent`와 `ask_app`은 호스팅된
-작업의 접수를 빠르게 확인한 뒤, 인라인 대기 시간이 만료되면 내구성 있는 `taskId`를
-반환합니다. 반환된 `app`과 `taskId`를 사용해 `ask_app_status`로 폴링하세요. 결과에는
+작업의 접수를 빠르게 확인한 뒤, 인라인 대기 시간이 만료되면 내구성 있는 `taskHandle`과
+기존 `taskId`를 반환합니다. 반환된 `poll.arguments`, 특히 `taskHandle`을 변경하지 않고
+재사용해 `ask_app_status`로 폴링하세요. 결과에는
 호스트 친화적인 간격인 `pollAfterMs`가 포함됩니다. 첫 번째 응답이 시간 초과되기
 전에 작업이 생성되어야 하므로, 오랜 호출이 끝난 후에만 반환되는 폴링 URL은 신뢰할
 수 있는 복구 계약이 아닙니다.
@@ -540,7 +545,8 @@ MCP 호스트와 게이트웨이는 하나의 긴 도구 호출 제한 시간을
 `status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, 원래의
 `app`과 `taskId`, 그리고 `pollAfterMs` / `poll`을 반환할 수 있습니다. 이는 상태
 읽기를 사용할 수 없다는 뜻이지 내구성 있는 작업이 실패했다는 뜻은 아닙니다. 정확히 같은
-`app`과 `taskId`로 `ask_app_status`를 재시도하세요. 제출하면 작업이 중복될 수 있으므로
+반환된 동일한 `poll.arguments`로 `ask_app_status`를 재시도하고, 있는 경우 `taskHandle`을
+포함하세요. 핸들이 없는 기존 결과는 동일한 `app`과 `taskId`를 재사용해야 합니다. 제출하면 작업이 중복될 수 있으므로
 복구를 위해 `ask_app`을 다시 제출하지 마세요. 영구적인 인증, 찾을 수 없음, 프로토콜
 오류는 계속 오류로 남습니다.
 

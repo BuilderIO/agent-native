@@ -16,8 +16,11 @@ import {
   CartesianGrid,
 } from "recharts";
 
+import {
+  ViewerAvatar,
+  viewerLabel,
+} from "@/components/player/recording-views-badge";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export interface InsightsPanelProps {
   recordingId: string;
@@ -152,20 +155,13 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
             {viewers.slice(0, 12).map((v, i) => (
               <div
                 key={i}
-                className="flex items-center gap-2 rounded-full border border-border bg-card pr-3 pl-0.5 py-0.5"
+                className="flex items-center gap-2 rounded-full border border-border bg-card pe-3 ps-0.5 py-0.5"
                 title={v.viewerEmail ?? t("recordingInsights.anonymous")}
               >
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
-                    {initials(v.viewerName || v.viewerEmail || "?")}
-                  </AvatarFallback>
-                </Avatar>
+                <ViewerAvatar viewer={v} />
                 <span className="text-xs">
-                  {v.viewerName ||
-                    (v.viewerEmail
-                      ? v.viewerEmail.split("@")[0]
-                      : t("recordingInsights.anon"))}
-                  <span className="text-muted-foreground ml-1">
+                  {viewerLabel(v, t("recordingInsights.anonymous"))}
+                  <span className="text-muted-foreground ms-1">
                     {Math.round(v.completedPct)}%
                   </span>
                 </span>
@@ -205,14 +201,6 @@ function Stat({
       </div>
     </div>
   );
-}
-
-function initials(s: string): string {
-  return s
-    .split(/\s+|@/)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("");
 }
 
 function msCompact(ms: number): string {

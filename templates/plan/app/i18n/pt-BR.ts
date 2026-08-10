@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Tela de prancheta do Plan",
       zoomIn: "Aproximar",
       zoomOut: "Afastar",
+      zoomHint: "Segure ⌘/Ctrl e role para ampliar",
       markupSaveFailed: "Nao foi possivel salvar a marcacao. Tente novamente.",
     },
     document: {
@@ -583,6 +584,10 @@ const messages = {
           label: "UI Processo",
           description: "Processo UI - Wireframes e Estados",
         },
+        design: {
+          label: "Design de alta fidelidade",
+          description: "Design de alta fidelidade - telas de marca refinadas",
+        },
         questions: {
           label: "Problema de visualização",
           description: "Visualize o problema - colete requisitos claramente",
@@ -606,6 +611,8 @@ const messages = {
           "# Plano de implementação\n\nCole aqui o plano existente do Codex ou Claude Code e transforme-o em um documento de revisão visual.",
       },
       assessment: {
+        design:
+          "Uma solicitação de alta fidelidade foi detectada automaticamente; o agente criará telas de marca refinadas.",
         ui: "O estado ou processo UI é detectado automaticamente; o agente criará um plano wireframe-first.",
         visual:
           "Permite automaticamente que os agentes criem planos técnicos avançados com diagramas e detalhes de implementação.",

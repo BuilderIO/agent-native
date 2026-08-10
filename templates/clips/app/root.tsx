@@ -19,7 +19,12 @@ import {
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconBrain, IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
+import {
+  IconHierarchy2,
+  IconCheck,
+  IconSun,
+  IconMoon,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -125,7 +130,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getHydrationStableLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -364,8 +368,8 @@ function AppContent() {
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>
-            <CommandMenu.Item onSelect={() => navigate("/agent")}>
-              <IconBrain size={16} />
+            <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
+              <IconHierarchy2 size={16} />
               {t("root.openAgent")}
             </CommandMenu.Item>
             <CommandMenu.Item onSelect={() => {}}>

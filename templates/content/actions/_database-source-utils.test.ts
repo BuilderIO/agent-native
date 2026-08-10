@@ -24,6 +24,8 @@ import {
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
+  knownBuilderReviewDocumentIds,
+  builderSourcePropertyAssignments,
   builderBodyHydrationVersion,
   builderBodyUnavailableVersion,
   builderBodyHydrationNeedsLiveBaseline,
@@ -31,8 +33,10 @@ import {
   builderBodyHydrationCanAdoptSameVersionVariant,
   builderBodyBaselineHasSameVersionConflict,
   builderAuthoritativeRawBodyHash,
+  builderBodyHydrationBulkChunkLimit,
   bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
+  builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
   canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
@@ -48,6 +52,7 @@ import {
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
   sourceSnapshotDocumentSelection,
+  sourceSnapshotPageDocumentIds,
   sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
@@ -100,6 +105,136 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("page-scopes primary Builder rows without truncating secondary federation", () => {
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: "{}",
+        documentIds: ["doc-1", "doc-2"],
+      }),
+    ).toEqual(["doc-1", "doc-2"]);
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: "{}",
+        documentIds: [],
+      }),
+    ).toEqual([]);
+
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: JSON.stringify({
+          federation: {
+            role: "secondary",
+            keyField: "slug",
+            normalizationFormula: "lower(trim(value))",
+            join: {
+              kind: "identity",
+              collection: null,
+              localExpr: "{Slug}",
+              remoteKeyField: "slug",
+              normalizationFormula: "lower(trim(value))",
+            },
+          },
+        }),
+        documentIds: ["doc-1"],
+      }),
+    ).toBeUndefined();
+
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "local-table",
+        metadataJson: "{}",
+        documentIds: ["doc-1"],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("keeps the provider-bound property when duplicate local labels collide", () => {
+    const existingFields = [
+      {
+        propertyId: "local-blurb",
+        sourceFieldKey: "data.blurb",
+        provenance: "source field",
+      },
+      {
+        propertyId: "builder-blurb",
+        sourceFieldKey: "data.blurb",
+        provenance: "Builder model field",
+      },
+    ];
+    const properties = [
+      {
+        definition: { id: "local-blurb", name: "Blurb", type: "text" },
+      },
+      {
+        definition: { id: "builder-blurb", name: "Blurb", type: "text" },
+      },
+      {
+        definition: { id: "summary", name: "Summary", type: "text" },
+      },
+    ];
+
+    for (const fields of [existingFields, [...existingFields].reverse()]) {
+      const assignments = builderSourcePropertyAssignments({
+        properties,
+        existingFields: fields,
+      });
+
+      expect(
+        assignments.map(({ property, sourceFieldKey }) => ({
+          propertyId: property.definition.id,
+          sourceFieldKey,
+        })),
+      ).toEqual([
+        {
+          propertyId: "builder-blurb",
+          sourceFieldKey: "data.blurb",
+        },
+        {
+          propertyId: "summary",
+          sourceFieldKey: "data.summary",
+        },
+      ]);
+    }
+  });
+
+  it("accepts only the persisted Builder continuation offset", () => {
+    const metadataJson = JSON.stringify({
+      sourceFetchState: "fetching",
+      lastReadHasMore: true,
+      lastReadNextOffset: 400,
+      activeReadSourceRowIds: ["entry-1"],
+    });
+
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 400)).toBe(true);
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 100)).toBe(
+      false,
+    );
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 0)).toBe(false);
+    expect(
+      builderCmsSourceContinuationIsCurrent(
+        JSON.stringify({
+          sourceFetchState: "fetching",
+          lastReadHasMore: true,
+          lastReadNextOffset: 400,
+        }),
+        400,
+      ),
+    ).toBe(false);
+    expect(
+      builderCmsSourceContinuationIsCurrent(
+        JSON.stringify({
+          sourceFetchState: "idle",
+          lastReadHasMore: false,
+          lastReadNextOffset: 580,
+        }),
+        400,
+      ),
+    ).toBe(false);
+  });
+
   it("selects document bodies only for explicitly heavy Builder snapshots", () => {
     expect(sourceSnapshotDocumentSelection(false)).not.toHaveProperty(
       "content",
@@ -157,6 +292,12 @@ describe("database source helpers", () => {
     expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
     expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
     expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
+  });
+
+  it("uses one fewer transaction for the 584-row Postgres hydration case", () => {
+    expect(builderBodyHydrationBulkChunkLimit("postgres")).toBe(200);
+    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(112);
+    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(11);
   });
 
   it("serializes queued Builder body hydration with an unset item status as pending", () => {
@@ -289,6 +430,44 @@ describe("database source helpers", () => {
       sourceFetchState: "error",
       activeReadSourceRowIds: [],
     });
+  });
+
+  it("clears the Builder refresh claim when read metadata is finalized", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "agent-native-blog-article-test",
+        readState: "live",
+        entryCount: 580,
+        matchedRowCount: 580,
+        existingMetadataJson: JSON.stringify({
+          builderContinuationClaimId: "claim-1",
+          builderContinuationClaimOffset: 400,
+        }),
+        completedBuilderContinuationClaimId: "claim-1",
+      }),
+    );
+
+    expect(metadata).not.toHaveProperty("builderContinuationClaimId");
+    expect(metadata).not.toHaveProperty("builderContinuationClaimOffset");
+  });
+
+  it("preserves a Builder refresh claim for unrelated metadata writers", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "agent-native-blog-article-test",
+        readState: "live",
+        entryCount: 400,
+        matchedRowCount: 400,
+        existingMetadataJson: JSON.stringify({
+          builderContinuationClaimId: "claim-1",
+          builderContinuationClaimOffset: 400,
+          builderContinuationClaimedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      }),
+    );
+
+    expect(metadata.builderContinuationClaimId).toBe("claim-1");
+    expect(metadata.builderContinuationClaimOffset).toBe(400);
   });
 
   it("preserves existing Builder model fields during metadata rewrites", () => {
@@ -869,6 +1048,29 @@ describe("database source helpers", () => {
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
     expect(pending).toHaveLength(0);
+  });
+
+  it("scopes a bounded known review batch before broad body discovery", () => {
+    expect(
+      knownBuilderReviewDocumentIds(
+        [
+          { documentId: "doc-new" },
+          { documentId: "doc-new" },
+          { documentId: "doc-existing" },
+        ],
+        100,
+      ),
+    ).toEqual(["doc-new", "doc-existing"]);
+    expect(knownBuilderReviewDocumentIds([], 100)).toBeNull();
+    expect(
+      knownBuilderReviewDocumentIds([{ documentId: null }], 100),
+    ).toBeNull();
+    expect(
+      knownBuilderReviewDocumentIds(
+        [{ documentId: "doc-1" }, { documentId: "doc-2" }],
+        1,
+      ),
+    ).toBeNull();
   });
 
   it("detects local Builder body edits as outbound pending changes", () => {
@@ -2106,6 +2308,63 @@ describe("database source helpers", () => {
       state: "pending_push",
       fieldChanges: [{ proposedValue: "Newest title" }],
     });
+  });
+
+  it("gives a corrected local diff a distinct identity from its failed approved gate", () => {
+    const stableId = "local-pending-row-source-change";
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Remote title",
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Corrected local title"]]),
+      storedChangeSets: [
+        {
+          id: stableId,
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          kind: "field_update",
+          direction: "outbound",
+          state: "approved",
+          pushMode: "autosave",
+          localOnly: true,
+          summary: "Previously approved Builder title change.",
+          fieldChanges: [
+            {
+              propertyId: null,
+              propertyName: "Title",
+              localFieldKey: "title",
+              sourceFieldKey: "data.title",
+              currentValue: "Remote title",
+              proposedValue: "Invalid local title",
+            },
+          ],
+          bodyChange: null,
+          riskLevel: "low",
+          riskReasons: [],
+          conflictState: "none",
+          reviewEvents: [],
+          executions: [],
+          createdAt: "2026-07-26T00:00:00.000Z",
+          updatedAt: "2026-07-26T00:01:00.000Z",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      id: expect.stringMatching(
+        /^local-pending-row-source-change-revision-[a-f0-9]{16}$/,
+      ),
+      state: "pending_push",
+      fieldChanges: [{ proposedValue: "Corrected local title" }],
+    });
+    expect(pending[0]?.id).not.toBe(stableId);
   });
 
   it("resurfaces a pending Builder title edit after a rejected outbound record", () => {

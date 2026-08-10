@@ -89,7 +89,7 @@ Actions هي المصدر الوحيد للحقيقة لأي شيء يفعله �
 
 إذا كان كل من UI والوكيل بحاجة إلى القيام بشيء ما، فاتصل إلى إجراء - وليس مخصصًا
 المسار. لمعرفة متى يكون البروتوكول على شكل مسار هو المكالمة الصحيحة، راجع [تفضيل Actions
-لعمليات التطبيقات](/docs/server#actions-first).
+لعمليات التطبيقات](/docs/server-overview#actions-first).
 
 ## ابدأ بإجراء واحد {#hello-action}
 
@@ -251,7 +251,7 @@ export default defineAction({
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — `POST` الافتراضي. تم وضع علامة `GET` على actions تلقائيًا على `readOnly`، لذا لا تؤدي المكالمات الناجحة إلى تحديث استقصاء UI.
 - **`http: { path: "..." }`** — تجاوز URL المثبت أسفل `/_agent-native/actions/`. الإعدادات الافتراضية لاسم الملف. **تجاوزات المسار تغير URL فقط للمتصلين المباشرين HTTP** — `useActionQuery` و`useActionMutation` و`callAction` يتصلون دائمًا بـ `/_agent-native/actions/<name>` بغض النظر عن هذا التجاوز، لذا فإن تجاوز المسار يجعل هذه الخطافات 404. استخدم تجاوزات المسار فقط للمتصلين HTTP الخارجيين. لاحظ أيضًا أن مقاطع مسار `:param` في مسار التجاوز **لم** يتم تحليلها إلى وسيطات `run()` — فقط معلمات سلسلة الاستعلام وحقول النص JSON هي التي يتم تحليلها.
 - **`http: false`** — تعطيل نقطة النهاية HTTP بالكامل. الوكيل + CLI فقط.
-- **`readOnly: true`** — تخطي تحديث الاستقصاء بشكل صريح حتى بالنسبة إلى POST actions التي لم تتغير.
+- **`readOnly: true`** — تخطي تحديث الاستقصاء بشكل صريح حتى بالنسبة إلى POST actions التي لم تتغير. إنه **ليس** تحكّمًا في الوصول: فهو لا يقيّد من يمكنه استدعاء الـ action، ولا يؤثر على `useActionQuery` أو `useActionMutation` أو أي hook في العميل. تأثيره الوحيد هو منع حدث التحديث بعد الاستدعاء واستثناء الـ action من تدقيق الكتابة. لإخفاء action عن النموذج استخدم `agentTool: false`، ولتقييد المستدعين استخدم خيارات المصادقة/الوصول أعلاه.
 - **`parallelSafe: true`** — السماح بإجراء تغيير بالتزامن مع استدعاءات أداة التشغيل نفسها. قم بتعيين هذا فقط عندما يكون الإجراء آمنًا للتزامن داخليًا ومستقلًا عن الطلب؛ تحويل actions إلى تسلسل افتراضي.
 
 ### اجعل سطح العمل صغيرًا {#small-surface}
@@ -376,12 +376,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

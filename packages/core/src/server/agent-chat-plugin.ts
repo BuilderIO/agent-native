@@ -14,6 +14,11 @@ import {
 } from "h3";
 
 import {
+  applyA2AAgentActivityEvent,
+  buildA2AAgentActivityPart,
+  createA2AAgentActivityState,
+} from "../a2a/activity.js";
+import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
   type A2AToolResultSummary,
@@ -27,7 +32,6 @@ import {
   sanitizeA2ACorrelationId,
   sanitizeA2ACorrelationMetadata,
 } from "../a2a/correlation.js";
-import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import {
   createA2AApproval,
   updateTaskStatusMessage,
@@ -54,12 +58,15 @@ import {
   createAnthropicEngine,
   getStoredModelForEngine,
   normalizeModelForEngine,
+  resolveDelegatedRunModel,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
+import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
@@ -68,14 +75,18 @@ import {
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
+  type AgentLoopOutcome,
+  type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
 import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
+import type { UnclaimedBackgroundRunRow } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -83,11 +94,14 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
+  claimQueuedMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
+import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
@@ -95,11 +109,14 @@ import type {
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
+import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  adoptThreadScopeIfUnscoped,
   createThread,
   forkThread,
   getThread,
   registerChatThreadsShareable,
+  resolveRunThreadScope,
   resolveThreadAccess,
   listThreads,
   searchThreads,
@@ -115,19 +132,31 @@ import {
   withThreadDataLock,
   deleteThread,
   setThreadQueuedMessages,
+  setThreadSourceIfMissing,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
+import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { isTransientDatabaseError } from "../db/client.js";
+import {
+  isProductionServerlessFunctionRuntime,
+  isTransientDatabaseError,
+} from "../db/client.js";
+import {
+  filterFrameworkToolGroups,
+  resolveFrameworkTools,
+} from "../framework-tools.js";
 import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
 import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
+import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
+import {
   McpClientManager,
-  loadMcpConfig,
-  autoDetectMcpConfig,
   mcpToolsToActionEntries,
   syncMcpActionEntries,
   mountMcpServersRoutes,
@@ -176,6 +205,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
+import { startIntervalJob } from "./interval-job.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
@@ -262,6 +292,9 @@ import {
 // ---------------------------------------------------------------------------
 import {
   createA2AEngineToolSurface,
+  DEFAULT_DELEGATED_MAX_ITERATIONS,
+  DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+  DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
   filterAgentTools,
   filterPublicAgentActions,
   filterDirectA2AActions,
@@ -271,6 +304,7 @@ import {
   runMCPAgentLoop,
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  buildAuthenticatedAgentA2ASkills,
   resolveArtifactBaseUrl,
 } from "./agent-chat/action-filters-a2a.js";
 import {
@@ -292,7 +326,9 @@ import {
   generateActionsPrompt,
   generateCorpusToolsPrompt,
 } from "./agent-chat/framework-prompts.js";
+import { resolveAgentChatMcpOptions } from "./agent-chat/mcp-options.js";
 import {
+  resolveA2AAgentDelegationEnabled,
   type AgentChatPluginOptions,
   type NitroPluginDef,
 } from "./agent-chat/plugin-options.js";
@@ -302,7 +338,10 @@ import {
   promptResourceManifestSections,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
-import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
+import {
+  isNetlifyRecurringJobsRuntime,
+  shouldDisableRecurringJobsRuntime,
+} from "./agent-chat/recurring-jobs-runtime.js";
 import {
   isLocalhost,
   shouldBlockInProductCodeEditingSurface,
@@ -318,6 +357,7 @@ import {
   createResourceScriptEntries,
 } from "./agent-chat/script-entries.js";
 import { parseSkillFrontmatter } from "./agent-chat/skill-frontmatter.js";
+import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
 export { _agentChatPromptSectionsForTests };
@@ -327,8 +367,14 @@ export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
 export { createA2AEngineToolSurface };
+export {
+  DEFAULT_DELEGATED_MAX_ITERATIONS,
+  DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+  DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+};
 export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
+export { isNetlifyRecurringJobsRuntime };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
@@ -399,6 +445,8 @@ export function createSerializedA2ATaskStatusWriter(
   };
 }
 
+const A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS = 2_000;
+
 export async function resolveA2ARecoverableArtifactSecret(
   orgId: string | null | undefined = getRequestOrgId(),
 ): Promise<string | undefined> {
@@ -430,6 +478,19 @@ const generateTitleRateLimit = new Map<string, number[]>();
 /** Only sweep drained rate-limit entries once the map grows past this size,
  * so the common small-map case stays O(1). */
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
+
+/**
+ * Abort reasons that mean a human asked to stop, so `/runs/:id/abort` escalates
+ * to a turn-wide abort. Watchdog reasons (`no_progress`, `auto_stuck_retry`)
+ * stay single-run: they end a chunk the client believes is dead and must not
+ * kill a server-side continuation chain that is still making progress.
+ */
+export const USER_STOP_ABORT_REASONS = new Set([
+  "user",
+  "abort",
+  "user_stuck_cancel",
+  "user_stuck_retry",
+]);
 
 /**
  * Pick the URL allowlist to enforce for a `${keys.NAME}` reference used by
@@ -478,21 +539,9 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      // Reap phantom runs left over from the previous process (HMR restart,
-      // process crash, isolate eviction). Any run whose heartbeat is already
-      // stale by startup time had a dead producer; mark it errored so the
-      // next /runs/active check returns a terminal status and reconnecting
-      // clients don't spin on "Thinking...". Runs owned by OTHER live
-      // isolates are protected by their fresh heartbeats.
-      try {
-        const { reapAllStaleRuns } = await import("../agent/run-store.js");
-        const reaped = await reapAllStaleRuns();
-        if (reaped > 0) {
-          console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
-        }
-      } catch {
-        // Best effort — don't block plugin init if SQL isn't ready yet.
-      }
+      // Never make route readiness wait on an org-global stale-run sweep.
+      // `/runs/active` reaps the requested run on demand, and the periodic
+      // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
       // AGENT_MODE=production forces production agent constraints even in dev
@@ -500,6 +549,8 @@ export function createAgentChatPlugin(
         (env === "development" || env === "test") &&
         process.env.AGENT_MODE !== "production";
       const routePath = options?.path ?? "/_agent-native/agent-chat";
+      const a2aAgentDelegationEnabled =
+        resolveA2AAgentDelegationEnabled(options);
 
       // Mutable mode flag — persisted to the `settings` table so a user who
       // toggles to "Production" stays in prod mode across server restarts.
@@ -524,6 +575,19 @@ export function createAgentChatPlugin(
       // function means "the user currently has dev mode ON" (live).
       const isDevMode = () => currentDevMode;
 
+      // Resolve the framework's own tool surface once, folding the deprecated
+      // `databaseTools` / `extensionTools` into `frameworkTools` so every
+      // consumer below reads a single shape. Conflicting old/new values throw
+      // here rather than booting with a surface nobody chose.
+      const frameworkTools = resolveFrameworkTools(options);
+      const disabledFrameworkGroups = frameworkTools.disabledGroups;
+
+      // Same treatment for the MCP mount: one resolved shape, folding the
+      // deprecated `disableMcp` / `mcpServerInfo` / `connectorCatalog` /
+      // `externalAgents` into `mcp`. A2A reads the same object, so the
+      // connector policy cannot diverge between the two external surfaces.
+      const mcpOptions = resolveAgentChatMcpOptions(options);
+
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
       // startup, not per-request.
@@ -533,54 +597,81 @@ export function createAgentChatPlugin(
         PROD_FRAMEWORK_PROMPT_COMPACT,
         DEV_FRAMEWORK_PROMPT_COMPACT,
       } = buildFrameworkPrompts(options?.promptExamples, {
-        databaseTools: options?.databaseTools,
-        extensionTools: options?.extensionTools,
+        databaseTools: frameworkTools.database,
+        extensionTools: frameworkTools.extensions,
+        disabledFrameworkGroups,
       });
 
-      // Initialize MCP client. Merges file/env config + auto-detected binaries
-      // + any remote servers users have added through the settings UI (persisted
-      // in the settings table, scanned across all scopes so we never drop
-      // another user's entries). Graceful-degrade: any failure yields zero MCP
-      // tools and agent-chat keeps working as before.
-      let mcpConfig = await buildMergedConfig().catch((err) => {
-        console.warn(
-          `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-        );
-        return null;
-      });
-      if (!mcpConfig) {
-        const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
-        mcpConfig = fileOrEnv;
+      // Route readiness must not wait on settings scans, remote hub fetches, or
+      // third-party MCP handshakes. Build the action surface against an empty
+      // manager, then hydrate it after every live action registry has subscribed
+      // to manager changes.
+      const mcpManager = new McpClientManager(null);
+      setGlobalMcpManager(mcpManager);
+      const mcpActionEntries: Record<string, ActionEntry> = {};
+      let mcpInitializationPromise: Promise<void> | null = null;
+      const initializeMcpManager = async (): Promise<void> => {
+        const mcpConfig = await buildMergedConfig();
         if (mcpConfig?.source) {
           console.log(
-            `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+            `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
           );
         } else if (process.env.DEBUG) {
           console.log(
             "[mcp-client] no configured MCP servers — skipping MCP tools",
           );
         }
-      } else if (mcpConfig.source) {
-        console.log(
-          `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
-        );
-      }
-      const mcpManager = new McpClientManager(mcpConfig);
-      try {
-        await mcpManager.start();
-      } catch (err: any) {
-        console.warn(
-          `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
-        );
-      }
-      setGlobalMcpManager(mcpManager);
-      const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+        await mcpManager.reconfigure(mcpConfig);
+        startMcpConfigRefresh(mcpManager);
+      };
+      /**
+       * Start MCP initialization at most once, and return the run in flight.
+       *
+       * On a serverless function nothing kicks this off at boot (see the
+       * `isProductionServerlessFunctionRuntime` gate below), so every surface
+       * that actually consumes MCP tools must await this or the manager stays
+       * empty for the life of the container.
+       */
+      const ensureMcpInitialized = (): Promise<void> => {
+        if (!mcpInitializationPromise) {
+          mcpInitializationPromise = initializeMcpManager().catch((err) => {
+            // Do not cache a settings outage as a successful empty manager;
+            // the next MCP-consuming request must retry the configuration read.
+            mcpInitializationPromise = null;
+            throw err;
+          });
+        }
+        return mcpInitializationPromise;
+      };
+      const getJobMcpActionEntries = async (
+        job?: RecurringJobContext,
+      ): Promise<Record<string, ActionEntry>> => {
+        const requested = job?.meta.mcpTools ?? [];
+        if (requested.length === 0) return {};
+        // Background action suppliers may be async so event-triggered and
+        // scheduled runs can await lazy MCP hydration on serverless cold
+        // starts. Runs without requested MCP tools still skip this work.
+        await ensureMcpInitialized();
+        const entries = mcpToolsToActionEntries(mcpManager, {
+          toolNames: requested,
+        });
+        const missing = requested.filter((toolName) => !entries[toolName]);
+        if (missing.length > 0) {
+          throw new Error(
+            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
+          );
+        }
+        return entries;
+      };
 
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
       mountMcpStatusRoute(nitroApp, mcpManager);
-      mountMcpServersRoutes(nitroApp, mcpManager);
-      startMcpConfigRefresh(mcpManager);
+      mountMcpServersRoutes(nitroApp, mcpManager, {
+        // Serialize an unusually early settings mutation behind the initial
+        // config snapshot so stale startup data cannot overwrite the write.
+        waitUntilReady: ensureMcpInitialized,
+      });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
       // convention). Gated by the env var so mounting is a no-op otherwise.
@@ -645,15 +736,25 @@ export function createAgentChatPlugin(
         // Package action registration is optional.
       }
 
-      // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
-      const resourceScripts = await createResourceScriptEntries();
-      const docsScripts = await createDocsScriptEntries();
+      // Resource, chat, docs, db, and cross-agent scripts are available in both
+      // prod and dev modes, unless the app switched the group off through
+      // `frameworkTools`. Gating at construction is deliberate: an empty map
+      // flows through all thirteen registry composition sites below, whereas a
+      // condition at each spread site is the same omission waiting to happen
+      // thirteen times. Matching HTTP routes are mounted from `httpActions`,
+      // which is built from the ungated sets so the UI keeps working.
+      const resourceScripts = frameworkTools.isEnabled("resources")
+        ? await createResourceScriptEntries()
+        : {};
+      const docsScripts = frameworkTools.isEnabled("docs")
+        ? await createDocsScriptEntries()
+        : {};
       const databaseToolsMode = normalizeDatabaseToolsMode(
-        options?.databaseTools,
+        frameworkTools.database,
       );
       const databaseToolsEnabled = databaseToolsMode !== "off";
       const databaseWriteToolsEnabled = databaseToolsMode === "write";
-      const extensionToolsEnabled = options?.extensionTools !== false;
+      const extensionToolsEnabled = frameworkTools.extensions;
       const dbScripts = databaseToolsEnabled
         ? await createDbScriptEntries(databaseToolsMode, {
             extensionTools: extensionToolsEnabled,
@@ -670,17 +771,26 @@ export function createAgentChatPlugin(
         options?.appId,
       );
       const loopSettingsScripts = await createAgentLoopSettingsScriptEntries();
-      const chatScripts = {
-        ...(await createChatScriptEntries()),
-        ...engineScripts,
-        ...loopSettingsScripts,
-      };
-      const callAgentScript = await createCallAgentScriptEntry(options?.appId);
+      // `httpActions` spreads engineScripts/loopSettingsScripts directly, so
+      // gating here removes them from the agent's tools without unmounting the
+      // routes the settings UI calls.
+      const chatScripts = frameworkTools.isEnabled("chat")
+        ? {
+            ...(await createChatScriptEntries()),
+            ...engineScripts,
+            ...loopSettingsScripts,
+          }
+        : {};
+      // Both `call-agent` and `describe-workspace-apps` come from this factory.
+      const callAgentScript = frameworkTools.isEnabled("workspaceApps")
+        ? await createCallAgentScriptEntry(options?.appId)
+        : {};
+      let runNowSchedulerDeps: SchedulerDeps | null = null;
       const browserTools = createBuilderBrowserTool({
         getOrigin: () =>
           getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
         getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
-        extensionTools: options?.extensionTools,
+        extensionTools: extensionToolsEnabled,
       });
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
@@ -723,6 +833,7 @@ export function createAgentChatPlugin(
                 (f: string) =>
                   f.endsWith(".ts") &&
                   !f.startsWith("_") &&
+                  !/\.(test|spec)\.ts$/.test(f) &&
                   !skipFiles.has(f.replace(/\.ts$/, "")),
               );
             for (const file of files) {
@@ -844,7 +955,16 @@ export function createAgentChatPlugin(
       // surface, prompt, MCP/A2A list, and job/trigger runner below. The full
       // `*All` sets are reserved for `httpActions`, which keeps agent-hidden
       // actions reachable from the frontend / HTTP.
-      const templateScripts = filterAgentTools(templateScriptsAll);
+      //
+      // The framework's own action kits (sharing, review, history, flags, …)
+      // arrive in this same registry through `autoDiscoverActions`, tagged with
+      // `frameworkGroup`. Subtracting disabled groups HERE is what removes them
+      // from every downstream agent surface at once; `httpActions` re-merges
+      // them ungated, so the share dialog and review threads keep their routes.
+      const templateScripts = filterFrameworkToolGroups(
+        filterAgentTools(templateScriptsAll),
+        disabledFrameworkGroups,
+      );
       // Compact is the safe default for every app, including generated and
       // third-party apps that have not curated a starter list yet. Keep the
       // app's own action surface immediately callable; framework, provider,
@@ -857,7 +977,10 @@ export function createAgentChatPlugin(
         templateScripts,
         options?.initialToolNames,
       );
-      const discoveredActions = filterAgentTools(discoveredActionsAll);
+      const discoveredActions = filterFrameworkToolGroups(
+        filterAgentTools(discoveredActionsAll),
+        disabledFrameworkGroups,
+      );
       // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
       // concurrent requests on a long-lived Node process — overlapping
@@ -897,29 +1020,37 @@ export function createAgentChatPlugin(
       // Automation tools + fetch tool — depend on owner via callback.
       // Each callback short-circuits with a clear error when the run context
       // has no authenticated owner (see SECURITY note on getCurrentRunOwner).
+      const automationGroupEnabled = frameworkTools.isEnabled("automation");
       let automationTools: Record<string, ActionEntry> = {};
       try {
-        const { createAutomationToolEntries } =
-          await import("../triggers/actions.js");
-        automationTools = createAutomationToolEntries(() =>
-          requireCurrentRunOwner("manage automations"),
-        );
+        if (automationGroupEnabled) {
+          const { createAutomationToolEntries } =
+            await import("../triggers/actions.js");
+          automationTools = createAutomationToolEntries(
+            () => requireCurrentRunOwner("manage automations"),
+            options?.appId,
+          );
+        }
       } catch {}
       let notificationTools: Record<string, ActionEntry> = {};
       try {
-        const { createNotificationToolEntries } =
-          await import("../notifications/actions.js");
-        notificationTools = createNotificationToolEntries(() =>
-          requireCurrentRunOwner("manage notifications"),
-        );
+        if (automationGroupEnabled) {
+          const { createNotificationToolEntries } =
+            await import("../notifications/actions.js");
+          notificationTools = createNotificationToolEntries(() =>
+            requireCurrentRunOwner("manage notifications"),
+          );
+        }
       } catch {}
       let progressTools: Record<string, ActionEntry> = {};
       try {
-        const { createProgressToolEntries } =
-          await import("../progress/actions.js");
-        progressTools = createProgressToolEntries(() =>
-          requireCurrentRunOwner("manage progress"),
-        );
+        if (automationGroupEnabled) {
+          const { createProgressToolEntries } =
+            await import("../progress/actions.js");
+          progressTools = createProgressToolEntries(() =>
+            requireCurrentRunOwner("manage progress"),
+          );
+        }
       } catch {}
       let githubRepoTools: Record<string, ActionEntry> = {};
       try {
@@ -938,74 +1069,85 @@ export function createAgentChatPlugin(
           },
         });
       } catch {}
+      const webGroupEnabled = frameworkTools.isEnabled("web");
       let fetchTool: Record<string, ActionEntry> = {};
       try {
-        const { createFetchToolEntry } =
-          await import("../extensions/fetch-tool.js");
-        // Resolve `${keys.NAME}` through the same request-scope cascade
-        // already used by extension fetches (extensions/routes.ts) and
-        // automation connector headers (automation/index.ts): user scope
-        // first (personal overrides win), then the active org scope (the
-        // Dispatch vault syncs workspace secrets here), then workspace
-        // scope. Org/workspace vault rows are write-gated (org-admin +
-        // Dispatch vault UI), so this is safe to read by default — unlike
-        // the opt-in-only user→workspace fallback in resolveKeyReferences
-        // (see audit 05 H2 in secrets/substitution.ts), which stays off.
-        // Previously this tool only looked at scope "user", so a
-        // ${keys.NAME} reference to a key synced into the org/workspace
-        // vault could never resolve here even though the same key already
-        // worked for extension fetches and automations.
-        const {
-          resolveKeyReferencesWithRequestScopes,
-          validateUrlAllowlist,
-          getKeyAllowlist,
-          getResolvedKeyAllowlist,
-        } = await import("../secrets/substitution.js");
-        fetchTool = createFetchToolEntry({
-          resolveKeys: async (text) =>
-            resolveKeyReferencesWithRequestScopes(
-              text,
-              requireCurrentRunOwner("resolve key references"),
-            ),
-          validateUrl: async (url, usedKeys, resolvedKeys) => {
-            for (const keyName of usedKeys) {
-              const allowlist = await resolveFetchToolKeyAllowlist(
-                keyName,
-                resolvedKeys,
-                requireCurrentRunOwner("validate URL allowlist"),
-                { getKeyAllowlist, getResolvedKeyAllowlist },
-              );
-              if (allowlist && !validateUrlAllowlist(url, allowlist)) {
-                return false;
+        if (webGroupEnabled) {
+          const { createFetchToolEntry } =
+            await import("../extensions/fetch-tool.js");
+          // Resolve `${keys.NAME}` through the same request-scope cascade
+          // already used by extension fetches (extensions/routes.ts) and
+          // automation connector headers (automation/index.ts): user scope
+          // first (personal overrides win), then the active org scope (the
+          // Dispatch vault syncs workspace secrets here), then workspace
+          // scope. Org/workspace vault rows are write-gated (org-admin +
+          // Dispatch vault UI), so this is safe to read by default — unlike
+          // the opt-in-only user→workspace fallback in resolveKeyReferences
+          // (see audit 05 H2 in secrets/substitution.ts), which stays off.
+          // Previously this tool only looked at scope "user", so a
+          // ${keys.NAME} reference to a key synced into the org/workspace
+          // vault could never resolve here even though the same key already
+          // worked for extension fetches and automations.
+          const {
+            resolveKeyReferencesWithRequestScopes,
+            validateUrlAllowlist,
+            getKeyAllowlist,
+            getResolvedKeyAllowlist,
+          } = await import("../secrets/substitution.js");
+          fetchTool = createFetchToolEntry({
+            resolveKeys: async (text) =>
+              resolveKeyReferencesWithRequestScopes(
+                text,
+                requireCurrentRunOwner("resolve key references"),
+              ),
+            validateUrl: async (url, usedKeys, resolvedKeys) => {
+              for (const keyName of usedKeys) {
+                const allowlist = await resolveFetchToolKeyAllowlist(
+                  keyName,
+                  resolvedKeys,
+                  requireCurrentRunOwner("validate URL allowlist"),
+                  { getKeyAllowlist, getResolvedKeyAllowlist },
+                );
+                if (allowlist && !validateUrlAllowlist(url, allowlist)) {
+                  return false;
+                }
               }
-            }
-            return true;
-          },
-        });
+              return true;
+            },
+          });
+        }
       } catch {}
       let webSearchTool: Record<string, ActionEntry> = {};
       try {
-        const { createWebSearchToolEntry } =
-          await import("../extensions/web-search-tool.js");
-        const {
-          getBuilderWebSearchBaseUrl,
-          resolveBuilderCredentials,
-          resolveSecret,
-        } = await import("./credential-provider.js");
-        const { getBuilderGatewayRequestHeaders } =
-          await import("../agent/engine/builder-gateway-headers.js");
-        webSearchTool = createWebSearchToolEntry({
-          resolveSecret,
-          resolveBuilderCredentials,
-          getBuilderWebSearchBaseUrl,
-          getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
-        });
+        if (webGroupEnabled) {
+          const { createWebSearchToolEntry } =
+            await import("../extensions/web-search-tool.js");
+          const {
+            getBuilderWebSearchBaseUrl,
+            resolveBuilderCredentials,
+            resolveSecret,
+          } = await import("./credential-provider.js");
+          const { getBuilderGatewayRequestHeaders } =
+            await import("../agent/engine/builder-gateway-headers.js");
+          webSearchTool = createWebSearchToolEntry({
+            resolveSecret,
+            resolveBuilderCredentials,
+            getBuilderWebSearchBaseUrl,
+            getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
+          });
+        }
       } catch {}
       let workspaceFilesTool: Record<string, ActionEntry> = {};
       try {
         const { createWorkspaceFilesTool } =
           await import("../workspace-files/tool.js");
         workspaceFilesTool = createWorkspaceFilesTool();
+      } catch {}
+      let workspaceFileActions: Record<string, ActionEntry> = {};
+      try {
+        const { createWorkspaceFileActionEntries } =
+          await import("../workspace-files/actions.js");
+        workspaceFileActions = createWorkspaceFileActionEntries();
       } catch {}
       let toolActions: Record<string, ActionEntry> =
         createDataWidgetActionEntries();
@@ -1027,17 +1169,32 @@ export function createAgentChatPlugin(
           getOwnerEmail: () => requireCurrentRunOwner("use browser sessions"),
         });
       } catch {}
+      let remoteBrowserTools: Record<string, ActionEntry> = {};
+      try {
+        const { createRemoteBrowserActionEntries } =
+          await import("../integrations/remote-browser-actions.js");
+        remoteBrowserTools = createRemoteBrowserActionEntries({
+          getOwnerEmail: () =>
+            requireCurrentRunOwner("use a remote browser session"),
+          getOrgId: () => getRequestOrgId() ?? null,
+        });
+      } catch {}
 
-      // Core send-email tool — only registered when RESEND_API_KEY or
-      // SENDGRID_API_KEY is set. Keyed "core-send-email" to avoid colliding
+      // Core send-email tool. Keyed "core-send-email" to avoid colliding
       // with the mail template's richer "send-email" action (template wins
       // when both surfaces spread into the same object, but distinct keys
       // keep both visible and avoid silent shadowing).
       let coreEmailTools: Record<string, ActionEntry> = {};
+      let backgroundCoreEmailTools: Record<string, ActionEntry> = {};
       try {
-        const { createCoreEmailActionEntries } =
-          await import("./email-actions.js");
-        coreEmailTools = createCoreEmailActionEntries();
+        if (frameworkTools.isEnabled("email")) {
+          const { createCoreEmailActionEntries } =
+            await import("./email-actions.js");
+          coreEmailTools = createCoreEmailActionEntries();
+          backgroundCoreEmailTools = createCoreEmailActionEntries({
+            unattended: true,
+          });
+        }
       } catch {}
 
       // Core read-attachment tool — always registered so the agent can page
@@ -1048,6 +1205,35 @@ export function createAgentChatPlugin(
           await import("./attachment-actions.js");
         coreAttachmentTools = createCoreAttachmentActionEntries();
       } catch {}
+
+      // Keep scheduler and event-trigger runs on one deliberately bounded
+      // background surface. Interactive-only tools stay out of it, while
+      // shared capabilities such as call-agent and core-send-email cannot
+      // drift independently between the two background entry points.
+      const getBackgroundActionEntries = async (
+        automation?: RecurringJobContext,
+      ): Promise<Record<string, ActionEntry>> => {
+        const mcpActions = await getJobMcpActionEntries(automation);
+        return {
+          ...templateScripts,
+          ...resourceScripts,
+          ...docsScripts,
+          ...(lazyContext ? frameworkContextTool : {}),
+          ...urlTools,
+          ...chatScripts,
+          ...callAgentScript,
+          ...jobTools,
+          ...automationTools,
+          ...notificationTools,
+          ...progressTools,
+          ...fetchTool,
+          ...webSearchTool,
+          ...toolActions,
+          ...backgroundCoreEmailTools,
+          ...coreAttachmentTools,
+          ...mcpActions,
+        };
+      };
 
       // -----------------------------------------------------------------------
       // Production code-execution mode resolution.
@@ -1073,12 +1259,12 @@ export function createAgentChatPlugin(
               ? "off"
               : (options?.codeExecution?.production ?? "off");
 
-      // Forward-declaration for the production run-code bridge supplier.
-      // Must come before createRunCodeEntry so the closure can capture it.
+      // Forward-declaration for the production code-execution bridge supplier.
+      // Must come before the code entries are created so their closures can capture it.
       let prodRunCodeToolActions: Record<string, ActionEntry> = {};
       let leanRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Sandboxed run-code tool (+ its get-code-execution poll companion):
+      // Sandboxed run-code, bounded tool-orchestration, and get-code-execution:
       // available in "sandboxed" or "trusted" prod modes and always in dev
       // mode. See loadRunCodeToolEntries for the registration contract.
       const runCodeTool: Record<string, ActionEntry> =
@@ -1121,7 +1307,7 @@ export function createAgentChatPlugin(
       // Must be declared before devRunCodeTool so the closure can close over it.
       let devRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Always register run-code (+ get-code-execution) in dev mode (when the
+      // Always register code execution (+ get-code-execution) in dev mode (when the
       // coding module loads). devActions is not yet defined at this point; we
       // use a late-binding supplier so devRunCodeTool can reference the
       // devActions registry once it is built below (see devHandler block).
@@ -1155,8 +1341,10 @@ export function createAgentChatPlugin(
       // that never emit the corpus prompt (no provider/run-code tools
       // registered), so this never silently expands the initial set for
       // apps that don't teach these tools by name.
-      const corpusToolNames =
-        corpusToolNamesTaughtByPrompt(corpusPromptRegistry);
+      const loadCorpusToolsInitially = options?.corpusTools !== "lazy";
+      const corpusToolNames = loadCorpusToolsInitially
+        ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
+        : [];
       const effectiveInitialToolNames =
         corpusToolNames.length > 0
           ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
@@ -1200,8 +1388,10 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
+              ...remoteBrowserTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
@@ -1225,8 +1415,10 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
+              ...remoteBrowserTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
@@ -1264,8 +1456,10 @@ export function createAgentChatPlugin(
             ...fetchTool,
             ...webSearchTool,
             ...workspaceFilesTool,
+            ...workspaceFileActions,
             ...toolActions,
             ...browserSessionTools,
+            ...remoteBrowserTools,
             ...coreEmailTools,
             ...coreAttachmentTools,
             ...browserTools,
@@ -1282,13 +1476,17 @@ export function createAgentChatPlugin(
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
         skills: buildPublicAgentA2ASkills(allScripts),
+        authenticatedSkills: buildAuthenticatedAgentA2ASkills(
+          mcpFullActions ?? allScripts,
+          mcpOptions,
+        ),
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
             mcpFullActions ?? allScripts,
-            options ?? {},
+            mcpOptions,
           );
           const entry = actions[action];
           if (!entry) {
@@ -1483,9 +1681,14 @@ export function createAgentChatPlugin(
 
           // Use the SAME agent setup as the interactive chat — identical tools,
           // prompt, and capabilities. The A2A agent IS the app's agent.
-          const { getOwnerActiveApiKey } =
+          const { resolveOwnerEngineApiKey } =
             await import("../agent/production-agent.js");
-          const ownerApiKey = await getOwnerActiveApiKey(userEmail);
+          const { apiKey: ownerApiKey, apiKeyEnvVar: ownerApiKeyEnvVar } =
+            await resolveOwnerEngineApiKey({
+              engineOption: options?.engine,
+              ownerEmail: userEmail,
+              anthropicFallback: options?.apiKey,
+            });
           // A2A runs are reconstructed in a fresh processor request, so they
           // do not pass through the interactive handler's prepareRun hook.
           // Seed the same mutable run context before resolving the engine and
@@ -1498,6 +1701,7 @@ export function createAgentChatPlugin(
           if (a2aRunContext) {
             a2aRunContext.owner = userEmail;
             a2aRunContext.userApiKey = ownerApiKey;
+            a2aRunContext.userApiKeyEnvVar = ownerApiKeyEnvVar;
             // The async processor restores the original request origin from
             // task metadata. Only derive a fallback for synchronous A2A calls
             // where the inbound event is still the caller request.
@@ -1517,7 +1721,8 @@ export function createAgentChatPlugin(
           }
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
-            apiKey: ownerApiKey ?? options?.apiKey,
+            apiKey: ownerApiKey,
+            apiKeyEnvVar: ownerApiKeyEnvVar,
             appId: options?.appId,
           });
 
@@ -1529,19 +1734,52 @@ export function createAgentChatPlugin(
             owner,
             lazyContext,
             options?.appId,
+            undefined,
+            { disabledFrameworkGroups },
           );
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
 
-          const a2aModelCandidate =
-            options?.model ??
-            (await getStoredModelForEngine(a2aEngine, {
-              appId: options?.appId,
-            })) ??
-            a2aEngine.defaultModel;
-          const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
+          const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
+            appId: options?.appId,
+          });
+          // Preference only, and last before the default: an app that pinned
+          // a model keeps it. Read separately from the correlation sanitizer
+          // below so it stays out of every identity/access path.
+          const a2aCallerModelHint = sanitizeA2ACorrelationMetadata(
+            context.metadata,
+          ).callerModel;
+          const model = resolveDelegatedRunModel(a2aEngine, {
+            explicitModel: options?.model,
+            storedModel: a2aStoredModel,
+            callerModelHint: a2aCallerModelHint,
+          });
+          // The interactive path logs its model AND where the model came from;
+          // this path logged neither, so "the same app answers me in 27s but
+          // takes 5 minutes when another app asks" had no way to be checked.
+          // The usual answer is right here: the chat model picker is a
+          // browser-local preference, so it reaches an interactive turn as the
+          // highest-precedence request model and never reaches this path at
+          // all — a delegated turn falls through to the app's stored model or
+          // the engine default, which can be a different, weaker model.
+          console.log(
+            `[a2a] resolved engine=${a2aEngine.name} model=${model} ` +
+              // A hint the callee's engine does not offer is dropped, so the
+              // label is derived from what actually won — reporting
+              // "caller-hint" for a rejected hint would send the next person
+              // debugging this in exactly the wrong direction.
+              `modelSource=${
+                options?.model
+                  ? "configured"
+                  : a2aStoredModel
+                    ? "stored"
+                    : a2aCallerModelHint && model === a2aCallerModelHint
+                      ? "caller-hint"
+                      : "default"
+              } callerHint=${a2aCallerModelHint ?? "(none)"} appId=${options?.appId ?? "(none)"}`,
+          );
           if (a2aRunContext) {
             a2aRunContext.engine = a2aEngine;
             a2aRunContext.model = model;
@@ -1556,38 +1794,50 @@ export function createAgentChatPlugin(
           // a day rollover (or the resources/extra content changing) only
           // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
-          const systemPrompt = devActive
-            ? devPrompt +
-              resources +
-              schemaBlock +
-              extra +
-              modelOverlay +
-              runtimeContext
-            : basePrompt +
-              resources +
-              schemaBlock +
-              extra +
-              modelOverlay +
-              runtimeContext;
+          // Delegated turns use native template actions in every environment,
+          // so they must also receive the native-tool prompt. The interactive
+          // dev prompt teaches `pnpm action` and would send this receiver back
+          // into the shell loop the native action surface exists to prevent.
+          const systemPrompt =
+            basePrompt +
+            SYSTEM_PROMPT_CACHE_SPLIT +
+            resources +
+            schemaBlock +
+            extra +
+            modelOverlay +
+            runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
-          // Build tools — same as interactive handler but WITHOUT call-agent
-          // to prevent infinite recursive A2A loops (agent calling itself).
-          // In dev mode, template actions are invoked via bash (not native tools),
-          // so they're omitted from the tool registry — see allScripts comment.
+          // Build tools — same as interactive handler. Cross-app delegation is
+          // enabled by default; call-agent carries a bounded visited-app path
+          // and rejects cycles/excessive hops before dispatch.
+          // Delegated turns keep template actions as NATIVE tools even in dev,
+          // unlike the interactive surface (see the allScripts comment). Dev
+          // routes template actions through bash there to dodge the degenerate
+          // empty-object tool call some models emit for complex schemas — a
+          // person can just retry. A delegated caller cannot: with no native
+          // action the sibling agent shells out, and an A2A turn that misfires
+          // has no one to correct it, so it retries the same command until the
+          // repetition guard kills the run minutes later. A rejected `{}` call
+          // returns a schema error the model can fix on the next step, which is
+          // strictly better than a shell loop nobody can see.
           const a2aActions = attachToolSearch(
             devActive
               ? {
+                  ...templateScripts,
                   ...resourceScripts,
                   ...docsScripts,
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -1604,11 +1854,14 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -1638,11 +1891,38 @@ export function createAgentChatPlugin(
           // event stream so pre-tool narration never leaks as the A2A result.
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
+          let a2aOutcome: AgentLoopOutcome | undefined;
           let lastRecoverableArtifactText = "";
+          let activityState = createA2AAgentActivityState();
+          let lastActivityCheckpointAt = 0;
           const recoverableArtifactSecret =
             await resolveA2ARecoverableArtifactSecret();
           const recoverableArtifactStatusWriter =
             createSerializedA2ATaskStatusWriter(context.taskId);
+          const activityStatusMessage = (): A2AMessage => ({
+            role: "agent",
+            ...(lastRecoverableArtifactText
+              ? { metadata: { agentNativeRecoverableArtifacts: true } }
+              : {}),
+            parts: [
+              buildA2AAgentActivityPart(activityState),
+              ...(lastRecoverableArtifactText
+                ? [{ type: "text" as const, text: lastRecoverableArtifactText }]
+                : []),
+            ],
+          });
+          const checkpointActivity = (force = false) => {
+            const now = Date.now();
+            if (
+              !force &&
+              now - lastActivityCheckpointAt <
+                A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS
+            ) {
+              return;
+            }
+            lastActivityCheckpointAt = now;
+            recoverableArtifactStatusWriter.enqueue(activityStatusMessage());
+          };
           const controller = new AbortController();
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
           const telemetryThreadId =
@@ -1676,10 +1956,24 @@ export function createAgentChatPlugin(
               runId: context.taskId,
               networkProtocol: "a2a",
               networkId: context.taskId,
+              networkPeer: correlation.callerApp,
+              delegationDepth: correlation.delegationDepth ?? 1,
+              visitedApps:
+                correlation.visitedApps ??
+                (correlation.callerApp ? [correlation.callerApp] : []),
               threadId: context.taskId,
               turnId: context.taskId,
+              onOutcome: (outcome) => {
+                a2aOutcome = outcome;
+              },
               send: (event) => {
                 a2aEvents.push(event);
+                const nextActivityState = applyA2AAgentActivityEvent(
+                  activityState,
+                  event,
+                );
+                const activityChanged = nextActivityState !== activityState;
+                activityState = nextActivityState;
                 if (event.type === "tool_start") {
                   console.log(`[A2A] Tool call: ${event.tool}`);
                 } else if (event.type === "tool_done") {
@@ -1710,30 +2004,33 @@ export function createAgentChatPlugin(
                     recoverableArtifactText !== lastRecoverableArtifactText
                   ) {
                     lastRecoverableArtifactText = recoverableArtifactText;
-                    recoverableArtifactStatusWriter.enqueue({
-                      role: "agent",
-                      metadata: { agentNativeRecoverableArtifacts: true },
-                      parts: [
-                        {
-                          type: "text",
-                          text: recoverableArtifactText,
-                        },
-                      ],
-                    });
                   }
                 } else if (event.type === "error") {
                   console.error(`[A2A] Error: ${event.error}`);
                 } else if (event.type === "done") {
                   console.log(`[A2A] Done. Events: ${a2aEvents.length}`);
                 }
+                if (activityChanged) {
+                  checkpointActivity(
+                    event.type === "tool_start" ||
+                      event.type === "tool_done" ||
+                      event.type === "error" ||
+                      event.type === "done",
+                  );
+                }
               },
               signal: controller.signal,
             },
             {
+              delegatedRunPolicy: options?.delegatedRunPolicy,
               finalResponseGuard: options?.finalResponseGuard,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
             },
             {
+              // Without the hosted default an app that never sets
+              // `runSoftTimeoutMs` resolves to 0 and the wrapper degrades to a
+              // bare `runAgentLoop` — no resume at all on a delegated turn.
+              useHostedDefault: true,
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&
                 isInBackgroundFunctionRuntime(),
@@ -1762,6 +2059,7 @@ export function createAgentChatPlugin(
 
           // The continuation can observe terminal output immediately, so make
           // its latest mutation checkpoint durable first.
+          checkpointActivity(true);
           await recoverableArtifactStatusWriter.flush();
 
           const approval = [...a2aEvents]
@@ -1800,6 +2098,7 @@ export function createAgentChatPlugin(
                 },
               },
               parts: [
+                buildA2AAgentActivityPart(activityState),
                 {
                   type: "text" as const,
                   text:
@@ -1823,7 +2122,7 @@ export function createAgentChatPlugin(
           const { responseText, finalText } = assembleA2AFinalResponse(
             a2aEvents,
             a2aToolResults,
-            { event: context.event },
+            { event: context.event, outcome: a2aOutcome },
           );
 
           console.log(
@@ -1834,9 +2133,10 @@ export function createAgentChatPlugin(
           yield {
             role: "agent" as const,
             parts: [
+              buildA2AAgentActivityPart(activityState),
               {
                 type: "text" as const,
-                text: finalText || "(no response)",
+                text: finalText,
               },
             ],
           };
@@ -1850,7 +2150,9 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const corpusToolsPrompt = generateCorpusToolsPrompt(corpusPromptRegistry);
+      const corpusToolsPrompt = loadCorpusToolsInitially
+        ? generateCorpusToolsPrompt(corpusPromptRegistry)
+        : "";
       const prodActionsPrompt =
         generateActionsPrompt(
           templateScripts,
@@ -1890,39 +2192,57 @@ export function createAgentChatPlugin(
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
 
-      if (options?.disableMcp !== true) {
+      if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
         const { mountMCP } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
           name: options?.appId
             ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
             : "Agent",
-          title: options?.mcpServerInfo?.title,
+          title: mcpOptions.title,
           appId: options?.appId,
           description:
-            options?.mcpServerInfo?.description ??
+            mcpOptions.description ??
             `Agent-native ${options?.appId ?? "app"} agent`,
-          websiteUrl: options?.mcpServerInfo?.websiteUrl,
-          icons: options?.mcpServerInfo?.icons,
+          websiteUrl: mcpOptions.websiteUrl,
+          icons: mcpOptions.icons,
           actions: allScripts,
           productionActions: mcpFullActions,
-          ...(options?.connectorCatalog
-            ? { connectorCatalog: options.connectorCatalog }
+          ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
+          ...(mcpOptions.builtinCrossAppTools !== undefined
+            ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
             : {}),
-          ...(options?.externalAgents
-            ? { externalAgents: options.externalAgents }
+          ...(mcpOptions.connectorCatalog
+            ? { connectorCatalog: mcpOptions.connectorCatalog }
+            : {}),
+          ...(mcpOptions.externalAgents
+            ? { externalAgents: mcpOptions.externalAgents }
             : {}),
           askAgent: async (message: string) => {
             const ownerEmail = getRequestUserEmail();
             const mcpRunId = crypto.randomUUID();
-            const { getOwnerActiveApiKey } =
+            const { resolveOwnerEngineApiKey } =
               await import("../agent/production-agent.js");
-            const ownerApiKey = ownerEmail
-              ? await getOwnerActiveApiKey(ownerEmail)
-              : undefined;
+            const ownerApiKey = await resolveOwnerEngineApiKey({
+              engineOption: options?.engine,
+              ownerEmail,
+              anthropicFallback: options?.apiKey,
+            });
+            // `ask_app` runs outside the interactive handler, so nothing seeds
+            // the run context for it — and `onEngineResolved` never fires on
+            // this path either. Without the resolved key and its provenance
+            // here, an agent-team sub-agent spawned from an MCP run falls back
+            // to the plugin host key while the parent bills the owner's BYO
+            // credential. Same reason the A2A branch above seeds it.
+            const mcpRunContext = ensureRequestRunContext();
+            if (mcpRunContext) {
+              mcpRunContext.userApiKey = ownerApiKey.apiKey;
+              mcpRunContext.userApiKeyEnvVar = ownerApiKey.apiKeyEnvVar;
+            }
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,
-              apiKey: ownerApiKey ?? options?.apiKey,
+              apiKey: ownerApiKey.apiKey,
+              apiKeyEnvVar: ownerApiKey.apiKeyEnvVar,
               appId: options?.appId,
             });
             const mcpModelCandidate =
@@ -1934,11 +2254,14 @@ export function createAgentChatPlugin(
             const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
 
             // Same actions as A2A — without call-agent to prevent loops.
-            // In dev mode, template actions go through bash, not native tools.
+            // `ask_app` is delegated too, so template actions stay native in dev
+            // here for the same reason as the A2A surface above: an external
+            // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
             const mcpActions = attachToolSearch(
               devActiveMcp
                 ? {
+                    ...templateScripts,
                     ...resourceScripts,
                     ...docsScripts,
                     ...(lazyContext ? frameworkContextTool : {}),
@@ -1947,6 +2270,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...devScriptsForA2A,
@@ -1964,6 +2288,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
@@ -1988,38 +2313,28 @@ export function createAgentChatPlugin(
               SHARED_OWNER,
               lazyContext,
               options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
             );
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(SHARED_OWNER, databaseToolsMode);
-            // Build the MCP handler's own prompt — always use the bash-based
-            // dev prompt in dev mode because mcpActions routes template actions
-            // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
-            const mcpDevPrompt =
-              (options?.devSystemPrompt
-                ? options.devSystemPrompt +
-                  (options?.systemPrompt ??
-                    (lazyContext
-                      ? PROD_FRAMEWORK_PROMPT_COMPACT
-                      : PROD_FRAMEWORK_PROMPT))
-                : lazyContext
-                  ? DEV_FRAMEWORK_PROMPT_COMPACT
-                  : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
             // Stable-first ordering: runtime-context (which changes daily)
             // goes last so the cached prompt prefix survives as long as
             // possible — same pattern as the other prompt-assembly sites in
             // this plugin (A2A above, prod/anonymous/dev handlers below).
-            const systemPrompt = devActiveMcp
-              ? mcpDevPrompt +
-                resources +
-                schemaBlock +
-                buildRuntimeContextPrompt()
-              : basePrompt +
-                resources +
-                schemaBlock +
-                buildRuntimeContextPrompt();
+            // ask_app receives native template actions even in dev, so the
+            // native-tool prompt is required here for the same reason as A2A.
+            const systemPrompt =
+              basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
+              resources +
+              schemaBlock +
+              buildRuntimeContextPrompt();
 
-            let accumulatedText = "";
+            const mcpEvents: AgentChatEvent[] = [];
+            const mcpToolResults: A2AToolResultSummary[] = [];
+            let mcpOutcome: AgentLoopOutcome | undefined;
             const controller = new AbortController();
 
             await runMCPAgentLoop(
@@ -2051,19 +2366,31 @@ export function createAgentChatPlugin(
                 networkId: mcpRunId,
                 threadId: mcpRunId,
                 turnId: mcpRunId,
+                onOutcome: (outcome) => {
+                  mcpOutcome = outcome;
+                },
                 send: (event) => {
-                  accumulatedText = applyAgentTextEventToBuffer(
-                    accumulatedText,
-                    event,
-                  );
+                  mcpEvents.push(event);
+                  if (event.type === "tool_done") {
+                    mcpToolResults.push({
+                      tool: event.tool,
+                      result: event.result,
+                      isError: event.isError,
+                      completedSideEffect: event.completedSideEffect,
+                    });
+                  }
                 },
                 signal: controller.signal,
               },
               {
+                delegatedRunPolicy: options?.delegatedRunPolicy,
                 finalResponseGuard: options?.finalResponseGuard,
                 runSoftTimeoutMs: options?.runSoftTimeoutMs,
               },
               {
+                // Same as the A2A call site: without this a hosted app that
+                // never configured `runSoftTimeoutMs` gets no resume at all.
+                useHostedDefault: true,
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
                   isInBackgroundFunctionRuntime(),
@@ -2078,7 +2405,9 @@ export function createAgentChatPlugin(
               },
             );
 
-            return accumulatedText || "(no response)";
+            return assembleA2AFinalResponse(mcpEvents, mcpToolResults, {
+              outcome: mcpOutcome,
+            }).finalText;
           },
         });
       }
@@ -2141,6 +2470,7 @@ export function createAgentChatPlugin(
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
           getUserNameFromEvent,
+          appId: options?.appId,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
         });
@@ -2193,6 +2523,11 @@ export function createAgentChatPlugin(
                   typeof run.turnId === "string" && run.turnId
                     ? run.turnId
                     : undefined,
+                runDurationMs:
+                  typeof run.startedAt === "number" &&
+                  Number.isFinite(run.startedAt)
+                    ? Math.max(0, Date.now() - run.startedAt)
+                    : undefined,
               },
             );
             if (!assistantMsg) {
@@ -2236,11 +2571,7 @@ export function createAgentChatPlugin(
               engine: runCtx?.engine?.name ?? "unknown",
               timestamp: Date.now(),
             };
-            repo._debug = debug;
-            const debugRuns = Array.isArray(repo._debugRuns)
-              ? repo._debugRuns
-              : [];
-            repo._debugRuns = [...debugRuns, debug].slice(-50);
+            repo = appendThreadDebugHistory(repo, debug);
 
             const meta = extractThreadMeta(repo);
             await updateThreadData(
@@ -2379,6 +2710,7 @@ export function createAgentChatPlugin(
         threadId: string | undefined;
         message: string;
         attachments?: AgentChatAttachment[];
+        queuedMessageId?: string;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -2386,14 +2718,25 @@ export function createAgentChatPlugin(
           getRequestRunContext()?.owner ?? getRequestUserEmail();
         if (!ownerEmail) return;
 
+        const runScope = getRequestRunContext()?.chatScope ?? null;
+
         await withThreadDataLock(threadId, async () => {
           let thread = await getThread(threadId);
           if (!thread) {
             try {
-              thread = await createThread(ownerEmail, { id: threadId });
+              thread = await createThread(ownerEmail, {
+                id: threadId,
+                scope: runScope,
+                source: options?.appId ? { appId: options.appId } : null,
+              });
             } catch {
               thread = await getThread(threadId);
             }
+          }
+          if (options?.appId) {
+            await setThreadSourceIfMissing(threadId, {
+              appId: options.appId,
+            });
           }
           if (!thread) {
             throw createError({
@@ -2414,11 +2757,29 @@ export function createAgentChatPlugin(
             });
           }
 
+          const nextScope = resolveRunThreadScope(thread.scope, runScope);
+          if (nextScope && nextScope !== thread.scope) {
+            thread = {
+              ...thread,
+              scope: await adoptThreadScopeIfUnscoped(threadId, nextScope),
+            };
+          }
+
           let repo: any;
           try {
             repo = JSON.parse(thread.threadData || "{}");
           } catch {
             repo = {};
+          }
+
+          if (details.queuedMessageId) {
+            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
+              throw createError({
+                statusCode: 409,
+                statusMessage: "Queued message was already submitted",
+              });
+            }
+            repo = claimQueuedMessage(repo, details.queuedMessageId);
           }
 
           repo = upsertUserMessage(
@@ -2427,6 +2788,7 @@ export function createAgentChatPlugin(
               text: details.message,
               attachments: details.attachments,
               runId: details.runId,
+              queuedMessageId: details.queuedMessageId,
             }),
           );
 
@@ -2485,18 +2847,28 @@ export function createAgentChatPlugin(
         getActions: buildSubAgentActions,
         getEngine: () => {
           const runCtx = getRequestRunContext();
+          // Sub-agents must inherit the parent run's resolved key so
+          // delegations spawned by agent-teams don't silently fall back to
+          // the platform key while the parent uses BYO credentials. This
+          // fallback engine is Anthropic, so a key the parent resolved for
+          // another provider is not inheritable — passing it anyway sends a
+          // live OpenAI/Gemini secret to Anthropic's endpoint.
+          const inheritableKey =
+            runCtx?.userApiKeyEnvVar === undefined ||
+            runCtx.userApiKeyEnvVar === "ANTHROPIC_API_KEY"
+              ? runCtx?.userApiKey
+              : undefined;
           return (
             runCtx?.engine ??
             createAnthropicEngine({
-              // Sub-agents must inherit the parent run's resolved key so
-              // delegations spawned by agent-teams don't silently fall back
-              // to the platform key while the parent uses BYO credentials.
-              apiKey: runCtx?.userApiKey ?? options?.apiKey,
+              apiKey: inheritableKey ?? options?.apiKey,
             })
           );
         },
         getModel: () => getRequestRunContext()?.model ?? resolvedModel,
         getParentThreadId: () => getRequestRunContext()?.threadId ?? "",
+        getAppId: () => options?.appId ?? null,
+        getParentRunId: () => getRequestRunContext()?.runId ?? "",
         getSend: () => {
           // Return the send for the current run's thread
           const threadId = getRequestRunContext()?.threadId ?? "";
@@ -2509,8 +2881,10 @@ export function createAgentChatPlugin(
       // Job management tool (manage-jobs)
       let jobTools: Record<string, ActionEntry> = {};
       try {
-        const { createJobTools } = await import("../jobs/tools.js");
-        jobTools = createJobTools();
+        if (automationGroupEnabled) {
+          const { createJobTools } = await import("../jobs/tools.js");
+          jobTools = createJobTools(options?.appId);
+        }
       } catch {}
 
       // Lean mode: only template actions + essential framework tools. Drop
@@ -2561,8 +2935,10 @@ export function createAgentChatPlugin(
         ...fetchTool,
         ...webSearchTool,
         ...workspaceFilesTool,
+        ...workspaceFileActions,
         ...toolActions,
         ...browserSessionTools,
+        ...remoteBrowserTools,
         ...coreEmailTools,
         ...coreAttachmentTools,
         ...browserTools,
@@ -2632,6 +3008,7 @@ export function createAgentChatPlugin(
       // through the settings UI). getEngineTools() in production-agent re-reads
       // the registry per request, so updates here propagate without restart.
       mcpManager.onChange(() => {
+        syncMcpActionEntries(mcpManager, mcpActionEntries);
         syncMcpActionEntries(mcpManager, prodActions);
       });
 
@@ -2661,14 +3038,18 @@ export function createAgentChatPlugin(
       // content is what the token-saving modes strip.
       const prepareRun = async (event: any) => {
         const owner = await getOwnerFromEvent(event);
-        const { getOwnerActiveApiKey } =
+        const { resolveOwnerEngineApiKey } =
           await import("../agent/production-agent.js");
-        const userApiKey = await getOwnerActiveApiKey(owner);
+        const userApiKey = await resolveOwnerEngineApiKey({
+          engineOption: options?.engine,
+          ownerEmail: owner,
+        });
         const runCtx = ensureRequestRunContext();
         if (runCtx) {
           runCtx.requestOrigin = getOrigin(event);
           runCtx.owner = owner;
-          runCtx.userApiKey = userApiKey;
+          runCtx.userApiKey = userApiKey.apiKey;
+          runCtx.userApiKeyEnvVar = userApiKey.apiKeyEnvVar;
         }
         const extra = await resolveExtraContext(event, owner);
         return { owner, extra };
@@ -2838,8 +3219,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const prodCodeExecPromptNote =
         !canToggle && resolvedProdCodeExec !== "off"
           ? resolvedProdCodeExec === "trusted"
-            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
-            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch(), providerFetchAll(), providerRequest(), webRead(), and webFetch() inside run-code for authenticated provider calls and compact web/document reduction.</code-execution-mode>"
+            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use tool-orchestration for short bounded fan-out or reduction over read-only tools. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
+            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. Use tool-orchestration for short bounded fan-out, joins, and reduction over read-only tools. Use run-code when you need its broader provider/web helpers, workspace staging, or durable background execution. In either tool, authenticated calls go through the provided host globals and results should be reduced before printing.</code-execution-mode>"
           : "";
 
       const prodHandler = createProductionAgentHandler({
@@ -2860,6 +3241,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // less-stable content would still invalidate the cached prefix for
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
+          // `SYSTEM_PROMPT_CACHE_SPLIT` marks where the cacheable prefix ends,
+          // so everything after it can change without a cache write.
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
@@ -2879,6 +3262,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               leanBasePrompt +
                 leanRunPolicyPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2888,6 +3272,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             owner,
             lazyContext,
             options?.appId,
+            undefined,
+            { disabledFrameworkGroups },
           );
           // In lazy context mode, skip embedding the full schema. When database
           // tools are enabled the agent can call `db-schema` on demand.
@@ -2910,6 +3296,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           return setSystemPromptOnContext(
             basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
@@ -2994,11 +3381,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
+          runId: string,
         ) => {
           await recordPreRunGitStatus(threadId);
           _runSendByThread.set(threadId, send);
           const runCtx = ensureRequestRunContext();
-          if (runCtx) runCtx.threadId = threadId;
+          if (runCtx) {
+            runCtx.threadId = threadId;
+            runCtx.runId = runId;
+          }
         },
         onRunComplete: async (run: any, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
@@ -3046,11 +3437,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   event: import("../agent/types.js").AgentChatEvent,
                 ) => void,
                 threadId: string,
+                runId: string,
               ) => {
                 await recordPreRunGitStatus(threadId);
                 _runSendByThread.set(threadId, send);
                 const runCtx = ensureRequestRunContext();
-                if (runCtx) runCtx.threadId = threadId;
+                if (runCtx) {
+                  runCtx.threadId = threadId;
+                  runCtx.runId = runId;
+                }
               },
               onRunComplete: async (run: any, threadId: string | undefined) => {
                 if (threadId) _runSendByThread.delete(threadId);
@@ -3095,8 +3490,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -3151,6 +3548,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               owner,
               lazyContext,
               options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
             );
             const schemaBlock =
               lazyContext || !databaseToolsEnabled
@@ -3221,11 +3620,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
+            runId: string,
           ) => {
             await recordPreRunGitStatus(threadId);
             _runSendByThread.set(threadId, send);
             const runCtx = ensureRequestRunContext();
-            if (runCtx) runCtx.threadId = threadId;
+            if (runCtx) {
+              runCtx.threadId = threadId;
+              runCtx.runId = runId;
+            }
           },
           onRunComplete: async (run: any, threadId: string | undefined) => {
             if (threadId) _runSendByThread.delete(threadId);
@@ -3357,21 +3760,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               resolveConfig: async ({ payload, ownerEmail, orgId: _orgId }) => {
                 // Resolve the owner's API key so BYO-key sub-agents use the
                 // same credentials as the parent chat.
-                let apiKey: string | undefined;
+                let resolvedKey: ResolvedOwnerApiKey = {
+                  apiKey: undefined,
+                  apiKeyEnvVar: undefined,
+                };
                 try {
-                  const { getOwnerActiveApiKey } =
+                  const { resolveOwnerEngineApiKey } =
                     await import("../agent/production-agent.js");
-                  apiKey =
-                    (await getOwnerActiveApiKey(ownerEmail)) ?? undefined;
+                  resolvedKey = await resolveOwnerEngineApiKey({
+                    engineOption: options?.engine,
+                    ownerEmail,
+                    anthropicFallback: options?.apiKey,
+                  });
                 } catch {
-                  apiKey = undefined;
+                  resolvedKey = { apiKey: undefined, apiKeyEnvVar: undefined };
                 }
                 // Use the same resolveEngine path as the A2A and MCP
                 // processors so Builder-gateway/OpenAI users get their
                 // configured engine instead of always hitting the Anthropic SDK.
                 const engine = await resolveEngine({
                   engineOption: options?.engine,
-                  apiKey: apiKey ?? options?.apiKey,
+                  apiKey: resolvedKey.apiKey,
+                  apiKeyEnvVar: resolvedKey.apiKeyEnvVar,
                   appId: options?.appId,
                 });
                 const modelCandidate =
@@ -3635,16 +4045,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Authentication required" };
           }
 
-          const providerToEnv: Record<string, string> = {
-            anthropic: "ANTHROPIC_API_KEY",
-            openai: "OPENAI_API_KEY",
-            google: "GOOGLE_GENERATIVE_AI_API_KEY",
-            groq: "GROQ_API_KEY",
-            mistral: "MISTRAL_API_KEY",
-            cohere: "COHERE_API_KEY",
-          };
           const secretKey =
-            providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+            PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
 
           try {
             const { writeAppSecret } = await import("../secrets/storage.js");
@@ -4296,10 +4698,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             .trim();
           // Mirror the chat-run resolution so BYO-key users have title
           // generation billed to their own key instead of the platform key.
-          const { getOwnerActiveApiKey } =
+          // This request goes straight to Anthropic, so it needs the owner's
+          // Anthropic key specifically — the active engine may be another
+          // provider, whose key must never be sent here. Owners without one
+          // get the truncated title.
+          const { getOwnerApiKeyForEngine } =
             await import("../agent/production-agent.js");
-          const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-          const apiKey = userApiKey;
+          const { apiKey } = await getOwnerApiKeyForEngine(
+            "anthropic",
+            ownerEmail,
+          );
           if (!apiKey) {
             // Fallback: truncate the message
             return { title: cleanMessage.trim().slice(0, 60) };
@@ -4375,6 +4783,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const body = await readBody(event).catch(() => null);
             const threadId =
               typeof body?.threadId === "string" ? body.threadId : "";
+            const reason =
+              typeof body?.reason === "string" &&
+              /^[a-z0-9_-]{1,64}$/i.test(body.reason)
+                ? body.reason
+                : "user";
             if (
               !/^[a-zA-Z0-9_-]{1,160}$/.test(turnId) ||
               !threadId ||
@@ -4383,7 +4796,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            await markTurnAborted(threadId, turnId);
+            await markTurnAborted(threadId, turnId, reason);
             return { ok: true };
           }
 
@@ -4488,6 +4901,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
             await abortRunDurably(runId, reason);
+            if (USER_STOP_ABORT_REASONS.has(reason)) {
+              await abortTurnDurably(runId, reason);
+            }
             return { ok: true };
           }
 
@@ -4703,11 +5119,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // POST /checkpoints — restore to a checkpoint
-          // h3 prefix-matches, so /checkpoints/restore hits this handler with
-          // event.path containing "/restore".
-          const remainder = (event.path || "").replace(/^\/+/, "");
-          if (method === "POST" && remainder.startsWith("restore")) {
+          // POST /checkpoints/restore — restore to a checkpoint.
+          const restorePath = event.path || event.node?.req?.url || "";
+          if (method === "POST" && isCheckpointRestorePath(restorePath)) {
             if (!canToggle) {
               setResponseStatus(event, 403);
               return { error: "Checkpoints only available in dev mode" };
@@ -4718,17 +5132,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             const body = await readBody(event);
             const checkpointId = body?.checkpointId;
-            if (!checkpointId) {
+            const restoreRunId =
+              typeof body?.runId === "string" ? body.runId : "";
+            if (!checkpointId && !restoreRunId) {
               setResponseStatus(event, 400);
-              return { error: "checkpointId is required" };
+              return { error: "checkpointId or runId is required" };
             }
             try {
-              const { getCheckpointById } =
+              const { getCheckpointById, getCheckpointByRunId } =
                 await import("../checkpoints/store.js");
-              const checkpoint = await getCheckpointById(checkpointId);
+              const checkpoint = checkpointId
+                ? await getCheckpointById(checkpointId)
+                : await getCheckpointByRunId(restoreRunId);
               if (!checkpoint) {
                 setResponseStatus(event, 404);
-                return { error: "Checkpoint not found" };
+                return {
+                  error: restoreRunId
+                    ? "No checkpoint was saved for this turn, so there is nothing to restore."
+                    : "Checkpoint not found",
+                };
               }
               const owner = await getOwnerFromEvent(event);
               const thread = await getThread(checkpoint.threadId);
@@ -5166,10 +5588,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const q = query.q ? String(query.q).trim() : "";
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
+            const includeExternal = String(query.includeExternal ?? "") === "1";
             if (q) {
               const threads = await searchThreads(owner, q, limit, {
                 scope: scope ?? undefined,
                 orgId,
+                includeExternal,
+                sourceAppId: options?.appId ?? null,
               });
               return { threads };
             }
@@ -5180,6 +5605,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               scope: scope ?? undefined,
               unscopedOnly,
               orgId,
+              includeExternal,
+              sourceAppId: options?.appId ?? null,
             });
             return { threads };
           }
@@ -5206,6 +5633,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 id: body?.id,
                 title: body?.title ?? "",
                 scope: parseScopeFromBody(body?.scope),
+                source: options?.appId ? { appId: options.appId } : null,
               });
               return thread;
             } catch (err) {
@@ -5232,6 +5660,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // the background worker), so both go through identical context + handler
       // selection.
       const invokeAgentChatHandler = async (event: any) => {
+        // Chat is the main MCP consumer, and on serverless nothing hydrated the
+        // manager at boot. Awaiting here trades first-chat latency for tools
+        // that are actually present instead of a silently MCP-less run.
+        await ensureMcpInitialized();
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
 
@@ -5333,6 +5765,67 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const preparedMarker = (prepared.body as Record<string, unknown>)[
             AGENT_CHAT_BACKGROUND_RUN_FIELD
           ];
+          const automationRunId =
+            preparedMarker && typeof preparedMarker === "object"
+              ? (preparedMarker as Record<string, unknown>).automationRunId
+              : undefined;
+          if (typeof automationRunId === "string" && automationRunId) {
+            const runAutomation = async () => {
+              try {
+                if (!runNowSchedulerDeps) {
+                  throw new Error("Automation runner is not initialized.");
+                }
+                const { runQueuedAutomation } =
+                  await import("../jobs/scheduler.js");
+                const result = await runQueuedAutomation(
+                  automationRunId,
+                  runNowSchedulerDeps,
+                );
+                return { ok: true, automationRunId, ...result };
+              } catch (error) {
+                const message =
+                  error instanceof Error ? error.message : String(error);
+                const { finishAutomationRun } =
+                  await import("../jobs/run-history.js");
+                await finishAutomationRun(
+                  automationRunId,
+                  "error",
+                  `Automation worker failed: ${message}. No delivery was confirmed.`,
+                ).catch((finishError) => {
+                  console.warn(
+                    `[automations] could not record run-now worker failure for ${automationRunId}:`,
+                    finishError,
+                  );
+                });
+                console.error(
+                  `[automations] run-now worker failed for ${automationRunId}:`,
+                  error,
+                );
+                throw error;
+              }
+            };
+
+            // Netlify background functions must keep the handler open for the
+            // full automation. Other runtimes get an immediate receipt and
+            // use waitUntil when the platform provides it; long-lived Node
+            // processes can safely continue the promise after the response.
+            if (isInBackgroundFunctionRuntime()) {
+              try {
+                return await runAutomation();
+              } catch {
+                setResponseStatus(event, 500);
+                return { error: "Automation worker failed" };
+              }
+            }
+            const waitUntil = event.req?.waitUntil;
+            const runPromise = runAutomation().catch(() => {});
+            if (typeof waitUntil === "function") {
+              waitUntil(runPromise);
+            }
+            setResponseStatus(event, 202);
+            return { ok: true, accepted: true, automationRunId };
+          }
+
           const expectsBackgroundRuntime =
             backgroundRunMarkerExpectsBackgroundRuntime(preparedMarker);
           const runtimeGlobals = globalThis as Record<string, unknown>;
@@ -5507,66 +6000,124 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      const disableRecurringJobsRuntime = shouldDisableRecurringJobsRuntime();
+      const isBackgroundRuntime = isInBackgroundFunctionRuntime();
+      const disableRecurringJobsRuntime =
+        isBackgroundRuntime || shouldDisableRecurringJobsRuntime();
+      // Opt-in kill switch for the backstop sweep timers below. On serverless
+      // these are billed per warm container, so their query rate scales with
+      // instance count rather than with anything happening. See
+      // `shouldDisableInProcessSweeps`.
+      const sweepsDisabled = shouldDisableInProcessSweeps();
+      if (sweepsDisabled) {
+        console.log(
+          "[agent-native] In-process backstop sweeps disabled " +
+            "(AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS). A durable scheduler must " +
+            "drive automation redispatch, agent-teams reconciliation, and " +
+            "sandbox-execution recovery, or queued work will not be retried.",
+        );
+      }
 
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
-      // Uses setInterval so it works in all deployment environments without
-      // requiring Nitro experimental tasks configuration.
-      if (disableRecurringJobsRuntime) {
-        if (process.env.DEBUG) {
-          console.log(
-            "[recurring-jobs] Scheduler disabled for local development",
-          );
-        }
-      } else {
-        try {
-          const { processRecurringJobs } = await import("../jobs/scheduler.js");
+      // Long-lived runtimes use setInterval; serverless runtimes rely on a
+      // platform-owned sweep because an invocation cannot own a durable loop.
+      try {
+        const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
-          const schedulerDeps = {
-            getActions: () => ({
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...(lazyContext ? frameworkContextTool : {}),
-              ...chatScripts,
-              ...jobTools,
-              ...automationTools,
-              ...notificationTools,
-              ...progressTools,
-              ...fetchTool,
-              ...webSearchTool,
-              ...toolActions,
-            }),
-            getSystemPrompt: async (owner: string) => {
-              const resources = await loadResourcesForPrompt(
-                owner,
-                lazyContext,
-                options?.appId,
-              );
-              const schemaBlock = lazyContext
-                ? ""
-                : await buildSchemaBlock(owner, databaseToolsMode);
-              return basePrompt + resources + schemaBlock;
-            },
-            // `basePrompt` above is the same prompt the interactive chat
-            // handler builds, so it teaches the same template actions plus
-            // `manage-jobs` (Extended Capabilities / recurring jobs) and
-            // `manage-progress` (SHARED_RULE_14) BY NAME — both are present in
-            // getActions() via jobTools/progressTools. Keep the job runner's
-            // first request on the same compact surface as interactive chat
-            // instead of the full jobTools/automationTools/notificationTools/
-            // fetchTool/webSearchTool/toolActions catalog every tick.
-            getInitialToolNames: () => [
-              ...effectiveInitialToolNames,
-              "manage-jobs",
-              "manage-progress",
-            ],
-            apiKey: options?.apiKey,
-            model: options?.model,
-            appId: options?.appId,
-          };
+        const schedulerDeps: SchedulerDeps = {
+          getActions: getBackgroundActionEntries,
+          getSystemPrompt: async (owner: string) => {
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
+            );
+            const schemaBlock = lazyContext
+              ? ""
+              : await buildSchemaBlock(owner, databaseToolsMode);
+            return basePrompt + resources + schemaBlock;
+          },
+          // `basePrompt` above is the same prompt the interactive chat
+          // handler builds, so it teaches the same template actions plus
+          // `manage-jobs` (Extended Capabilities / recurring jobs) and
+          // `manage-progress` (SHARED_RULE_14) BY NAME — both are present in
+          // getActions() via jobTools/progressTools. Keep the job runner's
+          // first request on the same compact surface as interactive chat
+          // instead of the full jobTools/automationTools/notificationTools/
+          // fetchTool/webSearchTool/toolActions catalog every tick.
+          getInitialToolNames: (job?: RecurringJobContext) => [
+            ...effectiveInitialToolNames,
+            // Only promotable while the group that supplies them is on; with
+            // `automation` off the prompt no longer names them either.
+            ...(automationGroupEnabled
+              ? ["manage-jobs", "manage-progress"]
+              : []),
+            ...(job?.meta.mcpTools ?? []),
+          ],
+          apiKey: options?.apiKey,
+          model: options?.model,
+          appId: options?.appId,
+        };
+        runNowSchedulerDeps = schedulerDeps;
 
+        // Platform schedulers use the existing durable background function as
+        // the long-lived worker. Keeping the sweep behind a signed, fixed
+        // route prevents a public request from choosing an owner or job.
+        getH3App(nitroApp).use(
+          RECURRING_JOBS_SWEEP_PATH,
+          defineEventHandler(async (event) => {
+            if (getMethod(event) !== "POST") {
+              setResponseStatus(event, 405);
+              return { error: "Method not allowed" };
+            }
+            const token = extractBearerToken(getHeader(event, "authorization"));
+            if (
+              !token ||
+              !verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token)
+            ) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired internal token" };
+            }
+            if (
+              isNetlifyRecurringJobsRuntime() &&
+              !isInBackgroundFunctionRuntime()
+            ) {
+              setResponseStatus(event, 503);
+              return {
+                error:
+                  "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
+              };
+            }
+            try {
+              // Jobs may request MCP tools, and `getActions` is synchronous —
+              // hydrate before the sweep so a serverless container that never
+              // eagerly initialized still resolves them.
+              await ensureMcpInitialized();
+              await processRecurringJobs(schedulerDeps);
+              return { ok: true };
+            } catch (error) {
+              console.error("[recurring-jobs] Sweep route failed:", error);
+              setResponseStatus(event, 500);
+              return { error: "Recurring-job sweep failed" };
+            }
+          }),
+        );
+
+        if (disableRecurringJobsRuntime) {
+          if (process.env.DEBUG) {
+            console.log(
+              "[recurring-jobs] Scheduler disabled for local development",
+            );
+          }
+        } else if (isNetlifyRecurringJobsRuntime()) {
+          if (process.env.DEBUG) {
+            console.log(
+              "[recurring-jobs] Using the durable Netlify scheduled sweep",
+            );
+          }
+        } else {
           // Start after a 10-second delay to let the server fully initialize
           setTimeout(() => {
             setInterval(() => {
@@ -5580,9 +6131,57 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (process.env.DEBUG)
               console.log("[recurring-jobs] Scheduler started (60s interval)");
           }, 10_000);
-        } catch (err) {
-          // Jobs module not available — skip silently
         }
+      } catch (error) {
+        console.warn(
+          "[recurring-jobs] Scheduler module unavailable:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+
+      // A synchronous self-dispatch only waits for the request to leave the
+      // current invocation. Long-lived runtimes keep this retryable-queue
+      // backstop; serverless runtimes use their durable scheduler instead.
+      if (
+        !isBackgroundRuntime &&
+        !disableRecurringJobsRuntime &&
+        !sweepsDisabled
+      ) {
+        (() => {
+          let inFlight = false;
+          const sweep = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            try {
+              const { redispatchUnclaimedAutomationRuns } =
+                await import("../jobs/run-now.js");
+              await redispatchUnclaimedAutomationRuns();
+            } catch (error) {
+              console.warn(
+                "[automations] queued-run sweep failed; retrying next tick:",
+                error,
+              );
+            } finally {
+              inFlight = false;
+            }
+          };
+          setTimeout(() => void sweep(), 15_000);
+          setInterval(() => void sweep(), 30_000);
+        })();
+      }
+
+      // Long-lived runtimes hydrate MCP once at boot. Serverless functions must
+      // not: nothing awaits this, so a settings scan plus third-party MCP
+      // handshakes run on EVERY cold start of every app — including requests
+      // that never touch MCP — and outlive the response on a runtime that
+      // freezes after responding. There, `ensureMcpInitialized()` is driven by
+      // the surfaces that consume MCP tools instead.
+      if (!isProductionServerlessFunctionRuntime()) {
+        void ensureMcpInitialized().catch((err) => {
+          console.warn(
+            `[mcp-client] eager initialization failed: ${err?.message ?? err}`,
+          );
+        });
       }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
@@ -5591,6 +6190,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // per instance; cheap (one indexed query when no active tasks are found).
       // Throttled by the same per-owner interval guard inside reconcileAgentTeamRunsForOwner.
       (() => {
+        if (isBackgroundRuntime || sweepsDisabled) return;
         // Track when this instance last ran the sweep so only one sweep fires
         // per 2-min window even if multiple timers fire in overlapping invocations.
         let lastSweep = 0;
@@ -5683,7 +6283,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const attemptUnclaimedBackgroundRunRedispatch = async (row: {
         id: string;
         startedAt: number;
+        hasDispatchPayload: boolean;
       }): Promise<void> => {
+        // Eligibility for this sweep does not mean the row is redispatchable.
+        // The marker below asserts `payloadRef: true`, and a worker that then
+        // finds no payload fails the run as `dispatch_payload_missing` — so
+        // redispatching a payload-less row does not recover it, it destroys it.
+        // Leave it for the slow sweep's reap, which reports the true cause
+        // (`background_worker_never_started`) and is client-recoverable.
+        if (!row.hasDispatchPayload) return;
         const { updateRunHeartbeat } = await import("../agent/run-store.js");
         const { resolveAgentChatProcessRunDispatchPath } =
           await import("../agent/durable-background.js");
@@ -5743,17 +6351,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
+        if (isBackgroundRuntime || sweepsDisabled) return;
         setTimeout(() => {
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
               await import("../agent/run-store.js");
-            setInterval(() => {
-              (async () => {
+            startIntervalJob(
+              async () => {
                 const {
                   listUnclaimedBackgroundRunRows,
                   shouldRedispatchUnclaimedBackgroundRun,
+                  reapAllStaleRuns,
                 } = await import("../agent/run-store.js");
-                let rows: { id: string; startedAt: number }[];
+                // The unclaimed-background sweep below only matches
+                // dispatch_mode='background' — handoffs a worker never
+                // claimed. Once a worker CLAIMS a row nothing periodic looked
+                // at it again, so a dead producer was only reaped when some
+                // client request path or an unrelated run's cleanup happened
+                // to notice (prod: 24 minutes after the last heartbeat,
+                // against a 45s window). `reapAllStaleRuns` is per-row,
+                // idempotent, re-checks staleness at UPDATE time and honours
+                // the in-flight grace, so it is safe on this cadence.
+                await reapAllStaleRuns().catch(() => {});
+                let rows: UnclaimedBackgroundRunRow[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();
                 } catch {
@@ -5765,10 +6385,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     () => {},
                   );
                 }
-              })().catch(() => {
-                // best-effort — never break the server
-              });
-            }, UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS);
+              },
+              { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
+            );
           })().catch(() => {
             // best-effort — if run-store fails to load, the slow sweep below
             // still provides eventual (loud) recovery.
@@ -5783,6 +6402,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // still fails loud, and it survives the fast sweep having missed a row
       // entirely (e.g. a restart landed between fast-sweep ticks).
       (() => {
+        if (isBackgroundRuntime || sweepsDisabled) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
@@ -5798,7 +6418,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 reapUnclaimedBackgroundRun,
                 shouldRedispatchUnclaimedBackgroundRun,
               } = await import("../agent/run-store.js");
-              let rows: { id: string; startedAt: number }[];
+              let rows: UnclaimedBackgroundRunRow[];
               try {
                 rows = await listUnclaimedBackgroundRunRows();
               } catch {
@@ -5806,7 +6426,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               for (const row of rows) {
                 try {
-                  if (shouldRedispatchUnclaimedBackgroundRun(row)) {
+                  // A row with no `dispatch_payload` can never be rehydrated by
+                  // a redispatched worker, so waiting out the redispatch bound
+                  // buys nothing — fall straight through to the reap below and
+                  // fail it loudly with its real cause.
+                  if (
+                    row.hasDispatchPayload &&
+                    shouldRedispatchUnclaimedBackgroundRun(row)
+                  ) {
                     await attemptUnclaimedBackgroundRunRedispatch(row);
                     continue;
                   }
@@ -5831,6 +6458,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
       })();
 
+      // ─── Legacy chat-thread message_count repair ──────────────────────
+      // Long-lived processes apply this name-tracked data migration once.
+      // Serverless isolates skip it: launching a full thread_data scan from
+      // every cold start would recreate the connection stampede this repair
+      // was extracted from table bootstrap to prevent.
+      void runChatThreadDataMigrations(nitroApp).catch((err: unknown) => {
+        console.error(
+          "[chat-threads] legacy message_count repair failed — retrying on the next long-lived boot:",
+          err,
+        );
+      });
+
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
       if (disableRecurringJobsRuntime) {
         if (process.env.DEBUG) {
@@ -5843,25 +6482,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { initTriggerDispatcher } =
             await import("../triggers/dispatcher.js");
           await initTriggerDispatcher({
-            getActions: () => ({
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...(lazyContext ? frameworkContextTool : {}),
-              ...chatScripts,
-              ...jobTools,
-              ...automationTools,
-              ...notificationTools,
-              ...progressTools,
-              ...fetchTool,
-              ...webSearchTool,
-              ...toolActions,
-            }),
+            getActions: getBackgroundActionEntries,
             getSystemPrompt: async (owner: string) => {
               const resources = await loadResourcesForPrompt(
                 owner,
                 lazyContext,
                 options?.appId,
+                undefined,
+                { disabledFrameworkGroups },
               );
               const schemaBlock = lazyContext
                 ? ""
@@ -5870,10 +6498,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             },
             // See the matching comment on schedulerDeps.getInitialToolNames
             // above — same shared `basePrompt`, same reasoning.
-            getInitialToolNames: () => [
+            getInitialToolNames: (automation?: RecurringJobContext) => [
               ...effectiveInitialToolNames,
               "manage-jobs",
               "manage-progress",
+              ...(automation?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
             model: options?.model,
@@ -5881,7 +6510,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           if (process.env.DEBUG)
             console.log("[triggers] Trigger dispatcher initialized");
-        } catch (err) {
+        } catch {
           // Triggers module not available — skip silently
         }
       }

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import {
   compareAndSetAppState,
+  compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -39,15 +40,24 @@ export default defineAction({
       repromptId,
     );
     const proposal = await readAppState(proposalKey);
-    const [pendingCancelled, proposalCancelled] = await Promise.all([
-      compareAndSetAppState(pendingKey, pending, null),
-      isNodeRewriteProposal(proposal)
-        ? compareAndSetAppState(proposalKey, proposal, null)
-        : Promise.resolve(false),
-    ]);
+    const proposalCancelled = isNodeRewriteProposal(proposal);
+    const pendingCancelled = proposalCancelled
+      ? await compareAndSetManyAppState([
+          {
+            key: pendingKey,
+            expectedValue: pending,
+            nextValue: null,
+          },
+          {
+            key: proposalKey,
+            expectedValue: proposal,
+            nextValue: null,
+          },
+        ])
+      : await compareAndSetAppState(pendingKey, pending, null);
     return {
       cancelled: pendingCancelled,
-      proposalCancelled,
+      proposalCancelled: proposalCancelled && pendingCancelled,
       superseded: !pendingCancelled,
     };
   },

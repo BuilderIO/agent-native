@@ -18,6 +18,10 @@ const IS_DEV = !app.isPackaged;
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
+// electron-updater's feed request has no built-in timeout; without this, a
+// hung request would pin `updateCheckInFlight` forever and the periodic
+// check's `checkRunning` guard would never release.
+const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
   "https://agent-native.com/api/desktop-updates";
 const DESKTOP_UPDATE_FEED_URL = (
@@ -31,10 +35,18 @@ let currentUpdateStatus: UpdateStatus = IS_DEV
 let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
+let pendingDownloadedUpdate: Extract<
+  UpdateStatus,
+  { state: "downloaded" }
+> | null = null;
 
 export interface UpdatesIpcDeps {
   refreshApplicationMenu: () => void;
   focusMainWindow: () => void;
+}
+
+export interface UpdateCheckOptions {
+  notifyOnResult?: boolean;
 }
 
 // Populated by `registerUpdatesIpc` during startup, before any of the
@@ -64,16 +76,61 @@ function broadcastUpdateStatus(status: UpdateStatus) {
   }
 }
 
-/** Triggers (or awaits an in-flight) update check. Exported for the app menu's "Check for Updates" item. */
-export async function checkForAppUpdates(): Promise<UpdateStatus> {
+function publishDownloadedUpdate() {
+  if (!pendingDownloadedUpdate) return;
+  const update = pendingDownloadedUpdate;
+  pendingDownloadedUpdate = null;
+  broadcastUpdateStatus(update);
+  showUpdateReadyNotification(update.version);
+}
+
+function hasUpdateReadyToInstall(): boolean {
+  return (
+    pendingDownloadedUpdate !== null ||
+    currentUpdateStatus.state === "downloaded"
+  );
+}
+
+async function waitForDownloadedUpdate(
+  downloadPromise: Promise<unknown> | null | undefined,
+) {
+  await downloadPromise;
+  publishDownloadedUpdate();
+}
+
+function withUpdateCheckTimeout<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `Update check timed out after ${UPDATE_CHECK_TIMEOUT_MS}ms`,
+          ),
+        ),
+      UPDATE_CHECK_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Triggers (or awaits an in-flight) update check. */
+export async function checkForAppUpdates(
+  options: UpdateCheckOptions = {},
+): Promise<UpdateStatus> {
   if (IS_DEV) return currentUpdateStatus;
-  if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
+  if (hasUpdateReadyToInstall()) return currentUpdateStatus;
 
   if (!updateCheckInFlight) {
     lastUpdateCheckStartedAt = Date.now();
-    updateCheckInFlight = autoUpdater
-      .checkForUpdates()
+    updateCheckInFlight = withUpdateCheckTimeout(
+      (async () => {
+        const result = await autoUpdater.checkForUpdates();
+        await waitForDownloadedUpdate(result?.downloadPromise);
+      })(),
+    )
       .catch((err) => {
+        pendingDownloadedUpdate = null;
         broadcastUpdateStatus({
           state: "error",
           message: err instanceof Error ? err.message : String(err),
@@ -85,12 +142,15 @@ export async function checkForAppUpdates(): Promise<UpdateStatus> {
   }
 
   await updateCheckInFlight;
+  if (options.notifyOnResult) {
+    showUpdateCheckResultNotification(currentUpdateStatus);
+  }
   return currentUpdateStatus;
 }
 
 function maybeCheckForAppUpdates() {
   if (IS_DEV) return;
-  if (currentUpdateStatus.state === "downloaded") return;
+  if (hasUpdateReadyToInstall()) return;
   if (
     updateCheckInFlight ||
     Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
@@ -112,6 +172,27 @@ function showUpdateReadyNotification(version: string) {
   notification.on("click", (_event) => {
     getDeps().focusMainWindow();
   });
+  notification.show();
+}
+
+function showUpdateCheckResultNotification(status: UpdateStatus) {
+  if (!Notification.isSupported()) return;
+
+  const notification =
+    status.state === "not-available"
+      ? new Notification({
+          title: "Agent Native is up to date",
+          body: `You're running the latest version (${status.currentVersion}).`,
+        })
+      : status.state === "error"
+        ? new Notification({
+            title: "Could not check for Agent Native updates",
+            body: status.message,
+          })
+        : null;
+
+  if (!notification) return;
+  notification.on("click", () => getDeps().focusMainWindow());
   notification.show();
 }
 
@@ -164,16 +245,19 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     });
 
     autoUpdater.on("update-downloaded", (info) => {
-      broadcastUpdateStatus({
+      // On macOS this event precedes native Squirrel staging; publish only
+      // after the download promise resolves so the first relaunch can install.
+      if (hasUpdateReadyToInstall()) return;
+      pendingDownloadedUpdate = {
         state: "downloaded",
         version: info.version,
         releaseNotes:
           typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-      });
-      showUpdateReadyNotification(info.version);
+      };
     });
 
     autoUpdater.on("error", (err) => {
+      pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
         message: err?.message ?? String(err),
@@ -182,7 +266,14 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
 
     app.whenReady().then(() => {
       void checkForAppUpdates();
-      setInterval(() => void checkForAppUpdates(), UPDATE_CHECK_INTERVAL_MS);
+      let checkRunning = false;
+      setInterval(() => {
+        if (checkRunning) return;
+        checkRunning = true;
+        void checkForAppUpdates().finally(() => {
+          checkRunning = false;
+        });
+      }, UPDATE_CHECK_INTERVAL_MS);
     });
 
     app.on("browser-window-focus", maybeCheckForAppUpdates);
@@ -195,14 +286,15 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   );
 
   ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
-    return checkForAppUpdates();
+    return checkForAppUpdates({ notifyOnResult: true });
   });
 
   ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-    if (IS_DEV) return currentUpdateStatus;
+    if (IS_DEV || hasUpdateReadyToInstall()) return currentUpdateStatus;
     try {
-      await autoUpdater.downloadUpdate();
+      await waitForDownloadedUpdate(autoUpdater.downloadUpdate());
     } catch (err) {
+      pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
         message: err instanceof Error ? err.message : String(err),

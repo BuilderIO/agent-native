@@ -143,6 +143,13 @@ describe("executeCodeAgentRun", () => {
   it("runs a Codex CLI-backed session without provider API keys", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    process.env.MCP_SERVERS = JSON.stringify({
+      workspaceHttp: {
+        type: "http",
+        url: "https://workspace.example/mcp",
+      },
+    });
     const binDir = path.join(root, "bin");
     const promptPath = path.join(root, "codex-prompt.txt");
     const argsPath = path.join(root, "codex-args.json");
@@ -189,29 +196,43 @@ describe("executeCodeAgentRun", () => {
       stdout: output.stream,
     });
 
-    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
-      status: "completed",
-      phase: "complete",
-      metadata: {
-        engine: "codex-cli",
-        model: "codex-default",
-      },
-    });
-    expect(output.read()).toContain("Codex streamed output");
-    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
-    const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
-    const execIndex = args.indexOf("exec");
-    expect(args.slice(0, 3)).toEqual(["--ask-for-approval", "never", "exec"]);
-    expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
-    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "system",
-          message: "Codex final answer",
-          metadata: expect.objectContaining({ engine: "codex-cli" }),
-        }),
-      ]),
-    );
+    try {
+      expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+        status: "completed",
+        phase: "complete",
+        metadata: {
+          engine: "codex-cli",
+          model: "codex-default",
+        },
+      });
+      expect(output.read()).toContain("Codex streamed output");
+      expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+      const execIndex = args.indexOf("exec");
+      expect(execIndex).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeLessThan(execIndex);
+      expect(args.indexOf("--sandbox")).toBeGreaterThan(-1);
+      expect(args.indexOf("--sandbox")).toBeLessThan(execIndex);
+      expect(args.indexOf("--cd")).toBeGreaterThan(-1);
+      expect(args.indexOf("--cd")).toBeLessThan(execIndex);
+      expect(args.indexOf("-c")).toBeGreaterThan(-1);
+      expect(args.indexOf("-c")).toBeLessThan(execIndex);
+      expect(args.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
+      expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+      expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "system",
+            message: "Codex final answer",
+            metadata: expect.objectContaining({ engine: "codex-cli" }),
+          }),
+        ]),
+      );
+    } finally {
+      if (originalMcpServers === undefined) delete process.env.MCP_SERVERS;
+      else process.env.MCP_SERVERS = originalMcpServers;
+    }
   });
 
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
@@ -530,6 +551,38 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
+  it("keeps structured tool output out of the assistant stdout stream", async () => {
+    useTempCodeAgentsHome();
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Render tool output separately",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "run a command",
+      stdout: output.stream,
+      streamToolOutputToStdout: false,
+      engine: createBashExecutionEngine(),
+    });
+
+    expect(output.read()).toContain("done");
+    expect(output.read()).not.toContain("desktop-tool-output");
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            result: expect.stringContaining("desktop-tool-output"),
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("limits recap-source runs to repository reads and one output writer", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
@@ -766,6 +819,45 @@ function createToolCaptureEngine(
       yield {
         type: "assistant-content",
         parts: [{ type: "text", text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
+function createBashExecutionEngine(): AgentEngine {
+  let turn = 0;
+  return {
+    name: "bash-execution",
+    label: "Bash Execution",
+    defaultModel: "bash-execution",
+    supportedModels: ["bash-execution"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      if (turn++ === 0) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "bash-output",
+              name: "bash",
+              input: { command: "echo desktop-tool-output" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
       };
       yield { type: "stop", reason: "end_turn" };
     },
@@ -1109,6 +1201,34 @@ describe("buildCodeAgentSystemPrompt", () => {
     expect(prompt).toContain("Always run pnpm typecheck before committing.");
   });
 
+  it("uses the configured development instruction file without leaking runtime instructions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-audiences-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    );
+    fs.mkdirSync(path.join(root, "app-agent"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app-agent", "AGENTS.md"),
+      "Runtime-only instructions.",
+    );
+    fs.writeFileSync(
+      path.join(root, "DEVELOPING.md"),
+      "Development-only instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("Development-only instructions.");
+    expect(prompt).not.toContain("Runtime-only instructions.");
+  });
+
   it("falls back to CLAUDE.md when AGENTS.md is absent", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-claude-"));
     tmpRoots.push(root);
@@ -1208,6 +1328,16 @@ describe("buildCodeAgentSystemPrompt", () => {
     const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
     expect(prompt).toContain(
       "More deeply nested AGENTS.md files take precedence",
+    );
+  });
+
+  it("scales verification to the changed area instead of requiring a ritual", () => {
+    const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain(
+      "use the narrowest relevant test, typecheck, formatter, or direct invocation",
+    );
+    expect(prompt).toContain(
+      "Do not restart a dev server or run broad checks as a generic post-edit ritual",
     );
   });
 

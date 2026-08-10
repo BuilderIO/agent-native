@@ -49,8 +49,7 @@ import {
   sectionInputSchema,
 } from "../server/plans.js";
 import {
-  agentPlanContentPatchesSchema,
-  agentPlanContentSchema,
+  agentPlanIncrementalContentPatchesSchema,
   applyPlanContentPatches,
   planContentPatchesSchema,
   planContentSchema,
@@ -112,6 +111,7 @@ function contentPatchTargetId(patch: PlanContentPatch) {
   if ("blockId" in patch) return patch.blockId;
   if ("screenId" in patch) return patch.screenId;
   if (patch.op === "set-metadata") return "plan-metadata";
+  if (patch.op === "set-visual-render-mode") return "visual-render-mode";
   if (patch.op === "set-prototype" || patch.op === "remove-prototype") {
     return "prototype";
   }
@@ -451,7 +451,33 @@ function contentPatchDetails(input: {
 const CONTENT_DESCRIPTION =
   "Destructive full structured content replacement. Read the latest plan first and pass its updatedAt as expectedUpdatedAt. Prefer granular contentPatches for ordinary edits; use this only for intentional broad restructuring.";
 const CONTENT_PATCHES_DESCRIPTION =
-  "Targeted structured content edits addressed by stable id. Prefer granular operations for live plans. The destructive replace-blocks operation requires expectedUpdatedAt from a fresh read. patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype surfaces; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html.";
+  "Targeted structured content edits addressed by stable id. Prefer granular operations for live plans. The destructive replace-blocks operation requires expectedUpdatedAt from a fresh read. patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief; set-visual-render-mode to persist `design` (high fidelity, authored CSS, no rough.js for any viewer) or `wireframe` across canvas, linked blocks, and prototype screens; set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype surfaces; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html. A fidelity upgrade must also replace or patch the existing screen HTML/CSS with deliberate branded design; changing render mode alone only removes the sketch treatment.";
+
+function compactAgentWriteResult(
+  bundle: Awaited<ReturnType<typeof loadPlanBundle>>,
+  changed: Record<string, unknown>,
+) {
+  return {
+    planId: bundle.plan.id,
+    plan: {
+      id: bundle.plan.id,
+      title: bundle.plan.title,
+      brief: bundle.plan.brief,
+      kind: bundle.plan.kind,
+      status: bundle.plan.status,
+      currentFocus: bundle.plan.currentFocus,
+      updatedAt: bundle.plan.updatedAt,
+      surfaces: {
+        blocks: bundle.plan.content?.blocks.length ?? 0,
+        canvasFrames: bundle.plan.content?.canvas?.frames.length ?? 0,
+        prototypeScreens: bundle.plan.content?.prototype?.screens.length ?? 0,
+      },
+    },
+    changed,
+    path: planPath(bundle.plan.id, bundle.plan.kind),
+    url: planPath(bundle.plan.id, bundle.plan.kind),
+  };
+}
 
 // Named so `agentInputSchema` below can `.extend()` it with compact
 // `content`/`contentPatches` fields instead of duplicating every other key.
@@ -526,21 +552,26 @@ const updateVisualPlanSchema = z.object({
     .describe("Short label saved as the version-history snapshot label."),
 });
 
-export default defineAction({
-  description:
-    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits. Use full content only for broad restructuring. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed — to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
-  schema: updateVisualPlanSchema,
-  // ADVERTISED-ONLY: same top-level shape, but `content`/`contentPatches`
-  // swap the deep per-block-type union for a compact `type`-enum stand-in.
-  // Runtime validation always runs the full schema above — see the `actions`
-  // skill.
-  agentInputSchema: updateVisualPlanSchema.extend({
-    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
-    contentPatches: agentPlanContentPatchesSchema
+// ADVERTISED-ONLY: agent edits to an existing plan must stay incremental. The
+// runtime schema above still accepts full replacements for the browser editor
+// and explicit callers that have intentionally chosen that workflow.
+const agentUpdateVisualPlanSchema = updateVisualPlanSchema
+  .omit({ content: true, html: true, markdown: true, sections: true })
+  .extend({
+    contentPatches: agentPlanIncrementalContentPatchesSchema
       .optional()
       .default([])
-      .describe(CONTENT_PATCHES_DESCRIPTION),
-  }),
+      .describe(
+        "Small targeted edits only. Do not send full content or replace-blocks; " +
+          "append or patch one existing block at a time.",
+      ),
+  });
+
+export default defineAction({
+  description:
+    "Update an Agent-Native Plan's structured content blocks, prototype screens, visual fidelity, sections, comments, or status. For an existing plan, use small contentPatches such as append-block, update-rich-text, or a text patch; do not resend the full document for an incremental edit. When a user asks for higher fidelity on an existing plan, update that same plan in place: use set-visual-render-mode with design and provide polished screen HTML/CSS in the same call instead of creating a duplicate plan or only toggling the viewer-local clean style. Use a full replacement only for an explicit broad rebuild. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed - to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
+  schema: updateVisualPlanSchema,
+  agentInputSchema: agentUpdateVisualPlanSchema,
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -1172,6 +1203,18 @@ export default defineAction({
           ),
         })
       : null;
+    if (isAgentCaller) {
+      return {
+        ...compactAgentWriteResult(bundle, {
+          titleChanged: args.title !== undefined,
+          briefChanged: args.brief !== undefined,
+          statusChanged: args.status !== undefined,
+          contentPatchOps: args.contentPatches.map((patch) => patch.op),
+          commentCount: insertedCommentIds.length,
+        }),
+        ...(local?.written ? { localFiles: local } : {}),
+      };
+    }
     return {
       ...bundle,
       planId: bundle.plan.id,

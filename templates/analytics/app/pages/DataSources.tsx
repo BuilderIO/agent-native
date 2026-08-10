@@ -10,7 +10,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { oauthRedirectUri } from "@agent-native/core/client/host";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconCheck,
   IconChevronDown,
@@ -28,10 +29,12 @@ import {
   IconCopy,
   IconDotsVertical,
   IconBrandGithub,
+  IconBrandGoogle,
   IconPlugConnected,
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 
 import {
   AlertDialog,
@@ -67,10 +70,17 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { getIdToken } from "@/lib/auth";
 import {
+  dataSourceOAuthReturnPath,
+  focusedDataSourceFromSearchParams,
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
+  getGoogleDriveConnection,
+  isWorkspaceOAuthSource,
   isSourceReady,
   isSourceLocallyConfigured,
+  shouldOfferWorkspaceOAuthReconnect,
+  shouldShowWorkspaceOAuthAdminNotice,
+  shouldShowWorkspaceOAuthSetup,
   credentialRowsFromStatus,
   type DataSourceStatusResponse,
   type EnvKeyStatus,
@@ -83,6 +93,8 @@ import {
   type DataSource,
   type WalkthroughStep,
 } from "@/lib/data-sources";
+
+import { CustomApiCard } from "../components/CustomApiCard";
 
 interface AnalyticsPublicKeyRow {
   id: string;
@@ -106,6 +118,26 @@ interface GitHubOAuthStatus {
     htmlUrl?: string | null;
   };
   error?: string;
+}
+
+interface FirstPartyAnalyticsHealthResponse {
+  status: "healthy" | "monitor" | "recommend_bigquery" | "unavailable";
+  externalBackendRecommendation?: "none" | "connect" | "use" | "unknown";
+  metrics: {
+    eventCount: number;
+    slowQueryCount24h: number;
+    maxQueryDurationMs24h: number;
+  };
+  externalBackends?: Array<{
+    id: "bigquery" | "amplitude";
+    label: string;
+    role: "warehouse" | "product-analytics";
+    configured: boolean | null;
+    setupLink: string;
+  }>;
+  bigQuery: {
+    configured: boolean | null;
+  };
 }
 
 const firstPartyAnalyticsEndpoint =
@@ -134,10 +166,24 @@ async function testConnection(
   return res.json();
 }
 
+// Bounds the GitHub status fetch so a hang can't leave the connect poll's
+// `inFlight` guard stuck and stall the interval forever.
+const GITHUB_OAUTH_STATUS_ABORT_MS = 10_000;
+
 async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
-  const res = await fetch(
-    agentNativePath("/_agent-native/oauth/github/status"),
+  const controller = new AbortController();
+  const abortTimer = setTimeout(
+    () => controller.abort(),
+    GITHUB_OAUTH_STATUS_ABORT_MS,
   );
+  let res: Response;
+  try {
+    res = await fetch(agentNativePath("/_agent-native/oauth/github/status"), {
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(abortTimer);
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || "Failed to load GitHub status");
@@ -342,8 +388,18 @@ function GitHubOAuthView({
     },
     onSuccess: () => {
       const startedAt = Date.now();
-      const pollId = window.setInterval(() => {
-        refresh();
+      let inFlight = false;
+      const pollId = window.setInterval(async () => {
+        if (document.hidden || inFlight) return;
+        inFlight = true;
+        try {
+          await queryClient.invalidateQueries({
+            queryKey: ["github-oauth-status"],
+          });
+          onSaved();
+        } finally {
+          inFlight = false;
+        }
         if (Date.now() - startedAt > 120_000) {
           window.clearInterval(pollId);
         }
@@ -430,27 +486,30 @@ function GitHubOAuthView({
   );
 }
 
+function startWorkspaceOAuth(provider: string, returnPath: string): void {
+  const params = new URLSearchParams({
+    appId: "analytics",
+    return: returnPath,
+  });
+  window.location.assign(
+    agentNativePath(
+      `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
+    ),
+  );
+}
+
 function WorkspaceOAuthView({
   provider,
   label,
   connected,
+  returnPath = "/data-sources",
 }: {
   provider: string;
   label: string;
   connected: boolean;
+  returnPath?: string;
 }) {
   const t = useT();
-  const connect = () => {
-    const params = new URLSearchParams({
-      appId: "analytics",
-      return: "/data-sources",
-    });
-    window.location.assign(
-      agentNativePath(
-        `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
-      ),
-    );
-  };
 
   return (
     <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
@@ -469,13 +528,57 @@ function WorkspaceOAuthView({
         <Button
           size="sm"
           variant={connected ? "outline" : "default"}
-          onClick={connect}
+          onClick={() => startWorkspaceOAuth(provider, returnPath)}
           className="shrink-0 text-xs"
         >
           {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
         </Button>
       </div>
     </div>
+  );
+}
+
+function GoogleSheetsExportCard({
+  statusData,
+}: {
+  statusData: DataSourceStatusResponse | undefined;
+}) {
+  const t = useT();
+  const connection = getGoogleDriveConnection(statusData);
+  const connected = connection?.grantState === "connected";
+
+  return (
+    <Card className="data-source-card bg-card border-border/50">
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <IconBrandGoogle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium">
+                {t("dataSources.googleSheetsExport")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("dataSources.googleSheetsExportDescription")}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`shrink-0 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}
+          >
+            {connected
+              ? t("dataSources.connected")
+              : t("dataSources.notConfigured")}
+          </span>
+        </div>
+        <WorkspaceOAuthView
+          provider="google_drive"
+          label={t("dataSources.googleSheets")}
+          connected={connected}
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -528,10 +631,16 @@ function SharedConnectionStatusRow({
 
 function WorkspaceReadyView({
   source,
+  sharedConnectionStatus,
+  canManageOrg,
+  oauthReturnPath,
   onSaved,
   onAddLocalCredentials,
 }: {
   source: DataSource;
+  sharedConnectionStatus: SharedConnectionStatus | null;
+  canManageOrg: boolean;
+  oauthReturnPath: string;
   onSaved: () => void;
   onAddLocalCredentials: () => void;
 }) {
@@ -548,6 +657,12 @@ function WorkspaceReadyView({
       onSaved();
     },
   });
+  const canReconnect = shouldOfferWorkspaceOAuthReconnect(
+    source,
+    sharedConnectionStatus,
+    canManageOrg,
+    testResult?.ok === false,
+  );
 
   return (
     <div className="space-y-3">
@@ -582,6 +697,16 @@ function WorkspaceReadyView({
         >
           {t("dataSources.addLocalCredentials")}
         </Button>
+        {canReconnect && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => startWorkspaceOAuth(source.id, oauthReturnPath)}
+            className="text-xs"
+          >
+            {t("dataSources.reconnect")}
+          </Button>
+        )}
         {source.docsUrl && (
           <a
             href={source.docsUrl}
@@ -1054,6 +1179,13 @@ function DataSourceCard({
   sharedConnectionStatus,
   envStatus,
   isStatusLoading,
+  statusUnknown,
+  canManageOrg,
+  orgLoaded,
+  hasOrg,
+  focused,
+  oauthReturnPath,
+  showAskContinuation,
   onSaved,
 }: {
   source: DataSource;
@@ -1062,10 +1194,17 @@ function DataSourceCard({
   sharedConnectionStatus: SharedConnectionStatus | null;
   envStatus: EnvKeyStatus[];
   isStatusLoading: boolean;
+  statusUnknown: boolean;
+  canManageOrg: boolean;
+  orgLoaded: boolean;
+  hasOrg: boolean;
+  focused: boolean;
+  oauthReturnPath: string;
+  showAskContinuation: boolean;
   onSaved: () => void;
 }) {
   const t = useT();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(focused);
   const [currentStep, setCurrentStep] = useState(0);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [showLocalCredentials, setShowLocalCredentials] = useState(false);
@@ -1090,9 +1229,26 @@ function DataSourceCard({
   const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
   const showCredentialSetup =
     !locallyConfigured && (!readyViaWorkspace || showLocalCredentials);
+  const preferWorkspaceSetup =
+    isWorkspaceOAuthSource(source) &&
+    !locallyConfigured &&
+    !readyViaWorkspace &&
+    !showLocalCredentials;
+  const workspaceRoleLoading =
+    isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
+  // An unreadable status cannot tell this source apart from an unconfigured
+  // one, so the setup walkthrough would be guessing.
+  const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
+
+  useEffect(() => {
+    if (focused) setExpanded(true);
+  }, [focused]);
 
   return (
-    <Card className="data-source-card bg-card border-border/50">
+    <Card
+      id={`data-source-${source.id}`}
+      className="data-source-card bg-card border-border/50"
+    >
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -1115,6 +1271,11 @@ function DataSourceCard({
             <div className="flex shrink-0 items-center gap-2">
               {isStatusLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
+              ) : statusUnknown && !ready ? (
+                <span className="flex items-center gap-1.5 text-xs text-amber-500 font-medium whitespace-nowrap">
+                  <IconAlertCircle className="h-3.5 w-3.5" />
+                  {t("dataSources.statusUnknown")}
+                </span>
               ) : ready ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
@@ -1128,7 +1289,7 @@ function DataSourceCard({
                   {t("dataSources.notConfigured")}
                 </span>
               )}
-              {!isStatusLoading && sharedConnectionStatus && (
+              {!isStatusLoading && !statusUnknown && sharedConnectionStatus && (
                 <span className="data-source-shared-badge">
                   <SharedConnectionBadge status={sharedConnectionStatus} />
                 </span>
@@ -1143,8 +1304,38 @@ function DataSourceCard({
         </CardHeader>
       </button>
 
-      {expanded && (
+      {expanded && showUnknownStatus && (
         <CardContent className="border-t border-border/50 px-5 py-4">
+          <div className="space-y-3">
+            <p className="flex items-start gap-2 text-xs text-muted-foreground">
+              <IconAlertCircle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
+              {t("dataSources.statusUnknownDescription")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowLocalCredentials(true)}
+              className="text-xs"
+            >
+              {t("dataSources.addLocalCredentials")}
+            </Button>
+          </div>
+        </CardContent>
+      )}
+
+      {expanded && !showUnknownStatus && (
+        <CardContent className="border-t border-border/50 px-5 py-4">
+          {focused && ready && showAskContinuation && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <span className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <IconCheck className="h-3.5 w-3.5" />
+                {t("dataSources.connectionSuccessful")}
+              </span>
+              <Button asChild size="sm" className="text-xs">
+                <Link to="/ask">{t("navigation.ask")}</Link>
+              </Button>
+            </div>
+          )}
           {source.id === "github" && (
             <div className="mb-4">
               <GitHubOAuthView
@@ -1153,20 +1344,50 @@ function DataSourceCard({
               />
             </div>
           )}
-          {(["notion", "hubspot", "jira", "sentry"] as const).includes(
-            source.id as "notion" | "hubspot" | "jira" | "sentry",
+          {shouldShowWorkspaceOAuthSetup(
+            source,
+            sharedConnectionStatus,
+            canManageOrg,
           ) && (
             <div className="mb-4">
               <WorkspaceOAuthView
                 provider={source.id}
                 label={source.name}
-                connected={readyViaWorkspace}
+                connected={sharedConnectionStatus?.kind === "needs_grant"}
+                returnPath={oauthReturnPath}
               />
             </div>
           )}
-          {sharedConnectionStatus && (
-            <SharedConnectionStatusRow status={sharedConnectionStatus} />
+          {shouldShowWorkspaceOAuthAdminNotice(
+            source,
+            ready,
+            canManageOrg,
+            orgLoaded,
+            hasOrg,
+          ) && (
+            <div className="mb-4 rounded-md border border-border/50 bg-muted/20 p-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                  <IconPlugConnected className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-medium text-foreground">
+                    {t("dataSources.workspaceAdminRequiredTitle")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("dataSources.workspaceAdminRequiredDescription", {
+                      name: source.name,
+                    })}
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
+          {sharedConnectionStatus &&
+            sharedConnectionStatus.kind !== "needs_credentials" &&
+            sharedConnectionStatus.kind !== "needs_grant" && (
+              <SharedConnectionStatusRow status={sharedConnectionStatus} />
+            )}
           {locallyConfigured ? (
             <ConnectedView
               source={source}
@@ -1176,9 +1397,23 @@ function DataSourceCard({
           ) : readyViaWorkspace && !showCredentialSetup ? (
             <WorkspaceReadyView
               source={source}
+              sharedConnectionStatus={sharedConnectionStatus}
+              canManageOrg={canManageOrg}
+              oauthReturnPath={oauthReturnPath}
               onSaved={onSaved}
               onAddLocalCredentials={() => setShowLocalCredentials(true)}
             />
+          ) : workspaceRoleLoading ? (
+            <Skeleton className="h-9 w-full rounded-md" />
+          ) : preferWorkspaceSetup ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowLocalCredentials(true)}
+              className="text-xs"
+            >
+              {t("dataSources.addLocalCredentials")}
+            </Button>
           ) : (
             <>
               {/* Step progress */}
@@ -1388,6 +1623,7 @@ function AddDataSourceCTA() {
 
 function FirstPartyAnalyticsCard() {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
@@ -1403,6 +1639,35 @@ function FirstPartyAnalyticsCard() {
     (key) => !key.revokedAt,
   );
   const connected = keys.length > 0;
+  const {
+    data: rawHealth,
+    isLoading: isHealthLoading,
+    isError: isHealthError,
+  } = useActionQuery("get-first-party-analytics-health", undefined, {
+    staleTime: 30_000,
+    retry: false,
+  });
+  const health = rawHealth as FirstPartyAnalyticsHealthResponse | undefined;
+  const healthStatus = isHealthError ? "unavailable" : health?.status;
+  const externalBackends = health?.externalBackends ?? [];
+  const externalBackendConfigured = externalBackends.some(
+    (backend) => backend.configured === true,
+  );
+  const recommendsExternalBackend = healthStatus === "recommend_bigquery";
+  const healthTitleKey = recommendsExternalBackend
+    ? externalBackendConfigured
+      ? "analyticsBackend.connectedTitle"
+      : "analyticsBackend.recommendationTitle"
+    : null;
+  const healthDescriptionKey = recommendsExternalBackend
+    ? externalBackendConfigured
+      ? "analyticsBackend.connectedDescription"
+      : "analyticsBackend.recommendationDescription"
+    : healthStatus === "monitor"
+      ? "analyticsBackend.monitorDescription"
+      : healthStatus === "healthy"
+        ? "analyticsBackend.healthyDescription"
+        : "analyticsBackend.unavailableDescription";
 
   const createKey = useActionMutation("create-analytics-public-key", {
     onSuccess: (result: any) => {
@@ -1452,10 +1717,22 @@ function FirstPartyAnalyticsCard() {
             <div className="flex shrink-0 items-center gap-2">
               {isLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
+              ) : recommendsExternalBackend ? (
+                <span
+                  className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-500"
+                  title={healthTitleKey ? t(healthTitleKey) : undefined}
+                >
+                  <IconAlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="max-w-[12rem] truncate">
+                    {healthTitleKey
+                      ? t(healthTitleKey)
+                      : t("analyticsBackend.recommendationTitle")}
+                  </span>
+                </span>
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  {t("dataSources.configured")}
+                  {t("analyticsBackend.configured")}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
@@ -1476,6 +1753,105 @@ function FirstPartyAnalyticsCard() {
       {expanded && (
         <CardContent className="border-t border-border/50 px-5 py-4">
           <div className="space-y-4">
+            {isHealthLoading ? (
+              <Skeleton className="h-28 w-full rounded-md" />
+            ) : (
+              <div
+                className={`rounded-md border p-3 text-xs ${
+                  recommendsExternalBackend
+                    ? "border-amber-500/30 bg-amber-500/10"
+                    : "border-border/50 bg-muted/20"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <IconAlertCircle
+                      className={`mt-px h-3.5 w-3.5 shrink-0 ${
+                        recommendsExternalBackend
+                          ? "text-amber-500"
+                          : "text-muted-foreground"
+                      }`}
+                    />
+                    <div className="min-w-0 space-y-1">
+                      {healthTitleKey && (
+                        <p className="font-medium text-foreground">
+                          {t(healthTitleKey)}
+                        </p>
+                      )}
+                      <p className="text-muted-foreground">
+                        {t(healthDescriptionKey)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {externalBackends.length > 0 && (
+                  <div className="mt-3 border-t border-border/30 pt-3">
+                    <div className="mb-2 text-muted-foreground">
+                      {t("analyticsBackend.options")}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {externalBackends.map((backend) => {
+                        const statusLabel =
+                          backend.configured === true
+                            ? t("analyticsBackend.configured")
+                            : backend.configured === false
+                              ? t("analyticsBackend.setUp")
+                              : t("dataSources.statusUnknown");
+                        return (
+                          <Button
+                            asChild
+                            key={backend.id}
+                            size="sm"
+                            variant={
+                              backend.configured === true
+                                ? "outline"
+                                : "default"
+                            }
+                            className="text-xs"
+                          >
+                            <Link to={backend.setupLink}>
+                              {backend.label} · {statusLabel}
+                            </Link>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {health && healthStatus !== "unavailable" && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/30 pt-3">
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.analyticsEventCount")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(health.metrics.eventCount)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.slowQueries24h")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(health.metrics.slowQueryCount24h)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.maxQueryDuration")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(
+                          health.metrics.maxQueryDurationMs24h / 1_000,
+                          { maximumFractionDigits: 1 },
+                        )}
+                        s
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">
@@ -1651,18 +2027,53 @@ function FirstPartyAnalyticsCard() {
 
 export default function DataSources() {
   const t = useT();
+  const { canManageOrg, isLoading: isOrgRoleLoading, org } = useOrgRole();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-
-  const { data: rawStatusData, isLoading: isStatusLoading } = useActionQuery(
-    "data-source-status",
-    undefined,
-    {
-      staleTime: 10_000,
-    },
+  const focusedSourceResolution =
+    focusedDataSourceFromSearchParams(searchParams);
+  const focusedSource =
+    focusedSourceResolution.status === "found"
+      ? focusedSourceResolution.source
+      : undefined;
+  const unknownFocusedSourceId =
+    focusedSourceResolution.status === "unknown"
+      ? focusedSourceResolution.requestedId
+      : null;
+  const focusedSourceId = focusedSource?.id ?? "";
+  const showAskContinuation = searchParams.get("returnTo") === "ask";
+  const [search, setSearch] = useState(() => focusedSource?.name ?? "");
+  const oauthReturnPath = dataSourceOAuthReturnPath(
+    focusedSource,
+    showAskContinuation,
   );
+
+  useEffect(() => {
+    if (focusedSource) {
+      setSearch(focusedSource.name);
+    } else if (unknownFocusedSourceId) {
+      setSearch("");
+    }
+  }, [focusedSource, unknownFocusedSourceId]);
+
+  const {
+    data: rawStatusData,
+    isLoading: isStatusLoading,
+    isError: isStatusError,
+  } = useActionQuery("data-source-status", undefined, {
+    staleTime: 10_000,
+  });
   const statusData = rawStatusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(statusData);
+  // A failed fetch, an error payload, or a failed workspace-connection lookup
+  // all read as "everything is unconfigured" once they collapse into the empty
+  // credential list. Keep them a separate state instead.
+  const statusUnknown =
+    !isStatusLoading &&
+    (isStatusError ||
+      !statusData ||
+      Boolean(statusData.error) ||
+      statusData.workspaceConnections?.available === false);
 
   const configuredCount = dataSources.filter((s) =>
     isSourceReady(s, statusData, envStatus),
@@ -1697,7 +2108,11 @@ export default function DataSources() {
       <p className="text-sm text-muted-foreground">
         {t("dataSources.intro")}{" "}
         {!isStatusLoading &&
-          (configuredCount > 0 ? (
+          (statusUnknown && configuredCount === 0 ? (
+            <span className="text-amber-500 font-medium">
+              {t("dataSources.statusUnknown")}
+            </span>
+          ) : configuredCount > 0 ? (
             <span className="text-emerald-500 font-medium">
               {t("dataSources.configuredCount", { count: configuredCount })}
             </span>
@@ -1707,6 +2122,22 @@ export default function DataSources() {
             </span>
           ))}
       </p>
+
+      <GoogleSheetsExportCard statusData={statusData} />
+
+      <CustomApiCard />
+
+      {unknownFocusedSourceId && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
+        >
+          <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {t("dataSources.noMatch", { search: unknownFocusedSourceId })}
+          </span>
+        </div>
+      )}
 
       {/* Search bar + Add Data Source */}
       <div className="data-sources-toolbar">
@@ -1745,6 +2176,13 @@ export default function DataSources() {
                 )}
                 envStatus={envStatus}
                 isStatusLoading={isStatusLoading}
+                statusUnknown={statusUnknown}
+                canManageOrg={canManageOrg}
+                orgLoaded={!isOrgRoleLoading}
+                hasOrg={Boolean(org?.orgId)}
+                focused={source.id === focusedSourceId}
+                oauthReturnPath={oauthReturnPath}
+                showAskContinuation={showAskContinuation}
                 onSaved={handleSaved}
               />
             ))}
@@ -1782,6 +2220,13 @@ export default function DataSources() {
                     )}
                     envStatus={envStatus}
                     isStatusLoading={isStatusLoading}
+                    statusUnknown={statusUnknown}
+                    canManageOrg={canManageOrg}
+                    orgLoaded={!isOrgRoleLoading}
+                    hasOrg={Boolean(org?.orgId)}
+                    focused={source.id === focusedSourceId}
+                    oauthReturnPath={oauthReturnPath}
+                    showAskContinuation={showAskContinuation}
                     onSaved={handleSaved}
                   />
                 ))}

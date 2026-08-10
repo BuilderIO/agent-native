@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { isRealtimeVoiceSetupRequired } from "./VoiceButton.js";
+import {
+  isRealtimeVoiceSetupRequired,
+  normalizeVoiceInputPreference,
+} from "./VoiceButton.js";
+
+describe("normalizeVoiceInputPreference", () => {
+  it("accepts only persisted realtime and dictation choices", () => {
+    expect(normalizeVoiceInputPreference({ mode: "realtime" })).toBe(
+      "realtime",
+    );
+    expect(normalizeVoiceInputPreference({ mode: "dictation" })).toBe(
+      "dictation",
+    );
+    expect(normalizeVoiceInputPreference({ mode: "voice" })).toBeNull();
+    expect(normalizeVoiceInputPreference(null)).toBeNull();
+  });
+});
 
 describe("isRealtimeVoiceSetupRequired", () => {
   it("waits for the voice-specific provider status before prompting setup", () => {

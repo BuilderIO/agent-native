@@ -91,7 +91,7 @@ Actions は、アプリの動作に関する唯一の信頼できる情報源で
 
 UI とエージェントの両方が何かを行う必要がある場合は、カスタムではなくアクションを実行します
 ルート。ルート型プロトコルが適切な呼び出しである場合については、「Actions を優先する
-アプリ操作用](/docs/server#actions-first)。
+アプリ操作用](/docs/server-overview#actions-first)。
 
 ## まずは 1 つのアクションから始めましょう {#hello-action}
 
@@ -253,7 +253,7 @@ export default defineAction({
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — デフォルトは `POST`。 `GET` actions は `readOnly` に自動マークされるため、呼び出しが成功しても UI ポーリング更新はトリガーされません。
 - **`http: { path: "..." }`** — `/_agent-native/actions/` の下にマウントされた URL をオーバーライドします。デフォルトはファイル名です。 **パス オーバーライドは、直接 HTTP 呼び出し元に対してのみ URL を変更します** — `useActionQuery`、`useActionMutation`、および `callAction` は、このオーバーライドに関係なく常に `/_agent-native/actions/<name>` を呼び出すため、パスをオーバーライドするとそれらのフックが 404 になります。パス オーバーライドは、外部 HTTP 呼び出し元に対してのみ使用してください。また、オーバーライド パス内の `:param` ルート セグメントは、`run()` 引数に解析されない\*\*ことにも注意してください。解析されるのは、クエリ文字列パラメータと JSON 本体フィールドのみです。
 - **`http: false`** — HTTP エンドポイントを完全に無効にします。エージェント + CLI のみ。
-- **`readOnly: true`** — 変異しない POST actions の場合でも、ポーリング更新を明示的にスキップします。
+- **`readOnly: true`** — 変異しない POST actions の場合でも、ポーリング更新を明示的にスキップします。 これはアクセス制御では **ありません**。誰が action を呼び出せるかを制限するものではなく、`useActionQuery`、`useActionMutation`、その他のクライアント hook にも影響しません。効果は、呼び出し後のリフレッシュイベントを抑制することと、action を書き込み監査の対象外にすることだけです。モデルから action を隠すには `agentTool: false` を、呼び出し元を制限するには上記の認証/アクセスオプションを使用してください。
 - **`parallelSafe: true`** — 変更アクションを他の同じターンのツール呼び出しと同時に実行できるようにします。これは、アクションが内部的に同時実行性が安全で、順序に依存しない場合にのみ設定します。デフォルトで actions シリアル化を変更します。
 
 ### アクション面を小さく保つ {#small-surface}
@@ -378,12 +378,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

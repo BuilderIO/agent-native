@@ -33,7 +33,7 @@ export function TemplateDocsLink({
 
   return (
     <Link
-      data-an-prefetch="render"
+      data-an-prefetch="viewport"
       to={sitePathForLocale(getTemplateDocsPath(template), locale)}
       onClick={() =>
         trackEvent("click view docs", {
@@ -43,7 +43,7 @@ export function TemplateDocsLink({
       }
       className={
         className ??
-        "inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+        "inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
       }
     >
       {children ?? t("common.viewDocs")}

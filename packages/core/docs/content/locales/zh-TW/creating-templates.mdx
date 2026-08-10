@@ -9,6 +9,14 @@ description: "如何建立和發布您自己的 Agent-Native 應用範本。"
 
 將 `@agent-native/core` 用於執行階段合約：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。將 `@agent-native/toolkit` 用於可重用的應用程式建構 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和簡單 app shell slots。當變體承載產品行為或視覺識別時，請保留在範本本地。
 
+在決定某項能力應放在哪一層時，請記住這三個層次：
+
+- **Core - 框架：**每個應用程式都可使用的必要執行階段與資料合約。
+- **Toolkit - 可選的可重複使用部件：**應用程式可以採用、組合或分叉的共享 UI 與產品系統。
+- **Templates - 可選應用程式：**建構在 Core 上、通常使用 Toolkit 的完整領域產品，可分叉作為起點。
+
+Toolkit 與 Templates 都是可選的。範本不等於框架本身，Toolkit 也不會取代 Core。
+
 一個好的範本：
 
 - 使用有用的種子資料或空狀態流端對端地解決一個工作流。
@@ -35,7 +43,7 @@ npx @agent-native/core@latest create my-platform
 
 聊天為您提供驗證、持久聊天對話串、SQL 支援的資源、工具、應用程式狀態、actions 和輪詢同步。您新增域模型和產品 UI。
 
-如果您尚未建置可重複使用的 UI 範本，請使用 [Getting Started](/docs/getting-started#1-create-your-app) 中的無頭入口：定義一個操作，使用 `pnpm agent` 執行它，並在工作流程需要耐用表面時新增 UI。
+如果您目前還不是在建置可重複使用的 UI 範本，請使用 [Automation-First Apps](/docs/pure-agent-apps)：定義動作，在不使用瀏覽器的情況下執行它們，並在工作流程需要持久化介面時再新增 UI。
 
 ## 專案結構 {#project-structure}
 
@@ -495,11 +503,23 @@ export default defineNitroPlugin(() => {
 4. 紀錄所需的環境變數和入門步驟。
 5. 透過附加遷移包含範例或種子行，而不是跟蹤的執行時資料檔案。
 
-可以從 GitHub 儲存庫建立社群範本：
+社群範本可直接從公開 GitHub 儲存庫安裝。請將 Agent Native 應用程式放在儲存庫根目錄：
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+如需固定特定版本，可加入 `#branch`、`#tag` 或 `#commit`：
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI 只下載原始碼，不會安裝相依套件或執行範本指令碼。社群範本屬於第三方程式碼；執行 `pnpm install` 前請檢查儲存庫、授權、相依套件和安裝指令碼。
+
+申請目錄收錄時，請確保儲存庫根目錄包含完整應用程式，公開儲存庫具有授權和設定 README，根 `package.json` 相依於 `@agent-native/core`，且型別檢查與測試均通過。託管示範和截圖為選填。
+
+儲存庫準備好後，[提交社群範本](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)。社群項目與較小的第一方目錄分開，並由作者維護。
 
 ## 為框架 monorepo 做出貢獻 {#contributing}
 

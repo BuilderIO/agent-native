@@ -11,6 +11,7 @@
  * doesn't shrink the captured pixels.
  */
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
+import { importExportModule } from "./dynamic-import";
 
 /**
  * Cross-origin <img> elements without an explicit `crossOrigin="anonymous"`
@@ -99,8 +100,8 @@ export async function exportDeckAsPdf(
   // JPEG (vs PNG) keeps a typical 8-slide deck under ~10 MB instead of
   // ~100 MB — at 0.92 quality the difference is invisible on slide content.
   const [{ domToJpeg }, { jsPDF }] = await Promise.all([
-    import("modern-screenshot"),
-    import("jspdf"),
+    importExportModule(() => import("modern-screenshot")),
+    importExportModule(() => import("jspdf")),
   ]);
 
   // Web fonts (Poppins) must finish loading before capture — otherwise

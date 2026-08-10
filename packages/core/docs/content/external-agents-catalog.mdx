@@ -1,0 +1,536 @@
+---
+title: "External Agents: Catalog & Developer Reference"
+description: "Developer reference for the external-agent bridge: MCP catalog tiers, tool exposure, the action link builder, the /_agent-native/open route, identity-resolution rules, and embed security."
+search: "MCP catalog tiers connector tier full tier link builder buildDeepLink open route identity resolution embed security ingest actions"
+---
+
+# External Agents: Catalog & Developer Reference
+
+<Callout tone="info">
+
+**Developer page.** This page is for template authors and framework developers wiring an app up to be a good external-agent citizen. For connecting Claude, ChatGPT, Codex, or Cursor to an app, see [External Agents](/docs/external-agents) instead.
+
+</Callout>
+
+This is the developer-reference half of the external-agent bridge: which tools a connected host actually sees, how an action advertises a deep link or inline MCP App, what the `/_agent-native/open` route does when a user clicks that link, and the security model underneath both.
+
+## Catalog tiers {#catalog-tiers}
+
+This is the canonical explanation of MCP catalog tiers — other pages link here.
+
+The MCP server serves a **compact catalog by default to every caller** — hosted connectors (ChatGPT, Claude), code clients (Claude Code, Cursor, Codex), and the local CLI/stdio proxy alike. The full action surface is served only on explicit opt-in. The catalog is never inferred from the client name or user-agent.
+
+<Diagram id="doc-block-eacat-tiers" title="Two catalog tiers" summary={"Every caller gets the compact tier by default; the full ~105-tool surface is opt-in only. tool-search bridges the gap so nothing is ever truly hidden."}>
+
+```html
+<div class="xa-tiers">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill ok"
+      >Compact / connector tier &middot; default</span
+    ><strong>~20&ndash;30 tools</strong
+    ><small class="diagram-muted"
+      >Template-declared app actions + cross-app builtins
+      (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>,
+      <code>create_embed_session</code>) + always-present
+      <code>tool-search</code>.</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill accent">Full tier &middot; opt-in</span
+    ><strong>~105 tools</strong
+    ><small class="diagram-muted"
+      >Explicit opt-in only: <code>--full-catalog</code> token or
+      <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small
+    >
+  </div>
+</div>
+<p class="diagram-muted note">
+  <code>tool-search</code> discovers full-tier tools on demand; the connector
+  catalog or authenticated-read policy must still permit execution unless the
+  caller explicitly opts into the full tier.
+</p>
+```
+
+```css
+.xa-tiers {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.xa-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  flex: 1;
+  min-width: 240px;
+}
+.xa-tiers .diagram-arrow {
+  align-self: center;
+  font-size: 24px;
+  line-height: 1;
+}
+.xa-tiers .note {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 0.85em;
+}
+.xa-tiers code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+### Compact / connector tier (default) {#connector-tier}
+
+By default every connected agent sees a small, curated catalog (~20–30 tools vs. ~105 in the full surface). Apps can either maintain an explicit `connectorCatalog`, or opt into the authenticated-read policy:
+
+- **Template-declared app actions** — the safe app-level allow-list. For Plan that is `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search`, and similar.
+- **Builtin cross-app tools** — `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
+- **`tool-search`** is always present for discovery. A discovered action still needs to be in the connector catalog, included by the authenticated-read policy, or reached through the explicit full-catalog opt-in before `tools/call` can execute it.
+
+Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development.
+
+`tool-search` works two ways: call it with **no query** for the full menu of tool names plus one-line descriptions (cheap, no schemas), or with a query for ranked matches with parameter summaries. It helps a compacted client discover capabilities; use `ask_app` for anything that requires the app agent's broader reasoning or a write.
+
+#### Authenticated reads by default
+
+Apps that want direct tools to "just work" without maintaining a long allow-list can opt into automatic authenticated reads:
+
+```ts
+export default createAgentChatPlugin({
+  appId: "example-app",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // Optional defense-in-depth veto for especially sensitive reads.
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+This is a generic policy example. Analytics intentionally sets `authenticatedReads: "off"` and exposes only its reviewed `connectorCatalog` actions.
+
+`authenticatedReads: "auto"` adds only actions that explicitly declare all of the following:
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+The policy combines those actions with any explicit `connectorCatalog` entries, then applies `denyActions`. With `writes: "ask_app_only"` (the default when automatic reads are enabled), mutating tools are not directly callable; route multi-step work and mutations through `ask_app`. `writes: "allowlisted"` exists only for apps that intentionally maintain an explicit write allow-list.
+
+The policy is authenticated, not anonymous. MCP OAuth/connect identity is still carried through `runWithRequestContext`, so action-level access checks, owner/org scoping, and OAuth read scopes remain in force. Public/unauthenticated actions are not included by automatic reads.
+
+Generic core `db-schema` and `db-query` are intentionally **not** automatic external reads. They remain available to the in-app agent through the normal scoped SQL path, but broad schema/SQL access is too powerful to infer from read-only metadata alone. If an app needs direct external querying, expose an app-owned GET action with its own access checks and bounded query contract, or add an explicit app-level table/column allow-list with row, byte, timeout, and audit limits. `db-exec` and `db-patch` remain outside the automatic surface.
+
+This is a hard, name-based exclusion, not just a metadata omission: generic database/seed/browser-session/extension/Context X-Ray tools are never auto-exposed even if a future change accidentally annotates one with the full authenticated-read flag set — they always require an explicit `connectorCatalog` entry.
+
+#### Identity and authorization
+
+Authentication and authorization are separate gates. A verified MCP OAuth or connect token identifies the caller and organization; `publicAgent` only opts an action into the external protocol surface. It does not grant access to a record. Actions must still use the normal `accessFilter`, `resolveAccess`, or `assertAccess` helpers, so private documents and dashboards remain private, shared resources follow their share/org rules, and cross-organization reads are rejected.
+
+An app that supplies `resolveExecutionContext` explicitly replaces this default identity ladder. Its resolver must independently reject unverified callers, guests, external members, and unlinked workspaces before returning a principal.
+
+The default Slack integration follows the same rule:
+
+<Table
+  id="doc-block-eacat-identity"
+  title="Slack DM identity-resolution rules"
+  columns={["Case", "Outcome"]}
+  rows={[
+    [
+      "Verified Slack DM matched to an existing Agent Native organization member",
+      "Runs as that member — their resources, instructions, and skills load normally.",
+    ],
+    [
+      "Hydrated workspace member with no email, or not yet an organization member (default)",
+      "Declined.",
+    ],
+    [
+      "Same case, with allowAnonymousOrgScopedSlackDm: true set",
+      "Runs as an anonymous org-scoped service principal — the same org-wide-visibility tier shared channels get, never user-private access — with an agent-visible note and a one-time Slack heads-up on gaining personal access.",
+    ],
+    [
+      "Unverified caller, guest, external (Slack Connect) member, or workspace not connected to an organization",
+      "Always declined with a polite reply, even when allowAnonymousOrgScopedSlackDm is set.",
+    ],
+  ]}
+/>
+
+Shared Slack channels use a service principal instead of borrowing one participant's private permissions. Managed Slack OAuth requests the `users:read.email` bot scope, and the generated Slack app manifest requests it too. Existing Slack installs must be reconnected/reinstalled to grant a newly added scope; legacy bot-token installs must add the scope in Slack manually. Without it, DMs fail closed unless the app explicitly enables `allowAnonymousOrgScopedSlackDm`.
+
+### Full tier (explicit opt-in only) {#full-tier}
+
+The complete ~105-tool action surface is served only on explicit opt-in, two ways:
+
+- **Per token** — mint with `--full-catalog`, which embeds a `catalog_scope: "full"` claim in the JWT. Subsequent requests bypass the compact filter for that token:
+
+  ```bash
+  npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --full-catalog
+  ```
+
+- **Per deployment** — set `AGENT_NATIVE_MCP_FULL_CATALOG=1` (server process env) to serve the full surface to all callers. Use it for single-tenant hosted instances that want the full surface without per-token opt-up.
+
+### Template declaration {#catalog-declaration}
+
+Templates declare their connector catalog in `createAgentChatPlugin` options:
+
+```ts
+export default createAgentChatPlugin({
+  appId: "plan",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  connectorCatalog: [
+    "create-visual-plan",
+    "get-visual-plan",
+    "list-visual-plans",
+    "update-visual-plan",
+    // … other safe app-level actions
+    "set-resource-visibility",
+    "share-resource",
+    "upload-image",
+    "navigate",
+    "view-screen",
+    "manage-automations",
+    "tool-search",
+  ],
+});
+```
+
+The builtin cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`, `create_workspace_app`, `list_templates`) are always included regardless of the declared list.
+
+## Tool exposure once connected {#tool-exposure}
+
+Once an agent is connected, it sees the [compact catalog](#catalog-tiers) by default: template-declared app actions plus the builtin cross-app verbs (`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a natural-language task through an app agent (the same cross-app entry point [A2A](/docs/a2a-protocol) uses).
+
+### MCP Apps compatibility {#mcp-apps-compatibility}
+
+Agent-native apps also speak the official MCP Apps extension. When any action
+declares `mcpApp`, the server advertises
+`extensions["io.modelcontextprotocol/ui"]`, includes `_meta.ui.resourceUri` /
+`_meta["ui/resourceUri"]` in `tools/list`, and serves the HTML UI through
+`resources/list` + `resources/read` as `text/html;profile=mcp-app`. Resource
+security metadata such as CSP and sandbox permissions lives on the resource
+entries and `resources/read` content, not on the tool descriptor.
+
+For ChatGPT/Claude-style OAuth app hosts, the discovery surface is compact by default: `tools/list` and `resources/list` advertise the generic `open_app` embed path instead of every action-specific MCP App resource (see [Catalog tiers](#catalog-tiers)). Mark an individual action with `mcpApp.compactCatalog: true` only when it truly needs to stay visible in chat-host discovery.
+
+That makes the same app surface available to every compatible host rather than building per-client shims. Which hosts render MCP Apps inline (and the connector-cache gotcha after metadata changes) lives in [MCP Apps → Host support and caching](/docs/mcp-apps#client-support) — that page is the single home for the host matrix.
+
+In practice, every agent-native app should be authored with both: MCP Apps for inline review/edit in capable hosts, and `link` for universal round-tripping back to the full app. CLI/code-editor clients that do not render an iframe fall back to the deep link. Human-selection tools can add a paste-back step to that fallback: for example, the Assets picker opens from the fallback link, lets the user choose media in the browser, then copies a handoff summary that the user pastes back into the chat.
+
+### Generic cross-app verbs {#cross-app}
+
+On top of the per-action tools the MCP server exposes a stable verb set, so an external agent has a predictable surface without guessing per-app action names:
+
+| Tool                                               | Side effects | Returns                                                                                                                                                 |
+| -------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | none         | workspace apps + their URLs / running state                                                                                                             |
+| `open_app({ app, view?, path?, params?, embed? })` | none         | a deep link or same-origin route; `embed: true` renders the full app inline where supported                                                             |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | agent loop   | routes a natural-language task to that app's in-app agent; long work returns a durable `taskHandle` plus a legacy `taskId` for `ask_app_status` polling |
+| `create_workspace_app({ name, template })`         | scaffolds    | a new app booted via the workspace path, plus its running URL + deep link                                                                               |
+| `list_templates`                                   | none         | the allow-listed templates only                                                                                                                         |
+
+`create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
+
+The tool and resource catalogs for app hosts are compact by default — see [Catalog tiers](#catalog-tiers). `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools outside that compact catalog; apps may set `externalAgents.authenticatedReads: "auto"` to advertise those authenticated reads without a hand-written catalog. Set `mcpApp.compactCatalog: true` only as a rare exception for actions that must appear in chat-host discovery.
+
+For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App launch the route. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
+
+### Long-running agent requests {#long-running}
+
+MCP hosts and gateways do not share one long tool-call timeout; some enforce a
+five-minute ceiling and others are configurable. Do not design an external
+agent integration around a ten-minute blocking `tools/call`. `ask-agent` and
+`ask_app` acknowledge hosted work quickly, then return a durable `taskHandle`
+plus a legacy `taskId` when the inline wait expires. Poll with `ask_app_status`
+by replaying the returned `poll.arguments` unchanged, especially the
+`taskHandle`; the result includes `pollAfterMs` as a host-friendly interval.
+The task must be created before the first response can time out, so a polling
+URL returned only after a long call is not a reliable recovery contract.
+
+If a bounded transient status read is unavailable, `ask_app_status` can return
+`status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
+original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
+read is unavailable—not that the durable task failed. Retry `ask_app_status`
+with the exact returned `poll.arguments`, including `taskHandle` when present;
+legacy results without a handle must reuse the same `app` and `taskId`. Never
+resubmit `ask_app` to recover, because
+submission can duplicate work. Permanent authentication, not-found, and
+protocol failures remain errors.
+
+### Per-app tour {#tour}
+
+Every allow-listed template that produces or lists a navigable resource ships a `link` builder, and the ingest-heavy ones ship a GET + `publicAgent` action so a connected agent can pull live state:
+
+- **Mail** — `manage-draft` returns a `compose`-encoded deep link; clicking it opens the inbox with the draft restored into a `compose-<id>`. `list-emails` / `search-emails` point at a filtered inbox view.
+- **Calendar** — `manage-event-draft` returns a `calendarDraft` + `eventDraftId` deep link; clicking it opens a visible draft placeholder on the calendar with the native event editor for review/send. `create-event` still returns `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })`; the click lands on the calendar with that event focused on its date.
+- **Analytics** — `update-dashboard` / `save-analysis` return `buildDeepLink({ app: "analytics", view: "adhoc", params: { dashboardId } })`; the agent builds a dashboard over MCP and hands back "Open dashboard in Analytics".
+- **Design** — `get-design-snapshot` is the GET + `publicAgent` ingest action: it returns the **live** Yjs file contents plus the resolved tweak values so the agent continues from the tuned design, not the original tokens. `apply-tweaks` round-trips back with an "Open design" editor link.
+- **Content** — `pull-document` is the GET + `publicAgent` ingest action: it flushes any open live collaborative session to SQL first so the external agent ingests exactly what the user sees, then surfaces a deep link to the document.
+- **Brain** — `ask-brain` / `search-everything` return a cited answer plus a deep link to the underlying knowledge/capture, so a terminal agent's lookup links straight back into the source in the running app.
+
+## Authoring (for template authors) {#authoring}
+
+This section is for template authors wiring an app up to be a good external-agent citizen: the `link` builder, the optional MCP Apps UI pointer, the `/_agent-native/open` route internals, and ingest actions. If you just want to connect Claude, ChatGPT, Codex, or Cursor to an app, see [External Agents](/docs/external-agents) instead.
+
+### The `link` builder {#link-builder}
+
+`defineAction` accepts an optional `link` builder. When set, every MCP/A2A result for that tool auto-appends a markdown `[label →](absoluteUrl)` block and a structured `_meta["agent-native/openLink"] = { label, view, webUrl, desktopUrl, vscodeUrl }`. `tools/list` adds `annotations["agent-native/producesOpenLink"]` and a description suffix so the external agent knows the tool yields an openable link and should surface it.
+
+Build the URL with `buildDeepLink(...)` — it is the single source of truth for the open-route format. Never hand-format the `/_agent-native/open` URL.
+
+Real example — mail's `manage-draft` (`templates/mail/actions/manage-draft.ts`):
+
+```ts
+import { buildDeepLink } from "@agent-native/core/server";
+
+function composeDeepLink(draft: Record<string, string>): string {
+  return buildDeepLink({
+    app: "mail",
+    view: "inbox",
+    compose: encodeComposeDraft(draft), // base64url JSON → compose-<id> draft
+  });
+}
+
+export default defineAction({
+  // ...schema, run...
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const draft = (result as { draft?: Record<string, string> }).draft;
+    const id = (result as { id?: string }).id;
+    if (!draft || !id) return null;
+    return {
+      url: composeDeepLink(draft),
+      label: "Open draft in Mail",
+      view: "inbox",
+    };
+  },
+});
+```
+
+List/search actions point at a record-focused view the same way — e.g. calendar's `create-event` returns `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })` with label `"Open event in Calendar"`. Calendar draft actions use the same pattern: `manage-event-draft` returns `buildDeepLink({ app: "calendar", view: "calendar", to: "/", params: { eventDraftId, calendarDraft, date } })` with label `"Review invite in Calendar"`, so external agents can hand back a direct draft-review link without creating the event first.
+
+### Optional MCP Apps UI {#mcp-apps}
+
+Actions can advertise an inline UI resource with `mcpApp` for hosts that support the MCP Apps extension. Use `embedRoute({ title, openLabel, path })` as the convenience wrapper, or assign `embedApp(...)` to `mcpApp.resource` directly. Every MCP App is a real React route, not a separate plain-HTML widget. Always keep the `link` builder — CLI-only hosts, older clients, and non-MCP-Apps hosts use it as the fallback.
+
+See [MCP Apps](/docs/mcp-apps) for the full authoring guide — `embedRoute` vs `embedApp`, the `mcpApp` config shape, CSP, height, the `sendToAgentChat()` embed path, and host bridge client helpers.
+
+### The `link` contract {#link-contract}
+
+The `link` builder is **pure and synchronous — no I/O, no awaits**. It runs best-effort: a throw, `null`, or `undefined` is swallowed and **never** fails the tool call. It only reads the call's `args` and `result`; it must not query the DB, read app-state, or call other actions. Return `null` when there's nothing to open.
+
+`buildDeepLink({ app, view, params?, to?, compose? })` returns the app-relative path `/_agent-native/open?app=…&view=…&<recordId>=…`. The MCP layer turns that into an absolute web URL (`toAbsoluteOpenUrl`, using the request origin), a desktop `agentnative://open?…` URL (`toDesktopOpenUrl`), and a VS Code extension URL (`toVsCodeOpenUrl`) for `vscode://builder.agent-native/open?url=…`; the markdown link uses the desktop URL when the client signals `target: "desktop"`.
+
+### The `/_agent-native/open` route {#open-route}
+
+When the user clicks the link in any browser or inline webview, `GET /_agent-native/open` (`createOpenRouteHandler`, mounted by the core routes plugin) runs the steps below.
+
+<Endpoint id="doc-block-eacat-open" method="GET" path="/_agent-native/open" summary={"Deep-link open route — focuses the browser UI on a record"} auth={"Browser session via `getSession`. The auth guard bypasses this exact path; if unauthenticated it serves login HTML at the same URL, and the form reload re-enters authenticated (no `?next=` plumbing)."} params={[
+  {
+    "name": "app",
+    "in": "query",
+    "type": "string",
+    "description": "Target app id (e.g. `mail`)."
+  },
+  {
+    "name": "view",
+    "in": "query",
+    "type": "string",
+    "description": "View to focus; also folded into the `navigate` payload."
+  },
+  {
+    "name": "to",
+    "in": "query",
+    "type": "string",
+    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+  },
+  {
+    "name": "compose",
+    "in": "query",
+    "type": "string",
+    "description": "base64url-encoded draft, decoded into a `compose-<id>` application-state key."
+  },
+  {
+    "name": "f_*",
+    "in": "query",
+    "type": "string",
+    "description": "Filter params forwarded to the redirect so lists/dashboards open pre-filtered."
+  }
+]} responses={[
+  {
+    "status": "302",
+    "description": "Redirect to a safe same-origin relative path. Cross-origin, scheme-relative `//host`, and control-char redirects are rejected (open-redirect guard)."
+  },
+  {
+    "status": "200",
+    "description": "Login HTML served at the same URL when the browser session is unauthenticated."
+  }
+]}>
+
+Resolves the browser session, writes a one-shot `navigate` application-state command scoped to that session, and 302-redirects to a safe same-origin path. Always build the URL with `buildDeepLink(...)`; never hand-format it. Can be disabled per app with `disableOpenRoute`.
+
+</Endpoint>
+
+1. Resolves the **browser** session via `getSession` (the auth guard bypasses the exact path `/_agent-native/open`).
+2. If unauthenticated, serves the configured login HTML **at the same URL**; the form's success handler reloads `window.location`, re-entering the route authenticated — no `?next=` plumbing.
+3. Writes the existing one-shot `navigate` application-state command (payload = every non-reserved query param + `view`) scoped to the browser session's email with `requestSource: "deep-link"`, and decodes a `compose` base64url draft into a `compose-<id>` key.
+4. 302-redirects to a safe same-origin relative path (`to=`, else `/<view>`, else a per-template `resolveOpenPath`), forwarding `f_*` filter params so lists/dashboards open pre-filtered before the `navigate` command is even drained.
+
+Cross-origin, scheme-relative `//host`, and control-char redirects are rejected (open-redirect guard). The route can be disabled per app via `disableOpenRoute`.
+
+#### The browser-session identity rule {#identity-rule}
+
+The link carries **no privileged state** — it is just `view` + record ids + filters. The record-focusing `navigate` write is scoped to whoever is logged into the **browser**, never the external agent's MCP token. So an agent authenticated as one identity can hand a user a link, and when that user clicks it the record opens where _the user_ is logged in. This is what makes the deep link safe to surface in a terminal or chat transcript. See [Context Awareness](/docs/context-awareness) for the `navigate` / `application_state` contract this bridges to.
+
+### Ingest actions {#ingest}
+
+An action an external agent reads to pull live app state into its own context must be:
+
+```ts
+export default defineAction({
+  description: "…",
+  schema: z.object({ id: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: async ({ id }) => {
+    /* read LIVE state, not the stale DB snapshot column */
+  },
+});
+```
+
+`GET` + `readOnly` keeps the action side-effect-free and out of the screen-refresh change event. `publicAgent` is the **explicit opt-in** — a public web route never implies public MCP/A2A exposure; see [Actions](/docs/actions). Design/content ingest actions MUST read **live** state (the Yjs collaborative document, not the stale DB snapshot column) so the external agent sees what the user actually has on screen. Content's `pull-document` flushes any open live collab session to SQL first; design's `get-design-snapshot` returns the live Yjs file contents plus the user's resolved tweak values.
+
+## Advanced: local development & manual setup {#advanced}
+
+The hosted `connect` flow described in [Easy setup](/docs/external-agents#easy-setup) and [Advanced setup: local agents](/docs/external-agents#connect) is the recommended path for most setups. The options below are for local framework development and hand-rolled setups.
+
+### Local development {#local-dev}
+
+Run your app locally (`pnpm dev` / `npx @agent-native/core@latest dev`), then point a local agent at it with one command:
+
+```bash
+npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|codex|cowork \
+  [--app <id>] [--scope user|project]
+```
+
+It provisions a token (a random `ACCESS_TOKEN` into the workspace `.env` for local dev, or a signed JWT if it detects a hosted origin) and writes an idempotent stdio server entry:
+
+- **claude-code / claude-code-cli** — an `mcpServers` entry in `.mcp.json` (project scope, default) or `~/.claude.json` (`--scope user`).
+- **cowork** — the same Claude Code JSON shape in `~/.cowork/mcp.json`.
+- **codex** — an `[mcp_servers.<name>]` block in `~/.codex/config.toml`.
+
+The entry runs `npx @agent-native/core@latest mcp serve --app <id>`, which by default is a **thin stdio proxy** to the running local app's `/mcp` — so the live action registry, HMR, and correct deep links stay the single source of truth. Pass `--standalone` to build the registry in-process instead. When `npx @agent-native/core@latest mcp install` detects a hosted origin (a non-localhost `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL` in the workspace `.env`), it writes an `http` client entry pointing at `<origin>/mcp` with a `Bearer` JWT instead of a stdio entry.
+
+Companion subcommands:
+
+| Command                                                    | What it does                                                        |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| `npx @agent-native/core@latest mcp serve [--app <id>]`     | Run the MCP stdio transport (what client configs spawn).            |
+| `npx @agent-native/core@latest mcp install --client <c>`   | Provision a token + write the client's MCP config (idempotent).     |
+| `npx @agent-native/core@latest mcp uninstall --client <c>` | Remove the named MCP entry from a client's config (idempotent).     |
+| `npx @agent-native/core@latest mcp status`                 | Show resolved MCP URL/port, token state, and per-client entries.    |
+| `npx @agent-native/core@latest mcp token [--rotate]`       | Print (or rotate) the local `ACCESS_TOKEN` in the workspace `.env`. |
+
+Restart the client after `install` so it picks up the new MCP server.
+
+### Manual `.mcp.json` HTTP entry {#manual-entry}
+
+You can also write the host's MCP config by hand against any deployed endpoint with a token you supply yourself (an `ACCESS_TOKEN`, or an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` so tool runs stay tenant-scoped):
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "analytics": {
+      "type": "http",
+      "url": "https://analytics.agent-native.com/mcp",
+      "headers": { "Authorization": "Bearer <ACCESS_TOKEN-or-JWT>" },
+    },
+  },
+}
+```
+
+This is the unmanaged equivalent of what `connect` writes for you. See [MCP Server](/docs/mcp-protocol) for the full auth env-var matrix.
+
+### Dev vs production tool surface {#dev-vs-prod}
+
+In plain local dev (`NODE_ENV=development` and `AGENT_MODE !== "production"`) the MCP `tools/list` deliberately exposes only the generic builtins plus actions with `publicAgent.requiresAuth === false` — the per-app ingest actions (`requiresAuth: true`) and mutating actions (no `publicAgent`) are filtered out (`filterPublicAgentActions`). The compact catalog is the default for every caller after auth — stdio/code clients using the `agent-native` proxy, the local CLI, and chat-style remote HTTP callers alike — so ChatGPT/Claude (or any client) cannot dump a huge full action catalog into the conversation. The full developer catalog is served only on explicit opt-in (`--full-catalog` token or `AGENT_NATIVE_MCP_FULL_CATALOG=1`); `tool-search` keeps every tool reachable in the meantime.
+
+### Switching first-party apps between prod and dev {#dev-switch}
+
+When you already have first-party hosted apps connected and want to test local framework changes through `pnpm dev:lazy`, use the developer switcher:
+
+```bash
+pnpm dev:lazy -- --apps mail,calendar,analytics
+
+npx @agent-native/core@latest connect dev --apps mail,calendar,analytics --client codex
+```
+
+`connect dev` rewrites the same stable MCP server names (`agent-native-mail`, `agent-native-calendar`, etc.) to the local dev-lazy gateway, so tool names do not change. It backs up the current production entries in `~/.agent-native/connect-profiles.json` before writing dev entries. The default gateway is `http://127.0.0.1:8080`; use `--gateway <url>` or `--port <n>` if your gateway moved.
+
+Switch back with:
+
+```bash
+npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --client codex
+```
+
+If `connect dev` cannot infer your local owner identity from an existing connected JWT, pass `--owner-email you@example.com`; this keeps local dev tools on the full authenticated MCP surface instead of the sparse unauthenticated dev surface.
+
+## How it works & security {#how-it-works}
+
+The standard OAuth path never exposes tokens to MCP Apps: the host stores OAuth access/refresh tokens and mediates tool calls and `resources/read` over the authenticated MCP connection. Embedded iframes receive app data and tool results, not bearer secrets.
+
+Full-app embeds also avoid handing the MCP bearer token to the browser. The MCP caller mints a one-time embed ticket in SQL; the iframe launch route consumes it and sets a short-lived, iframe-safe browser session cookie. The landing URL carries a temporary `__an_embed_token` query param only long enough for the client to capture it, remove it from the address bar, and attach it to same-origin `fetch` calls when third-party cookies are blocked. Embed sessions are route-scoped; app fetches include the current embedded target, and the server rejects token reuse outside the minted route. App pages intentionally do not emit `X-Frame-Options` or CSP `frame-ancestors`, so Builder, Design, and MCP app hosts can iframe them. Browser iframe navigations also opt into COEP/CORP when needed for cross-origin isolated hosts.
+
+The fallback hosted `connect` flow never copies the deployment's shared secret. Instead:
+
+- A logged-in browser session mints a **per-user, scoped, revocable** token — an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` and a unique `jti`, so every tool run stays tenant-scoped via `runWithRequestContext`.
+- The existing `/mcp` endpoint accepts that token like any other bearer (see [MCP Server](/docs/mcp-protocol)) — no new endpoint, no new transport.
+- The same Connect page lists every token you've minted and lets you **revoke** any of them by `jti`. Treat them like personal access tokens: one per agent client, revoke when a machine is decommissioned.
+- The deep link the agent hands back carries no privileged state. The record-focusing `navigate` write is always scoped to the **browser** session, never the agent's token — so a link is safe to paste into a terminal or chat transcript.
+
+## Do / Don't {#do-dont}
+
+**Do**
+
+- Connect your own agent to Dispatch with `npx @agent-native/core@latest connect https://dispatch.agent-native.com`; use a direct app URL only when you want one isolated app.
+- Add a `link` builder to any action that produces or lists a navigable resource (draft, event, dashboard, document).
+- Build the URL with `buildDeepLink(...)` — the single source of truth for the open-route format.
+- Keep `link` pure and synchronous; return `null` when there's nothing to open.
+- Make external-agent ingest actions GET + `readOnly` + `publicAgent`, and read live (Yjs) state, not the stale DB column.
+- Let the open route resolve the browser session; pass record ids as deep-link params and let the UI focus them via the polled `navigate` command.
+- Revoke a minted connect token by `jti` when an agent client is decommissioned.
+- Test MCP Apps with the lightweight fixtures around `embedApp()` and
+  `McpAppRenderer`; they cover CSP, host context, app launch, and bridge
+  message behavior without needing a real external host.
+- When validating ChatGPT or Claude web, trigger a fresh tool call after shell
+  changes and measure the visible iframe. Previously rendered frames in the
+  same conversation may still show cached height or launch behavior.
+- Keep ChatGPT/Claude app-host catalogs compact. Use Dispatch and
+  `open_app({ embed: true })` for full-app previews; only mark a specific
+  action `mcpApp.compactCatalog: true` when it must appear directly in the
+  compact host discovery surface.
+
+**Don't**
+
+- Copy a deployment's shared `ACCESS_TOKEN` / `A2A_SECRET` into a client config when `connect` can mint a per-user, revocable token instead.
+- Hand-format the `/_agent-native/open` URL — always go through `buildDeepLink`.
+- Do I/O, awaits, DB reads, or app-state reads inside a `link` builder.
+- Scope the `navigate` write to the agent token, or pass privileged state through the deep link — it's a pure pointer.
+- Invent a new navigation mechanism; bridge to the existing `navigate` / `application_state` contract.
+- Widen the public template allow-list when scaffolding an app from an external agent — the allow-list is authoritative and guarded.
+
+## What's next {#whats-next}
+
+- [External Agents](/docs/external-agents) — connecting Claude, ChatGPT, Codex, and Cursor to a hosted app
+- [MCP Apps](/docs/mcp-apps) — authoring MCP App UIs, the embed bridge, and host bridge API
+- [MCP Server](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool
+- [MCP Clients](/docs/mcp-clients) — the symmetric direction: your app consuming local/remote MCP servers
+- [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls
+- [Actions](/docs/actions) — defining actions, `publicAgent`, GET / `readOnly`
+- [Context Awareness](/docs/context-awareness) — the `navigate` / `application_state` contract the open route bridges to

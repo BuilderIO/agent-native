@@ -11,6 +11,7 @@ mod capture_graph;
 mod clips;
 mod config;
 mod debug;
+mod echo_guard;
 mod eventkit;
 mod logfile;
 mod meetings_watcher;
@@ -45,7 +46,8 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     ActiveMeetingId, DictationActive, DictationEnabled, LastTranscript, MeetingActive,
-    PopoverShownAt, RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
+    PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor, TrayMeetings,
+    VoiceTargetBundle, VoiceWakePopover,
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
@@ -97,6 +99,9 @@ pub fn run() {
             clips::hide_region_record_border,
             clips::show_region_guide_editor,
             clips::show_region_capture_selector,
+            clips::show_monitor_picker,
+            clips::close_monitor_picker,
+            clips::set_recording_display_override,
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,
@@ -147,7 +152,6 @@ pub fn run() {
             native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
-            native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_stop_and_save,
             native_screen::native_fullscreen_recording_cancel,
@@ -204,6 +208,7 @@ pub fn run() {
             // notifications
             notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
+            notifications::dismiss_meeting_notification,
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
@@ -231,8 +236,11 @@ pub fn run() {
             shortcuts::set_fn_shortcut_enabled,
             shortcuts::set_dictation_escape_active,
             // whisper model management
+            whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            whisper_model::whisper_downloaded_models,
+            whisper_model::whisper_model_delete,
             // permission status (silent checks for all TCC permissions)
             permission_status::check_permission_statuses,
             // persistent log file (production debugging)
@@ -253,6 +261,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(shortcuts::build_shortcut_plugin().build())
         .manage(TrayAnchor::default())
         .manage(TrayMeetings::default())
@@ -265,6 +274,7 @@ pub fn run() {
         .manage(VoiceWakePopover::default())
         .manage(VoiceTargetBundle::default())
         .manage(LastTranscript::default())
+        .manage(SelectedRecordingDisplay::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
         .manage(capture_graph::CaptureGraphState::default())
@@ -281,7 +291,9 @@ pub fn run() {
             logfile::init(app.handle());
 
             // Keeps the app from yanking the user out of fullscreen when the
-            // popover appears. Production bundles reinforce this with LSUIElement=1.
+            // popover appears. Bundles set LSUIElement=1 so macOS never creates
+            // a Dock tile in the first place; this call still matters for
+            // `tauri dev`, which runs the bare executable with no bundle plist.
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -455,7 +467,16 @@ pub fn run() {
             // login (tagged with `--autostart`) so it doesn't pop up every boot.
             let launched_at_login = std::env::args().any(|arg| arg == "--autostart");
             if !launched_at_login {
-                toggle_popover(app.handle());
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    for _ in 0..8 {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                        if tray::refresh_tray_anchor(&app_handle) {
+                            break;
+                        }
+                    }
+                    clips::force_show_popover(&app_handle);
+                });
             }
 
             Ok(())

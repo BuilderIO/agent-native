@@ -2,7 +2,8 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 
 use crate::dlog;
 use crate::state::{
-    DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
+    DictationActive, PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor,
+    VoiceWakePopover,
 };
 
 const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
@@ -160,6 +161,46 @@ pub fn configure_overlay_behavior(window: &WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 pub fn configure_overlay_behavior(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Spaces are a macOS concept.
+}
+
+/// Raise a window to NSStatusWindowLevel (25).
+///
+/// Tauri's `always_on_top` maps to NSFloatingWindowLevel (3). Within a level
+/// macOS still orders the *active* app's windows ahead of a background app's,
+/// and the recording overlays are deliberately never key — so another app's
+/// floating chrome (call controls, launchers) covers them. Level 25 clears
+/// that whole class while staying below NSPopUpMenuWindowLevel (101) so
+/// context menus still draw on top.
+#[cfg(target_os = "macos")]
+pub fn raise_to_status_level(window: &WebviewWindow) {
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] raise_to_status_level({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] raise_to_status_level({label}): ns_window is null");
+            return;
+        }
+        // SAFETY: ns_window() returns a live NSWindow*; called on main thread.
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let _: () = objc2::msg_send![&*obj, setLevel: 25isize];
+        }
+        dlog!("[clips-tray] raise_to_status_level({label}): NSStatusWindowLevel");
+    }) {
+        eprintln!("[clips-tray] raise_to_status_level: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn raise_to_status_level(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms. Window levels are an AppKit concept.
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -329,6 +370,16 @@ pub fn present_interactive_window(window: &WebviewWindow) {
 /// instead of `primary_monitor_physical_size` for any overlay that should appear
 /// on the same screen as the recording.
 pub fn tray_monitor_physical_rect(app: &AppHandle) -> (i32, i32, u32, u32) {
+    // A monitor picked in the multi-monitor screen picker wins over the tray
+    // icon's monitor for every overlay shown during that recording
+    // (countdown, toolbar, finalizing, region guides, ...) — see
+    // `SelectedRecordingDisplay`'s doc comment for its lifecycle.
+    if let Some(id) = SelectedRecordingDisplay::get(app) {
+        if let Some(rect) = crate::native_screen::monitor_rect_for_display_id(app, id) {
+            return rect;
+        }
+    }
+
     let tray_rect = app
         .try_state::<TrayAnchor>()
         .and_then(|a| a.0.lock().ok().and_then(|g| *g));

@@ -18,12 +18,15 @@
     "test": "vitest --run"
   },
   "dependencies": {
+    "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@sentry/browser": "10.62.0",
     "@tabler/icons-react": "catalog:",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-fs": "2.5.1",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-updater": "^2.10.1",
@@ -31,6 +34,7 @@
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@agent-native/core": "workspace:*",
     "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

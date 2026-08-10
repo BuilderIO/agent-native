@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,9 +19,7 @@ export interface SignInPromptDialogProps {
   /**
    * Same-origin path to return the viewer to after sign-in. Defaults to the
    * current URL so anonymous viewers on a public share page land back where
-   * they were. The dialog routes through
-   * `/_agent-native/sign-in?return=<returnTo>` — the framework's login flow
-   * fires there and forwards to `returnTo` once the viewer is signed in.
+   * they were.
    */
   returnTo?: string;
   /**
@@ -29,12 +28,6 @@ export interface SignInPromptDialogProps {
    * change navigation behavior.
    */
   onSignIn?: () => void;
-}
-
-function buildSignInHref(returnTo: string | undefined): string {
-  if (typeof window === "undefined") return "/_agent-native/sign-in";
-  const target = returnTo ?? window.location.pathname + window.location.search;
-  return `/_agent-native/sign-in?return=${encodeURIComponent(target)}`;
 }
 
 export function SignInPromptDialog({
@@ -59,7 +52,10 @@ export function SignInPromptDialog({
             {t("signInPrompt.notNow")}
           </Button>
           <Button asChild>
-            <a href={buildSignInHref(returnTo)} onClick={() => onSignIn?.()}>
+            <a
+              href={buildSignInReturnHref({ returnTo })}
+              onClick={() => onSignIn?.()}
+            >
               {t("signInPrompt.signIn")}
             </a>
           </Button>

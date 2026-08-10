@@ -6,7 +6,10 @@ const mockGetUserSetting = vi.fn();
 const mockPutUserSetting = vi.fn();
 const mockGetSetting = vi.fn();
 
-vi.mock("../db/client.js", () => ({
+vi.mock("../db/client.js", async (importOriginal) => ({
+  // Real isTransientDatabaseError: the transient-vs-absent split is the
+  // behavior under test, so it must not be stubbed.
+  ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => ({ execute: mockExecute }),
   isPostgres: () => false,
   isLocalDatabase: () => true,
@@ -22,6 +25,7 @@ vi.mock("../settings/store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
 }));
 
+import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
   resolveOrgIdForEmail,
@@ -32,6 +36,16 @@ import {
   getA2ASecretByDomain,
   resolveOrgByDomain,
 } from "./context.js";
+import { __resetProcessMemberOrgCacheForTests } from "./request-org-cache.js";
+
+// File-scope, so a describe block added later cannot forget it. The membership
+// and domain-match caches are process state: without this, one test's rows
+// answer the next test's query and the mock's call count is never what the
+// assertion expects.
+beforeEach(() => {
+  __resetProcessMemberOrgCacheForTests();
+  __resetDomainMatchCacheForTests();
+});
 
 // Factory so each test gets a fresh event object — getOrgContext is per-event
 // memoized on event.context, so sharing a module-level object would bleed
@@ -163,7 +177,9 @@ describe("getOrgContext", () => {
     expect(ctx.orgId).toBe("second");
     expect(ctx.role).toBe("member");
     expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+    // Memberships + the domain scan: none of these orgs claims b.com, so the
+    // user is still a candidate for a domain org that may appear later.
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it("falls back to first membership when active-org-id points to a non-membership", async () => {
@@ -183,7 +199,7 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx.orgId).toBe("only");
     expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it("honors an explicit Personal choice for a user in exactly one org", async () => {
@@ -225,9 +241,16 @@ describe("getOrgContext", () => {
     expect(mockGetUserSetting).toHaveBeenCalledTimes(1);
   });
 
-  it("does not run domain auto-join for a single non-personal org", async () => {
+  it("does not run domain auto-join once the user is in their domain org", async () => {
     mockGetSession.mockResolvedValue({ email: "member@builder.io" });
-    queueSelect([{ orgId: "builder", role: "member", orgName: "Builder.io" }]);
+    queueSelect([
+      {
+        orgId: "builder",
+        role: "member",
+        orgName: "Builder.io",
+        allowedDomain: "builder.io",
+      },
+    ]);
 
     const ctx = await getOrgContext(EVENT);
 
@@ -238,6 +261,98 @@ describe("getOrgContext", () => {
       role: "member",
     });
     expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockPutUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("auto-joins a renamed personal workspace that no longer matches the name heuristic", async () => {
+    // The regression this guards: recognizing the personal workspace by name
+    // stranded users whose display name or workspace name had since changed.
+    mockGetSession.mockResolvedValue({
+      email: "brent@builder.io",
+      name: "Brent Locks",
+    });
+    mockGetUserSetting.mockResolvedValue({ orgId: "personal_org" });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Rocket Ship HQ",
+          allowedDomain: null,
+        },
+      ],
+    }); // memberships
+    mockExecute.mockResolvedValueOnce({ rows: [{ orgId: "builder_io" }] }); // domain scan
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Rocket Ship HQ",
+          allowedDomain: null,
+        },
+        {
+          orgId: "builder_io",
+          role: "member",
+          orgName: "Builder.io",
+          allowedDomain: "builder.io",
+        },
+      ],
+    }); // refreshed memberships
+    mockExecute.mockResolvedValueOnce({ rows: [{ memberCount: 1 }] }); // solo-owner check
+
+    expect(await getOrgContext(EVENT)).toEqual({
+      email: "brent@builder.io",
+      orgId: "builder_io",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockPutUserSetting).toHaveBeenCalledWith(
+      "brent@builder.io",
+      "active-org-id",
+      { orgId: "builder_io" },
+    );
+  });
+
+  it("joins the domain org without moving a user out of a shared team", async () => {
+    mockGetSession.mockResolvedValue({ email: "consultant@builder.io" });
+    mockGetUserSetting.mockResolvedValue({ orgId: "acme" });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "acme",
+          role: "member",
+          orgName: "Acme Co",
+          allowedDomain: null,
+        },
+      ],
+    }); // memberships
+    mockExecute.mockResolvedValueOnce({ rows: [{ orgId: "builder_io" }] }); // domain scan
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "acme",
+          role: "member",
+          orgName: "Acme Co",
+          allowedDomain: null,
+        },
+        {
+          orgId: "builder_io",
+          role: "member",
+          orgName: "Builder.io",
+          allowedDomain: "builder.io",
+        },
+      ],
+    }); // refreshed memberships
+
+    expect(await getOrgContext(EVENT)).toEqual({
+      email: "consultant@builder.io",
+      orgId: "acme",
+      orgName: "Acme Co",
+      role: "member",
+    });
     expect(mockPutUserSetting).not.toHaveBeenCalled();
   });
 
@@ -274,8 +389,11 @@ describe("getOrgContext", () => {
       orgName: "Builder.io",
       role: "member",
     });
+    // Written under the session email verbatim — the same spelling every
+    // other read/write of `active-org-id` uses. `settings` keys are
+    // case-sensitive, so lowercasing only here would hide the activation.
     expect(mockPutUserSetting).toHaveBeenCalledWith(
-      "existing@builder.io",
+      "existing@Builder.IO",
       "active-org-id",
       { orgId: "builder_io" },
     );
@@ -410,6 +528,27 @@ describe("getOrgContext", () => {
     });
   });
 
+  describe("membership-lookup failure (database unreadable)", () => {
+    const transient = () =>
+      Object.assign(new Error("db query timed out"), { code: "57014" });
+
+    it("surfaces the failure instead of reporting no org", async () => {
+      mockGetSession.mockResolvedValue({ email: "tim@b.com" });
+      mockExecute.mockRejectedValueOnce(transient());
+      await expect(getOrgContext(EVENT)).rejects.toThrow("db query timed out");
+    });
+
+    it("does not memoize the failure as 'no memberships'", async () => {
+      mockGetSession.mockResolvedValue({ email: "tim@b.com" });
+      mockExecute.mockRejectedValueOnce(transient());
+      await expect(getOrgContext(EVENT)).rejects.toThrow();
+
+      queueSelect([{ orgId: "builder_io", role: "owner", orgName: "Builder" }]);
+      const ctx = await getOrgContext(EVENT);
+      expect(ctx.orgId).toBe("builder_io");
+    });
+  });
+
   describe("per-event memoization", () => {
     it("returns the same result for two calls on the same event without an extra DB query", async () => {
       mockGetSession.mockResolvedValue({
@@ -428,7 +567,7 @@ describe("getOrgContext", () => {
       expect(ctx1).toBe(ctx2); // identical reference, not just deep-equal
       // Only one membership lookup, with no request-time domain scan for an
       // existing non-personal org.
-      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(mockExecute).toHaveBeenCalledTimes(2);
     });
 
     it("does NOT share the cache between two different event objects", async () => {
@@ -450,7 +589,7 @@ describe("getOrgContext", () => {
 
       expect(ctxA.orgId).toBe("org-a");
       expect(ctxB.orgId).toBe("org-b");
-      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(mockExecute).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -684,6 +823,100 @@ describe("resolveOrgIdForEmail", () => {
     mockExecute.mockRejectedValueOnce(new Error("no such table: org_members"));
     expect(await resolveOrgIdForEmail("a@b.com")).toBeNull();
   });
+
+  it("throws when org_members is unreadable, so callers cannot mistake it for 'no org'", async () => {
+    mockExecute.mockRejectedValueOnce(
+      Object.assign(new Error("db query timed out"), { code: "57014" }),
+    );
+    await expect(resolveOrgIdForEmail("a@b.com")).rejects.toThrow(
+      "db query timed out",
+    );
+  });
+});
+
+describe("membership fallback ordering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [] });
+    mockGetUserSetting.mockResolvedValue(null);
+    mockGetSetting.mockResolvedValue(null);
+    delete process.env.AUTO_CREATE_DEFAULT_ORG;
+  });
+
+  // A multi-org user with no valid persisted active-org-id falls back to the
+  // "first" membership. Row order for an unordered SELECT is a Postgres plan
+  // detail, so without ORDER BY the same user can land in a different org
+  // between two identical requests — and getSession then freezes that
+  // arbitrary answer into session.orgId.
+  const DETERMINISTIC_ORDER = "ORDER BY joined_at ASC, org_id ASC";
+
+  it("asks the database to order memberships by join time in getOrgContext", async () => {
+    mockGetSession.mockResolvedValue({ email: "multi@b.com" });
+    queueSelect([{ orgId: "oldest", role: "owner", orgName: "Oldest Co" }]);
+
+    await getOrgContext(makeEvent());
+
+    const { sql } = mockExecute.mock.calls[0][0];
+    expect(sql).toContain("FROM org_members");
+    expect(sql).toContain(DETERMINISTIC_ORDER);
+  });
+
+  it("asks the database to order memberships by join time in resolveOrgIdForEmail", async () => {
+    queueSelect([{ org_id: "oldest" }, { org_id: "newest" }]);
+
+    await resolveOrgIdForEmail("multi@b.com");
+
+    const { sql } = mockExecute.mock.calls[0][0];
+    expect(sql).toContain("FROM org_members");
+    expect(sql).toContain(DETERMINISTIC_ORDER);
+  });
+
+  it("asks the database to order memberships by join time in resolveOrgIdForEmailViaEvent", async () => {
+    queueSelect([
+      { orgId: "oldest", role: "owner", orgName: "Oldest Co" },
+      { orgId: "newest", role: "member", orgName: "Newest Co" },
+    ]);
+
+    await resolveOrgIdForEmailViaEvent(makeEvent(), "multi@b.com");
+
+    const { sql } = mockExecute.mock.calls[0][0];
+    expect(sql).toContain("FROM org_members");
+    expect(sql).toContain(DETERMINISTIC_ORDER);
+  });
+
+  // The three resolvers must not disagree: session backfill writes
+  // session.orgId from one of them, and getOrgContext then honors it forever.
+  it("resolves the same org from every entry point for a multi-org user", async () => {
+    mockGetSession.mockResolvedValue({ email: "multi@b.com" });
+    const ordered = [
+      {
+        orgId: "oldest",
+        org_id: "oldest",
+        role: "owner",
+        orgName: "Oldest Co",
+      },
+      {
+        orgId: "newest",
+        org_id: "newest",
+        role: "member",
+        orgName: "Newest Co",
+      },
+    ];
+
+    queueSelect(ordered);
+    const viaContext = await getOrgContext(makeEvent());
+    queueSelect(ordered);
+    const viaEmail = await resolveOrgIdForEmail("multi@b.com");
+    queueSelect(ordered);
+    const viaEvent = await resolveOrgIdForEmailViaEvent(
+      makeEvent(),
+      "multi@b.com",
+    );
+
+    expect(viaContext.orgId).toBe("oldest");
+    expect(viaEmail).toBe("oldest");
+    expect(viaEvent).toBe("oldest");
+  });
 });
 
 describe("createOrganization", () => {
@@ -726,6 +959,76 @@ describe("createOrganization", () => {
     expect(result.role).toBe("admin");
     const memberInsert = mockExecute.mock.calls[1][0];
     expect(memberInsert.args[3]).toBe("admin");
+  });
+
+  // A second org silently orphans every vault credential synced under the
+  // first, and the failure surfaces much later as a missing-key error. The UI
+  // notice only reaches humans clicking through org creation, not app code or
+  // a migration action calling this directly.
+  describe("additional-organization warning", () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it("warns and names the credential consequence for an existing member", async () => {
+      // Two inserts resolve empty, then the membership probe finds a prior org.
+      queueSelect([], [], [{ 1: 1 }]);
+
+      const result = await createOrganization("Coach", "tim@example.com");
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0][0]);
+      expect(message).toContain("ADDITIONAL organization");
+      expect(message).toContain("Coach");
+      expect(message).toContain(result.id);
+      expect(message).toContain("scoped per organization");
+      expect(message).toContain("roster, identity, or user-list migration");
+    });
+
+    it("probes memberships outside the org it just created", async () => {
+      queueSelect([], [], [{ 1: 1 }]);
+
+      const result = await createOrganization("Coach", "Tim@Example.com");
+
+      const probe = mockExecute.mock.calls[2][0];
+      expect(probe.sql).toContain("FROM org_members");
+      expect(probe.sql).toContain("org_id <> ?");
+      expect(probe.args).toEqual(["tim@example.com", result.id]);
+    });
+
+    it("stays silent for a first organization", async () => {
+      await createOrganization("Acme", "founder@acme.com");
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    // "Couldn't tell whether this account already had an org" must not read as
+    // "it didn't" — the silent version is the same class of bug as the incident.
+    it("warns about the unreadable membership probe and still activates", async () => {
+      queueSelect([], []);
+      mockExecute.mockRejectedValueOnce(
+        new Error("no such table: org_members"),
+      );
+
+      const result = await createOrganization("Acme", "founder@acme.com");
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0][0]);
+      expect(message).toContain("could not read whether that account already");
+      expect(message).toContain("Acme");
+      expect(message).toContain(result.id);
+      expect(message).toContain("EXISTING organization");
+      expect(mockPutUserSetting).toHaveBeenCalledWith(
+        "founder@acme.com",
+        "active-org-id",
+        { orgId: result.id },
+      );
+    });
   });
 });
 

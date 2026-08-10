@@ -51,17 +51,7 @@ export const customFieldValues = table(
   }),
 );
 
-export const userConfig = table("user_config", {
-  ownerEmail: text("owner_email").primaryKey(),
-  taskCardFieldIdsJson: text("task_card_field_ids_json")
-    .notNull()
-    .default("[]"),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
-
 export type StoredCustomField = typeof customFields.$inferSelect;
 export type NewCustomField = typeof customFields.$inferInsert;
 export type StoredCustomFieldValue = typeof customFieldValues.$inferSelect;
 export type NewCustomFieldValue = typeof customFieldValues.$inferInsert;
-export type StoredUserConfig = typeof userConfig.$inferSelect;
-export type NewUserConfig = typeof userConfig.$inferInsert;

@@ -17,7 +17,7 @@ vi.mock("../server/custom-fields/task-fields.js", () => ({
   listTaskFieldValues,
 }));
 
-import updateTaskAction from "./update-task.js";
+import updateTaskAction, { updateTaskSchema } from "./update-task.js";
 
 describe("update-task", () => {
   beforeEach(() => {
@@ -27,26 +27,24 @@ describe("update-task", () => {
 
   describe("schema", () => {
     it("accepts title and/or done patches", () => {
-      expect(
-        updateTaskAction.schema.parse({ taskId: "t1", done: true }),
-      ).toEqual({
+      expect(updateTaskSchema.parse({ taskId: "t1", done: true })).toEqual({
         taskId: "t1",
         done: true,
       });
       expect(
-        updateTaskAction.schema.parse({ taskId: "t1", title: "Updated" }),
+        updateTaskSchema.parse({ taskId: "t1", title: "Updated" }),
       ).toEqual({
         taskId: "t1",
         title: "Updated",
       });
       expect(() =>
-        updateTaskAction.schema.parse({ taskId: "t1", title: "" }),
+        updateTaskSchema.parse({ taskId: "t1", title: "" }),
       ).toThrow();
     });
 
     it("accepts custom field value patches from CLI JSON", () => {
       expect(
-        updateTaskAction.schema.parse({
+        updateTaskSchema.parse({
           taskId: "t1",
           fieldValues: '[{"fieldId":"fld-1","value":3}]',
         }),

@@ -13,8 +13,10 @@ export type WorkspaceConnectionTemplateUse =
   | "calendar"
   | "clips"
   | "content"
+  | "crm"
   | "design"
   | "dispatch"
+  | "factory"
   | "forms"
   | "mail"
   | "slides";
@@ -27,6 +29,7 @@ export type WorkspaceConnectionProviderId =
   | "gmail"
   | "google_drive"
   | "hubspot"
+  | "salesforce"
   | "jira"
   | "sentry"
   | "granola"
@@ -84,7 +87,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       },
     ],
     capabilities: ["search", "import", "messages"],
-    recommendedTemplateUses: ["brain", "dispatch", "analytics"],
+    recommendedTemplateUses: ["brain", "dispatch", "analytics", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "github",
@@ -107,7 +110,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       scopes: ["repo", "read:org", "read:user", "user:email"],
     },
     capabilities: ["search", "import", "code", "docs"],
-    recommendedTemplateUses: ["brain", "analytics", "dispatch"],
+    recommendedTemplateUses: ["brain", "analytics", "dispatch", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "figma",
@@ -192,7 +195,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       },
     ],
     capabilities: ["search", "import", "docs"],
-    recommendedTemplateUses: ["brain", "content", "slides", "dispatch"],
+    recommendedTemplateUses: [
+      "brain",
+      "content",
+      "slides",
+      "dispatch",
+      "analytics",
+    ],
     oauth: {
       provider: "google",
       authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -239,7 +248,24 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       ],
     },
     capabilities: ["search", "import", "crm"],
-    recommendedTemplateUses: ["analytics", "brain", "mail", "dispatch"],
+    recommendedTemplateUses: ["analytics", "brain", "crm", "mail", "dispatch"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "salesforce",
+    label: "Salesforce",
+    description:
+      "CRM accounts, contacts, opportunities, custom objects, and activity history for customer-aware apps.",
+    credentialKeys: [],
+    oauth: {
+      provider: "salesforce",
+      authorizationUrl:
+        "https://login.salesforce.com/services/oauth2/authorize",
+      tokenUrl: "https://login.salesforce.com/services/oauth2/token",
+      refreshUrl: "https://login.salesforce.com/services/oauth2/token",
+      scopes: ["api", "refresh_token", "id"],
+    },
+    capabilities: ["search", "import", "crm"],
+    recommendedTemplateUses: ["analytics", "brain", "crm", "dispatch"],
   }),
   defineWorkspaceConnectionProvider({
     id: "jira",
@@ -308,7 +334,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       scopes: ["org:read", "project:read", "event:read", "team:read"],
     },
     capabilities: ["search", "import", "docs"],
-    recommendedTemplateUses: ["analytics", "brain", "dispatch"],
+    recommendedTemplateUses: ["analytics", "brain", "dispatch", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "granola",

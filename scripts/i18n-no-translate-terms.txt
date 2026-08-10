@@ -14,6 +14,7 @@ Ease Out
 401 · WWW-Authenticate
 A2A
 adapter.sendResponse
+Agent Native
 Agent-native
 Agent-Native App
 Agent-Native sidecar
@@ -46,6 +47,7 @@ gh · ffmpeg · stripe
 GitHub OAuth
 Google Calendar
 Google OAuth
+Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate
 HTTP · MCP · A2A
@@ -123,3 +125,4 @@ X-Request-Source: TAB_ID
 Y.Doc
 Y.Doc update
 Yjs CRDT
+Docs Components

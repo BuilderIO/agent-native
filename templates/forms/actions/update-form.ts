@@ -6,7 +6,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
-import { assertValidFields } from "../server/lib/validate-fields.js";
+import {
+  assertValidFields,
+  normalizeFieldIds,
+} from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
@@ -81,26 +84,34 @@ export default defineAction({
       } else {
         parsedFields = args.fields;
       }
+      parsedFields = normalizeFieldIds(parsedFields);
       assertValidFields(parsedFields);
       updates.fields = JSON.stringify(parsedFields);
     }
     if (args.settings !== undefined) {
-      let parsedSettings: FormSettings;
+      let incomingSettings: FormSettings;
       if (typeof args.settings === "string") {
         try {
-          parsedSettings = JSON.parse(args.settings) as FormSettings;
-          updates.settings = args.settings;
+          incomingSettings = JSON.parse(args.settings) as FormSettings;
         } catch {
           throw new Error("--settings must be valid JSON");
         }
       } else {
-        parsedSettings = args.settings as unknown as FormSettings;
-        updates.settings = JSON.stringify(args.settings);
+        incomingSettings = args.settings as unknown as FormSettings;
       }
+      let existingSettings: FormSettings = {};
+      try {
+        existingSettings = JSON.parse(existing.settings) as FormSettings;
+      } catch {
+        // Keep malformed legacy settings recoverable by replacing them with
+        // the valid settings supplied by this update.
+      }
+      const parsedSettings = { ...existingSettings, ...incomingSettings };
       // Reject blocked integration URLs at save time (private IPs,
       // cloud-metadata, non-http(s) schemes). fireIntegrations also
       // re-checks at runtime as defense-in-depth.
       assertIntegrationUrlsAllowed(parsedSettings);
+      updates.settings = JSON.stringify(parsedSettings);
     }
     if (args.status !== undefined) updates.status = args.status;
 

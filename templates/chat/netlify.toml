@@ -1,10 +1,11 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs chat"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter chat migrate:production; fi"
 publish = "templates/chat/dist"
 functions = "templates/chat/.netlify/functions-internal"
 
 [build.environment]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"

@@ -30,6 +30,28 @@ function requestSettingsCache(): Map<string, string | null> | null {
   return cache;
 }
 
+/**
+ * Per-request memo of the WHOLE settings table for `getAllSettings`.
+ *
+ * The single-key path above was already request-cached; the full-table read was
+ * not, and production showed 98,479 of them — an entire `SELECT key, value FROM
+ * settings` per call, several times per request via the MCP client routes and
+ * org settings.
+ *
+ * Holds raw JSON strings, like the single-key cache, so callers can't mutate a
+ * shared parsed object. Dropped by every write path, because a request that
+ * writes a setting and then re-reads all of them must see its own write.
+ */
+const _requestAllSettingsCache = new WeakMap<
+  object,
+  Promise<Map<string, string>>
+>();
+
+function invalidateRequestAllSettings(): void {
+  const ctx = getRequestContext();
+  if (ctx && typeof ctx === "object") _requestAllSettingsCache.delete(ctx);
+}
+
 // Created lazily so this module can be evaluated in the browser dev graph
 // without a top-level `new EventEmitter()` tripping Vite's externalized
 // `node:events` stub. The emitter drives server-side SSE fan-out only.
@@ -183,6 +205,7 @@ export async function mutateSetting(
           });
     if (result.rowsAffected === 0) continue;
     requestSettingsCache()?.set(key, nextRaw);
+    invalidateRequestAllSettings();
     settingsEmitter().emit("settings", {
       source: "settings",
       type: "change",
@@ -209,6 +232,7 @@ export async function putSetting(
     args: [key, JSON.stringify(value), Date.now()],
   });
   requestSettingsCache()?.set(key, JSON.stringify(value));
+  invalidateRequestAllSettings();
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",
@@ -229,6 +253,7 @@ export async function deleteSetting(
     args: [key],
   });
   requestSettingsCache()?.set(key, null);
+  invalidateRequestAllSettings();
   if (result.rowsAffected > 0) {
     settingsEmitter().emit("settings", {
       source: "settings",
@@ -241,16 +266,83 @@ export async function deleteSetting(
   return false;
 }
 
-export async function getAllSettings(): Promise<
-  Record<string, Record<string, unknown>>
-> {
+/**
+ * Delete every setting whose key starts with `prefix`. Returns the number of
+ * rows removed. Used when an owning entity is deleted (e.g. an organization
+ * takes its `o:<orgId>:*` keys with it).
+ */
+export async function deleteSettingsByPrefix(
+  prefix: string,
+  options?: StoreWriteOptions,
+): Promise<number> {
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
-  const { rows } = await client.execute(`SELECT key, value FROM ${table}`);
-  const result: Record<string, Record<string, unknown>> = {};
-  for (const row of rows) {
-    result[row.key as string] = JSON.parse(row.value as string);
+  const escaped = prefix.replace(/[!%_]/g, (c) => `!${c}`);
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE key LIKE ? ESCAPE '!'`,
+    args: [`${escaped}%`],
+  });
+  requestSettingsCache()?.clear();
+  invalidateRequestAllSettings();
+  if (result.rowsAffected > 0) {
+    settingsEmitter().emit("settings", {
+      source: "settings",
+      type: "delete",
+      key: prefix,
+      ...(options?.requestSource && { requestSource: options.requestSource }),
+    });
   }
+  return result.rowsAffected;
+}
+
+export async function getAllSettings(): Promise<
+  Record<string, Record<string, unknown>>
+> {
+  const raw = await loadAllSettingsRaw();
+  const result: Record<string, Record<string, unknown>> = {};
+  for (const [key, value] of raw) result[key] = JSON.parse(value);
   return result;
+}
+
+async function loadAllSettingsRaw(): Promise<Map<string, string>> {
+  const ctx = getRequestContext();
+  const cached =
+    ctx && typeof ctx === "object"
+      ? _requestAllSettingsCache.get(ctx)
+      : undefined;
+  if (cached) return cached;
+
+  const load = (async () => {
+    await ensureTable();
+    const client = getDbExec();
+    const table = settingsTable();
+    const { rows } = await client.execute(`SELECT key, value FROM ${table}`);
+    const raw = new Map<string, string>();
+    for (const row of rows) raw.set(row.key as string, row.value as string);
+    // Seed the single-key cache so a `getSetting` after `getAllSettings` in the
+    // same request is free rather than another round trip. Only fills keys it
+    // does not already hold: a value written earlier in this request is already
+    // written through there and must win over this snapshot.
+    const perKey = requestSettingsCache();
+    if (perKey) {
+      for (const [key, value] of raw) {
+        if (!perKey.has(key)) perKey.set(key, value);
+      }
+    }
+    return raw;
+  })();
+
+  if (ctx && typeof ctx === "object") {
+    // Evicted on failure so one transient error is not memoized as the answer
+    // for the rest of the request.
+    _requestAllSettingsCache.set(
+      ctx,
+      load.catch((err) => {
+        _requestAllSettingsCache.delete(ctx);
+        throw err;
+      }),
+    );
+  }
+  return load;
 }

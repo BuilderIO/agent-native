@@ -148,6 +148,31 @@ export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   return tagName === "BODY" || tagName === "HTML";
 }
 
+/**
+ * MultiScreenCanvas keeps the owning screen in `selectedIds` while an element
+ * inside it is selected, so every overview command reading that array (Delete,
+ * arrow-key nudge) sees "the screens" when the real target is one node. The
+ * more specific target wins. `__`-prefixed and file-id rows are frames.
+ */
+export function overviewSelectionTargetsElement(args: {
+  selectedElement: ElementInfo | null | undefined;
+  selectedLayerIds: readonly string[];
+  fileIds: readonly string[];
+}): boolean {
+  const fileIds = new Set(args.fileIds);
+  if (
+    args.selectedLayerIds.some(
+      (layerId) =>
+        layerId && !layerId.startsWith("__") && !fileIds.has(layerId),
+    )
+  ) {
+    return true;
+  }
+  return Boolean(
+    args.selectedElement && !isScreenRootElementInfo(args.selectedElement),
+  );
+}
+
 export function shouldMirrorSelectedElementToAgentChat(
   info: ElementInfo | null | undefined,
 ): info is ElementInfo {
@@ -307,24 +332,21 @@ export function getSidebarCodeLayerSelectionState(args: {
   overviewSelectedScreenIds: string[];
   screenFileIds?: string[];
 }) {
-  const {
-    currentViewMode,
-    ownerFileId,
-    overviewSelectedScreenIds,
-    screenFileIds,
-  } = args;
+  const { ownerFileId, overviewSelectedScreenIds, screenFileIds } = args;
   const ownerScreenId =
     ownerFileId && (!screenFileIds || screenFileIds.includes(ownerFileId))
       ? ownerFileId
       : null;
   return {
-    viewMode: currentViewMode,
-    overviewSelectedScreenIds:
-      currentViewMode === "overview" && ownerScreenId
-        ? [ownerScreenId]
-        : currentViewMode === "overview" && ownerFileId
-          ? []
-          : overviewSelectedScreenIds,
+    // Layer selection is an editing action, so it always targets the infinite
+    // canvas. Keeping `single` here let the Layers rail turn Interact into the
+    // removed focused Edit view when the handler subsequently set mode=edit.
+    viewMode: "overview" as const,
+    overviewSelectedScreenIds: ownerScreenId
+      ? [ownerScreenId]
+      : ownerFileId
+        ? []
+        : overviewSelectedScreenIds,
   };
 }
 

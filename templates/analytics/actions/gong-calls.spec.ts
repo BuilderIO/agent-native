@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getCalls = vi.fn();
+const getAllCalls = vi.fn();
 const getCallTranscript = vi.fn();
 const getCallTranscripts = vi.fn();
 const getUsers = vi.fn();
 const searchCalls = vi.fn();
 
 vi.mock("../server/lib/gong", () => ({
+  getAllCalls,
   getCalls,
   getCallTranscript,
   getCallTranscripts,
@@ -20,6 +22,7 @@ const { default: gongCalls, extractTranscriptText } =
 describe("gong-calls action", () => {
   beforeEach(() => {
     getCalls.mockReset();
+    getAllCalls.mockReset();
     getCallTranscript.mockReset();
     getCallTranscripts.mockReset();
     getUsers.mockReset();
@@ -95,7 +98,69 @@ describe("gong-calls action", () => {
     expect(result.guidance).toContain("Loaded transcript excerpts");
   });
 
-  it("searches matching transcripts server-side for phrase evidence", async () => {
+  it("fails loud when a bounded call search is truncated", async () => {
+    searchCalls.mockResolvedValue({
+      calls: [
+        {
+          id: "call-1",
+          title: "Acme discovery",
+          started: "2026-05-03T10:00:00Z",
+        },
+      ],
+      limit: 1,
+      truncated: true,
+    });
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      limit: 1,
+    })) as Record<string, any>;
+
+    expect(result.guidance).toContain("Coverage is incomplete");
+    expect(result.guidance).toContain("tracker staging");
+    expect(result.guidance).toContain("provider-corpus-job");
+    expect(result.guidance).not.toContain("increase the limit and page");
+  });
+
+  it("pages through the unfiltered call list when exhaustive is requested", async () => {
+    getAllCalls.mockResolvedValue({
+      calls: [
+        {
+          id: "call-1",
+          title: "Acme discovery",
+          started: "2026-05-03T10:00:00Z",
+        },
+        {
+          id: "call-2",
+          title: "Acme review",
+          started: "2026-05-02T10:00:00Z",
+        },
+      ],
+      pages: 2,
+    });
+
+    const result = (await gongCalls.run({
+      exhaustive: true,
+      after: "2026-05-01",
+      before: "2026-05-31",
+    })) as Record<string, any>;
+
+    expect(getAllCalls).toHaveBeenCalledWith({
+      fromDateTime: "2026-05-01T00:00:00.000Z",
+      toDateTime: "2026-06-01T00:00:00.000Z",
+    });
+    expect(getCalls).not.toHaveBeenCalled();
+    expect(result.calls.map((call: { id: string }) => call.id)).toEqual([
+      "call-1",
+      "call-2",
+    ]);
+    expect(result.total).toBe(2);
+    expect(result.truncated).toBe(false);
+    expect(result.coverageTruncated).toBe(false);
+    expect(result.guidance).toContain("Exhaustive discovery returned 2");
+  });
+
+  it("searches matching transcripts locally after batched retrieval", async () => {
     searchCalls.mockResolvedValue({
       calls: [
         {

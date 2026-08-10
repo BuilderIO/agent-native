@@ -1,4 +1,5 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import { renderMathToHtml } from "@shared/math-rendering";
@@ -20,8 +21,7 @@ import {
   IconCode,
   IconMinus,
   IconTable as TableIcon,
-  IconWand,
-  IconArrowUp,
+  IconHierarchy2,
   IconInfoCircle,
   IconMusic,
   IconPhoto,
@@ -56,7 +56,7 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
-  onDraftCommitted?: () => void | Promise<void>;
+  onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   /**
    * The open document's linked Notion page id, when it has one. When set, the
@@ -69,8 +69,74 @@ interface SlashCommandMenuProps {
 }
 
 interface EditorMenuPosition {
-  top: number;
+  top?: number;
+  bottom?: number;
   left: number;
+}
+
+const SLASH_MENU_PREFERRED_HEIGHT = 360;
+const SLASH_MENU_GAP = 4;
+
+export function getSlashMenuVerticalPosition(
+  anchor: { top: number; bottom: number },
+  container: { top: number; bottom: number },
+  viewportHeight: number,
+): Pick<EditorMenuPosition, "top" | "bottom"> {
+  const spaceBelow = viewportHeight - anchor.bottom;
+  const spaceAbove = anchor.top;
+  if (spaceBelow < SLASH_MENU_PREFERRED_HEIGHT && spaceAbove > spaceBelow) {
+    return {
+      bottom: container.bottom - anchor.top + SLASH_MENU_GAP,
+    };
+  }
+  return {
+    top: anchor.bottom - container.top + SLASH_MENU_GAP,
+  };
+}
+
+export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
+  const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
+  const containerRect = (
+    wrapper instanceof HTMLElement ? wrapper : editor.view.dom
+  ).getBoundingClientRect();
+
+  try {
+    const coords = editor.view.coordsAtPos(editor.state.selection.from);
+    return {
+      ...getSlashMenuVerticalPosition(
+        coords,
+        containerRect,
+        window.innerHeight,
+      ),
+      left: coords.left - containerRect.left,
+    };
+  } catch {
+    // Collaborative reconciliation can briefly leave ProseMirror's DOM mapping
+    // behind the document selection. The slash transaction is still valid; use
+    // its nearest DOM node (or the editor origin) so the command menu remains
+    // available instead of turning the user's slash into inert text.
+    try {
+      const domAtSelection = editor.view.domAtPos(editor.state.selection.from);
+      const element =
+        domAtSelection.node instanceof Element
+          ? domAtSelection.node
+          : domAtSelection.node.parentElement;
+      const rect = element?.getBoundingClientRect();
+      if (rect) {
+        return {
+          ...getSlashMenuVerticalPosition(
+            rect,
+            containerRect,
+            window.innerHeight,
+          ),
+          left: rect.left - containerRect.left,
+        };
+      }
+    } catch {
+      // The editor origin below is a safe, visible final fallback.
+    }
+    return { top: 4, left: 0 };
+  }
 }
 
 interface EquationDraft {
@@ -91,6 +157,33 @@ export interface CommandItem {
     editor: Editor,
     context: { slashRange: { from: number; to: number } | null },
   ) => void | boolean | Promise<void>;
+}
+
+export function excludeCommandsWithDuplicateTitles<T extends { title: string }>(
+  primaryCommands: readonly T[],
+  candidateCommands: readonly T[],
+): T[] {
+  const primaryTitles = new Set(
+    primaryCommands.map((command) => command.title.trim().toLocaleLowerCase()),
+  );
+  return candidateCommands.filter(
+    (command) => !primaryTitles.has(command.title.trim().toLocaleLowerCase()),
+  );
+}
+
+export type MediaPlaceholderType = "image" | "video" | "audio";
+
+export function insertMediaPlaceholder(
+  editor: Editor,
+  type: MediaPlaceholderType,
+) {
+  const attrs =
+    type === "image"
+      ? { src: null, alt: "" }
+      : type === "video"
+        ? { src: null, sourcePanelOpen: true }
+        : { src: null };
+  return editor.chain().focus().insertContent({ type, attrs }).run();
 }
 
 function getActiveSlashCommandRange(editor: Editor) {
@@ -218,20 +311,17 @@ export function parseInlineGeneratePrompt(textBeforeCursor: string) {
   return prompt || null;
 }
 
-export function shouldOpenGenerateOnSpace(editor: Editor) {
-  const { selection } = editor.state;
-  if (!selection.empty) return false;
-
-  const { $from } = selection;
-  if (!$from.parent.isTextblock) return false;
-  if ($from.parent.type.name !== "paragraph") return false;
-  if ($from.parentOffset !== 0) return false;
-
-  return $from.parent.textContent.trim().length === 0;
-}
-
 export function parseSlashCommandQuery(textBeforeCursor: string) {
-  return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
+  const match = textBeforeCursor.match(
+    /^\s*\/([a-zA-Z0-9][a-zA-Z0-9 _-]*|)\s*$/,
+  );
+  if (!match) return null;
+  const rawQuery = match[1] ?? "";
+  // `/generate <prompt>` intentionally leaves the menu so Enter can submit the
+  // inline prompt. Other multi-word labels (for example `/heading 2`) remain
+  // searchable instead of turning into literal editor text at the first space.
+  if (/^generate\s+/i.test(rawQuery)) return null;
+  return rawQuery.trim();
 }
 
 export function inlineDatabaseBlockContent(
@@ -305,6 +395,15 @@ export function getEquationInsertionRange(
     : slashRange;
 }
 
+export function setCodeBlockFromSlashCommand(
+  editor: Editor,
+  slashRange: { from: number; to: number } | null,
+) {
+  const chain = editor.chain().focus();
+  if (slashRange) chain.deleteRange(slashRange);
+  return chain.setCodeBlock().run();
+}
+
 const commands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.text",
@@ -357,7 +456,9 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
-    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) =>
+      setCodeBlockFromSlashCommand(editor, slashRange),
   },
   {
     titleKey: "editor.slash.quote",
@@ -462,7 +563,9 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
-    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) =>
+      setCodeBlockFromSlashCommand(editor, slashRange),
   },
   {
     titleKey: "editor.slash.quote",
@@ -505,7 +608,7 @@ export function SlashCommandMenu({
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
-  const { send } = useSendToAgentChat();
+  const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
   const createInlineDatabase = useCreateInlineContentDatabase(
@@ -523,11 +626,9 @@ export function SlashCommandMenu({
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [generatePrompt, setGeneratePrompt] = useState("");
   const [generatePos, setGeneratePos] = useState<EditorMenuPosition | null>(
     null,
   );
-  const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(
     null,
@@ -552,22 +653,14 @@ export function SlashCommandMenu({
       send({
         message: trimmed,
         context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+        submit: true,
       });
     },
     [documentId, editor, send, t],
   );
 
   const getSelectionMenuPosition = useCallback(() => {
-    const coords = editor.view.coordsAtPos(editor.state.selection.from);
-    const editorRect = editor.view.dom
-      .closest(".visual-editor-wrapper")
-      ?.getBoundingClientRect();
-    if (!editorRect) return null;
-
-    return {
-      top: coords.bottom - editorRect.top + 4,
-      left: coords.left - editorRect.left,
-    };
+    return getSlashMenuPosition(editor);
   }, [editor]);
 
   const openGeneratePopover = useCallback(
@@ -576,9 +669,7 @@ export function SlashCommandMenu({
       if (!nextPosition) return false;
 
       setGeneratePos(nextPosition);
-      setGeneratePrompt("");
       setGenerateOpen(true);
-      setTimeout(() => generateTextareaRef.current?.focus(), 0);
       return true;
     },
     [getSelectionMenuPosition],
@@ -602,7 +693,7 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: t("editor.slash.generate"),
     description: t("editor.slash.generateDescription"),
-    icon: IconWand,
+    icon: IconHierarchy2,
     action: () => {
       openGeneratePopover(position);
     },
@@ -613,11 +704,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.imageDescription"),
     icon: IconPhoto,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "image", attrs: { src: null, alt: "" } })
-        .run();
+      insertMediaPlaceholder(editor, "image");
     },
   };
 
@@ -626,11 +713,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.videoDescription"),
     icon: IconVideo,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "video", attrs: { src: null } })
-        .run();
+      insertMediaPlaceholder(editor, "video");
     },
   };
 
@@ -639,11 +722,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.audioDescription"),
     icon: IconMusic,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "audio", attrs: { src: null } })
-        .run();
+      insertMediaPlaceholder(editor, "audio");
     },
   };
 
@@ -870,6 +949,10 @@ export function SlashCommandMenu({
     ...(isTurnInto ? turnIntoCommands : commands).map(localizeCommand),
     ...equationCommands,
   ];
+  const uniqueRegistryCommands = excludeCommandsWithDuplicateTitles(
+    blockCommands,
+    registryCommands,
+  );
   const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
   const mediaCommands = isTurnInto
     ? []
@@ -881,11 +964,20 @@ export function SlashCommandMenu({
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
   const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
-  const filteredRegistryCommands = registryCommands.filter(commandMatchesQuery);
+  const filteredRegistryCommands =
+    uniqueRegistryCommands.filter(commandMatchesQuery);
   const filteredLocalComponentCommands =
     localComponentCommands.filter(commandMatchesQuery);
   const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
+  const allCommands = [
+    ...aiCommands,
+    ...blockCommands,
+    ...uniqueRegistryCommands,
+    ...localComponentCommands,
+    ...mediaCommands,
+    ...pageCommands,
+  ];
   const filteredCommands = [
     ...filteredAiCommands,
     ...filteredBlockCommands,
@@ -912,12 +1004,10 @@ export function SlashCommandMenu({
     );
   };
 
-  function handleGenerateSubmit() {
-    submitGeneratePrompt(generatePrompt);
-  }
-
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
+      if (editor.isDestroyed) return;
+      const beforeDoc = editor.state.doc;
       const slashRange =
         getActiveSlashCommandRange(editor) ??
         (slashPosRef.current !== null
@@ -931,34 +1021,53 @@ export function SlashCommandMenu({
       setQuery("");
       slashPosRef.current = null;
       await cmd.action(editor, { slashRange });
+      // Structural slash commands (especially an empty table) can be followed
+      // immediately by another modal command or navigation before the normal
+      // debounced onUpdate save settles. Persist the completed command now so
+      // the durable snapshot cannot omit the block. Media placeholders are
+      // still held by VisualEditor's pending-media guard until they have a src.
+      if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
+        const persisted = await onDraftCommitted?.();
+        if (persisted === false) {
+          toast.error(t("empty.genericError"));
+        }
+      }
     },
-    [editor],
+    [editor, onDraftCommitted, t],
   );
 
   useEffect(() => {
     if (!editor) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) {
-        if (
-          (e.key === " " || e.code === "Space") &&
-          !e.shiftKey &&
-          !e.metaKey &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          editor.isFocused &&
-          shouldOpenGenerateOnSpace(editor)
-        ) {
+      if (
+        e.key === "Enter" &&
+        !e.shiftKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        const slashRange = getActiveSlashCommandRange(editor);
+        const liveQuery = slashRange
+          ? editor.state.doc
+              .textBetween(slashRange.from + 1, slashRange.to, "\n")
+              .trim()
+              .toLowerCase()
+          : "";
+        const exactCommand = liveQuery
+          ? allCommands.find(
+              (command) => command.title.toLowerCase() === liveQuery,
+            )
+          : undefined;
+        if (exactCommand) {
           e.preventDefault();
           e.stopPropagation();
-          setIsOpen(false);
-          setIsTurnInto(false);
-          setQuery("");
-          slashPosRef.current = null;
-          openGeneratePopover();
+          void executeCommand(exactCommand);
           return;
         }
+      }
 
+      if (!isOpen) {
         if (
           e.key === "Enter" &&
           !e.shiftKey &&
@@ -1024,6 +1133,7 @@ export function SlashCommandMenu({
     openGeneratePopover,
     readInlineGenerateCommand,
     submitGeneratePrompt,
+    allCommands,
   ]);
 
   useEffect(() => {
@@ -1081,16 +1191,7 @@ export function SlashCommandMenu({
         const slashAtBlockStart = offsetInParent === 0;
         setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
 
-        const coords = editor.view.coordsAtPos(from);
-        const editorRect = editor.view.dom
-          .closest(".visual-editor-wrapper")
-          ?.getBoundingClientRect();
-        if (editorRect) {
-          setPosition({
-            top: coords.bottom - editorRect.top + 4,
-            left: coords.left - editorRect.left,
-          });
-        }
+        setPosition(getSlashMenuPosition(editor));
         setIsOpen(true);
       } else {
         if (isOpen) {
@@ -1108,6 +1209,36 @@ export function SlashCommandMenu({
     };
   }, [editor, isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || editor.isDestroyed) return;
+
+    let frame = 0;
+    const updatePosition = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!editor.isDestroyed) {
+          setPosition(getSlashMenuPosition(editor));
+        }
+      });
+    };
+
+    // ProseMirror can scroll any ancestor after the slash transaction to reveal
+    // the caret. Recalculate after layout and capture those non-bubbling scroll
+    // events so a menu near the viewport edge flips using current geometry.
+    updatePosition();
+    document.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("scroll", updatePosition);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("scroll", updatePosition);
+    };
+  }, [editor, isOpen]);
+
   return (
     <>
       {/* Slash command menu */}
@@ -1118,8 +1249,11 @@ export function SlashCommandMenu({
           style={{
             position: "absolute",
             top: position.top,
+            bottom: position.bottom,
             left: 0,
             right: 0,
+            maxHeight: "min(360px, calc(100vh - 2rem))",
+            overflowY: "auto",
             maxWidth: "min(330px, calc(100vw - 2rem))",
             marginLeft: Math.min(position.left, 16),
             zIndex: 50,
@@ -1195,48 +1329,18 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] max-w-80 rounded-xl p-0"
-            onOpenAutoFocus={(e: Event) => {
-              e.preventDefault();
-              generateTextareaRef.current?.focus();
-            }}
+            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
           >
-            <div className="p-4 pb-3">
-              <p className="text-sm font-semibold flex items-center gap-1.5">
-                <IconWand size={14} className="text-muted-foreground" />
-                {t("editor.generateWithAi")}
-              </p>
-              <textarea
-                ref={generateTextareaRef}
-                value={generatePrompt}
-                onChange={(e) => setGeneratePrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    handleGenerateSubmit();
-                  }
-                  if (e.key === "Escape") {
-                    setGenerateOpen(false);
-                  }
-                }}
-                placeholder={t("editor.describeWhatToGenerate")}
-                className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
-                rows={3}
-              />
-            </div>
-            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
-              <span className="text-[11px] text-muted-foreground/70">
-                {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                {t("editor.enterToSubmit")}
-              </span>
-              <button
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
-                onClick={handleGenerateSubmit}
-                disabled={!generatePrompt.trim()}
-              >
-                <IconArrowUp size={14} />
-              </button>
-            </div>
+            <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+              {t("editor.generateWithAi")}
+            </p>
+            <PromptComposer
+              autoFocus
+              disabled={isGenerating}
+              placeholder={t("editor.describeWhatToGenerate")}
+              draftScope={`content:generate:${documentId ?? "document"}`}
+              onSubmit={submitGeneratePrompt}
+            />
           </PopoverContent>
         </Popover>
       )}
@@ -1361,7 +1465,7 @@ export function SlashCommandMenu({
   );
 }
 
-function CommandButton({
+export function CommandButton({
   cmd,
   isSelected,
   buttonRef,
@@ -1374,13 +1478,31 @@ function CommandButton({
   onExecute: () => void;
   onHover: () => void;
 }) {
+  const pendingExecutionRef = useRef(false);
+  const onExecuteRef = useRef(onExecute);
+  onExecuteRef.current = onExecute;
+
+  const executeOnce = () => {
+    if (pendingExecutionRef.current) return;
+    pendingExecutionRef.current = true;
+    // Pointer selection can close and unmount the menu before the browser
+    // dispatches `click`. Start the command during mouse down, while the
+    // editor selection and button are both still alive. Keep `onClick` as the
+    // keyboard-generated click fallback and dedupe the normal pointer click.
+    onExecuteRef.current();
+    queueMicrotask(() => {
+      pendingExecutionRef.current = false;
+    });
+  };
+
   return (
     <button
       ref={buttonRef}
       onMouseDown={(event) => {
         event.preventDefault();
-        onExecute();
+        if (event.button === 0) executeOnce();
       }}
+      onClick={executeOnce}
       onMouseEnter={onHover}
       className={cn(
         "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",

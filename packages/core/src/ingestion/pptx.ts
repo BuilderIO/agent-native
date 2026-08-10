@@ -4,19 +4,101 @@ export interface ParsedPptxTextRun {
   italic?: boolean;
   fontSize?: number;
   color?: string;
+  fontFamily?: string;
+  underline?: boolean;
+  href?: string;
 }
+
+export interface ParsedPptxParagraph {
+  runs: ParsedPptxTextRun[];
+  alignment?: "left" | "center" | "right" | "justify";
+  bulletChar?: string;
+  bulletColor?: string;
+  bulletFontFamily?: string;
+  bulletSize?: number;
+  level?: number;
+  marginLeftEmu?: number;
+  indentEmu?: number;
+  lineSpacing?: number;
+  spaceBeforePt?: number;
+  spaceAfterPt?: number;
+}
+
+export interface ParsedPptxElement {
+  id: string;
+  name?: string;
+  placeholderType?: string;
+  kind: "text" | "image" | "shape";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  shapeType?: string;
+  fill?: string;
+  lineColor?: string;
+  lineWidth?: number;
+  padding?: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
+  verticalAlign?: "top" | "middle" | "bottom";
+  paragraphs?: ParsedPptxParagraph[];
+  image?: ParsedPptxImage;
+}
+
+export type ParsedPptxTransition =
+  | "instant"
+  | "none"
+  | "fade"
+  | "slide"
+  | "zoom";
 
 export interface ParsedPptxImage {
   data: Uint8Array;
   mimeType: string;
   name: string;
+  /** Width / height of the picture shape on the slide, from its own placed size (not the source file's pixel dimensions). */
+  aspectRatio?: number;
+  /** True when the picture shape covers at least ~85% of the slide's width and height — a full-bleed background photo rather than an inset card image. */
+  fullBleed?: boolean;
+  crop?: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
 }
 
 export interface ParsedPptxSlide {
   texts: ParsedPptxTextRun[];
   images: ParsedPptxImage[];
+  elements: ParsedPptxElement[];
+  widthEmu?: number;
+  heightEmu?: number;
+  backgroundColor?: string;
+  /** A decorative grid inherited from the slide master, when one is present. */
+  backgroundGrid?: ParsedPptxGrid;
   notes?: string;
   layoutHint?: string;
+  transition?: ParsedPptxTransition;
+  splitByParagraph?: boolean;
+}
+
+export interface ParsedPptxGrid {
+  color: string;
+  stepXEmu: number;
+  stepYEmu: number;
+  offsetXEmu: number;
+  offsetYEmu: number;
+  lineWidthEmu: number;
+}
+
+export interface ParsedPptxSlideMetadata {
+  transition?: ParsedPptxTransition;
+  splitByParagraph?: boolean;
 }
 
 export interface ParsedPptxPresentation {
@@ -46,17 +128,28 @@ export async function parsePptxPresentation(
   if (!presentationXml)
     throw new Error("Invalid PPTX: missing ppt/presentation.xml");
   const presentation = parseXml(presentationXml);
+  const presentationRoot = record(record(presentation)?.["p:presentation"]);
   const slideIds = asArray(
-    record(record(record(presentation)?.["p:presentation"])?.["p:sldIdLst"])?.[
-      "p:sldId"
-    ],
+    record(presentationRoot?.["p:sldIdLst"])?.["p:sldId"],
   ).map((entry) => stringValue(record(entry)?.["@_r:id"]) ?? "");
+  const sldSz = record(presentationRoot?.["p:sldSz"]);
+  const slideWidthEmu = Number(sldSz?.["@_cx"]) || undefined;
+  const slideHeightEmu = Number(sldSz?.["@_cy"]) || undefined;
   const relationshipsXml = await zip
     .file("ppt/_rels/presentation.xml.rels")
     ?.async("string");
   const relationships = relationshipsXml
     ? parseRelationships(parseXml(relationshipsXml))
     : new Map<string, { target: string; type: string }>();
+  const slideMasterRelationship = [...relationships.values()].find((value) =>
+    value.type.endsWith("/slideMaster"),
+  );
+  const backgroundGrid = slideMasterRelationship
+    ? await parseMasterGrid({
+        zip,
+        target: slideMasterRelationship.target,
+      })
+    : undefined;
   const slidePaths = slideIds.flatMap((id) => {
     const relationship = relationships.get(id);
     if (!relationship) return [];
@@ -73,7 +166,40 @@ export async function parsePptxPresentation(
         .sort((a, b) => slideNumber(a) - slideNumber(b)),
     );
   }
+  // Deck-wide fallback, used when a slide's own layout→master chain can't be
+  // resolved (missing rels, unusual authoring tools) — see
+  // `resolveSlideMasterContext` below for the per-slide resolution that
+  // presentations with more than one slide master actually need.
   const theme = await parseTheme(zip, parseXml);
+  const masterColorInfo = slideMasterRelationship
+    ? await parseMasterColorInfo({
+        zip,
+        target: slideMasterRelationship.target,
+        parseXml,
+      })
+    : { clrMap: {}, titleFillByLevel: {}, bodyFillByLevel: {} };
+  const colorContext: ColorContext = {
+    themeColorsByName: theme.colorsByName,
+    clrMap: masterColorInfo.clrMap,
+  };
+  const resolveFillsByLevel = (
+    fillsByLevel: Record<number, Record<string, unknown> | null>,
+  ): Record<number, string | undefined> =>
+    Object.fromEntries(
+      Object.entries(fillsByLevel).map(([level, fill]) => [
+        Number(level),
+        parseColor(fill, colorContext),
+      ]),
+    );
+  const placeholderDefaults: PlaceholderDefaultColors = {
+    title: resolveFillsByLevel(masterColorInfo.titleFillByLevel),
+    body: resolveFillsByLevel(masterColorInfo.bodyFillByLevel),
+  };
+  const themeCache = new Map<string, Promise<ThemeInfo>>();
+  const masterInfoCache = new Map<
+    string,
+    ReturnType<typeof parseMasterColorInfo>
+  >();
   const slides: ParsedPptxSlide[] = [];
   for (const slidePath of slidePaths) {
     const xml = await zip.file(slidePath)?.async("string");
@@ -84,8 +210,8 @@ export async function parsePptxPresentation(
     } catch {
       continue;
     }
-    const texts: ParsedPptxTextRun[] = [];
-    collectTextRuns(slide, texts);
+    const metadata = parsePptxSlideMetadata(slide);
+    let elements: ParsedPptxElement[] = [];
     const images: ParsedPptxImage[] = [];
     const relationshipPath = slidePath.replace(
       /slides\/(slide\d+\.xml)/,
@@ -94,33 +220,34 @@ export async function parsePptxPresentation(
     const slideRelationshipsXml = await zip
       .file(relationshipPath)
       ?.async("string");
-    if (slideRelationshipsXml) {
-      for (const relationship of parseRelationships(
-        parseXml(slideRelationshipsXml),
-      ).values()) {
-        if (
-          !relationship.type.includes("/image") &&
-          !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
-            relationship.target,
-          )
-        ) {
-          continue;
-        }
-        const imagePath = relationship.target.startsWith("/")
-          ? relationship.target.slice(1)
-          : relationship.target.startsWith("../")
-            ? `ppt/${relationship.target.replace(/^\.\.\//, "")}`
-            : `ppt/slides/${relationship.target}`;
-        const image = zip.file(imagePath);
-        if (!image) continue;
-        const name = imagePath.split("/").at(-1) ?? "image";
-        images.push({
-          data: new Uint8Array(await image.async("nodebuffer")),
-          mimeType: imageMimeType(name),
-          name,
-        });
-      }
-    }
+    const slideRelationships = slideRelationshipsXml
+      ? parseRelationships(parseXml(slideRelationshipsXml))
+      : new Map<string, { target: string; type: string }>();
+    // Presentations can mix multiple masters (e.g. combined templates), each
+    // with its own color map / theme / placeholder defaults — resolve this
+    // slide's own layout→master chain instead of reusing whichever master
+    // happened to be first in the presentation, falling back to the
+    // deck-wide default above only when that chain can't be resolved.
+    const slideMasterContext = (await resolveSlideMasterContext({
+      zip,
+      parseXml,
+      slideRelationships,
+      themeCache,
+      masterInfoCache,
+    })) ?? { colorContext, placeholderDefaults };
+    elements = await parseSlideElements({
+      xml,
+      parseXml,
+      slide,
+      zip,
+      slideRelationships,
+      slideWidthEmu,
+      slideHeightEmu,
+      images,
+      colorContext: slideMasterContext.colorContext,
+      placeholderDefaults: slideMasterContext.placeholderDefaults,
+    });
+    const texts = flattenElementText(elements);
     const number = slideNumber(slidePath);
     const notesXml = await zip
       .file(`ppt/notesSlides/notesSlide${number}.xml`)
@@ -138,8 +265,17 @@ export async function parsePptxPresentation(
     slides.push({
       texts,
       images,
+      elements,
+      widthEmu: slideWidthEmu,
+      heightEmu: slideHeightEmu,
+      backgroundColor: extractSlideBackgroundColor(
+        slide,
+        slideMasterContext.colorContext,
+      ),
+      ...(backgroundGrid ? { backgroundGrid } : {}),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
+      ...metadata,
     });
   }
   const firstSlide = slides[0]?.texts ?? [];
@@ -151,22 +287,1106 @@ export async function parsePptxPresentation(
   return { title, slides, theme };
 }
 
+/**
+ * Google Slides exports decorative grids as connector shapes on the slide
+ * master instead of as a slide background. Preserve the repeated geometry as
+ * metadata so the HTML renderer can reproduce it without making the lines
+ * editable slide objects.
+ */
+async function parseMasterGrid(args: {
+  zip: ZipArchive;
+  target: string;
+}): Promise<ParsedPptxGrid | undefined> {
+  const path = args.target.startsWith("/")
+    ? args.target.slice(1)
+    : `ppt/${args.target.replace(/^\.\.\//, "")}`;
+  const xml = await args.zip.file(path)?.async("string");
+  if (!xml) return undefined;
+
+  const connectors = xml.match(/<p:cxnSp\b[\s\S]*?<\/p:cxnSp>/gi) ?? [];
+  const candidates = connectors.flatMap((fragment) => {
+    const color = fragment.match(
+      /<a:solidFill>\s*<a:srgbClr\s+val="([0-9a-f]{6})"/i,
+    )?.[1];
+    const transform = fragment.match(
+      /<a:xfrm[^>]*>\s*<a:off\s+x="(-?\d+)"\s+y="(-?\d+)"\s*\/>\s*<a:ext\s+cx="(-?\d+)"\s+cy="(-?\d+)"/i,
+    );
+    const lineWidth = fragment.match(/<a:ln[^>]*\bw="(\d+)"/i)?.[1];
+    if (!color || !transform || !lineWidth) return [];
+    return [
+      {
+        color: color.toLowerCase(),
+        x: Number(transform[1]),
+        y: Number(transform[2]),
+        width: Number(transform[3]),
+        height: Number(transform[4]),
+        lineWidth: Number(lineWidth),
+      },
+    ];
+  });
+  if (candidates.length < 20) return undefined;
+
+  const colorCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    colorCounts.set(
+      candidate.color,
+      (colorCounts.get(candidate.color) ?? 0) + 1,
+    );
+  }
+  const [color] =
+    [...colorCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!color) return undefined;
+
+  const xPositions = [
+    ...new Set(
+      candidates
+        .filter((candidate) => candidate.color === color)
+        .map((candidate) => candidate.x),
+    ),
+  ].sort((a, b) => a - b);
+  const gaps = xPositions
+    .slice(1)
+    .map((value, index) => value - xPositions[index])
+    .filter((value) => value > 100_000);
+  if (gaps.length < 3) return undefined;
+  gaps.sort((a, b) => a - b);
+  const stepXEmu = gaps[Math.floor(gaps.length / 2)];
+  if (!stepXEmu) return undefined;
+
+  const offsetXEmu = xPositions.find((value) => value >= 0) ?? xPositions[0];
+  const lineWidthEmu = Math.max(
+    1,
+    Math.round(
+      candidates
+        .filter((candidate) => candidate.color === color)
+        .reduce((sum, candidate) => sum + candidate.lineWidth, 0) /
+        candidates.filter((candidate) => candidate.color === color).length,
+    ),
+  );
+
+  // The same repeated connector lattice is used for both axes in the Google
+  // export. Its horizontal phase is the master group's first repeated offset.
+  // Keeping the phase relative to the detected step also works for custom
+  // slide sizes that preserve the source grid's square-cell geometry.
+  const stepYEmu = stepXEmu;
+  const offsetYEmu = Math.round(stepYEmu * 0.9);
+
+  return {
+    color: `#${color}`,
+    stepXEmu,
+    stepYEmu,
+    offsetXEmu,
+    offsetYEmu,
+    lineWidthEmu,
+  };
+}
+
+/** Resolves an OOXML relationship `Target` (package-absolute like "/ppt/foo.xml", or relative like "../slideMasters/slideMaster1.xml") against the directory of the part that declared it. */
+function resolvePptxRelationshipPath(baseDir: string, target: string): string {
+  if (target.startsWith("/")) return target.slice(1);
+  const segments = `${baseDir}/${target}`.split("/");
+  const resolved: string[] = [];
+  for (const segment of segments) {
+    if (segment === "." || segment === "") continue;
+    if (segment === "..") resolved.pop();
+    else resolved.push(segment);
+  }
+  return resolved.join("/");
+}
+
+/** The `_rels/<file>.rels` part that carries relationships for a given OOXML part path. */
+function relsPathForPptxPart(path: string): string {
+  const slashIndex = path.lastIndexOf("/");
+  const dir = slashIndex >= 0 ? path.slice(0, slashIndex) : "";
+  const file = slashIndex >= 0 ? path.slice(slashIndex + 1) : path;
+  return `${dir ? `${dir}/` : ""}_rels/${file}.rels`;
+}
+
+/**
+ * Walks this slide's own `slideLayout` → `slideMaster` → `theme` relationship
+ * chain so slides that belong to a different master than the deck's first
+ * one (a presentation with more than one master) resolve `schemeClr`
+ * aliases and placeholder defaults against their own palette instead of an
+ * unrelated master's. Returns `undefined` when any hop in that chain is
+ * missing, letting the caller fall back to the deck-wide default.
+ */
+async function resolveSlideMasterContext(args: {
+  zip: ZipArchive;
+  parseXml: (xml: string) => unknown;
+  slideRelationships: Map<string, { target: string; type: string }>;
+  themeCache: Map<string, Promise<ThemeInfo>>;
+  masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
+}): Promise<
+  | {
+      colorContext: ColorContext;
+      placeholderDefaults: PlaceholderDefaultColors;
+    }
+  | undefined
+> {
+  const layoutRelationship = [...args.slideRelationships.values()].find(
+    (relationship) => relationship.type.endsWith("/slideLayout"),
+  );
+  if (!layoutRelationship) return undefined;
+  const layoutPath = resolvePptxRelationshipPath(
+    "ppt/slides",
+    layoutRelationship.target,
+  );
+  const layoutRelsXml = await args.zip
+    .file(relsPathForPptxPart(layoutPath))
+    ?.async("string");
+  if (!layoutRelsXml) return undefined;
+  const layoutRelationships = parseRelationships(args.parseXml(layoutRelsXml));
+  const masterRelationship = [...layoutRelationships.values()].find(
+    (relationship) => relationship.type.endsWith("/slideMaster"),
+  );
+  if (!masterRelationship) return undefined;
+  const masterPath = resolvePptxRelationshipPath(
+    "ppt/slideLayouts",
+    masterRelationship.target,
+  );
+
+  let masterInfoPromise = args.masterInfoCache.get(masterPath);
+  if (!masterInfoPromise) {
+    masterInfoPromise = parseMasterColorInfo({
+      zip: args.zip,
+      target: masterRelationship.target,
+      parseXml: args.parseXml,
+    });
+    args.masterInfoCache.set(masterPath, masterInfoPromise);
+  }
+  const masterInfo = await masterInfoPromise;
+
+  const masterRelsXml = await args.zip
+    .file(relsPathForPptxPart(masterPath))
+    ?.async("string");
+  const masterRelationships = masterRelsXml
+    ? parseRelationships(args.parseXml(masterRelsXml))
+    : new Map<string, { target: string; type: string }>();
+  const themeRelationship = [...masterRelationships.values()].find(
+    (relationship) => relationship.type.endsWith("/theme"),
+  );
+  if (!themeRelationship) return undefined;
+  const themePath = resolvePptxRelationshipPath(
+    "ppt/slideMasters",
+    themeRelationship.target,
+  );
+  let themePromise = args.themeCache.get(themePath);
+  if (!themePromise) {
+    themePromise = parseThemeFromPath(args.zip, args.parseXml, themePath);
+    args.themeCache.set(themePath, themePromise);
+  }
+  const theme = await themePromise;
+
+  const colorContext: ColorContext = {
+    themeColorsByName: theme.colorsByName,
+    clrMap: masterInfo.clrMap,
+  };
+  const resolveFillsByLevel = (
+    fillsByLevel: Record<number, Record<string, unknown> | null>,
+  ): Record<number, string | undefined> =>
+    Object.fromEntries(
+      Object.entries(fillsByLevel).map(([level, fill]) => [
+        Number(level),
+        parseColor(fill, colorContext),
+      ]),
+    );
+  return {
+    colorContext,
+    placeholderDefaults: {
+      title: resolveFillsByLevel(masterInfo.titleFillByLevel),
+      body: resolveFillsByLevel(masterInfo.bodyFillByLevel),
+    },
+  };
+}
+
+/** Resolves a slide master's color-alias mapping plus its title/body default text-color fills (from p:txStyles), so placeholder text without its own explicit color can inherit the right one. */
+async function parseMasterColorInfo(args: {
+  zip: ZipArchive;
+  target: string;
+  parseXml: (xml: string) => unknown;
+}): Promise<{
+  clrMap: Record<string, string>;
+  titleFillByLevel: Record<number, Record<string, unknown> | null>;
+  bodyFillByLevel: Record<number, Record<string, unknown> | null>;
+}> {
+  const empty = { clrMap: {}, titleFillByLevel: {}, bodyFillByLevel: {} };
+  const path = args.target.startsWith("/")
+    ? args.target.slice(1)
+    : "ppt/" + args.target.replace(/^\.\.\//, "");
+  const xml = await args.zip.file(path)?.async("string");
+  if (!xml) return empty;
+  const root = record(record(args.parseXml(xml))?.["p:sldMaster"]);
+  if (!root) return empty;
+  const clrMap = parseClrMapNode(record(root["p:clrMap"]));
+  const txStyles = record(root["p:txStyles"]);
+  return {
+    clrMap,
+    titleFillByLevel: levelFillsFromTextStyle(
+      record(txStyles?.["p:titleStyle"]),
+    ),
+    bodyFillByLevel: levelFillsFromTextStyle(record(txStyles?.["p:bodyStyle"])),
+  };
+}
+
+/** Reads a `<p:titleStyle>`/`<p:bodyStyle>` node's per-level (`a:lvl1pPr`..`a:lvl9pPr`) default run fill, keyed 0-indexed to match `ParsedPptxParagraph.level` (`a:lvl1pPr` is level 0, `a:lvl2pPr` is level 1, etc.) — using only the first level's default for every nested bullet level silently drops the distinct colors PowerPoint themes commonly assign to deeper levels. */
+function levelFillsFromTextStyle(
+  style: Record<string, unknown> | null,
+): Record<number, Record<string, unknown> | null> {
+  const fills: Record<number, Record<string, unknown> | null> = {};
+  for (let level = 0; level < 9; level++) {
+    const defRPr = record(
+      record(style?.[`a:lvl${level + 1}pPr`])?.["a:defRPr"],
+    );
+    fills[level] = record(defRPr?.["a:solidFill"]);
+  }
+  return fills;
+}
+
+interface ParsedShapeTransform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+}
+
+interface ShapeTransformContext {
+  originX: number;
+  originY: number;
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+}
+
+const SHAPE_ELEMENT_NAMES = new Set([
+  "sp",
+  "pic",
+  "grpSp",
+  "cxnSp",
+  "graphicFrame",
+]);
+
+async function parseSlideElements(args: {
+  xml: string;
+  parseXml: (xml: string) => unknown;
+  slide: unknown;
+  zip: ZipArchive;
+  slideRelationships: Map<string, { target: string; type: string }>;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  images: ParsedPptxImage[];
+  colorContext?: ColorContext;
+  placeholderDefaults?: PlaceholderDefaultColors;
+}): Promise<ParsedPptxElement[]> {
+  const fragments = extractDirectShapeFragments(args.xml, "spTree");
+  const elements: ParsedPptxElement[] = [];
+  const context: ShapeTransformContext = {
+    originX: 0,
+    originY: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+  };
+
+  for (const fragment of fragments) {
+    const parsed = await parseShapeFragment(fragment, {
+      ...args,
+      context,
+    });
+    if (parsed.length > 0) elements.push(...parsed);
+  }
+
+  // Some authors use a picture fill on the slide background instead of a
+  // picture shape. Keep it in the same ordered scene graph at the back.
+  const backgroundEmbedId = extractBackgroundFillEmbedId(args.slide);
+  if (backgroundEmbedId) {
+    const backgroundRelationship =
+      args.slideRelationships.get(backgroundEmbedId);
+    if (backgroundRelationship) {
+      const image = await loadPptxImage({
+        relationship: backgroundRelationship,
+        zip: args.zip,
+        slideWidthEmu: args.slideWidthEmu,
+        slideHeightEmu: args.slideHeightEmu,
+        x: 0,
+        y: 0,
+        width: args.slideWidthEmu ?? 0,
+        height: args.slideHeightEmu ?? 0,
+      });
+      if (image) {
+        args.images.unshift(image.image);
+        elements.unshift(image.element);
+      }
+    }
+  }
+
+  return elements;
+}
+
+async function parseShapeFragment(
+  fragment: string,
+  args: {
+    parseXml: (xml: string) => unknown;
+    zip: ZipArchive;
+    slideRelationships: Map<string, { target: string; type: string }>;
+    slideWidthEmu?: number;
+    slideHeightEmu?: number;
+    images: ParsedPptxImage[];
+    colorContext?: ColorContext;
+    placeholderDefaults?: PlaceholderDefaultColors;
+    context: ShapeTransformContext;
+  },
+): Promise<ParsedPptxElement[]> {
+  const parsed = record(args.parseXml(fragment));
+  if (!parsed) return [];
+
+  const entry = [...SHAPE_ELEMENT_NAMES].find(
+    (name) => parsed[`p:${name}`] != null,
+  );
+  if (!entry) return [];
+  const node = record(parsed[`p:${entry}`]);
+  if (!node) return [];
+
+  if (entry === "grpSp") {
+    const groupTransform = readTransform(node, "p:grpSpPr");
+    const groupXfrm = record(record(node["p:grpSpPr"])?.["a:xfrm"]);
+    const childOffset = readPoint(groupXfrm?.["a:chOff"]);
+    const childExtent = readPoint(groupXfrm?.["a:chExt"]);
+    const groupScaleX =
+      childExtent.x > 0 ? groupTransform.width / childExtent.x : 1;
+    const groupScaleY =
+      childExtent.y > 0 ? groupTransform.height / childExtent.y : 1;
+    const nextContext: ShapeTransformContext = {
+      originX:
+        args.context.originX +
+        args.context.scaleX * (groupTransform.x - childOffset.x * groupScaleX),
+      originY:
+        args.context.originY +
+        args.context.scaleY * (groupTransform.y - childOffset.y * groupScaleY),
+      scaleX: args.context.scaleX * groupScaleX,
+      scaleY: args.context.scaleY * groupScaleY,
+      rotation: args.context.rotation + (groupTransform.rotation ?? 0),
+    };
+    const output: ParsedPptxElement[] = [];
+    for (const child of extractDirectShapeFragments(fragment, "grpSp")) {
+      output.push(
+        ...(await parseShapeFragment(child, {
+          ...args,
+          context: nextContext,
+        })),
+      );
+    }
+    return output;
+  }
+
+  const transform = applyTransform(readTransform(node, "p:spPr"), args.context);
+  const id = readShapeId(node);
+  const name = readShapeName(node);
+  const placeholderType = stringValue(
+    record(record(record(node["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"])?.["@_type"],
+  );
+  const shapeProperties = record(node["p:spPr"]);
+  const rawText = parseTextBody(node, args.colorContext);
+  const placeholderDefaultColor =
+    placeholderType === "title" || placeholderType === "ctrTitle"
+      ? args.placeholderDefaults?.title
+      : placeholderType
+        ? args.placeholderDefaults?.body
+        : undefined;
+  const text = applyPlaceholderDefaultColor(rawText, placeholderDefaultColor);
+  const fill = parseShapeFill(shapeProperties, args.colorContext);
+  const line = parseShapeLine(shapeProperties, args.colorContext);
+  const shapeType = stringValue(
+    record(shapeProperties?.["a:prstGeom"])?.["@_prst"],
+  );
+
+  if (entry === "pic") {
+    const embedId = stringValue(
+      record(record(node["p:blipFill"])?.["a:blip"])?.["@_r:embed"],
+    );
+    if (!embedId) return [];
+    const relationship = args.slideRelationships.get(embedId);
+    if (!relationship) return [];
+    const image = await loadPptxImage({
+      relationship,
+      zip: args.zip,
+      slideWidthEmu: args.slideWidthEmu,
+      slideHeightEmu: args.slideHeightEmu,
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+      crop: parseImageCrop(node),
+    });
+    if (!image) return [];
+    args.images.push(image.image);
+    return [
+      {
+        id,
+        name,
+        kind: "image",
+        ...transform,
+        image: image.image,
+      },
+    ];
+  }
+
+  const hasText = text.some((paragraph) => paragraph.runs.length > 0);
+  if (hasText) {
+    return [
+      {
+        id,
+        name,
+        ...(placeholderType ? { placeholderType } : {}),
+        kind: "text",
+        ...transform,
+        shapeType,
+        ...(fill ? { fill } : {}),
+        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+        ...parseTextBoxProperties(node),
+        paragraphs: text,
+      },
+    ];
+  }
+
+  if (fill || line) {
+    return [
+      {
+        id,
+        name,
+        kind: "shape",
+        ...transform,
+        shapeType,
+        ...(fill ? { fill } : {}),
+        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+      },
+    ];
+  }
+
+  return [];
+}
+
+function extractDirectShapeFragments(xml: string, container: string): string[] {
+  const containerMatch = new RegExp(`<p:${container}\\b[^>]*>`, "i").exec(xml);
+  if (!containerMatch) return [];
+  const containerEnd = findMatchingXmlTag(xml, containerMatch.index, container);
+  if (containerEnd < 0) return [];
+  const start = containerMatch.index + containerMatch[0].length;
+  const end = containerEnd;
+  const tagPattern = /<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b[^>]*>/g;
+  tagPattern.lastIndex = start;
+  const stack: string[] = [];
+  const fragments: string[] = [];
+  let shapeStart = -1;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(xml)) && match.index < end) {
+    const token = match[0];
+    const localName = match[1];
+    const isClosing = token.startsWith("</");
+    const isSelfClosing = /\/\s*>$/.test(token);
+    if (isClosing) {
+      if (stack.length > 0) stack.pop();
+      if (stack.length === 0 && shapeStart >= 0) {
+        fragments.push(xml.slice(shapeStart, match.index + token.length));
+        shapeStart = -1;
+      }
+      continue;
+    }
+    if (stack.length === 0 && SHAPE_ELEMENT_NAMES.has(localName)) {
+      shapeStart = match.index;
+    }
+    if (!isSelfClosing) stack.push(localName);
+  }
+  return fragments;
+}
+
+function findMatchingXmlTag(
+  xml: string,
+  start: number,
+  localName: string,
+): number {
+  const tagPattern = /<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b[^>]*>/g;
+  tagPattern.lastIndex = start;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(xml))) {
+    const token = match[0];
+    if (match[1] !== localName || /\/\s*>$/.test(token)) continue;
+    if (token.startsWith("</")) {
+      depth -= 1;
+      if (depth === 0) return match.index;
+    } else {
+      depth += 1;
+    }
+  }
+  return -1;
+}
+
+function readShapeId(node: Record<string, unknown>): string {
+  const cNvPr =
+    record(record(node["p:nvSpPr"])?.["p:cNvPr"]) ??
+    record(record(node["p:nvPicPr"])?.["p:cNvPr"]);
+  return (
+    stringValue(cNvPr?.["@_id"]) ??
+    `shape-${Math.random().toString(36).slice(2)}`
+  );
+}
+
+function readShapeName(node: Record<string, unknown>): string | undefined {
+  return stringValue(record(record(node["p:nvSpPr"])?.["p:cNvPr"])?.["@_name"]);
+}
+
+function readPoint(value: unknown): { x: number; y: number } {
+  const point = record(value);
+  return {
+    x: Number(point?.["@_x"]) || 0,
+    y: Number(point?.["@_y"]) || 0,
+  };
+}
+
+function readExtent(value: unknown): { x: number; y: number } {
+  const extent = record(value);
+  return {
+    x: Number(extent?.["@_cx"]) || 0,
+    y: Number(extent?.["@_cy"]) || 0,
+  };
+}
+
+function readTransform(
+  node: Record<string, unknown>,
+  key: string,
+): ParsedShapeTransform {
+  const xfrm = record(record(node[key])?.["a:xfrm"]);
+  const off = readPoint(xfrm?.["a:off"]);
+  const ext = readExtent(xfrm?.["a:ext"]);
+  const rawRotation = Number(xfrm?.["@_rot"]);
+  return {
+    x: off.x,
+    y: off.y,
+    width: ext.x,
+    height: ext.y,
+    ...(Number.isFinite(rawRotation) && rawRotation !== 0
+      ? { rotation: rawRotation / 60000 }
+      : {}),
+  };
+}
+
+function applyTransform(
+  transform: ParsedShapeTransform,
+  context: ShapeTransformContext,
+): ParsedShapeTransform {
+  return {
+    x: context.originX + transform.x * context.scaleX,
+    y: context.originY + transform.y * context.scaleY,
+    width: transform.width * context.scaleX,
+    height: transform.height * context.scaleY,
+    ...(transform.rotation || context.rotation
+      ? { rotation: (transform.rotation ?? 0) + context.rotation }
+      : {}),
+  };
+}
+
+function parseTextBody(
+  node: Record<string, unknown>,
+  context?: ColorContext,
+): ParsedPptxParagraph[] {
+  const txBody = record(node["p:txBody"]);
+  if (!txBody) return [];
+  return asArray(txBody["a:p"]).map((rawParagraph) => {
+    const paragraph = record(rawParagraph);
+    const pPr = record(paragraph?.["a:pPr"]);
+    const runs: ParsedPptxTextRun[] = [];
+    for (const rawRun of asArray(paragraph?.["a:r"])) {
+      const run = record(rawRun);
+      const content = innerText(run?.["a:t"]);
+      if (content) {
+        runs.push({
+          content,
+          ...runProperties(record(run?.["a:rPr"]), {}, context),
+        });
+      }
+    }
+    for (const rawField of asArray(paragraph?.["a:fld"])) {
+      const field = record(rawField);
+      const content = innerText(field?.["a:t"]);
+      if (content) {
+        runs.push({
+          content,
+          ...runProperties(record(field?.["a:rPr"]), {}, context),
+        });
+      }
+    }
+    const bullet = record(pPr?.["a:buChar"]);
+    const bulletColor = parseColor(record(pPr?.["a:buClr"]), context);
+    const bulletFont = stringValue(record(pPr?.["a:buFont"])?.["@_typeface"]);
+    const bulletSize = Number(record(pPr?.["a:buSzPts"])?.["@_val"]);
+    const lineSpacing = parseParagraphSpacing(pPr?.["a:lnSpc"]);
+    const spaceBeforePt = parsePoints(pPr?.["a:spcBef"]);
+    const spaceAfterPt = parsePoints(pPr?.["a:spcAft"]);
+    const alignment = mapAlignment(stringValue(pPr?.["@_algn"]));
+    return {
+      runs,
+      ...(alignment ? { alignment } : {}),
+      ...(bullet?.["@_char"] && !pPr?.["a:buNone"]
+        ? { bulletChar: String(bullet["@_char"]) }
+        : {}),
+      ...(bulletColor ? { bulletColor } : {}),
+      ...(bulletFont ? { bulletFontFamily: bulletFont } : {}),
+      ...(Number.isFinite(bulletSize) && bulletSize > 0
+        ? { bulletSize: bulletSize / 100 }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_lvl"]))
+        ? { level: Number(pPr?.["@_lvl"]) }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_marL"]))
+        ? { marginLeftEmu: Number(pPr?.["@_marL"]) }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_indent"]))
+        ? { indentEmu: Number(pPr?.["@_indent"]) }
+        : {}),
+      ...(lineSpacing !== undefined ? { lineSpacing } : {}),
+      ...(spaceBeforePt !== undefined ? { spaceBeforePt } : {}),
+      ...(spaceAfterPt !== undefined ? { spaceAfterPt } : {}),
+    };
+  });
+}
+
+function parseTextBoxProperties(
+  node: Record<string, unknown>,
+): Pick<ParsedPptxElement, "padding" | "verticalAlign"> {
+  const bodyPr = record(record(node["p:txBody"])?.["a:bodyPr"]);
+  if (!bodyPr) return {};
+  const anchor = stringValue(bodyPr["@_anchor"]);
+  return {
+    padding: {
+      left: Number(bodyPr["@_lIns"]) || 0,
+      right: Number(bodyPr["@_rIns"]) || 0,
+      top: Number(bodyPr["@_tIns"]) || 0,
+      bottom: Number(bodyPr["@_bIns"]) || 0,
+    },
+    ...(anchor === "ctr"
+      ? { verticalAlign: "middle" as const }
+      : anchor === "b"
+        ? { verticalAlign: "bottom" as const }
+        : { verticalAlign: "top" as const }),
+  };
+}
+
+function parseShapeFill(
+  shapeProperties: Record<string, unknown> | null,
+  context?: ColorContext,
+): string | undefined {
+  if (!shapeProperties) return undefined;
+  if (shapeProperties["a:noFill"] !== undefined) return undefined;
+  return parseColor(record(shapeProperties["a:solidFill"]), context);
+}
+
+function parseShapeLine(
+  shapeProperties: Record<string, unknown> | null,
+  context?: ColorContext,
+): { color: string; width?: number } | undefined {
+  const line = record(shapeProperties?.["a:ln"]);
+  if (!line || line["a:noFill"] !== undefined) return undefined;
+  const color = parseColor(record(line["a:solidFill"]), context);
+  if (!color) return undefined;
+  const width = Number(line["@_w"]);
+  return {
+    color,
+    ...(Number.isFinite(width) && width > 0 ? { width } : {}),
+  };
+}
+
+/**
+ * A slide's `schemeClr` references (`tx1`, `bg1`, `accent2`, ...) only mean
+ * something once resolved against the presentation's actual theme palette
+ * and the active `bg1`/`tx1`-style alias mapping — without this, every
+ * scheme-referenced color (which is how most professionally authored decks
+ * set placeholder text color, rather than a literal `srgbClr`) was
+ * unresolvable and silently dropped.
+ */
+interface ColorContext {
+  themeColorsByName: Record<string, string>;
+  clrMap: Record<string, string>;
+}
+
+interface PlaceholderDefaultColors {
+  title?: Record<number, string | undefined>;
+  body?: Record<number, string | undefined>;
+}
+
+/** Placeholder text has no explicit color of its own when the author relied on the slide master's default run properties — apply that inherited color to any run that didn't resolve one, using each paragraph's own nested-bullet level (falling back to level 0's color when a deeper level has no default of its own). */
+function applyPlaceholderDefaultColor(
+  paragraphs: ParsedPptxParagraph[],
+  colorsByLevel: Record<number, string | undefined> | undefined,
+): ParsedPptxParagraph[] {
+  if (!colorsByLevel) return paragraphs;
+  return paragraphs.map((paragraph) => {
+    const level = paragraph.level ?? 0;
+    const color = colorsByLevel[level] ?? colorsByLevel[0];
+    if (!color) return paragraph;
+    return {
+      ...paragraph,
+      runs: paragraph.runs.map((run) => (run.color ? run : { ...run, color })),
+    };
+  });
+}
+
+/** PowerPoint's default `bg1`/`tx1`-style alias mapping, used whenever a master doesn't declare its own `<p:clrMap>`. */
+const IDENTITY_CLR_MAP: Record<string, string> = {
+  bg1: "lt1",
+  tx1: "dk1",
+  bg2: "lt2",
+  tx2: "dk2",
+  accent1: "accent1",
+  accent2: "accent2",
+  accent3: "accent3",
+  accent4: "accent4",
+  accent5: "accent5",
+  accent6: "accent6",
+  hlink: "hlink",
+  folHlink: "folHlink",
+};
+
+const CLR_MAP_ALIASES = Object.keys(IDENTITY_CLR_MAP);
+
+/** Reads a `<p:clrMap .../>` or `<a:overrideClrMapping .../>` node's alias attributes into an alias→theme-slot map. */
+function parseClrMapNode(
+  node: Record<string, unknown> | null,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!node) return map;
+  for (const alias of CLR_MAP_ALIASES) {
+    const target = stringValue(node[`@_${alias}`]);
+    if (target) map[alias] = target;
+  }
+  return map;
+}
+
+function resolveSchemeColorName(
+  name: string,
+  context: ColorContext | undefined,
+): string | undefined {
+  if (!context) return undefined;
+  const slot = context.clrMap[name] ?? IDENTITY_CLR_MAP[name] ?? name;
+  return context.themeColorsByName[slot];
+}
+
+function hexToHsl(hex: string): [number, number, number] {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  switch (max) {
+    case r:
+      h = (g - b) / d + (g < b ? 6 : 0);
+      break;
+    case g:
+      h = (b - r) / d + 2;
+      break;
+    default:
+      h = (r - g) / d + 4;
+  }
+  return [h * 60, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const toByte = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v * 255)))
+      .toString(16)
+      .padStart(2, "0");
+  if (s === 0) {
+    const gray = toByte(l);
+    return `#${gray}${gray}${gray}`;
+  }
+  const hue2rgb = (p: number, q: number, t: number) => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hNorm = h / 360;
+  const r = hue2rgb(p, q, hNorm + 1 / 3);
+  const g = hue2rgb(p, q, hNorm);
+  const b = hue2rgb(p, q, hNorm - 1 / 3);
+  return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
+}
+
+/**
+ * DrawingML's `lumMod`/`lumOff`/`tint`/`shade` are the standard way authors
+ * derive palette variants ("Accent 1, Lighter 40%", etc.) from a base
+ * `srgbClr`/`schemeClr` — resolving the base color alone and ignoring these
+ * child transforms silently reverts every such variant back to the
+ * unmodified base color.
+ */
+interface ColorTransforms {
+  lumMod?: number;
+  lumOff?: number;
+  tint?: number;
+  shade?: number;
+}
+
+function readColorTransforms(
+  node: Record<string, unknown> | null,
+): ColorTransforms {
+  if (!node) return {};
+  const percent = (key: string): number | undefined => {
+    const raw = stringValue(record(node[key])?.["@_val"]);
+    return raw !== undefined ? Number(raw) / 100000 : undefined;
+  };
+  return {
+    lumMod: percent("a:lumMod"),
+    lumOff: percent("a:lumOff"),
+    tint: percent("a:tint"),
+    shade: percent("a:shade"),
+  };
+}
+
+function applyColorTransforms(
+  hex: string,
+  transforms: ColorTransforms,
+): string {
+  const { lumMod, lumOff, tint, shade } = transforms;
+  if (
+    lumMod === undefined &&
+    lumOff === undefined &&
+    tint === undefined &&
+    shade === undefined
+  ) {
+    return hex;
+  }
+  const [h, s, initialL] = hexToHsl(hex);
+  let l = initialL;
+  if (lumMod !== undefined) l *= lumMod;
+  if (lumOff !== undefined) l += lumOff;
+  if (tint !== undefined) l = l * tint + (1 - tint);
+  if (shade !== undefined) l *= shade;
+  return hslToHex(h, s, Math.min(1, Math.max(0, l)));
+}
+
+function parseColor(
+  value: Record<string, unknown> | null,
+  context?: ColorContext,
+): string | undefined {
+  if (!value) return undefined;
+  const srgbNode = record(value["a:srgbClr"]);
+  const rgb = stringValue(srgbNode?.["@_val"]);
+  if (rgb) {
+    return applyColorTransforms(`#${rgb}`, readColorTransforms(srgbNode));
+  }
+  const schemeNode = record(value["a:schemeClr"]);
+  const scheme = stringValue(schemeNode?.["@_val"]);
+  if (!scheme) return undefined;
+  const transforms = readColorTransforms(schemeNode);
+  const resolved = resolveSchemeColorName(scheme, context);
+  if (resolved) return applyColorTransforms(resolved, transforms);
+  // No theme/clrMap available for this slot (or the theme didn't define
+  // it) — fall back to a coarse dark/light guess along the standard
+  // identity mapping, so tx1/dk1/bg1/lt1 text stays visible rather than
+  // silently vanishing.
+  const pptxDarkColor = "#000000"; // guard:allow-raw-color - PPTX dark scheme fallback
+  const pptxLightColor = "#ffffff"; // guard:allow-raw-color - PPTX light scheme fallback
+  const fallback: Record<string, string> = {
+    dk1: pptxDarkColor,
+    dk2: pptxDarkColor,
+    lt1: pptxLightColor,
+    lt2: pptxLightColor,
+    tx1: pptxDarkColor,
+    tx2: pptxDarkColor,
+    bg1: pptxLightColor,
+    bg2: pptxLightColor,
+  };
+  const fallbackColor = fallback[scheme];
+  return fallbackColor
+    ? applyColorTransforms(fallbackColor, transforms)
+    : undefined;
+}
+
+function parseParagraphSpacing(value: unknown): number | undefined {
+  const node = record(value);
+  const percent = Number(record(node?.["a:spcPct"])?.["@_val"]);
+  if (Number.isFinite(percent) && percent > 0) return percent / 100000;
+  return parsePoints(node?.["a:spcPts"]);
+}
+
+function parsePoints(value: unknown): number | undefined {
+  const node = record(value);
+  const points = Number(node?.["@_val"]);
+  return Number.isFinite(points) && points >= 0 ? points / 100 : undefined;
+}
+
+function mapAlignment(
+  value: string | undefined,
+): ParsedPptxParagraph["alignment"] {
+  if (value === "ctr") return "center";
+  if (value === "r") return "right";
+  if (value === "just") return "justify";
+  if (value === "l") return "left";
+  return undefined;
+}
+
+function parseImageCrop(
+  node: Record<string, unknown>,
+): ParsedPptxImage["crop"] {
+  const srcRect = record(record(node["p:blipFill"])?.["a:srcRect"]);
+  if (!srcRect) return undefined;
+  const left = Number(srcRect["@_l"]) || 0;
+  const top = Number(srcRect["@_t"]) || 0;
+  const right = Number(srcRect["@_r"]) || 0;
+  const bottom = Number(srcRect["@_b"]) || 0;
+  return left || top || right || bottom
+    ? {
+        left: left / 100000,
+        top: top / 100000,
+        right: right / 100000,
+        bottom: bottom / 100000,
+      }
+    : undefined;
+}
+
+async function loadPptxImage(args: {
+  relationship: { target: string; type: string };
+  zip: ZipArchive;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  crop?: ParsedPptxImage["crop"];
+}): Promise<{ image: ParsedPptxImage; element: ParsedPptxElement } | null> {
+  if (
+    !args.relationship.type.includes("/image") &&
+    !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
+      args.relationship.target,
+    )
+  ) {
+    return null;
+  }
+  const imagePath = args.relationship.target.startsWith("/")
+    ? args.relationship.target.slice(1)
+    : args.relationship.target.startsWith("../")
+      ? `ppt/${args.relationship.target.replace(/^\.\.\//, "")}`
+      : `ppt/slides/${args.relationship.target}`;
+  const imageFile = args.zip.file(imagePath);
+  if (!imageFile) return null;
+  const name = imagePath.split("/").at(-1) ?? "image";
+  const image: ParsedPptxImage = {
+    data: new Uint8Array(await imageFile.async("nodebuffer")),
+    mimeType: imageMimeType(name),
+    name,
+    aspectRatio:
+      args.width && args.height ? args.width / args.height : undefined,
+    fullBleed: Boolean(
+      args.width &&
+      args.height &&
+      args.slideWidthEmu &&
+      args.slideHeightEmu &&
+      args.width / args.slideWidthEmu >= 0.85 &&
+      args.height / args.slideHeightEmu >= 0.85,
+    ),
+    ...(args.crop ? { crop: args.crop } : {}),
+  };
+  return {
+    image,
+    element: {
+      id: `image-${name}-${args.x}-${args.y}`,
+      name,
+      kind: "image",
+      x: args.x,
+      y: args.y,
+      width: args.width,
+      height: args.height,
+      image,
+    },
+  };
+}
+
+function flattenElementText(
+  elements: ParsedPptxElement[],
+): ParsedPptxTextRun[] {
+  const output: ParsedPptxTextRun[] = [];
+  const textElements = elements.filter(
+    (element) => element.kind === "text" && element.paragraphs,
+  );
+  for (const [elementIndex, element] of textElements.entries()) {
+    const paragraphs = element.paragraphs ?? [];
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+      output.push(...paragraph.runs);
+      if (paragraphIndex < paragraphs.length - 1)
+        output.push({ content: "\n" });
+    }
+    if (elementIndex < textElements.length - 1) output.push({ content: "\n" });
+  }
+  return output;
+}
+
+function extractSlideBackgroundColor(
+  value: unknown,
+  context?: ColorContext,
+): string | undefined {
+  const root = record(value);
+  const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
+  const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
+  return parseColor(record(bgPr?.["a:solidFill"]), context);
+}
+
+export function parsePptxSlideMetadata(
+  value: unknown,
+): ParsedPptxSlideMetadata {
+  const slide = record(value)?.["p:sld"] ?? value;
+  const transition = parsePptxTransition(slide);
+  return {
+    ...(transition ? { transition } : {}),
+    ...(detectSplitByParagraph(slide) ? { splitByParagraph: true } : {}),
+  };
+}
+
+interface ThemeInfo {
+  colors: string[];
+  colorsByName: Record<string, string>;
+  fonts: string[];
+}
+
 async function parseTheme(
   zip: ZipArchive,
   parseXml: (xml: string) => unknown,
-): Promise<ParsedPptxPresentation["theme"]> {
-  const xml = await zip.file("ppt/theme/theme1.xml")?.async("string");
-  if (!xml) return undefined;
+): Promise<ThemeInfo> {
+  return parseThemeFromPath(zip, parseXml, "ppt/theme/theme1.xml");
+}
+
+async function parseThemeFromPath(
+  zip: ZipArchive,
+  parseXml: (xml: string) => unknown,
+  themePath: string,
+): Promise<ThemeInfo> {
+  const xml = await zip.file(themePath)?.async("string");
+  if (!xml) return { colors: [], colorsByName: {}, fonts: [] };
   const root = record(parseXml(xml));
   const elements = record(record(root?.["a:theme"])?.["a:themeElements"]);
   const scheme = record(elements?.["a:clrScheme"]);
   const colors: string[] = [];
+  const colorsByName: Record<string, string> = {};
   for (const [key, value] of Object.entries(scheme ?? {})) {
     if (key.startsWith("@_")) continue;
     const color = record(value);
     const rgb = stringValue(record(color?.["a:srgbClr"])?.["@_val"]);
     const system = stringValue(record(color?.["a:sysClr"])?.["@_lastClr"]);
-    if (rgb || system) colors.push(`#${rgb ?? system}`);
+    if (!rgb && !system) continue;
+    const hex = `#${rgb ?? system}`;
+    colors.push(hex);
+    const slotName = key.replace(/^a:/, "");
+    colorsByName[slotName] = hex;
   }
   const fontScheme = record(elements?.["a:fontScheme"]);
   const fonts = ["a:majorFont", "a:minorFont"].flatMap((key) => {
@@ -175,7 +1395,7 @@ async function parseTheme(
     );
     return value ? [value] : [];
   });
-  return colors.length || fonts.length ? { colors, fonts } : undefined;
+  return { colors, colorsByName, fonts };
 }
 
 function collectTextRuns(
@@ -185,6 +1405,17 @@ function collectTextRuns(
 ): void {
   const node = record(value);
   if (!node) return;
+  const paragraphs = asArray(node["a:p"]);
+  if (paragraphs.length > 0) {
+    paragraphs.forEach((paragraph, index) => {
+      const before = runs.length;
+      collectTextRuns(paragraph, runs, inherited);
+      if (runs.length > before && index < paragraphs.length - 1) {
+        runs.push({ content: "\n" });
+      }
+    });
+    return;
+  }
   for (const raw of asArray(node["a:r"])) {
     const run = record(raw);
     const content = innerText(run?.["a:t"]);
@@ -200,19 +1431,83 @@ function collectTextRuns(
   }
   for (const [key, child] of Object.entries(node)) {
     if (key.startsWith("@_") || key === "a:r" || key === "a:t") continue;
-    for (const item of asArray(child)) collectTextRuns(item, runs, inherited);
+    const items = asArray(child);
+    items.forEach((item, index) => {
+      const before = runs.length;
+      collectTextRuns(item, runs, inherited);
+      if (key === "p:sp" && index < items.length - 1 && runs.length > before) {
+        runs.push({ content: "\n" });
+      }
+    });
   }
+}
+
+const PPTX_TRANSITION_MAP: Record<string, ParsedPptxTransition> = {
+  "p:fade": "fade",
+  "p:zoom": "zoom",
+  "p:push": "slide",
+  "p:wipe": "slide",
+  "p:split": "slide",
+  "p:cut": "instant",
+};
+
+function parsePptxTransition(value: unknown): ParsedPptxTransition | undefined {
+  const node = record(value);
+  const transition = record(node?.["p:transition"]);
+  if (!transition) return undefined;
+  for (const key of Object.keys(transition)) {
+    const mapped = PPTX_TRANSITION_MAP[key];
+    if (mapped) return mapped;
+  }
+  return undefined;
+}
+
+function detectSplitByParagraph(value: unknown): boolean {
+  let clickParagraphRanges = 0;
+  walk(value, false);
+  return clickParagraphRanges > 1;
+
+  function walk(nodeValue: unknown, clickContext: boolean): void {
+    const node = record(nodeValue);
+    if (!node) return;
+    const nodeType = stringValue(node["@_nodeType"]);
+    const event = stringValue(node["@_evt"]);
+    const nextClickContext =
+      clickContext ||
+      nodeType === "clickEffect" ||
+      nodeType === "clickPar" ||
+      event === "onClick";
+    if (nextClickContext) {
+      clickParagraphRanges += asArray(node["p:pRg"]).length;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if (key.startsWith("@_") || key === "p:pRg") continue;
+      for (const item of asArray(child)) walk(item, nextClickContext);
+    }
+  }
+}
+
+/** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
+function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
+  const root = record(slide);
+  const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
+  const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
+  const blip = record(record(bgPr?.["a:blipFill"])?.["a:blip"]);
+  return stringValue(blip?.["@_r:embed"]);
 }
 
 function runProperties(
   value: Record<string, unknown> | null,
   inherited: Omit<ParsedPptxTextRun, "content">,
+  context?: ColorContext,
 ): Omit<ParsedPptxTextRun, "content"> {
   if (!value) return inherited;
   const size = Number(value["@_sz"]);
-  const rgb = stringValue(
-    record(record(value["a:solidFill"])?.["a:srgbClr"])?.["@_val"],
-  );
+  const color = parseColor(record(value["a:solidFill"]), context);
+  const fontFamily =
+    stringValue(record(value["a:latin"])?.["@_typeface"]) ??
+    stringValue(record(value["a:ea"])?.["@_typeface"]) ??
+    stringValue(record(value["a:cs"])?.["@_typeface"]);
   return {
     ...inherited,
     ...(value["@_b"] === "1" || value["@_b"] === 1 || value["@_b"] === true
@@ -222,7 +1517,9 @@ function runProperties(
       ? { italic: true }
       : {}),
     ...(Number.isFinite(size) && size > 0 ? { fontSize: size / 100 } : {}),
-    ...(rgb ? { color: `#${rgb}` } : {}),
+    ...(color ? { color } : {}),
+    ...(fontFamily ? { fontFamily } : {}),
+    ...(value["@_u"] && value["@_u"] !== "none" ? { underline: true } : {}),
   };
 }
 
@@ -290,6 +1587,7 @@ async function loadPptxDependencies(): Promise<{
     const parser = new xmlModule.XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
+      trimValues: false,
     });
     return {
       loadZip: (data) => zipModule.default.loadAsync(data),

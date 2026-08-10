@@ -45,6 +45,11 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
+import {
+  assertDesignHtmlCreateIntegrity,
+  describeDesignHtmlIntegrityIssue,
+  inspectDesignHtmlDocumentIntegrity,
+} from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
@@ -77,15 +82,66 @@ const GENERATION_VIEWPORT_SIZES: Record<
 > = {
   mobile: { width: 390, height: 844 },
   tablet: { width: 768, height: 1024 },
-  desktop: { width: 1440, height: 1024 },
+  desktop: { width: 1440, height: 900 },
 };
+const GENERATION_VIEWPORT_LABELS: Record<GenerationViewport, string> = {
+  mobile: "Mobile",
+  tablet: "Tablet",
+  desktop: "Desktop",
+};
+// Widest → narrowest. The widest requested device seeds the primary/base
+// frame; only the narrower devices become breakpoint frames.
+const DEVICE_WIDTH_ORDER: readonly GenerationViewport[] = [
+  "desktop",
+  "tablet",
+  "mobile",
+];
 const GENERATED_FRAME_GAP = 96;
-const DEFAULT_RESPONSIVE_BREAKPOINTS = [390, 768, 1440].map((widthPx) => ({
-  id: `generated-${widthPx}`,
-  label: widthPx === 390 ? "Mobile" : widthPx === 768 ? "Tablet" : "Desktop",
-  widthPx,
-  prefix: widthToPrefix(widthPx),
-}));
+
+function widestGenerationDevice(
+  devices: readonly GenerationViewport[],
+): GenerationViewport {
+  return (
+    DEVICE_WIDTH_ORDER.find((device) => devices.includes(device)) ??
+    DEFAULT_GENERATION_VIEWPORT
+  );
+}
+
+// Devices used when the caller omits `devices`: the requested primary form
+// factor as the base plus Mobile, unless the primary already is Mobile. The
+// default (desktop primary) therefore yields a Desktop base + Mobile
+// breakpoint, matching the two-screen default.
+function devicesForPrimaryViewport(
+  primaryViewport: GenerationViewport,
+): GenerationViewport[] {
+  return primaryViewport === "mobile"
+    ? ["mobile"]
+    : [primaryViewport, "mobile"];
+}
+
+// Breakpoint frames = every requested device NARROWER than the primary
+// (widest) one, ascending by width. The primary/widest width is never emitted,
+// so a single-device request produces an empty set (one frame, no sub-frames)
+// and no redundant frame ever lands at the base canvas width.
+function breakpointSetForDevices(devices: readonly GenerationViewport[]) {
+  const primaryWidth =
+    GENERATION_VIEWPORT_SIZES[widestGenerationDevice(devices)].width;
+  return Array.from(new Set(devices))
+    .filter((device) => GENERATION_VIEWPORT_SIZES[device].width < primaryWidth)
+    .sort(
+      (a, b) =>
+        GENERATION_VIEWPORT_SIZES[a].width - GENERATION_VIEWPORT_SIZES[b].width,
+    )
+    .map((device) => {
+      const widthPx = GENERATION_VIEWPORT_SIZES[device].width;
+      return {
+        id: `generated-${widthPx}`,
+        label: GENERATION_VIEWPORT_LABELS[device],
+        widthPx,
+        prefix: widthToPrefix(widthPx),
+      };
+    });
+}
 
 const reuseLabelSchema = z
   .object({
@@ -121,16 +177,6 @@ function hasBreakpointSet(value: unknown): boolean {
   }
   const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
   return Array.isArray(breakpoints) && breakpoints.length > 0;
-}
-
-function nextGeneratedFrameX(
-  frames: ReturnType<typeof parseCanvasFrameGeometryById>,
-): number {
-  return Object.values(frames).reduce((furthestRight, frame) => {
-    const x = frame.x ?? 0;
-    const width = frame.width ?? 0;
-    return Math.max(furthestRight, x + width + GENERATED_FRAME_GAP);
-  }, 0);
 }
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
@@ -393,7 +439,7 @@ const generateDesignAgentParameters = {
       type: "string",
       description:
         "Optional JSON array of overview-canvas placements keyed by filename or fileId. " +
-        "Pass explicit x/y/width/height for every generated screen; desktop is 1440x1024.",
+        "Pass explicit x/y/width/height for every generated screen as numbers; desktop is 1440x900.",
     },
     contextPackId: {
       type: "string",
@@ -415,8 +461,20 @@ const generateDesignAgentParameters = {
       type: "string",
       enum: ["mobile", "tablet", "desktop"],
       description:
-        "The requested primary form factor. Defaults to desktop (1440x1024). " +
-        "Set this from the intake answer when no explicit canvasFrames placement is supplied.",
+        "The requested primary form factor. Defaults to desktop (1440x900). " +
+        "Set this from the intake answer when no explicit canvasFrames placement is supplied. " +
+        "Ignored when `devices` is provided (the widest device becomes primary).",
+    },
+    devices: {
+      type: "array",
+      items: { type: "string", enum: ["mobile", "tablet", "desktop"] },
+      description:
+        "Device set for responsive frames. Honor the devices the prompt " +
+        'explicitly names; omit to default to ["desktop","mobile"]. The widest ' +
+        "device becomes the primary/base frame and the narrower devices become " +
+        "breakpoint frames — never a duplicate of the base width and never an " +
+        "auto-added tablet. A single device yields one frame with no breakpoints. " +
+        "When provided, this overrides primaryViewport.",
     },
   },
   required: ["designId", "prompt", "files"],
@@ -438,12 +496,16 @@ const generateDesignAction = defineAction({
     "When `designSystemId` is provided, first use `get-design-system` and apply " +
     "its `agentContext` tokens/docs before writing the file content; do not " +
     "treat the id alone as enough design-system context. " +
-    "Every web design must be responsive. Use a desktop 1440x1024 primary " +
-    "canvas by default, or set `primaryViewport` for an explicitly mobile- or " +
-    "tablet-primary design; this action adds responsive editor breakpoints. " +
+    "Every web design must be responsive. This action adds responsive editor " +
+    "breakpoints: by default a Desktop 1440x900 base frame plus a Mobile " +
+    "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +
+    "the form factors the prompt explicitly names — the widest becomes the base " +
+    "frame and the narrower ones become breakpoint frames. Set `primaryViewport` " +
+    "for a mobile- or tablet-primary design when not passing `devices`. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
-    "and x/y/width/height so the new screens appear placed on the overview canvas.",
+    "and numeric x/y/width/height so the new screens appear placed on the " +
+    "overview canvas.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),
     prompt: z.string().describe("The generation prompt (stored for reference)"),
@@ -599,8 +661,20 @@ const generateDesignAction = defineAction({
       .optional()
       .default(DEFAULT_GENERATION_VIEWPORT)
       .describe(
-        "Primary generated viewport. Defaults to desktop (1440x1024); set " +
-          "mobile or tablet only when that is the requested form factor.",
+        "Primary generated viewport. Defaults to desktop (1440x900); set " +
+          "mobile or tablet only when that is the requested form factor. " +
+          "Ignored when `devices` is provided (the widest device wins).",
+      ),
+    devices: z
+      .array(z.enum(["mobile", "tablet", "desktop"]))
+      .optional()
+      .describe(
+        "Explicit device set for responsive frames. Honor the devices the " +
+          'prompt names; omit to default to ["desktop","mobile"]. Widest ' +
+          "device = primary/base frame; narrower devices = breakpoint frames " +
+          "(never the base width, never an auto tablet). One device = a single " +
+          "frame with no breakpoints. When provided, this overrides " +
+          "primaryViewport.",
       ),
   }),
   mcpApp: {
@@ -622,6 +696,7 @@ const generateDesignAction = defineAction({
     tweaks,
     canvasFrames,
     primaryViewport,
+    devices,
     contextPackId,
     contextModeOverride,
     reuseLabels,
@@ -699,6 +774,38 @@ const generateDesignAction = defineAction({
       ...file,
       content: annotateScreenHtmlForPersist(file.content, file.fileType),
     }));
+
+    // Gate every NEW file up front so a rejected file cannot orphan the ones
+    // written before it. Existing files take the edit transition inside
+    // writeInlineSourceFile, which still allows repairing a malformed screen.
+    const integrityWarnings: Array<{ filename: string; message: string }> = [];
+    for (const file of annotatedFiles) {
+      if ((file.fileType ?? "html") !== "html") continue;
+      const existing = existingByName.get(file.filename);
+      // A row changing type into HTML is new HTML, not an edit: the edit
+      // transition validates against the row's CURRENT type, so a css→html
+      // candidate would skip the HTML checks and still be stored as HTML below.
+      const becomesHtml =
+        existing !== undefined && (existing.fileType ?? "html") !== "html";
+      // Blocking applies to new files and type transitions. An existing HTML row
+      // takes the lenient edit transition instead, so a legacy-malformed screen
+      // stays repairable — but its advisories are still reported, or the same
+      // content would warn as a new file and save silently as a regeneration.
+      const advisory =
+        !existing || becomesHtml
+          ? assertDesignHtmlCreateIntegrity({
+              content: file.content,
+              fileType: "html",
+              filename: file.filename,
+            })
+          : (inspectDesignHtmlDocumentIntegrity(file.content).advisory ?? []);
+      for (const entry of advisory) {
+        integrityWarnings.push({
+          filename: file.filename,
+          message: describeDesignHtmlIntegrityIssue(entry),
+        });
+      }
+    }
 
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
@@ -827,6 +934,15 @@ const generateDesignAction = defineAction({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
     }));
+    // An explicit `devices` list wins over primaryViewport; otherwise derive
+    // the device set from primaryViewport so the default stays Desktop base +
+    // Mobile breakpoint. The widest resolved device seeds the primary frame.
+    const resolvedDevices =
+      devices && devices.length > 0
+        ? devices
+        : devicesForPrimaryViewport(primaryViewport);
+    const resolvedPrimaryViewport = widestGenerationDevice(resolvedDevices);
+    const generatedBreakpointSet = breakpointSetForDevices(resolvedDevices);
     await mutateDesignData({
       designId,
       mutate: (prevData, { updatedAt }) => {
@@ -865,9 +981,77 @@ const generateDesignAction = defineAction({
               : undefined;
           },
         });
-        const viewport = GENERATION_VIEWPORT_SIZES[primaryViewport];
-        let nextX = nextGeneratedFrameX(merged.canvasFrames);
-        const generationFrames = [...merged.placedFrames];
+        const viewport = GENERATION_VIEWPORT_SIZES[resolvedPrimaryViewport];
+        // Frames placed by an earlier call: never moved, and counted as
+        // occupied so a new screen is never dropped on top of one.
+        const preExistingFrameIds = new Set(
+          prevData.canvasFrames && typeof prevData.canvasFrames === "object"
+            ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
+            : [],
+        );
+        const rectOf = (frame: {
+          x?: number;
+          y?: number;
+          width?: number;
+          height?: number;
+          rotation?: number;
+        }) => {
+          const x = frame.x ?? 0;
+          const y = frame.y ?? 0;
+          const width = frame.width ?? 0;
+          const height = frame.height ?? 0;
+          const rotation = frame.rotation ?? 0;
+          if (!rotation || width <= 0 || height <= 0) {
+            return { x, y, width, height };
+          }
+          // Existing frames render rotated about their center; use the rotated
+          // rect's axis-aligned bounding box so a new screen isn't dropped over
+          // a rotated frame's real footprint.
+          const radians = (rotation * Math.PI) / 180;
+          const cos = Math.abs(Math.cos(radians));
+          const sin = Math.abs(Math.sin(radians));
+          const aabbWidth = width * cos + height * sin;
+          const aabbHeight = width * sin + height * cos;
+          return {
+            x: x + width / 2 - aabbWidth / 2,
+            y: y + height / 2 - aabbHeight / 2,
+            width: aabbWidth,
+            height: aabbHeight,
+          };
+        };
+        const framesOverlap = (
+          a: ReturnType<typeof rectOf>,
+          b: ReturnType<typeof rectOf>,
+        ) =>
+          a.width > 0 &&
+          a.height > 0 &&
+          b.width > 0 &&
+          b.height > 0 &&
+          a.x < b.x + b.width &&
+          a.x + a.width > b.x &&
+          a.y < b.y + b.height &&
+          a.y + a.height > b.y;
+        const occupiedRects: Array<ReturnType<typeof rectOf>> = [];
+        for (const id of preExistingFrameIds) {
+          const frame = merged.canvasFrames[id];
+          if (frame) occupiedRects.push(rectOf(frame));
+        }
+        // Keep arg placements for files we're not regenerating; the regenerated
+        // ones are (re)placed below, so rebuild their entries here rather than
+        // carry a pre-relocation position that would fail the isApplied check.
+        const regeneratedFileIds = new Set(savedFiles.map((file) => file.id));
+        const generationFrames = merged.placedFrames.filter(
+          (placed) => !regeneratedFileIds.has(placed.fileId),
+        );
+        for (const placed of generationFrames) {
+          occupiedRects.push(rectOf(placed.frame));
+        }
+        // Relocate target: right of every occupied (rotation-aware) rect.
+        let nextX = occupiedRects.reduce(
+          (right, rect) =>
+            Math.max(right, rect.x + rect.width + GENERATED_FRAME_GAP),
+          0,
+        );
         for (const file of savedFiles) {
           const source = files.find(
             (candidate) => candidate.filename === file.filename,
@@ -875,18 +1059,50 @@ const generateDesignAction = defineAction({
           if (!source || !isRenderableDesignFile(source)) continue;
           const current = merged.canvasFrames[file.id] ?? {};
           if (
+            preExistingFrameIds.has(file.id) &&
             current.x !== undefined &&
             current.y !== undefined &&
             current.width !== undefined &&
             current.height !== undefined
           ) {
+            // An explicit device request resizes the primary frame to the
+            // requested viewport (preserving position/rotation); otherwise a
+            // regenerated screen keeps its exact stored geometry.
+            if (devices && devices.length > 0) {
+              merged.canvasFrames[file.id] = {
+                ...current,
+                width: viewport.width,
+                height: viewport.height,
+              };
+            }
             continue;
           }
+          const width = current.width ?? viewport.width;
+          const height = current.height ?? viewport.height;
+          let x = current.x ?? nextX;
+          let y = current.y ?? 0;
+          // Bump a new screen clear of everything if its requested/default spot
+          // overlaps (e.g. a second screen defaulting to the same origin). The
+          // candidate carries its own rotation so a rotated placement is tested
+          // by its real footprint, not its unrotated rectangle.
+          const candidateRect = rectOf({
+            x,
+            y,
+            width,
+            height,
+            rotation: current.rotation,
+          });
+          if (
+            occupiedRects.some((rect) => framesOverlap(candidateRect, rect))
+          ) {
+            x = nextX;
+            y = 0;
+          }
           const frame = {
-            x: current.x ?? nextX,
-            y: current.y ?? 0,
-            width: current.width ?? viewport.width,
-            height: current.height ?? viewport.height,
+            x,
+            y,
+            width,
+            height,
             z: current.z ?? generationFrames.length,
             ...(current.rotation === undefined
               ? {}
@@ -898,14 +1114,34 @@ const generateDesignAction = defineAction({
             filename: file.filename,
             frame,
           });
-          nextX = frame.x + frame.width + GENERATED_FRAME_GAP;
+          occupiedRects.push(rectOf(frame));
+          nextX = Math.max(nextX, frame.x + frame.width + GENERATED_FRAME_GAP);
         }
         mergedData.canvasFrames = merged.canvasFrames;
         placedFrames = generationFrames;
-        if (!hasBreakpointSet(mergedData.breakpointSet)) {
+        // An explicit `devices` request is authoritative: replace the design's
+        // breakpoint set with the derived one (or drop it for a single device),
+        // so regenerating e.g. as [mobile,tablet,desktop] can't silently retain
+        // a stale narrower set. Without explicit devices, only seed a default
+        // set when none exists — a plain content regen never clobbers the
+        // user's own breakpoints.
+        if (devices && devices.length > 0) {
+          if (generatedBreakpointSet.length > 0) {
+            mergedData.breakpointSet = {
+              id: "generated-responsive",
+              breakpoints: generatedBreakpointSet,
+            };
+          } else {
+            delete mergedData.breakpointSet;
+          }
+          mergedData.breakpointSetUpdatedAt = updatedAt;
+        } else if (
+          generatedBreakpointSet.length > 0 &&
+          !hasBreakpointSet(mergedData.breakpointSet)
+        ) {
           mergedData.breakpointSet = {
             id: "generated-responsive",
-            breakpoints: DEFAULT_RESPONSIVE_BREAKPOINTS,
+            breakpoints: generatedBreakpointSet,
           };
           mergedData.breakpointSetUpdatedAt = updatedAt;
         }
@@ -940,7 +1176,32 @@ const generateDesignAction = defineAction({
             );
           }),
         );
-        return framesApplied && hasBreakpointSet(current.breakpointSet);
+        // For an explicit `devices` request, verify the persisted breakpoint
+        // widths actually match the requested set (not merely that some set
+        // exists), so a partial/stale write is retried rather than accepted.
+        const currentBreakpointWidths = (
+          Array.isArray(
+            (current.breakpointSet as { breakpoints?: unknown })?.breakpoints,
+          )
+            ? (
+                current.breakpointSet as {
+                  breakpoints: Array<{ widthPx?: number }>;
+                }
+              ).breakpoints
+            : []
+        )
+          .map((bp) => bp.widthPx)
+          .filter((w): w is number => typeof w === "number")
+          .sort((a, b) => a - b);
+        const expectedBreakpointWidths = generatedBreakpointSet
+          .map((bp) => bp.widthPx)
+          .sort((a, b) => a - b);
+        const breakpointSetApplied =
+          devices && devices.length > 0
+            ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
+            : generatedBreakpointSet.length === 0 ||
+              hasBreakpointSet(current.breakpointSet);
+        return framesApplied && breakpointSetApplied;
       },
     });
 
@@ -975,6 +1236,9 @@ const generateDesignAction = defineAction({
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
+      // Non-blocking: a well-formed screen with no Tailwind runtime renders
+      // unstyled, which reads as a layout bug rather than a missing runtime.
+      ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...creativeContextProvenance,
     };
   },

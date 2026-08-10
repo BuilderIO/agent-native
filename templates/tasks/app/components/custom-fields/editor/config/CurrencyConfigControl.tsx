@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -12,10 +14,11 @@ export function CurrencyConfigControl({
   onChange,
   disabled = false,
 }: FieldConfigControlProps) {
+  const t = useT();
   return (
     <div className="grid gap-3 sm:grid-cols-[96px_1fr]">
       <div className="grid gap-2">
-        <Label>Symbol</Label>
+        <Label>{t("fieldEditor.symbolLabel")}</Label>
         <Input
           maxLength={8}
           disabled={disabled}
@@ -29,7 +32,7 @@ export function CurrencyConfigControl({
         />
       </div>
       <div className="grid gap-2">
-        <Label>Precision</Label>
+        <Label>{t("fieldEditor.precisionLabel")}</Label>
         <Input
           type="number"
           min={0}

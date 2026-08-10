@@ -27,6 +27,7 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
@@ -207,6 +208,12 @@ function appendActionQueryParam(
     }
     return;
   }
+  if (typeof value === "object") {
+    // defineAction restores JSON strings when the schema expects an object.
+    // Preserve nested GET params instead of collapsing them to "[object Object]".
+    qs.append(key, JSON.stringify(value));
+    return;
+  }
   qs.append(key, String(value));
 }
 
@@ -293,7 +300,16 @@ async function performActionFetch<T>(
   const buildId = clientBuildId();
   if (buildId) headers["X-Agent-Native-Build-Id"] = buildId;
   const tz = resolveUserTimezone();
-  if (tz) headers["x-user-timezone"] = tz;
+  if (tz) {
+    headers["x-user-timezone"] = tz;
+  }
+  // Same browser session the agent chat sends on an agent run, so an action
+  // called from the UI and an action the agent calls during that visit land on
+  // one `$session_id` in traces and session replay.
+  const browserSessionId = getOrCreateAnalyticsSessionId();
+  if (browserSessionId) {
+    headers["X-Agent-Native-Session-Id"] = browserSessionId;
+  }
   const init: RequestInit = {
     method,
     headers,
@@ -324,22 +340,31 @@ async function performActionFetch<T>(
     else outerSignal.addEventListener("abort", onOuterAbort, { once: true });
   }
   let timedOut = false;
-  const timer = controller
-    ? setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs)
-    : null;
-  if (controller) init.signal = controller.signal;
-
-  const throwTimeout = (): never => {
+  const timeoutError = (): Error => {
     const error = new Error(
       `Action ${name} timed out after ${Math.round(timeoutMs / 1000)}s`,
     );
     (error as any).timedOut = true;
     (error as any).status = 408;
-    throw error;
+    return error;
   };
+  const throwTimeout = (): never => {
+    throw timeoutError();
+  };
+  // The timeout rejects the caller directly, not just via `controller.abort()`.
+  // Aborting only works if the transport honors the signal; a patched fetch, a
+  // wedged service worker, or a stalled body stream that never settles would
+  // otherwise leave the request — and the UI's loading state — pending forever.
+  let rejectTimedOut: (error: unknown) => void = () => {};
+  const timedOutSignal = new Promise<never>((_resolve, reject) => {
+    rejectTimedOut = reject;
+  });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller?.abort();
+    rejectTimedOut(timeoutError());
+  }, timeoutMs);
+  if (controller) init.signal = controller.signal;
 
   let res: Response;
   let raw = "";
@@ -347,7 +372,7 @@ async function performActionFetch<T>(
   let readError: unknown;
   try {
     try {
-      res = await fetch(url, init);
+      res = await Promise.race([fetch(url, init), timedOutSignal]);
       options?.onResponse?.(res);
     } catch (err) {
       if (timedOut) throwTimeout();
@@ -391,7 +416,7 @@ async function performActionFetch<T>(
     // decode failure on a 2xx response should error rather than silently
     // succeed with `null`.
     try {
-      raw = await res.text();
+      raw = await Promise.race([res.text(), timedOutSignal]);
     } catch (err) {
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted) throw err;
@@ -399,7 +424,7 @@ async function performActionFetch<T>(
       readError = err;
     }
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
     if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
 
@@ -740,7 +765,9 @@ export function useActionQuery<
 // ---------------------------------------------------------------------------
 
 /**
- * Mutate via an action exposed as POST (default), PUT, or DELETE.
+ * Mutate through the framework's frontend action transport. Mutations use
+ * POST by default and do not need to repeat the action's direct HTTP method.
+ * An explicit PUT or DELETE remains supported for compatibility.
  *
  * When the action type registry is generated, the return type and parameter
  * types are inferred automatically.

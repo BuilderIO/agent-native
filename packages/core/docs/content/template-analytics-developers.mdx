@@ -1,0 +1,287 @@
+---
+title: "Analytics: Extending the Template"
+description: "The data model, action reference, and customization points for customizing and extending the Analytics template — dashboards, monitoring, errors, session replay, and the /agents admin surface."
+---
+
+# Extending Analytics
+
+This page is for anyone customizing the Analytics template or building on it directly: the data model, the action surface, and the places meant to be extended.
+
+## Quick start
+
+Create a new Analytics app from the CLI:
+
+```bash
+npx @agent-native/core@latest create my-analytics --standalone --template analytics
+cd my-analytics
+pnpm install
+pnpm dev
+```
+
+The Analytics template's dev script pins `DATABASE_URL` to the local SQLite file at `./data/app.db`, so a production `DATABASE_URL` in `.env` will not be used during local development. To intentionally point local dev at another database, run `ANALYTICS_DATABASE_URL=<your dev database url> pnpm dev`.
+
+The CLI prints the local dev URL. Sign in with Google, then open the **Data Sources** page to connect BigQuery, GA4, first-party tracking, HubSpot, and the rest — see [Connecting and Extending Data Sources](/docs/template-analytics-connectors) for the full catalog and required env vars.
+
+## Data model
+
+All data lives in SQL via Drizzle. Dashboards and analyses are the primary resources; monitoring, errors, and session replay each own their schema file (`schema-monitoring.ts`, `schema-errors.ts`) but join the same Drizzle namespace via `schema.ts`.
+
+<DataModel
+  id="doc-block-analytics5"
+  title="Analytics data model"
+  summary={
+    "Dashboards and analyses are the resources users share; monitoring, errors, and session replay each add their own owner-scoped tables alongside them."
+  }
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "Explorer and SQL dashboards",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "kind", type: "text", note: '"explorer" or "sql"' },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON matching SqlDashboardConfig",
+        },
+        { name: "archived_at", type: "text", nullable: true },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "Saved filter presets per dashboard",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "dashboard_id", type: "text", fk: "dashboards.id" },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "Re-runnable ad-hoc investigations",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "question", type: "text" },
+        { name: "instructions", type: "text", note: "Re-run steps" },
+        { name: "result_markdown", type: "text" },
+      ],
+    },
+    {
+      id: "monitors",
+      name: "monitors",
+      note: "One uptime check per row",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "url", type: "text" },
+        { name: "interval_seconds", type: "integer" },
+        {
+          name: "last_status",
+          type: "text",
+          note: "up | down | degraded | error",
+        },
+      ],
+    },
+    {
+      id: "error_issues",
+      name: "error_issues",
+      note: "Grouped browser exceptions by fingerprint",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "fingerprint", type: "text" },
+        { name: "title", type: "text" },
+        {
+          name: "status",
+          type: "text",
+          note: "unresolved | resolved | ignored",
+        },
+        {
+          name: "last_session_recording_id",
+          type: "text",
+          nullable: true,
+          fk: "session_recordings.id",
+        },
+      ],
+    },
+    {
+      id: "session_recordings",
+      name: "session_recordings",
+      note: "Session replay summaries; chunks live separately",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "session_id", type: "text" },
+        { name: "duration_ms", type: "integer", nullable: true },
+        { name: "error_count", type: "integer" },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "Result cache keyed by SQL hash",
+      fields: [
+        { name: "key", type: "text", pk: true },
+        { name: "bytes_processed", type: "integer" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+    {
+      from: "session_recordings",
+      to: "error_issues",
+      kind: "1-n",
+      label: "linked replay",
+    },
+  ]}
+/>
+
+Additional tables not pictured above, grouped by feature:
+
+- **Dashboards** — `dashboard_shares`, `dashboard_revisions` (bounded undo history), `dashboard_report_subscriptions` (scheduled email reports, capped at 5 `recipients`).
+- **Analyses** — `analysis_shares`, `analysis_revisions`.
+- **First-party events** — `analytics_events` (the `/track` event store), `analytics_public_keys` (write-only ingestion keys), `first_party_analytics_cache`.
+- **Alerts** — `analytics_alert_rules`, `analytics_alert_incidents`.
+- **Monitoring** — `monitor_check_results` (bounded probe history), `monitor_incidents`, `status_pages` (public `/status/<slug>` pages).
+- **Errors** — `error_issue_shares`, `error_events` (individual occurrences, pruned to a bounded retention per issue).
+- **Session replay** — `session_recording_shares`, `session_replay_chunks` (raw rrweb data — never read directly; always through scoped server helpers), `session_replay_ingests`.
+- **Admin** — `analytics_db_admin_connections` (org-scoped registry of connected external app databases for the `/agents?view=database` admin tool).
+
+Plus the org tables (`organizations`, `org_members`, `org_invitations`) from `@agent-native/core/org`. The data dictionary itself lives in the framework's `settings` table under scoped keys — see `list-data-dictionary` / `save-data-dictionary-entry` for the shape.
+
+## Key actions by group
+
+Every operation is a TypeScript file in `templates/analytics/actions/`, auto-mounted at `POST /_agent-native/actions/:name`.
+
+**Dashboards & panels** — `update-dashboard` (new/full-config saves), `mutate-dashboard` (existing-dashboard edits via a small typed script API), `compose-dashboard` (build a large first-party dashboard from a metric-key catalog in one atomic call), `get-sql-dashboard`, `list-sql-dashboards`, `archive-dashboard`, `delete-sql-dashboard` / `delete-explorer-dashboard`, and `reorder-dashboard-panels`.
+
+**Analyses** — `save-analysis`, `get-analysis`, `list-analyses`, `rename-analysis`, `hide-analysis`, `list-analysis-revisions` / `restore-analysis-revision`.
+
+**Data dictionary** — `save-data-dictionary-entry`, `list-data-dictionary`, `delete-data-dictionary-entry`, `search-analytics-query-catalog` (search existing saved queries before writing a new one).
+
+**Reports & alerts** — `save-dashboard-report-subscription`, `list-dashboard-report-subscriptions`, `send-dashboard-report-now`, `delete-dashboard-report-subscription`, `save-analytics-alert-rule`, `list-analytics-alert-rules`, `run-analytics-alerts`, `delete-analytics-alert-rule`.
+
+**Monitoring** — `save-monitor`, `list-monitors`, `get-monitor`, `get-monitor-stats`, `run-monitor-check`, `delete-monitor`, plus `save-status-page` / `get-public-status-page` / `add-status-page-monitor` for public status pages.
+
+**Errors** — `list-error-issues`, `get-error-issue`, `resolve-error-issue`, `match-error-issues`, `capture-test-error`.
+
+**Session replay** — `list-session-recordings`, `get-session-replay-summary`, `get-session-replay-timeline`, `get-session-replay-events`, `create-session-replay-agent-link` (mints the two-hour tokenized agent link).
+
+**Data programs** — this app registers `list-data-programs` and `get-data-program`; the mutating `save-data-program` / `preview-data-program` / `run-data-program` / `delete-data-program` actions come from the shared `@agent-native/core` data-programs primitive — see [Data Programs](/docs/data-programs).
+
+**Provider escape hatch & sources** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`, `query-staged-dataset`, plus one action per built-in source (`bigquery`, `hubspot-deals`, `gong-calls`, `prometheus`, `grafana`, `stripe`, `slack-messages`, and so on) and `data-source-status` to check what's configured.
+
+**Traffic & SEO** — `open-traffic-dashboard`, `seo-top-keywords`, `seo-page-keywords`, `seo-blog-pages` (all backed by DataForSEO; the target domain is a placeholder in `server/lib/dataforseo.ts` — swap it for your own before relying on these).
+
+**Public keys** — `create-analytics-public-key`, `list-analytics-public-keys`, `revoke-analytics-public-key` (write-only first-party ingestion keys — see [Connecting and Extending Data Sources](/docs/template-analytics-connectors)). There's also an unauthenticated `/chart?panel=<base64-encoded-panel-config>` route that renders a single chart standalone for embedding on an external page.
+
+**Context & admin** — `view-screen` / `navigate` for agent context awareness, `list-workspace-feature-flags` / `set-workspace-feature-flag`, `list-dashboard-usage-stats`, `list-db-admin-connections` / `save-db-admin-connection`.
+
+## The /agents admin surface
+
+`/agents` is the Analytics home for admin-only tooling, split by `?view=`:
+
+- **`?view=flags`** — the fleet feature-flag control plane. Call `list-workspace-feature-flags` before changing anything; preserve `unsupported` / `unreachable` / `forbidden` / `unknown-legacy` as their own states rather than collapsing them to "off." Use `set-workspace-feature-flag` for app-qualified changes.
+- **`?view=dashboards`** — the dashboard usage audit: created/modified dates, owners, views, edits, and cleanup candidates across every dashboard, via `list-dashboard-usage-stats`.
+- **`?view=database`** — connected-app database admin. Organization owners/admins can register another agent-native app's database (`save-db-admin-connection`) and browse its tables, edit rows, and run inspection SQL through the shared database admin tool — scoped to the connected target app's database, not broad access to Analytics' own data.
+
+Keep future admin additions inside this route instead of adding more top-level sidebar tabs.
+
+## Adding a new data source or chart type
+
+To add a new data source, drop a script in `actions/` that calls the provider and returns results via the `output()` helper. It becomes available to the agent immediately, and can be used inside dashboard panels if you expose the result through a server handler. Register its credential keys in `server/lib/credential-keys.ts` so it appears automatically on the Data Sources page.
+
+To add a new chart type, extend the `ChartType` union in `app/pages/adhoc/sql-dashboard/types.ts` and handle it in `SqlChartCard.tsx` — the agent can use it in any panel from then on.
+
+<FileTree
+  id="doc-block-analytics6"
+  title="Where things live"
+  entries={[
+    {
+      path: "templates/analytics/AGENTS.md",
+      note: "the agent's top-level guide",
+    },
+    {
+      path: "templates/analytics/actions/update-dashboard.ts",
+      note: "full-config dashboard saves",
+    },
+    {
+      path: "templates/analytics/actions/mutate-dashboard.ts",
+      note: "typed script API for existing-dashboard edits",
+    },
+    {
+      path: "templates/analytics/actions/compose-dashboard.ts",
+      note: "build a large first-party dashboard from metric keys",
+    },
+    {
+      path: "templates/analytics/server/db/schema.ts",
+      note: "dashboards, analyses, alerts, public keys, first-party events",
+    },
+    {
+      path: "templates/analytics/server/db/schema-monitoring.ts",
+      note: "monitors, incidents, status pages",
+    },
+    {
+      path: "templates/analytics/server/db/schema-errors.ts",
+      note: "error_issues, error_events",
+    },
+    {
+      path: "templates/analytics/server/lib/dashboards-store.ts",
+      note: "dashboard read/write, scope resolution, legacy KV migration",
+    },
+    {
+      path: "templates/analytics/server/lib/uptime-monitors.ts",
+      note: "uptime check + alerting logic",
+    },
+    {
+      path: "templates/analytics/server/lib/error-capture.ts",
+      note: "exception ingest and fingerprint grouping",
+    },
+    {
+      path: "templates/analytics/server/lib/credential-keys.ts",
+      note: "the full connected-source catalog",
+    },
+    {
+      path: "templates/analytics/app/pages/adhoc/sql-dashboard/",
+      note: "SQL dashboard renderer, panel editor, filter bar",
+    },
+    {
+      path: "templates/analytics/app/pages/adhoc/explorer/",
+      note: "the point-and-click Explorer dashboard builder",
+    },
+    {
+      path: "templates/analytics/app/pages/monitoring/",
+      note: "UptimePanel, ErrorsPanel, status page editor",
+    },
+    {
+      path: "templates/analytics/.agents/skills/",
+      note: "dashboard-management, monitoring, session-replay, data-programs, provider-api, and more",
+    },
+  ]}
+/>
+
+## Customizing it
+
+Ask the agent for shipped behavior first:
+
+- "Add an uptime check for our staging environment."
+- "Build a dashboard that joins our HubSpot pipeline with Stripe revenue."
+- "Add a data program that cohorts users by an arbitrary product event property."
+- "Schedule this dashboard as a weekly email to the leadership team."
+
+For new capabilities — a new chart type, a new provider, a new admin view — treat them as template extensions: add the SQL shape, actions, UI, and agent instructions together. See [Creating Templates](/docs/creating-templates) for the current build pattern.
+
+## What's next
+
+- [**Analytics overview**](/docs/template-analytics) — back to the app summary
+- [**Dashboards, Analyses, and the Data Dictionary**](/docs/template-analytics-dashboards) — the user-facing surface this data model backs
+- [**Monitoring, Errors, and Session Replay**](/docs/template-analytics-monitoring-and-sessions) — the user-facing surface for monitors, errors, and replay
+- [**Connecting and Extending Data Sources**](/docs/template-analytics-connectors) — the full connector catalog
+- [**Actions**](/docs/actions) — the action system this template is built on
+- [**Data Programs**](/docs/data-programs) — the full data-program authoring contract
+- [**Sharing**](/docs/sharing) — the share-grant model dashboards, analyses, and error issues build on

@@ -135,6 +135,8 @@ pub struct FeatureConfig {
     pub onboarding_complete: bool,
     #[serde(default = "default_whisper_model_enabled")]
     pub whisper_model_enabled: bool,
+    #[serde(default = "default_whisper_model_id")]
+    pub whisper_model_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +170,10 @@ fn default_show_meeting_widget_enabled() -> bool {
 
 fn default_whisper_model_enabled() -> bool {
     true
+}
+
+fn default_whisper_model_id() -> String {
+    "base".to_string()
 }
 
 fn default_screen_memory_retention_hours() -> u32 {
@@ -227,6 +233,7 @@ impl Default for FeatureConfig {
             screen_memory: ScreenMemoryConfig::default(),
             onboarding_complete: false,
             whisper_model_enabled: default_whisper_model_enabled(),
+            whisper_model_id: default_whisper_model_id(),
         }
     }
 }
@@ -333,6 +340,12 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 /// Save feature config to disk and emit a change event.
 #[tauri::command]
 pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result<(), String> {
+    if !crate::whisper_model::is_supported_model_id(&config.whisper_model_id) {
+        return Err(format!(
+            "unsupported Whisper model: {}",
+            config.whisper_model_id
+        ));
+    }
     let previous = load_config(&app);
     if (crate::rewind_clip::is_active(&app) || crate::util::is_recording_active(&app))
         && rewind_capture_contract_changed(&previous.screen_memory, &config.screen_memory)
@@ -364,6 +377,12 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
         let _ = app.emit(
             "whisper:model-enabled-changed",
             serde_json::json!({ "enabled": config.whisper_model_enabled }),
+        );
+    }
+    if previous.whisper_model_id != config.whisper_model_id {
+        let _ = app.emit(
+            "whisper:model-selection-changed",
+            serde_json::json!({ "modelId": config.whisper_model_id }),
         );
     }
     crate::screen_memory::sync_from_config(&app, &config);
@@ -404,6 +423,19 @@ mod tests {
         assert!(config
             .excluded_bundle_ids
             .contains(&"com.1password.1password".to_string()));
+    }
+
+    #[test]
+    fn feature_config_defaults_to_base_whisper_model_for_legacy_json() {
+        let config: FeatureConfig = serde_json::from_value(serde_json::json!({
+            "clipsEnabled": true,
+            "meetingsEnabled": true,
+            "voiceEnabled": true,
+            "onboardingComplete": true
+        }))
+        .unwrap();
+
+        assert_eq!(config.whisper_model_id, "base");
     }
 
     #[test]

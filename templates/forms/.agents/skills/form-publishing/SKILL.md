@@ -77,7 +77,7 @@ Each form has a `settings` JSON object:
 | `showProgressBar`  | boolean | Show progress bar for multi-section forms  |
 | `emailOnNewResponses` | boolean | Email the form owner's account when someone submits a response |
 | `anonymous`        | boolean | Suppress IP, submitter identity, chat/run ids, page URL, and client-surface metadata for every response |
-| `integrations`     | array   | Webhook/Slack/Discord notification configs |
+| `integrations`     | array   | Webhook/Slack/Discord/Google Sheets notification configs |
 
 For a genuinely anonymous form, set `anonymous: true` when creating the form.
 Do not describe an ordinary published form as anonymous: published forms accept
@@ -91,9 +91,15 @@ Forms can notify external services on submission:
 | Type            | Description                     |
 | --------------- | ------------------------------- |
 | `webhook`       | POST JSON to any URL            |
-| `slack`         | Send to a Slack channel         |
+| `slack`         | Send to a Slack channel through an Incoming Webhook URL |
 | `discord`       | Send to a Discord webhook       |
-| `google-sheets` | Append row to a Google Sheet    |
+| `google-sheets` | Send response JSON to a deployed Apps Script `/exec` URL |
+
+These are outbound form destinations configured in the form builder's
+**Integrations** tab. They are separate from the managed Slack/Messaging
+connection. Google Sheets Apps Script handlers should parse
+`JSON.parse(e.postData.contents)`; a spreadsheet URL or `/dev` URL will not
+receive submissions.
 
 ## Related Skills
 

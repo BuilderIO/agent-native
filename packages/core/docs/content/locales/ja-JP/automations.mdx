@@ -5,9 +5,9 @@ description: "自然言語条件を使用したイベントトリガーおよび
 
 # 自動化
 
-**自動化** は、自然言語で記述されたルールです: _X が発生したら Y を実行します_。エージェントが指示を実行するため、オートメーションはエージェントが対話型チャットで使用できるすべてのアクション、ツール、MCP サーバーにアクセスできます。
+**自動化** は、スケジュールまたはイベント発生時にエージェントが実行するタスクです: _X が発生したら Y を実行します_。**Scheduled** と **Event** は 2 つのトリガー種別であり、別々の製品ではありません。
 
-オートメーションは、`web-request` ツールを介して **イベント トリガー**、**自然言語条件**、**アウトバウンド HTTP** を使用して [recurring jobs](/docs/recurring-jobs) を拡張します。これらは、定期的なジョブとして同じ `jobs/<name>.md` ファイル形式、ストレージ、および「3 つの方法を作成」ワークフローを使用します。共有形式については、[Recurring Jobs](/docs/recurring-jobs#job-file) を参照してください。このページでは、イベント ドリブン オートメーションの新機能のみを説明します。
+フレームワークは当初、スケジュールされた自動化を **Recurring Jobs** として公開していました。この名称、`jobs/<name>.md` パス、`manage-jobs` ツールは互換性のために残ります。新しいガイドでは **Automations** を包括的な名称として使用します。既存のスケジュールジョブ、組織スコープ、高度なフィールドについては [Recurring Jobs](/docs/recurring-jobs) を参照してください。
 
 <Diagram id="doc-block-1f6019n" title={"Xが起こったらYをする"} summary={"イベントがバス上で発生し、オプションの自然言語条件によってイベントがゲートされ、エージェントが完全なツール アクセス権でオートメーション本体を実行します。"}>
 
@@ -72,9 +72,15 @@ description: "自然言語条件を使用したイベントトリガーおよび
 
 エージェントは利用可能なイベントを検出し、計画を確認し、自動化を作成します。
 
-### 設定 UI から
+### Automations UI から
 
-オートメーションが設定パネルに表示されます。ユーザーはそこでそれらを表示、有効化/無効化、削除できます。
+フルページの Agent 画面で **Automations** を開き、スケジュールおよびイベントトリガーの自動化を表示・管理します。互換 URL は引き続き `/agent#jobs` なので、既存のリンクやブックマークは動作します。
+
+<Callout tone="warning">
+
+`manage-automations` は Scheduled と Event の両方で個人および組織の自動化をサポートします。組織の Event 自動化はメンバーに表示されますが、常に作成者として実行されます。管理者はその実行IDを変更せずに管理できます。
+
+</Callout>
 
 3 番目のパス (`resourcePut` 経由で `jobs/<name>.md` ファイルを手動で書き込む) は、[recurring jobs](/docs/recurring-jobs#creating) の場合とまったく同じように機能します。イベント駆動型オートメーションの場合は、以下のイベント トリガー フロントマターを同じファイルに追加します。イベントトリガージョブは、`schedule: ""` を設定し、`triggerType: event`、`event` 名、およびオプションの `condition` を提供します。
 
@@ -172,11 +178,11 @@ emit(
     customerEmail: "jane@example.com",
     total: 49.99,
   },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
-オートメーションが起動する出力メタデータ スコープ内の `owner` は、同じユーザーが所有するオートメーション (または共有オートメーション) のみが評価されます。
+イベントメタデータの `owner` が起動可能な自動化を決めます。個人と組織の Event 自動化はいずれも `createdBy` と完全に一致する必要があります。
 
 ## 条件 {#conditions}
 
@@ -228,7 +234,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## エージェント ツール {#agent-tools}
 
-すべての自動化操作は、`action` パラメータを使用した単一の `manage-automations` ツールを通じてアクセスされます。
+個人および組織の自動化では、`action` パラメータ付きの `manage-automations` を使用します。
 
 | アクション    | 目的                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------ |
@@ -240,6 +246,8 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | `fire-test`   | `test.event.fired` イベントを発行して自動化を検証する                                            |
 
 追加ツール: `web-request` — `${keys.NAME}` 置換を使用したアウトバウンド HTTP。
+
+`manage-automations` は組織スコープ、モデルオーバーライド、厳密に適用される MCP 許可リストをサポートします。`manage-jobs` は既存のスケジュール専用連携と配信メタデータ向けの互換ツールとして残ります。
 
 ## API エンドポイント {#api}
 
@@ -280,7 +288,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -361,6 +370,7 @@ Web フックへの通知。"_
 
 ```yaml
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"

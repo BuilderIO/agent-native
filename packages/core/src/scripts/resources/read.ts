@@ -13,7 +13,10 @@ import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceReadScript(
@@ -38,7 +41,7 @@ Options:
   }
 
   const scope = parsed.scope;
-  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
       "resource-read requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

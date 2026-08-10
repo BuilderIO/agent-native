@@ -16,7 +16,7 @@ metadata:
 
 Collaborative editing uses Yjs CRDT via TipTap. The agent and human users are
 equal participants — both edit the same Y.Doc and changes merge cleanly without
-conflicts. Always set `resourceType` on `createCollabPlugin`.
+conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
 
 ## How It Works
 
@@ -104,7 +104,16 @@ in **different** regions merge fine through the CRDT.
 
 ## Security
 
-### Always set `resourceType`
+### Always choose an explicit access mode
+
+Inspect the schema and sharing registration before configuring collaboration:
+
+- For owned or shareable records, use `mode: "resource"` and the resource type
+  registered through `registerShareableResource`.
+- For records deliberately visible to every authenticated user on the
+  deployment, use `mode: "all-authenticated"`.
+- Never invent a `resourceType` merely to silence a warning. Resource mode is
+  correct only when the matching ownership and sharing model exists.
 
 ```ts
 // server/plugins/collab.ts
@@ -114,14 +123,23 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-Without `resourceType`, the server logs a one-time warning and collab push
-events are delivered to **all authenticated users** without document-level
-scoping. Set it to the resource type name registered via
-`registerShareableResource`.
+For intentionally deployment-wide authenticated collaboration:
+
+```ts
+createCollabPlugin({
+  table: "todos",
+  contentColumn: "content",
+  access: { mode: "all-authenticated" },
+});
+```
+
+Omitting `access` is supported only for legacy compatibility and is deprecated.
+It behaves like `all-authenticated`, logs a warning, and is flagged by Doctor.
+Choose the mode explicitly so access intent is reviewable.
 
 Non-owner sharees who have explicit access fall back to state-vector catch-up
 (safe, slightly higher latency). Awareness routes require the same viewer
@@ -133,7 +151,10 @@ Write routes reject payloads exceeding `maxPayloadBytes` (default 2 MB) with
 HTTP 413. Override:
 
 ```ts
-createCollabPlugin({ resourceType: "document", maxPayloadBytes: 512 * 1024 });
+createCollabPlugin({
+  access: { mode: "resource", resourceType: "document" },
+  maxPayloadBytes: 512 * 1024,
+});
 ```
 
 ## Enabling Collaboration
@@ -144,7 +165,7 @@ createCollabPlugin({ resourceType: "document", maxPayloadBytes: 512 * 1024 });
 pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
 ```
 
-### 2. Add collab server plugin (with `resourceType`)
+### 2. Add collab server plugin (with explicit access)
 
 ```ts
 // server/plugins/collab.ts
@@ -154,7 +175,7 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
@@ -343,9 +364,10 @@ the whole history — external/agent edits must not wipe the user's undo stack.
 
 ## Common Pitfalls
 
-- **Missing `resourceType`** — The server logs a warning on startup and
-  delivers collab events to all authenticated users without access scoping.
-  Always set `resourceType`.
+- **Missing `access`** — Legacy omission behaves like `all-authenticated`, logs
+  a startup warning, and is flagged by Doctor. Choose `resource` for records
+  backed by ownership/sharing, or explicit `all-authenticated` for intentionally
+  deployment-wide records. Never invent a resource type to silence the warning.
 - **Don't pass `content` as a TipTap prop** when Collaboration is enabled —
   Yjs owns the content. Seed via `editor.commands.setContent()` only when the
   Y.XmlFragment is empty.

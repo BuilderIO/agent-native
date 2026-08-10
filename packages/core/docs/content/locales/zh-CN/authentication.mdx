@@ -11,7 +11,7 @@ description: "与电子邮件/密码、社交提供商、组织和 MCP 持有者
 
 Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的。共有三种模式：
 
-- **默认：**使用电子邮件/密码+社交提供商进行更好的身份验证。首次访问时显示的入门页面。
+- **默认：**当外发电子邮件已准备就绪时，Better Auth 优先使用 magic link，并以电子邮件/密码作为备用方式，同时支持社交提供商。设置 `AUTH_MAGIC_LINK=0` 可强制使用备用方式。
 - **远程 MCP OAuth：** 适用于 MCP 主机的标准 OAuth 2.1，例如 Claude 代码和 ChatGPT 连接器。
 - **自定义：**通过 `getSession` 回调带来您自己的身份验证。
 
@@ -102,11 +102,20 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 
 </Callout>
 
+## 本地开发登录 {#local-development-sign-in}
+
+在使用回环地址的开发服务器上，共享登录页面会优先显示 **Continue as local
+dev**。它会创建或复用真实的 Better Auth 开发帐户和会话，因此使用的仍然是应用其他地方相同的已认证流程。
+
+选择 **Show full sign in options** 可显示普通注册、密码、magic link 和社交提供商选项。如果无法创建本地会话，页面会自动显示这些选项，让你可以继续使用标准身份验证。
+
+此便利功能仅在开发或测试环境中通过 `localhost`、`127.0.0.0/8` 或 `::1` 连接时可用。部署预览和托管生产环境会禁用此功能。它不是身份验证绕过。设置 `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` 可选择退出，让本地开发显示普通登录页面。
+
 ## 更好的身份验证（默认） {#better-auth}
 
 默认情况下，Better Auth 支持身份验证。它提供：
 
-- 电子邮件/密码注册和登录
+- 使用 magic link 注册和登录，并以电子邮件/密码作为备用方式
 - 社交提供商（Google、GitHub 和 35 多个其他提供商）
 - 具有角色和邀请的组织
 - 用于 API 和 A2A 访问的 JWT 令牌
@@ -115,6 +124,7 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 Better Auth 路由安装在 `/_agent-native/auth/ba/*`。该框架还提供向后兼容的端点：
 
 - `GET /_agent-native/auth/session` — 获取当前会话
+- `POST /_agent-native/auth/magic-link` — 请求 magic link 电子邮件
 - `POST /_agent-native/auth/login` — 电子邮件/密码登录
 - `POST /_agent-native/auth/register` — 创建帐户
 - `POST /_agent-native/auth/logout` — 退出
@@ -379,7 +389,7 @@ function MyComponent() {
 具有**公共页面**（共享链接、嵌入、营销页面）的模板通常需要一个页内 CTA 来要求匿名查看者登录并将他们带回到他们所在的页面。该框架为此提供了一个入口点：
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 当匿名查看者点击此 URL 时，将提供框架的登录页面。成功登录（任何流程 - 令牌、电子邮件/密码或 谷歌OAuth）后，浏览器会返回 `return`。
@@ -394,8 +404,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -403,11 +412,13 @@ function SignInCta() {
 
 ### 已添加书签的私有路径
 
-普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/_agent-native/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
+普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
+
+该外壳的缓存时长是一个部署范围的设置——关于 `AGENT_NATIVE_SSR_CACHE`，参见 [SSR Caching](/docs/deployment#ssr-caching)。缩短或禁用缓存只会改变时长；SSR 仍会在剥离 cookie 后渲染匿名分支。
 
 ### 幕后花絮：谷歌OAuth
 
-两个流（显式 `/_agent-native/sign-in` 入口点和书签路径情况）都将返回 URL 线程穿过 OAuth 状态。该状态是 HMAC 签名的，因此在运输过程中无法伪造。在回调中，返回的 URL 在重定向之前被重新验证为同源 - 因此泄漏的签名密钥仍然无法转换为开放重定向预言机。
+两个流（显式 `/sign-in` 入口点和书签路径情况）都将返回 URL 线程穿过 OAuth 状态。该状态是 HMAC 签名的，因此在运输过程中无法伪造。在回调中，返回的 URL 在重定向之前被重新验证为同源 - 因此泄漏的签名密钥仍然无法转换为开放重定向预言机。
 
 如果您的模板直接包装 `/_agent-native/google/auth-url`（例如邮件和日历模板这样做，以扩大范围），则接受 `?return=<path>` 查询并通过 `encodeOAuthState` 的选项对象形式转发它：
 

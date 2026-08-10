@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   body: null as unknown,
   inserted: [] as Array<Record<string, unknown>>,
+  requestContexts: [] as Array<Record<string, unknown>>,
   session: null as null | { email?: string; orgId?: string },
 }));
 
@@ -36,7 +37,10 @@ vi.mock("h3", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getSession: async () => state.session,
   readBody: async () => state.body,
-  runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
+  runWithRequestContext: (ctx: Record<string, unknown>, fn: () => unknown) => {
+    state.requestContexts.push(ctx);
+    return fn();
+  },
   verifyCaptcha: async () => ({ success: true }),
   emailStrong: (value: string) => value,
   renderEmail: ({ paragraphs }: { paragraphs: string[] }) => ({
@@ -79,7 +83,11 @@ async function submit(body: unknown) {
 describe("submitForm pageUrl pass-through", () => {
   beforeEach(() => {
     state.inserted.length = 0;
+    state.requestContexts.length = 0;
     state.session = null;
+    publishedForm.fields = JSON.stringify([
+      { id: "msg", type: "textarea", label: "Feedback", required: false },
+    ]);
     publishedForm.settings = JSON.stringify({});
     sendEmail.mockClear();
   });
@@ -125,6 +133,10 @@ describe("submitForm pageUrl pass-through", () => {
         subject: "New response: Agent Native Feedback",
       }),
     );
+    expect(state.requestContexts).toContainEqual({
+      userEmail: "owner@example.com",
+      orgId: undefined,
+    });
     const emailArgs = sendEmail.mock.calls[0]?.[0] as
       | { text?: string }
       | undefined;
@@ -183,6 +195,38 @@ describe("submitForm pageUrl pass-through", () => {
     expect(res).toMatchObject({ success: true });
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.submitterEmail).toBeNull();
+  });
+
+  it("strips values from hidden conditional fields before storing a response", async () => {
+    publishedForm.fields = JSON.stringify([
+      {
+        id: "event_type",
+        type: "radio",
+        label: "Event type",
+        options: ["Virtual", "Physical"],
+        required: true,
+      },
+      {
+        id: "venue",
+        type: "text",
+        label: "Venue",
+        required: true,
+        conditional: {
+          fieldId: "event_type",
+          operator: "equals",
+          value: "Physical",
+        },
+      },
+    ]);
+
+    const res = await submit({
+      data: { event_type: "Virtual", venue: "Sensitive venue detail" },
+    });
+
+    expect(res).toMatchObject({ success: true });
+    expect(JSON.parse(String(state.inserted[0]!.data))).toEqual({
+      event_type: "Virtual",
+    });
   });
 
   it("falls back to a real metadata email when the Forms session is anonymous", async () => {

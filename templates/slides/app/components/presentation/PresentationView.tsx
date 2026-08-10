@@ -3,6 +3,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconMaximize,
+  IconNotes,
   IconX,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -17,14 +18,19 @@ import type {
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
   findLegacyAnimationContainer,
+  getElementPath,
   resolveSlideAnimationElement,
 } from "@/lib/slide-animation-elements";
+
+import type { DesignSystemData } from "../../../shared/api";
+import { openPresentChannel, type PresentMessage } from "./present-channel";
 
 interface PresentationViewProps {
   slides: Slide[];
   deckId: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
@@ -40,6 +46,31 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
     const doc = new DOMParser().parseFromString(slide.content, "text/html");
     const root = doc.querySelector(".fmd-slide");
     if (!root) return null;
+
+    const paragraphs = Array.from(
+      root.querySelectorAll(".fmd-pptx-text p[data-pptx-paragraph]"),
+    ).filter((paragraph) => {
+      const textBox = paragraph.closest(".fmd-pptx-text");
+      return (
+        (textBox?.querySelectorAll("p[data-pptx-paragraph]").length ?? 0) > 1
+      );
+    });
+    if (paragraphs.length > 1) {
+      return paragraphs.flatMap((paragraph, index) => {
+        const elementPath = getElementPath(root, paragraph);
+        return elementPath
+          ? [
+              {
+                id: `auto-paragraph-${index}`,
+                elementIndex: index,
+                elementPath,
+                type: "slide-up" as AnimationType,
+              },
+            ]
+          : [];
+      });
+    }
+
     const container = findLegacyAnimationContainer(root);
     if (!container) return null;
     return Array.from(container.children).map((_, i) => ({
@@ -100,7 +131,7 @@ function annotateStepsForPresentation(
     })
     .join("\n");
 
-  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; }\n${styleLines}</style>`;
+  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; visibility: visible !important; }\n${styleLines}</style>`;
   return styleTag + doc.body.innerHTML;
 }
 
@@ -153,6 +184,7 @@ export default function PresentationView({
   deckId,
   startIndex = 0,
   aspectRatio,
+  designSystem,
 }: PresentationViewProps) {
   const t = useT();
   const safeSlides = useMemo(
@@ -271,6 +303,58 @@ export default function PresentationView({
     }
   }, [navigate, deckId, isShared]);
 
+  // Presenter window: it owns no navigation state of its own, it just sends
+  // commands and mirrors whatever we echo back — so build steps stay
+  // authoritative here.
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const goNextRef = useRef(goNext);
+  const goPrevRef = useRef(goPrev);
+  goNextRef.current = goNext;
+  goPrevRef.current = goPrev;
+
+  const broadcastState = useCallback(() => {
+    channelRef.current?.postMessage({
+      type: "state",
+      index: currentIndex,
+    } satisfies PresentMessage);
+  }, [currentIndex]);
+  const broadcastStateRef = useRef(broadcastState);
+  broadcastStateRef.current = broadcastState;
+
+  useEffect(() => {
+    const channel = openPresentChannel(deckId);
+    channelRef.current = channel;
+    if (!channel) return;
+    channel.onmessage = (event: MessageEvent<PresentMessage>) => {
+      const message = event.data;
+      if (message?.type === "hello") {
+        broadcastStateRef.current();
+      } else if (message?.type === "command") {
+        if (message.command === "next") goNextRef.current();
+        else goPrevRef.current();
+      }
+    };
+    return () => {
+      channel.close();
+      channelRef.current = null;
+    };
+  }, [deckId]);
+
+  useEffect(() => {
+    broadcastState();
+  }, [broadcastState]);
+
+  const openPresenterWindow = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("presenter", "1");
+    url.searchParams.set("slide", String(currentIndex + 1));
+    window.open(
+      url.toString(),
+      `slides-presenter-${deckId}`,
+      "width=1200,height=760",
+    );
+  }, [currentIndex, deckId]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       switch (e.key) {
@@ -294,6 +378,11 @@ export default function PresentationView({
             document.exitFullscreen().catch(() => {});
           }
           break;
+        case "s":
+        case "S":
+          e.preventDefault();
+          openPresenterWindow();
+          break;
         case "Escape":
           exit();
           break;
@@ -301,7 +390,7 @@ export default function PresentationView({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev, exit]);
+  }, [goNext, goPrev, exit, openPresenterWindow]);
 
   // Try to enter fullscreen. Browsers require a user gesture; the click that
   // navigated to /present often counts, but Safari/Firefox sometimes block
@@ -448,6 +537,7 @@ export default function PresentationView({
             slide={safeSlides[prevIndex]}
             thumbnail={false}
             aspectRatio={aspectRatio}
+            designSystem={designSystem}
           />
         </div>
       )}
@@ -462,6 +552,7 @@ export default function PresentationView({
           slide={displaySlide}
           thumbnail={false}
           aspectRatio={aspectRatio}
+          designSystem={designSystem}
         />
       </div>
 
@@ -501,13 +592,23 @@ export default function PresentationView({
             </button>
           </div>
 
-          <button
-            onClick={exit}
-            className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            aria-label={t("presentation.exitPresentation")}
-          >
-            <IconX className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openPresenterWindow}
+              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+              aria-label={t("presentation.presenterView")}
+              title={t("presentation.presenterView")}
+            >
+              <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+            </button>
+            <button
+              onClick={exit}
+              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              aria-label={t("presentation.exitPresentation")}
+            >
+              <IconX className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
+            </button>
+          </div>
         </div>
 
         {/* Progress bar */}

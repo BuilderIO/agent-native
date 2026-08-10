@@ -17,8 +17,9 @@ import { useOptionalLocale } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
-const DEFAULT_FEEDBACK_URL =
+const FIRST_PARTY_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+const FIRST_PARTY_HOSTNAME = "agent-native.com";
 
 function isSyntheticAgentNativeAnonymousEmail(
   value: string | null | undefined,
@@ -234,7 +235,12 @@ export interface FeedbackButtonProps {
    */
   variant?: "sidebar" | "icon" | "outlined";
   label?: string;
-  url?: string;
+  /**
+   * Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. First-party agent-native.com
+   * apps fall back to the Agent Native feedback form; other apps stay hidden.
+   * Pass null to explicitly hide the control.
+   */
+  url?: string | null;
   className?: string;
   /** Which side the popover opens on. Defaults match the variant. */
   side?: "top" | "bottom" | "left" | "right";
@@ -267,10 +273,63 @@ const honeypotStyle: CSSProperties = {
   overflow: "hidden",
 };
 
-export function FeedbackButton({
+function clientEnv(): Record<string, string | boolean | undefined> | undefined {
+  const importMetaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
+  const processEnv = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | boolean | undefined> };
+    }
+  ).process?.env;
+
+  if (importMetaEnv && processEnv) return { ...processEnv, ...importMetaEnv };
+  return importMetaEnv ?? processEnv;
+}
+
+function clientHostname(): string | undefined {
+  const location = (
+    globalThis as typeof globalThis & {
+      location?: { hostname?: string };
+    }
+  ).location;
+  return location?.hostname;
+}
+
+function isFirstPartyHostname(hostname: string | null | undefined): boolean {
+  const normalized = hostname?.trim().toLowerCase();
+  return (
+    normalized === FIRST_PARTY_HOSTNAME ||
+    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true
+  );
+}
+
+export function resolveFeedbackUrl(
+  url?: string | null,
+  hostname: string | null | undefined = clientHostname(),
+): string | null {
+  const value =
+    url === undefined ? clientEnv()?.VITE_AGENT_NATIVE_FEEDBACK_URL : url;
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (url !== undefined) return null;
+  return isFirstPartyHostname(hostname) ? FIRST_PARTY_FEEDBACK_URL : null;
+}
+
+export function FeedbackButton(props: FeedbackButtonProps) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const url = resolveFeedbackUrl(props.url, mounted ? undefined : null);
+  if (!url) return null;
+  return <FeedbackPopoverButton {...props} url={url} />;
+}
+
+function FeedbackPopoverButton({
   variant = "sidebar",
   label,
-  url = DEFAULT_FEEDBACK_URL,
+  url,
   className,
   side,
   align = "end",
@@ -281,7 +340,7 @@ export function FeedbackButton({
   open: controlledOpen,
   onOpenChange,
   trigger: customTrigger,
-}: FeedbackButtonProps) {
+}: Omit<FeedbackButtonProps, "url"> & { url: string }) {
   const target = parseTarget(url);
   const { session } = useSession();
   const localeContext = useOptionalLocale();

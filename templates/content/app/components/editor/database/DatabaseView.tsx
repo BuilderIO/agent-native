@@ -11,51 +11,11 @@ import {
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
+  type ContentDatabaseSourceAttachmentResult,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
@@ -75,6 +35,7 @@ import {
   type ContentDatabaseRowDensity,
   type ContentDatabaseSort,
   type ContentDatabaseSortDirection,
+  type ContentDatabaseTableQuery,
   type ContentDatabaseViewType,
   type Document,
   type DocumentProperty,
@@ -83,6 +44,7 @@ import {
   type DocumentPropertyValue,
 } from "@shared/api";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
+import { applyContentDatabaseTableQuery } from "@shared/database-query";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -159,10 +121,54 @@ import {
 } from "@/components/sidebar/select-content-space";
 import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  applyOptimisticBuilderWriteMode,
+  contentDatabaseQueryFilter,
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
+  useBuilderCmsAttachPreview,
   useBuilderCmsModels,
   useCancelPreparedBuilderSourceUpdate,
   useChangeContentDatabaseSourceRole,
@@ -170,7 +176,7 @@ import {
   useContentDatabasePersonalView,
   useContentDatabases,
   contentDatabaseQueryKey,
-  useDeleteDatabaseItems,
+  useRemoveDatabaseItems,
   useDisconnectContentDatabaseSource,
   useDuplicateDatabaseItem,
   useDuplicateDatabaseItems,
@@ -186,6 +192,7 @@ import {
   useSuggestSourceJoinKey,
   useUpdateContentDatabasePersonalView,
   useUpdateContentDatabaseView,
+  writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
 import {
   useContentSpaces,
@@ -197,6 +204,8 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
+  documentQueryFilter,
+  type DocumentUpdateResult,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
@@ -254,7 +263,10 @@ import { EmojiPicker } from "../EmojiPicker";
 import {
   createPreviewDocumentSaveController,
   deferredPreviewDocumentSave,
+  type PreviewDocumentPayload,
   type PreviewDocumentSaveAdapter,
+  type PreviewDocumentSaveDeferred,
+  type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
@@ -265,6 +277,12 @@ import { VisualEditor } from "../VisualEditor";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
+import {
+  databaseItemCanDuplicate,
+  databaseItemCanRemoveFromDatabase,
+  databaseItemHasViewerAccess,
+  databaseItemIsSourceBacked,
+} from "./row-access";
 import { DatabaseTimelineView } from "./TimelineView";
 
 export interface DatabaseViewProps {
@@ -386,7 +404,12 @@ export function previewDraftMissingCasRecovery(args: {
 }
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
-type SidebarMessageKey = keyof (typeof messagesByLocale)["en-US"]["sidebar"];
+type SidebarMessages = (typeof messagesByLocale)["en-US"]["sidebar"];
+type SidebarMessageKey = {
+  [Key in keyof SidebarMessages]: SidebarMessages[Key] extends string
+    ? Key
+    : never;
+}[keyof SidebarMessages];
 
 export function dbText(
   key: DatabaseMessageKey,
@@ -430,13 +453,15 @@ export function databaseCreatedItemForImmediatePreview(
     now?: string;
   },
 ): ContentDatabaseItem | null {
+  if (response.createdItem) return response.createdItem;
   const returnedItem = response.items.find(
     (item) => item.id === response.createdItemId,
   );
   if (returnedItem) return returnedItem;
   if (!response.createdItemId || !response.createdDocumentId) return null;
 
-  const now = args.now ?? new Date().toISOString();
+  const now =
+    response.createdDocumentUpdatedAt ?? args.now ?? new Date().toISOString();
   const position = Math.max(
     0,
     (response.pagination?.totalItems ?? response.items.length + 1) - 1,
@@ -470,6 +495,42 @@ export function databaseCreatedItemForImmediatePreview(
       createdAt: now,
       updatedAt: now,
     },
+  };
+}
+
+export function previewDocumentSaveResult(args: {
+  result: DocumentUpdateResult;
+  payload: PreviewDocumentPayload;
+  baseline?: PreviewDocumentPayload;
+  contentChanged: boolean;
+}): PreviewDocumentSaveDeferred | PreviewDocumentSaveSuccess {
+  const serverDocument = isDocumentUpdateConflict(args.result)
+    ? args.result.document
+    : args.result;
+  const titleSaveObservedExternalBody =
+    !args.contentChanged && serverDocument.content !== args.payload.content;
+
+  if (isDocumentUpdateConflict(args.result) || titleSaveObservedExternalBody) {
+    return deferredPreviewDocumentSave("conflict", {
+      lastSaved: args.baseline ?? args.payload,
+      pending: {
+        title: serverDocument.title,
+        content: serverDocument.content,
+        loadedUpdatedAt: serverDocument.updatedAt,
+        loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+          serverDocument.content,
+        ),
+      },
+      deferredReason: "conflict",
+    });
+  }
+
+  return {
+    outcome: "saved",
+    loadedUpdatedAt: args.result.updatedAt,
+    loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+      args.result.content,
+    ),
   };
 }
 
@@ -682,6 +743,7 @@ export function DatabaseView({
   const { data: document } = useDocument(databaseDocumentId);
 
   if (!document?.database || document.database.id !== databaseId) return null;
+  const effectiveCanEdit = canEdit && document.canEdit === true;
 
   return (
     <DatabaseTable
@@ -690,7 +752,7 @@ export function DatabaseView({
       databaseId={databaseId}
       hostDocumentId={hostDocumentId}
       renderMode={renderMode}
-      canEdit={canEdit}
+      canEdit={effectiveCanEdit}
       isActive={isActive ?? renderMode === "page"}
     />
   );
@@ -721,15 +783,51 @@ function DatabaseTable({
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
+    defaultDatabaseViewConfig(),
+  );
+  const activeView = useMemo(
+    () => activeDatabaseView(viewConfig),
+    [viewConfig],
+  );
+  const tableQuery = useMemo<ContentDatabaseTableQuery | undefined>(() => {
+    if (
+      activeView.type !== "table" ||
+      activeDatabaseConstraintCount(
+        searchQuery,
+        activeView.sorts,
+        activeView.filters,
+      ) === 0
+    ) {
+      return undefined;
+    }
+    return {
+      search: searchQuery,
+      filters: activeView.filters,
+      sorts: activeView.sorts,
+      filterMode: activeView.filterMode ?? "and",
+    };
+  }, [activeView, searchQuery]);
   const [manualDatabaseItemLimit, setManualDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
   const [databaseRequestItemLimit, setDatabaseRequestItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
-  const database = useContentDatabase(document.id, databaseRequestItemLimit);
+  const database = useContentDatabase(
+    document.id,
+    databaseRequestItemLimit,
+    tableQuery,
+  );
+  // A deleted/missing database resolves to the unavailable union (no
+  // `database` field) — treat it as no data; the inline-block wrapper owns
+  // the user-facing "Database unavailable" state.
+  const data = isContentDatabaseUnavailable(database.data)
+    ? undefined
+    : database.data;
   const addItem = useAddDatabaseItem(document.id);
-  const attachSource = useAttachContentDatabaseSource(document.id);
+  const attachSource = useAttachContentDatabaseSource(document.id, data);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
@@ -740,14 +838,14 @@ function DatabaseTable({
     document.id,
   );
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
-  const setProperty = useSetDocumentProperty(document.id, document.id);
+  const setProperty = useSetDocumentProperty(
+    document.id,
+    expectedDatabaseId,
+    document.id,
+  );
   const updateView = useUpdateContentDatabaseView(document.id);
-  // A deleted/missing database resolves to the unavailable union (no
-  // `database` field) — treat it as no data; the inline-block wrapper owns
-  // the user-facing "Database unavailable" state.
-  const data = isContentDatabaseUnavailable(database.data)
-    ? undefined
-    : database.data;
+  const attachPreviewActive = Boolean(data?.attachPreview);
+  const effectiveCanEdit = canEdit && !attachPreviewActive;
   const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
   const isCreatingDatabaseItem = addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
@@ -760,11 +858,14 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
+  const personalViewDatabaseId = data?.database.id ?? null;
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
     : dbText("newPage");
-  const personalView = useContentDatabasePersonalView(databaseId);
-  const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
+  const personalView = useContentDatabasePersonalView(personalViewDatabaseId);
+  const updatePersonalView = useUpdateContentDatabasePersonalView(
+    personalViewDatabaseId,
+  );
   const source = data?.source ?? null;
   const sources = useMemo(
     () => databaseAttachedSources(data?.sources, source),
@@ -786,7 +887,6 @@ function DatabaseTable({
     string | null
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
@@ -821,18 +921,11 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
-  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
-    defaultDatabaseViewConfig(),
-  );
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
-  );
-  const activeView = useMemo(
-    () => activeDatabaseView(viewConfig),
-    [viewConfig],
   );
   const orderedProperties = useMemo(
     () => orderDatabasePropertiesForView(properties, activeView),
@@ -869,6 +962,7 @@ function DatabaseTable({
   );
   const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
+  const builderContinuationFailureRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
@@ -940,10 +1034,12 @@ function DatabaseTable({
     visibleFilters,
   );
   const requiresCompleteClientDataset =
-    activeConstraintCount > 0 ||
-    !!databaseGroupProperty ||
-    activeView.type === "calendar" ||
-    activeView.type === "timeline";
+    databaseViewRequiresCompleteClientDataset({
+      viewType: activeView.type,
+      activeConstraintCount,
+      grouped: !!databaseGroupProperty,
+      tableQueryMode: data?.tableQueryMode,
+    });
   const clientQueryExpandedItemLimit = databaseClientQueryExpandedItemLimit(
     requiresCompleteClientDataset,
     manualDatabaseItemLimit,
@@ -955,7 +1051,19 @@ function DatabaseTable({
     data?.pagination?.limit ?? items.length,
   );
   const isDatabaseViewLoading =
-    isDatabaseInitialLoading || isClientQueryExpansionPending;
+    isDatabaseInitialLoading ||
+    isClientQueryExpansionPending ||
+    (database.isFetching && Boolean(tableQuery));
+  useEffect(() => {
+    if (isDatabaseViewLoading) return;
+    window.document.documentElement.dataset.contentDatabaseRowsVisibleDocumentId =
+      document.id;
+    window.dispatchEvent(
+      new CustomEvent("content-database-rows-visible", {
+        detail: { documentId: document.id },
+      }),
+    );
+  }, [document.id, isDatabaseViewLoading]);
   useEffect(() => {
     if (clientQueryExpandedItemLimit === databaseRequestItemLimit) return;
     setDatabaseRequestItemLimit(clientQueryExpandedItemLimit);
@@ -1016,6 +1124,8 @@ function DatabaseTable({
     () => builderReviewableChangeSets(builderReviewSource),
     [builderReviewSource],
   );
+  const builderReviewCountIsComplete =
+    databaseSourceChangeSetsAreComplete(builderReviewSource);
   const builderReviewPreview = useMemo(
     () =>
       builderReviewSource && builderReviewChangeSets.length > 0
@@ -1026,11 +1136,12 @@ function DatabaseTable({
         : null,
     [builderReviewChangeSets, builderReviewSource],
   );
-  const activeBuilderReview =
-    builderReviewResult ??
-    (builderReviewOpen
-      ? (completeBuilderReviewPreview?.review ?? null)
-      : builderReviewPreview);
+  const activeBuilderReview = databaseActiveBuilderReview({
+    prepared: builderReviewResult,
+    complete: completeBuilderReviewPreview?.review ?? null,
+    page: builderReviewPreview,
+    open: builderReviewOpen,
+  });
   const sourcePendingOperations: DatabaseSourcePendingOperations = {
     attach: attachSource.isPending,
     changeRole: changeSourceRole.isPending,
@@ -1074,14 +1185,27 @@ function DatabaseTable({
     ),
   };
   const runSourceRefresh = useCallback(
-    (sourceId: string, onError?: () => void) => {
+    (
+      sourceId: string,
+      onError?: () => void,
+      expectedBuilderContinuationOffset?: number,
+      onSuccess?: () => void,
+      fullRefresh = false,
+    ) => {
       if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
         return false;
       }
       refreshSource.mutate(
-        { documentId: document.id, sourceId },
+        {
+          documentId: document.id,
+          sourceId,
+          expectedBuilderContinuationOffset,
+          fullRefresh: fullRefresh || undefined,
+          finishBuilderPagination: fullRefresh || undefined,
+        },
         {
           onError,
+          onSuccess,
           onSettled: () => {
             releaseDatabaseSourceOperation(refreshSourceInFlightRef, sourceId);
           },
@@ -1090,6 +1214,25 @@ function DatabaseTable({
       return true;
     },
     [document.id, refreshSource.mutate],
+  );
+  const handleBuilderContinuationError = useCallback(
+    (continuationKey: string) => {
+      const failures =
+        (builderContinuationFailureRef.current.get(continuationKey) ?? 0) + 1;
+      builderContinuationFailureRef.current.set(continuationKey, failures);
+      if (builderSourceContinuationFailureDecision(failures) === "error") {
+        setBuilderContinuationClientErrorKeys((current) =>
+          addUniqueKey(current, continuationKey),
+        );
+      }
+    },
+    [],
+  );
+  const handleBuilderContinuationSuccess = useCallback(
+    (continuationKey: string) => {
+      builderContinuationFailureRef.current.delete(continuationKey);
+    },
+    [],
   );
   const runBuilderHydration = useCallback(
     (
@@ -1105,19 +1248,35 @@ function DatabaseTable({
       ) {
         return false;
       }
-      processBuilderBodies.mutate(
-        { sourceId, ...request },
-        {
-          onSuccess: options.onSuccess,
-          onError: options.onError,
-          onSettled: () => {
-            releaseDatabaseSourceOperation(
-              hydrationSourceInFlightRef,
-              sourceId,
-            );
+      const pump = () => {
+        let result: ProcessBuilderBodyHydrationResponse | null = null;
+        processBuilderBodies.mutate(
+          { sourceId, ...request },
+          {
+            onSuccess: (nextResult) => {
+              result = nextResult;
+              options.onSuccess?.(nextResult);
+            },
+            onError: options.onError,
+            onSettled: () => {
+              if (
+                !request.documentId &&
+                result &&
+                builderBodyHydrationMutationMadeProgress(result) &&
+                result.remaining > 0
+              ) {
+                pump();
+                return;
+              }
+              releaseDatabaseSourceOperation(
+                hydrationSourceInFlightRef,
+                sourceId,
+              );
+            },
           },
-        },
-      );
+        );
+      };
+      pump();
       return true;
     },
     [processBuilderBodies.mutate],
@@ -1156,10 +1315,12 @@ function DatabaseTable({
       continuationKey,
     );
     if (
-      !runSourceRefresh(candidate.id, () =>
-        setBuilderContinuationClientErrorKeys((current) =>
-          addUniqueKey(current, continuationKey),
-        ),
+      !runSourceRefresh(
+        candidate.id,
+        () => handleBuilderContinuationError(continuationKey),
+        candidate.metadata.lastReadNextOffset,
+        () => handleBuilderContinuationSuccess(continuationKey),
+        true,
       )
     ) {
       autoContinueBuilderSourceRef.current.delete(continuationKey);
@@ -1169,6 +1330,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -1232,10 +1395,12 @@ function DatabaseTable({
         return;
       }
       if (
-        runSourceRefresh(candidate.id, () =>
-          setBuilderContinuationClientErrorKeys((current) =>
-            addUniqueKey(current, continuationKey),
-          ),
+        runSourceRefresh(
+          candidate.id,
+          () => handleBuilderContinuationError(continuationKey),
+          candidate.metadata.lastReadNextOffset,
+          () => handleBuilderContinuationSuccess(continuationKey),
+          true,
         )
       ) {
         builderContinuationWatchdogRef.current.set(
@@ -1254,6 +1419,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -1358,7 +1525,7 @@ function DatabaseTable({
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
-    navigate(`/page/${item.document.id}`);
+    navigate(databaseItemPagePath(item.document.id, databaseId, document.id));
   }
 
   function openWorkspaceFiles(item: ContentDatabaseItem) {
@@ -2173,7 +2340,7 @@ function DatabaseTable({
       : viewConfig;
     const nextKey = databaseViewStateKey(databaseId, sharedViewConfig);
     if (databaseViewStateKey(databaseId, savedViewConfig) === nextKey) return;
-    if (!canEdit) return;
+    if (!effectiveCanEdit) return;
     if (saveViewTimerRef.current) {
       clearTimeout(saveViewTimerRef.current);
     }
@@ -2253,7 +2420,7 @@ function DatabaseTable({
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           viewConfig={viewConfig}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           onViewConfigChange={setViewConfig}
         />
         <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
@@ -2349,7 +2516,13 @@ function DatabaseTable({
                   aria-label={dbText("openAsFullPage")}
                   className={databaseToolbarIconButtonClass()}
                 >
-                  <Link to={`/page/${databaseDocumentId}`}>
+                  <Link
+                    to={databaseItemPagePath(
+                      databaseDocumentId,
+                      databaseId,
+                      databaseDocumentId,
+                    )}
+                  >
                     <IconArrowsDiagonal className="size-3.5" />
                   </Link>
                 </Button>
@@ -2363,12 +2536,16 @@ function DatabaseTable({
             size="sm"
             aria-label={
               builderReviewChangeSets.length > 0
-                ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
+                ? builderReviewCountIsComplete
+                  ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
+                  : "Database settings, Builder updates pending"
                 : "Database settings"
             }
             title={
               builderReviewChangeSets.length > 0
-                ? `${builderReviewChangeSets.length} Builder update pending`
+                ? builderReviewCountIsComplete
+                  ? `${builderReviewChangeSets.length} Builder update pending`
+                  : "Builder updates pending"
                 : "Database settings"
             }
             className={cn(
@@ -2388,12 +2565,24 @@ function DatabaseTable({
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
             {builderReviewChangeSets.length > 0 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
-                {formatCompactCountBadge(builderReviewChangeSets.length)}
-              </span>
+              builderReviewCountIsComplete ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+                  {formatCompactCountBadge(builderReviewChangeSets.length)}
+                </span>
+              ) : (
+                <span className="absolute right-0 top-0 size-2 rounded-full bg-foreground" />
+              )
             ) : null}
           </Button>
-          {canEdit && isWorkspaceCatalog ? (
+          {data?.attachPreview ? (
+            <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {data.attachPreview.complete &&
+              typeof data.attachPreview.importedItemCount === "number"
+                ? `${data.attachPreview.importedItemCount} rows fetched`
+                : dbText("attachingReadOnly")}
+            </span>
+          ) : null}
+          {effectiveCanEdit && isWorkspaceCatalog ? (
             <WorkspaceSourceMenu
               align="end"
               propertyValues={workspaceCreationPropertyValues}
@@ -2407,7 +2596,7 @@ function DatabaseTable({
                 New
               </Button>
             </WorkspaceSourceMenu>
-          ) : canEdit ? (
+          ) : effectiveCanEdit ? (
             <Button
               type="button"
               size="sm"
@@ -2485,7 +2674,7 @@ function DatabaseTable({
           <BuilderSourceContinuationBar
             key={builderSource.id}
             source={builderSource}
-            canEdit={canEdit}
+            canEdit={effectiveCanEdit}
             pending={
               sourcePendingOperations.refreshSourceId === builderSource.id
             }
@@ -2504,10 +2693,13 @@ function DatabaseTable({
                 continuationKey,
               );
               builderContinuationWatchdogRef.current.set(continuationKey, 0);
-              runSourceRefresh(builderSource.id, () =>
-                setBuilderContinuationClientErrorKeys((current) =>
-                  addUniqueKey(current, continuationKey),
-                ),
+              builderContinuationFailureRef.current.delete(continuationKey);
+              runSourceRefresh(
+                builderSource.id,
+                () => handleBuilderContinuationError(continuationKey),
+                builderSource.metadata.lastReadNextOffset,
+                () => handleBuilderContinuationSuccess(continuationKey),
+                true,
               );
             }}
           />
@@ -2521,16 +2713,17 @@ function DatabaseTable({
           databaseTitle={data?.database.title ?? document.title}
           view={activeView}
           properties={orderedProperties}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
         />
       ) : activeView.type === "board" ? (
         <DatabaseBoardView
+          databaseId={databaseId}
           activeView={activeView}
           properties={orderedProperties}
           items={visibleItems}
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2559,7 +2752,7 @@ function DatabaseTable({
           groupableProperties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2583,7 +2776,7 @@ function DatabaseTable({
           groupableProperties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2603,11 +2796,12 @@ function DatabaseTable({
         />
       ) : activeView.type === "calendar" ? (
         <DatabaseCalendarView
+          databaseId={databaseId}
           activeView={activeView}
           properties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2630,11 +2824,12 @@ function DatabaseTable({
         />
       ) : activeView.type === "timeline" ? (
         <DatabaseTimelineView
+          databaseId={databaseId}
           activeView={activeView}
           properties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2663,6 +2858,8 @@ function DatabaseTable({
         />
       ) : (
         <DatabaseTableView
+          databaseId={databaseId}
+          databaseSystemRole={data?.database.systemRole}
           newRowLabel={newDatabaseRowLabel}
           properties={tableProperties}
           groupableProperties={orderedProperties}
@@ -2670,7 +2867,8 @@ function DatabaseTable({
           source={source}
           sources={sources}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
+          canManageDatabase={effectiveCanEdit && document.canManage === true}
           workspaceCreationPropertyValues={workspaceCreationPropertyValues}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2708,6 +2906,12 @@ function DatabaseTable({
             )
           }
           onClearSelection={() => setSelectedItemIds([])}
+          onRemoveSelection={(itemIds) =>
+            setSelectedItemIds((current) => {
+              const removedIds = new Set(itemIds);
+              return current.filter((itemId) => !removedIds.has(itemId));
+            })
+          }
           onCreateRow={createInlineRow}
           onCreateGroupedRow={createInlineGroupedRow}
           onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
@@ -2791,6 +2995,7 @@ function DatabaseTable({
             sourceType: "builder-cms",
             sourceName: model.displayName,
             sourceTable: model.name,
+            builderFieldPaths: model.fields.map((field) => field.name),
             relationshipMode,
             mode:
               relationshipMode === "items"
@@ -2856,36 +3061,44 @@ function DatabaseTable({
         onReviewBuilderUpdate={(sourceId) => {
           openBuilderReview(sourceId);
         }}
-        onSetBuilderLiveWrites={(settings) =>
-          setSourceWriteMode.mutate(
-            {
-              documentId: document.id,
-              sourceId: settings.sourceId,
-              writeMode: settings.writeMode,
-              allowPublicationTransitions:
-                settings.writeMode === "publish_updates" &&
-                settings.allowPublicationTransitions === true,
+        onSetBuilderLiveWrites={(settings) => {
+          const request = {
+            documentId: document.id,
+            sourceId: settings.sourceId,
+            writeMode: settings.writeMode,
+            allowPublicationTransitions:
+              settings.writeMode === "publish_updates" &&
+              settings.allowPublicationTransitions === true,
+          };
+          const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+          );
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+            (current) => applyOptimisticBuilderWriteMode(current, request),
+          );
+          setSourceWriteMode.mutate(request, {
+            onSuccess: () => {
+              toast.success(dbText("builderWriteModeUpdated"), {
+                description:
+                  settings.writeMode === "publish_updates"
+                    ? "Approved updates can write through to Builder while preserving publication state."
+                    : settings.writeMode === "stage_only"
+                      ? "Approved updates will stage Builder autosave revisions."
+                      : "Builder writes are disabled for this source.",
+              });
             },
-            {
-              onSuccess: () => {
-                toast.success(dbText("builderWriteModeUpdated"), {
-                  description:
-                    settings.writeMode === "publish_updates"
-                      ? "Approved updates can write through to Builder while preserving publication state."
-                      : settings.writeMode === "stage_only"
-                        ? "Approved updates will stage Builder autosave revisions."
-                        : "Builder writes are disabled for this source.",
-                });
-              },
-              onError: (error) => {
-                toast.error(dbText("builderWriteModeWasNotChanged"), {
-                  description:
-                    error instanceof Error ? error.message : dbText("tryAgain"),
-                });
-              },
+            onError: (error) => {
+              for (const [queryKey, data] of previous) {
+                queryClient.setQueryData(queryKey, data);
+              }
+              toast.error(dbText("builderWriteModeWasNotChanged"), {
+                description:
+                  error instanceof Error ? error.message : dbText("tryAgain"),
+              });
             },
-          )
-        }
+          });
+        }}
         sourceActionPending={
           attachSource.isPending ||
           changeSourceRole.isPending ||
@@ -2926,6 +3139,7 @@ function DatabaseTable({
           executeBuilderExecution.isPending ||
           cancelPreparedBuilderUpdate.isPending
         }
+        executionPending={executeBuilderExecution.isPending}
         error={
           builderReviewError ??
           (builderReviewPreviewQuery.error instanceof Error
@@ -2971,6 +3185,15 @@ export function databaseItemPreviewTitle(
   item: Pick<ContentDatabaseItem, "document"> | null | undefined,
 ) {
   return item?.document.title?.trim() || "Untitled";
+}
+
+export function databaseItemPagePath(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId: string,
+) {
+  const search = new URLSearchParams({ databaseId, databaseDocumentId });
+  return `/page/${documentId}?${search.toString()}`;
 }
 
 export function databaseNavigationState({
@@ -3211,6 +3434,41 @@ export function databaseSelectedItems(
 ) {
   const selectedIds = new Set(selectedItemIds);
   return visibleItems.filter((item) => selectedIds.has(item.id));
+}
+
+export function databaseSelectionCapabilities(args: {
+  canEdit: boolean;
+  canManageDatabase: boolean;
+  databaseSystemRole: string | null | undefined;
+  selectedItemIds: string[];
+  selectedItems: ContentDatabaseItem[];
+  sources: ContentDatabaseSource[];
+  removesFavoriteMembership: boolean;
+  isWorkspaceCatalog: boolean;
+}) {
+  const selectionComplete =
+    args.selectedItems.length === args.selectedItemIds.length;
+  const canEditSelected = args.canEdit && selectionComplete;
+  return {
+    selectionComplete,
+    canEditSelected,
+    canDuplicateSelected:
+      canEditSelected &&
+      args.selectedItems.every((item) =>
+        databaseItemCanDuplicate(item, args.isWorkspaceCatalog),
+      ),
+    canRemoveSelected: args.removesFavoriteMembership
+      ? canEditSelected
+      : selectionComplete &&
+        args.canManageDatabase &&
+        args.databaseSystemRole === null &&
+        !args.isWorkspaceCatalog &&
+        args.selectedItems.every(
+          (item) =>
+            databaseItemHasViewerAccess(item) &&
+            !databaseItemIsSourceBacked(item, args.sources),
+        ),
+  };
 }
 
 export function databaseBulkEditableProperties(properties: DocumentProperty[]) {
@@ -3775,13 +4033,18 @@ export function databaseBulkScalarInputState(
 type DuplicatedDatabaseItemResponse = {
   items: ContentDatabaseResponse["items"];
   duplicatedItemId?: ContentDatabaseResponse["duplicatedItemId"];
+  duplicatedItems?: ContentDatabaseResponse["duplicatedItems"];
 };
 
 export function databaseDuplicatedItemFromResponse(
   response: DuplicatedDatabaseItemResponse,
 ) {
   return (
-    response.items.find((item) => item.id === response.duplicatedItemId) ?? null
+    response.duplicatedItems?.find(
+      (item) => item.id === response.duplicatedItemId,
+    ) ??
+    response.items.find((item) => item.id === response.duplicatedItemId) ??
+    null
   );
 }
 
@@ -4098,8 +4361,6 @@ function DatabaseItemPreview({
   // ever touch its own row's state. See previewDocumentSaveRegistry.
   const updateDocumentRef = useRef(updateDocument);
   updateDocumentRef.current = updateDocument;
-  const queryClientRef = useRef(queryClient);
-  queryClientRef.current = queryClient;
   const bodyHydrationPendingRef = useRef(bodyHydrationPending);
   bodyHydrationPendingRef.current = bodyHydrationPending;
   const draftVersionsRef = useRef<Map<string, number | null>>(new Map());
@@ -4143,25 +4404,6 @@ function DatabaseItemPreview({
             draftVersionsRef.current.set(documentId, null);
           else if (result.draft) {
             draftVersionsRef.current.set(documentId, result.draft.version);
-            if (
-              previewDraftNeedsConflict({
-                returnedDraft: result.draft,
-                pending: controller.pending,
-              })
-            ) {
-              controller.notifyDraftConflict({
-                lastSaved: snapshot.lastSaved,
-                pending: {
-                  title: result.draft.title,
-                  content: result.draft.content,
-                  loadedUpdatedAt:
-                    result.draft.baseDocumentUpdatedAt ?? undefined,
-                  loadedContentWasEmpty:
-                    result.draft.loadedContentWasEmpty === 1,
-                },
-                deferredReason: "conflict",
-              });
-            }
           } else {
             // Another tab already removed the row. Treat the stale delete as
             // converged instead of retaining a version that can never match.
@@ -4186,24 +4428,6 @@ function DatabaseItemPreview({
           draftVersionsRef.current.set(documentId, result.draft.version);
         } else if (result.draft) {
           draftVersionsRef.current.set(documentId, result.draft.version);
-          if (
-            previewDraftNeedsConflict({
-              returnedDraft: result.draft,
-              pending: controller.pending,
-            })
-          ) {
-            controller.notifyDraftConflict({
-              lastSaved: snapshot.lastSaved,
-              pending: {
-                title: result.draft.title,
-                content: result.draft.content,
-                loadedUpdatedAt:
-                  result.draft.baseDocumentUpdatedAt ?? undefined,
-                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
-              },
-              deferredReason: "conflict",
-            });
-          }
         } else {
           // A competing tab deleted the version we tried to update. Reset to
           // create mode and enqueue the latest pending payload once; keeping
@@ -4281,24 +4505,14 @@ function DatabaseItemPreview({
           },
           {
             onSuccess: (result) => {
-              if (isDocumentUpdateConflict(result)) {
-                resolve(
-                  deferredPreviewDocumentSave("conflict", {
-                    lastSaved: baseline ?? payload,
-                    pending: {
-                      title: result.document.title,
-                      content: result.document.content,
-                      loadedUpdatedAt: result.document.updatedAt,
-                      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-                        result.document.content,
-                      ),
-                    },
-                    deferredReason: "conflict",
-                  }),
-                );
-                return;
-              }
-              resolve(undefined);
+              resolve(
+                previewDocumentSaveResult({
+                  result,
+                  payload,
+                  baseline,
+                  contentChanged,
+                }),
+              );
             },
             onError: reject,
           },
@@ -4307,12 +4521,6 @@ function DatabaseItemPreview({
     onSaved: (persistedPayload) => {
       const controller = peekPreviewDocumentSaveController(documentId);
       if (controller) enqueueDraftWrite(controller, "delete", persistedPayload);
-      void queryClientRef.current.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(databaseDocumentId),
-      });
-      void queryClientRef.current.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
     },
     onError: (err) => {
       toast.error(dbText("failedToSavePagePreview"), {
@@ -4410,6 +4618,8 @@ function DatabaseItemPreview({
       }
       return;
     }
+    const previouslyExpectedVersion =
+      draftVersionsRef.current.get(documentId) ?? null;
     draftVersionsRef.current.set(documentId, draft.version);
     const controller = peekPreviewDocumentSaveController(documentId);
     if (!controller) return;
@@ -4431,8 +4641,19 @@ function DatabaseItemPreview({
           ? draft.deferredReason
           : null,
     } as const;
+    // A poll tick simply confirming a version this client's own debounced
+    // write already advanced the ref to is not an external change — it is
+    // this client's typing racing ahead of its own last round trip. Comparing
+    // that echo against the still-live `pending` would flag a conflict on
+    // almost every keystroke. Only treat the draft as having moved out from
+    // under the user when its version is newer than what this client itself
+    // last recorded.
+    const draftAdvancedExternally =
+      previouslyExpectedVersion !== null &&
+      draft.version > previouslyExpectedVersion;
     if (controllerDirty) {
       if (
+        draftAdvancedExternally &&
         previewDraftNeedsConflict({
           returnedDraft: draft,
           pending: controller.pending,
@@ -4633,9 +4854,7 @@ function DatabaseItemPreview({
           void queryClient.invalidateQueries({
             queryKey: contentDatabaseQueryKey(databaseDocumentId),
           });
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-document", { id: document.id }],
-          });
+          void queryClient.invalidateQueries(documentQueryFilter(document.id));
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
@@ -4782,6 +5001,7 @@ function DatabaseItemPreview({
             </Button>
             {canEdit || canManage || removesFavoriteMembership ? (
               <DropdownMenu
+                modal={false}
                 open={actionsMenuOpen}
                 onOpenChange={setActionsMenuOpen}
               >
@@ -4894,6 +5114,8 @@ function DatabaseItemPreview({
             {previewDocument.databaseMembership ? (
               <DocumentProperties
                 documentId={previewDocument.id}
+                databaseId={item.databaseId}
+                databaseDocumentId={databaseDocumentId}
                 canEdit={previewCanEdit}
                 popoversPortalled={false}
               />
@@ -4931,6 +5153,8 @@ function DatabaseItemPreview({
                 const editor = previewDocument.databaseMembership ? (
                   <DocumentBlockFields
                     documentId={previewDocument.id}
+                    databaseId={item.databaseId}
+                    databaseDocumentId={databaseDocumentId}
                     canEdit={previewCanEdit}
                     primaryEditor={primaryEditor}
                   />
@@ -5033,6 +5257,8 @@ function DatabaseItemPreview({
 }
 
 function DatabaseTableView({
+  databaseId,
+  databaseSystemRole,
   newRowLabel,
   properties,
   groupableProperties,
@@ -5041,6 +5267,7 @@ function DatabaseTableView({
   sources,
   databaseDocumentId,
   canEdit,
+  canManageDatabase,
   workspaceCreationPropertyValues,
   isLoading,
   isCreating,
@@ -5069,6 +5296,7 @@ function DatabaseTableView({
   onToggleRowSelection,
   onToggleAllRowsSelection,
   onClearSelection,
+  onRemoveSelection,
   onClearResultConstraints,
   onCreateRow,
   onCreateGroupedRow,
@@ -5079,6 +5307,8 @@ function DatabaseTableView({
   onDeletedPreviewItems,
   onOpenPage,
 }: {
+  databaseId: string;
+  databaseSystemRole: string | null | undefined;
   newRowLabel: string;
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
@@ -5087,6 +5317,7 @@ function DatabaseTableView({
   sources: ContentDatabaseSource[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canManageDatabase: boolean;
   workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   isLoading: boolean;
   isCreating: boolean;
@@ -5126,6 +5357,7 @@ function DatabaseTableView({
   onToggleRowSelection: (itemId: string) => void;
   onToggleAllRowsSelection: () => void;
   onClearSelection: () => void;
+  onRemoveSelection: (itemIds: string[]) => void;
   onClearResultConstraints: () => void;
   onCreateRow: CreateDatabaseRowHandler;
   onCreateGroupedRow: (
@@ -5143,8 +5375,12 @@ function DatabaseTableView({
   const contentSpaces = useContentSpaces();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
   const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
-  const setProperty = useSetDocumentProperty(databaseDocumentId);
-  const deleteItems = useDeleteDatabaseItems(databaseDocumentId);
+  const setProperty = useSetDocumentProperty(
+    databaseDocumentId,
+    databaseId,
+    databaseDocumentId,
+  );
+  const removeItems = useRemoveDatabaseItems(databaseDocumentId);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
   const [draggedPropertyId, setDraggedPropertyId] = useState<string | null>(
@@ -5154,17 +5390,45 @@ function DatabaseTableView({
     useState<DatabaseDropTargetState | null>(null);
   const [dragPreview, setDragPreview] =
     useState<DatabaseDragPreviewState | null>(null);
-  const [confirmDeleteSelectedOpen, setConfirmDeleteSelectedOpen] =
+  const [confirmRemoveSelectedOpen, setConfirmRemoveSelectedOpen] =
     useState(false);
+  const [removeSelectedSnapshotIds, setRemoveSelectedSnapshotIds] = useState<
+    string[]
+  >([]);
   const [isDuplicatingSelected, setIsDuplicatingSelected] = useState(false);
   const selectedCount = selectedItemIds.length;
   const selectableCount = items.length;
   const selectedIdSet = new Set(selectedItemIds);
   const selectedItems = databaseSelectedItems(items, selectedItemIds);
+  const removeSelectedSnapshot = databaseSelectedItems(
+    items,
+    removeSelectedSnapshotIds,
+  );
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
   const isWorkspaceCatalog =
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
+  const { canEditSelected, canDuplicateSelected, canRemoveSelected } =
+    databaseSelectionCapabilities({
+      canEdit,
+      canManageDatabase,
+      databaseSystemRole,
+      selectedItemIds,
+      selectedItems,
+      sources,
+      removesFavoriteMembership,
+      isWorkspaceCatalog,
+    });
+  const canConfirmRemoveSelected = databaseSelectionCapabilities({
+    canEdit,
+    canManageDatabase,
+    databaseSystemRole,
+    selectedItemIds: removeSelectedSnapshotIds,
+    selectedItems: removeSelectedSnapshot,
+    sources,
+    removesFavoriteMembership,
+    isWorkspaceCatalog,
+  }).canRemoveSelected;
   const bulkEditableProperties = databaseBulkEditableProperties(properties);
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
@@ -5389,17 +5653,17 @@ function DatabaseTableView({
     }
   }
 
-  async function deleteSelectedRows() {
-    if (selectedItems.length === 0) return;
-    const selectedSnapshot = selectedItems;
-    setConfirmDeleteSelectedOpen(false);
+  async function removeSelectedRows(selectedSnapshot: ContentDatabaseItem[]) {
+    if (selectedSnapshot.length === 0) return;
+    setConfirmRemoveSelectedOpen(false);
+    setRemoveSelectedSnapshotIds([]);
 
     try {
-      await deleteItems.mutateAsync({
+      await removeItems.mutateAsync({
         documentId: databaseDocumentId,
         itemIds: selectedSnapshot.map((item) => item.id),
       });
-      onClearSelection();
+      onRemoveSelection(selectedSnapshot.map((item) => item.id));
       onDeletedPreviewItems(selectedSnapshot);
       await queryClient.invalidateQueries({
         queryKey: [
@@ -5412,7 +5676,7 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
     } catch (err) {
-      toast.error(dbText("failedToDeleteSelectedRows"), {
+      toast.error(dbText("failedToRemoveEverySelectedRowFromDatabase"), {
         description:
           err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
@@ -5420,7 +5684,12 @@ function DatabaseTableView({
   }
 
   async function duplicateSelectedRows() {
-    if (selectedItems.length === 0 || isDuplicatingSelected) return;
+    if (
+      !canDuplicateSelected ||
+      selectedItems.length === 0 ||
+      isDuplicatingSelected
+    )
+      return;
     const selectedSnapshot = selectedItems;
     setIsDuplicatingSelected(true);
 
@@ -5459,7 +5728,7 @@ function DatabaseTableView({
     property: DocumentProperty,
     operation: DatabaseBulkPropertyValueOperation,
   ) {
-    if (selectedItems.length === 0) return;
+    if (!canEditSelected || selectedItems.length === 0) return;
     const selectedSnapshot = selectedItems;
 
     let updatedCount = 0;
@@ -5496,276 +5765,317 @@ function DatabaseTableView({
   }
 
   return (
-    <div
-      data-database-scroll-surface="table"
-      className="relative w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
-    >
+    <div className="relative w-full min-w-0 max-w-full">
       <DatabaseDragPreview preview={dragPreview} />
-      <div className="w-max min-w-full min-w-[720px]">
-        {selectedCount > 0 ? (
-          <DatabaseSelectionBar
-            selectedCount={selectedCount}
-            canEdit={canEdit}
-            properties={bulkEditableProperties}
-            selectedItems={selectedItems}
-            duplicateDisabled={
-              isDuplicatingSelected ||
-              duplicateItems.isPending ||
-              deleteItems.isPending
+      {selectedCount > 0 ? (
+        <DatabaseSelectionBar
+          selectedCount={selectedCount}
+          canEditSelected={canEditSelected}
+          canDuplicateSelected={canDuplicateSelected}
+          canRemoveSelected={canRemoveSelected}
+          properties={bulkEditableProperties}
+          selectedItems={selectedItems}
+          duplicateDisabled={
+            isDuplicatingSelected ||
+            duplicateItems.isPending ||
+            removeItems.isPending
+          }
+          removeDisabled={removeItems.isPending}
+          removesFavoriteMembership={removesFavoriteMembership}
+          updateDisabled={setProperty.isPending}
+          onClearSelection={onClearSelection}
+          onSetPropertyValue={setSelectedPropertyValue}
+          onDuplicateSelected={() => void duplicateSelectedRows()}
+          onRemoveSelected={() => {
+            if (removesFavoriteMembership) {
+              void removeSelectedRows(selectedItems);
+              return;
             }
-            deleteDisabled={deleteItems.isPending}
-            removesFavoriteMembership={removesFavoriteMembership}
-            updateDisabled={setProperty.isPending}
-            onClearSelection={onClearSelection}
-            onSetPropertyValue={setSelectedPropertyValue}
-            onDuplicateSelected={() => void duplicateSelectedRows()}
-            onDeleteSelected={() => {
-              if (removesFavoriteMembership) {
-                void deleteSelectedRows();
-                return;
-              }
-              setConfirmDeleteSelectedOpen(true);
-            }}
-          />
-        ) : null}
-        <div
-          className="grid border-y border-border/35 text-xs font-medium text-muted-foreground/80"
-          style={{
-            gridTemplateColumns: databaseGridColumns(
-              properties,
-              canEdit,
-              columnWidths,
-              actionColumnWidth,
-            ),
+            setRemoveSelectedSnapshotIds(selectedItems.map((item) => item.id));
+            setConfirmRemoveSelectedOpen(true);
           }}
-        >
-          <DatabaseNameHeader
-            sorts={sorts}
-            filters={filters}
-            source={source}
-            selectedCount={selectedCount}
-            selectableCount={selectableCount}
-            onSortsChange={onSortsChange}
-            onFiltersChange={onFiltersChange}
-            onToggleAllRowsSelection={onToggleAllRowsSelection}
-            onResize={(event) =>
-              onResizeColumn("name", DEFAULT_NAME_COLUMN_WIDTH, event)
-            }
-          />
-          {properties.map((property) => {
-            return (
-              <DatabasePropertyHeader
-                key={property.definition.id}
-                property={property}
-                documentId={databaseDocumentId}
-                source={source}
-                canEdit={canEdit}
-                isDragging={draggedPropertyId === property.definition.id}
-                dropSide={
-                  !!draggedPropertyId &&
-                  dropTargetProperty?.id === property.definition.id &&
-                  draggedPropertyId !== property.definition.id
-                    ? dropTargetProperty.side
-                    : null
-                }
-                sorts={sorts}
-                filters={filters}
-                onPointerDown={(event) =>
-                  startPropertyPointerDrag(property, event)
-                }
-                onResize={(event) =>
-                  onResizeColumn(
-                    property.definition.id,
-                    DEFAULT_PROPERTY_COLUMN_WIDTH,
-                    event,
-                  )
-                }
-              />
-            );
-          })}
-          {canEdit ? (
-            <div
-              className={cn(
-                "flex h-8 items-center",
-                cleanDefaultTable
-                  ? "justify-start border-r border-border/30 px-1"
-                  : "justify-center",
-              )}
-            >
-              <AddProperty
-                documentId={databaseDocumentId}
-                variant={cleanDefaultTable ? "header" : "icon"}
-                label={dbText("addProperty")}
-                source={source}
-                sources={sources}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {isLoading ? (
-          <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
-            <Spinner className="size-4" />
-            {dbText("loadingDatabase")}
-          </div>
-        ) : (
-          <>
-            {databaseViewHasNoMatchingPages(
-              items.length,
-              hasSearch,
-              activeFilters.length,
-            ) ? (
-              <DatabaseNoMatchingPages
-                className="border-t border-border"
-                label={dbText("noRowsMatchThisView")}
-                onClear={onClearResultConstraints}
-              />
-            ) : null}
-            {grouped
-              ? groups.map((group) => (
-                  <DatabaseGroupedTableSection
-                    key={group.id}
-                    group={group}
-                    properties={properties}
-                    columnWidths={columnWidths}
-                    databaseDocumentId={databaseDocumentId}
-                    workspaceCatalog={isWorkspaceCatalog}
-                    workspaceCreationPropertyValues={
-                      workspaceCreationPropertyValues
-                    }
-                    canEdit={canEdit}
-                    selectedIdSet={selectedIdSet}
-                    wrapCells={wrapCells}
-                    rowDensity={rowDensity}
-                    isCreating={isCreating}
-                    newRowLabel={newRowLabel}
-                    focusedTitleDocumentId={focusedTitleDocumentId}
-                    collapsed={databaseGroupIsCollapsed(
-                      collapsedGroupIds,
-                      group.id,
-                    )}
-                    onCreateRow={onCreateGroupedRow}
-                    onTitleFocusHandled={onTitleFocusHandled}
-                    onCollapsedChange={(collapsed) =>
-                      onGroupCollapsedChange(group.id, collapsed)
-                    }
-                    onToggleCheckbox={toggleCheckboxCell}
-                    onToggleRowSelection={onToggleRowSelection}
-                    onPreview={onPreview}
-                    onDeletedPreviewItem={onDeletedPreviewItem}
-                    onOpenPage={onOpenPage}
-                  />
-                ))
-              : items.map((item, index) => (
-                  <DatabaseTableRow
-                    key={item.id}
-                    item={item}
-                    databaseDocumentId={databaseDocumentId}
-                    workspaceCatalog={isWorkspaceCatalog}
-                    properties={properties}
-                    columnWidths={columnWidths}
-                    canEdit={canEdit}
-                    rowIndex={index}
-                    canReorder={rowsAreManuallyOrdered}
-                    canDragRow={rowDraggingEnabled}
-                    canMoveUp={rowsAreManuallyOrdered && index > 0}
-                    canMoveDown={
-                      rowsAreManuallyOrdered && index < items.length - 1
-                    }
-                    selected={selectedIdSet.has(item.id)}
-                    isDragging={draggedItemId === item.id}
-                    isDropTarget={
-                      !!draggedItemId &&
-                      dropTargetItemId === item.id &&
-                      draggedItemId !== item.id
-                    }
-                    startEditingTitle={
-                      focusedTitleDocumentId === item.document.id
-                    }
-                    onDragHandlePointerDown={(event) =>
-                      startRowDrag(item.id, event)
-                    }
-                    onToggleCheckbox={(property) =>
-                      void toggleCheckboxCell(item, property)
-                    }
-                    wrapCells={wrapCells}
-                    rowDensity={rowDensity}
-                    onToggleSelected={() => onToggleRowSelection(item.id)}
-                    onPreviewItem={onPreview}
-                    onDeletedPreviewItem={onDeletedPreviewItem}
-                    onTitleEditStarted={onTitleFocusHandled}
-                    onPreview={() => onPreview(item)}
-                    onOpenPage={() => onOpenPage(item)}
-                  />
-                ))}
-            {canEdit && !grouped ? (
-              isWorkspaceCatalog ? (
-                <WorkspaceSourceMenuRow
-                  label={newRowLabel}
-                  properties={properties}
-                  columnWidths={columnWidths}
-                  rowDensity={rowDensity}
-                  propertyValues={workspaceCreationPropertyValues}
-                  actionColumnWidth={actionColumnWidth}
-                />
-              ) : (
-                <NewDatabaseRow
-                  label={newRowLabel}
-                  properties={properties}
-                  columnWidths={columnWidths}
-                  rowDensity={rowDensity}
-                  disabled={isCreating}
-                  isPending={isCreating}
-                  onCreate={onCreateRow}
-                  actionColumnWidth={actionColumnWidth}
-                />
-              )
-            ) : null}
-            {cleanDefaultTable ? (
-              <DatabaseBlankDefaultRows
-                rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
-                actionColumnWidth={actionColumnWidth}
-              />
-            ) : null}
-            <DatabaseTableFooter
-              properties={properties}
-              items={items}
-              totalCount={totalCount}
-              constrained={constrained}
-              columnWidths={columnWidths}
-              canEdit={canEdit}
-              calculations={calculations}
-              actionColumnWidth={actionColumnWidth}
-              onCalculationChange={onCalculationChange}
+        />
+      ) : null}
+      <div
+        data-database-scroll-surface="table"
+        tabIndex={0}
+        className="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
+      >
+        <div className="w-max min-w-full min-w-[720px]">
+          <div
+            className="grid border-y border-border/35 text-xs font-medium text-muted-foreground/80"
+            style={{
+              gridTemplateColumns: databaseGridColumns(
+                properties,
+                canEdit,
+                columnWidths,
+                actionColumnWidth,
+              ),
+            }}
+          >
+            <DatabaseNameHeader
+              sorts={sorts}
+              filters={filters}
+              source={source}
+              selectedCount={selectedCount}
+              selectableCount={selectableCount}
+              onSortsChange={onSortsChange}
+              onFiltersChange={onFiltersChange}
+              onToggleAllRowsSelection={onToggleAllRowsSelection}
+              onResize={(event) =>
+                onResizeColumn("name", DEFAULT_NAME_COLUMN_WIDTH, event)
+              }
             />
-          </>
-        )}
+            {properties.map((property) => {
+              return (
+                <DatabasePropertyHeader
+                  key={property.definition.id}
+                  property={property}
+                  documentId={databaseDocumentId}
+                  source={source}
+                  canEdit={canEdit}
+                  isDragging={draggedPropertyId === property.definition.id}
+                  dropSide={
+                    !!draggedPropertyId &&
+                    dropTargetProperty?.id === property.definition.id &&
+                    draggedPropertyId !== property.definition.id
+                      ? dropTargetProperty.side
+                      : null
+                  }
+                  sorts={sorts}
+                  filters={filters}
+                  onSortsChange={onSortsChange}
+                  onFiltersChange={onFiltersChange}
+                  onPropertyHiddenChange={onPropertyHiddenChange}
+                  onPointerDown={(event) =>
+                    startPropertyPointerDrag(property, event)
+                  }
+                  onResize={(event) =>
+                    onResizeColumn(
+                      property.definition.id,
+                      DEFAULT_PROPERTY_COLUMN_WIDTH,
+                      event,
+                    )
+                  }
+                />
+              );
+            })}
+            {canEdit ? (
+              <div
+                className={cn(
+                  "flex h-8 items-center",
+                  cleanDefaultTable
+                    ? "justify-start border-r border-border/30 px-1"
+                    : "justify-center",
+                )}
+              >
+                <AddProperty
+                  documentId={databaseDocumentId}
+                  databaseId={databaseId}
+                  variant={cleanDefaultTable ? "header" : "icon"}
+                  label={dbText("addProperty")}
+                  source={source}
+                  sources={sources}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          {databaseTableShouldShowBlockingLoader(isLoading, items.length) ? (
+            <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
+              <Spinner className="size-4" />
+              {dbText("loadingDatabase")}
+            </div>
+          ) : (
+            <>
+              {databaseViewHasNoMatchingPages(
+                items.length,
+                hasSearch,
+                activeFilters.length,
+              ) ? (
+                <DatabaseNoMatchingPages
+                  className="border-t border-border"
+                  label={dbText("noRowsMatchThisView")}
+                  onClear={onClearResultConstraints}
+                />
+              ) : null}
+              {grouped
+                ? groups.map((group) => (
+                    <DatabaseGroupedTableSection
+                      key={group.id}
+                      group={group}
+                      properties={properties}
+                      columnWidths={columnWidths}
+                      databaseDocumentId={databaseDocumentId}
+                      workspaceCatalog={isWorkspaceCatalog}
+                      workspaceCreationPropertyValues={
+                        workspaceCreationPropertyValues
+                      }
+                      canEdit={canEdit}
+                      selectedIdSet={selectedIdSet}
+                      wrapCells={wrapCells}
+                      rowDensity={rowDensity}
+                      isCreating={isCreating}
+                      newRowLabel={newRowLabel}
+                      focusedTitleDocumentId={focusedTitleDocumentId}
+                      collapsed={databaseGroupIsCollapsed(
+                        collapsedGroupIds,
+                        group.id,
+                      )}
+                      onCreateRow={onCreateGroupedRow}
+                      onTitleFocusHandled={onTitleFocusHandled}
+                      onCollapsedChange={(collapsed) =>
+                        onGroupCollapsedChange(group.id, collapsed)
+                      }
+                      onToggleCheckbox={toggleCheckboxCell}
+                      onToggleRowSelection={onToggleRowSelection}
+                      onPreview={onPreview}
+                      onDeletedPreviewItem={onDeletedPreviewItem}
+                      onOpenPage={onOpenPage}
+                    />
+                  ))
+                : items.map((item, index) => (
+                    <DatabaseTableRow
+                      key={item.id}
+                      item={item}
+                      databaseDocumentId={databaseDocumentId}
+                      workspaceCatalog={isWorkspaceCatalog}
+                      properties={properties}
+                      columnWidths={columnWidths}
+                      canEdit={canEdit}
+                      rowIndex={index}
+                      canReorder={rowsAreManuallyOrdered}
+                      canDragRow={rowDraggingEnabled}
+                      canMoveUp={rowsAreManuallyOrdered && index > 0}
+                      canMoveDown={
+                        rowsAreManuallyOrdered && index < items.length - 1
+                      }
+                      selected={selectedIdSet.has(item.id)}
+                      isDragging={draggedItemId === item.id}
+                      isDropTarget={
+                        !!draggedItemId &&
+                        dropTargetItemId === item.id &&
+                        draggedItemId !== item.id
+                      }
+                      startEditingTitle={
+                        focusedTitleDocumentId === item.document.id
+                      }
+                      onDragHandlePointerDown={(event) =>
+                        startRowDrag(item.id, event)
+                      }
+                      onToggleCheckbox={(property) =>
+                        void toggleCheckboxCell(item, property)
+                      }
+                      wrapCells={wrapCells}
+                      rowDensity={rowDensity}
+                      onToggleSelected={() => onToggleRowSelection(item.id)}
+                      onPreviewItem={onPreview}
+                      onDeletedPreviewItem={onDeletedPreviewItem}
+                      onTitleEditStarted={onTitleFocusHandled}
+                      onPreview={() => onPreview(item)}
+                      onOpenPage={() => onOpenPage(item)}
+                    />
+                  ))}
+              {canEdit && !grouped ? (
+                isWorkspaceCatalog ? (
+                  <WorkspaceSourceMenuRow
+                    label={newRowLabel}
+                    properties={properties}
+                    columnWidths={columnWidths}
+                    rowDensity={rowDensity}
+                    propertyValues={workspaceCreationPropertyValues}
+                    actionColumnWidth={actionColumnWidth}
+                  />
+                ) : (
+                  <NewDatabaseRow
+                    label={newRowLabel}
+                    properties={properties}
+                    columnWidths={columnWidths}
+                    rowDensity={rowDensity}
+                    disabled={isCreating}
+                    isPending={isCreating}
+                    onCreate={onCreateRow}
+                    actionColumnWidth={actionColumnWidth}
+                  />
+                )
+              ) : null}
+              {cleanDefaultTable ? (
+                <DatabaseBlankDefaultRows
+                  rowCount={EMPTY_DEFAULT_BLANK_ROW_COUNT}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              ) : null}
+              <DatabaseTableFooter
+                properties={properties}
+                items={items}
+                totalCount={totalCount}
+                constrained={constrained}
+                columnWidths={columnWidths}
+                canEdit={canEdit}
+                calculations={calculations}
+                actionColumnWidth={actionColumnWidth}
+                onCalculationChange={onCalculationChange}
+              />
+            </>
+          )}
+        </div>
       </div>
       <AlertDialog
-        open={!removesFavoriteMembership && confirmDeleteSelectedOpen}
-        onOpenChange={setConfirmDeleteSelectedOpen}
+        open={
+          !removesFavoriteMembership &&
+          canConfirmRemoveSelected &&
+          confirmRemoveSelectedOpen
+        }
+        onOpenChange={(open) => {
+          setConfirmRemoveSelectedOpen(open);
+          if (!open) setRemoveSelectedSnapshotIds([]);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{dbText("deleteSelectedRows")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {dbText("removeSelectedRowsFromDatabaseQuestion")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {selectedCount} selected row{selectedCount === 1 ? "" : "s"} and
-              any sub-pages will be permanently deleted. This cannot be undone.
+              {dbText("removeSelectedRowsFromDatabaseDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{dbText("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteItems.isPending}
-              onClick={() => void deleteSelectedRows()}
+              disabled={removeItems.isPending || !canConfirmRemoveSelected}
+              onClick={() => void removeSelectedRows(removeSelectedSnapshot)}
             >
-              {deleteItems.isPending ? "Deleting..." : "Delete"}
+              {removeItems.isPending ? dbText("removing") : dbText("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+export function databaseTableShouldShowBlockingLoader(
+  isLoading: boolean,
+  itemCount: number,
+) {
+  return isLoading && itemCount === 0;
+}
+
+export function databaseViewRequiresCompleteClientDataset(args: {
+  viewType: ContentDatabaseViewType;
+  activeConstraintCount: number;
+  grouped: boolean;
+  tableQueryMode?: ContentDatabaseResponse["tableQueryMode"];
+}) {
+  return (
+    (args.viewType === "table" && args.tableQueryMode === "client-required") ||
+    (args.viewType !== "table" &&
+      (args.activeConstraintCount > 0 ||
+        args.grouped ||
+        args.viewType === "calendar" ||
+        args.viewType === "timeline"))
   );
 }
 
@@ -7211,11 +7521,11 @@ function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
@@ -7239,10 +7549,44 @@ function DatabaseSettingsPanelSheet({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
+  const queryClient = useQueryClient();
   // Local drill-down path *within* the Source(s) panel. Kept here (not in the
   // flat panel enum) because the levels are dynamic — space/model names aren't
   // known at compile time. The sheet's back button pops this stack first.
   const [sourceNavStack, setSourceNavStack] = useState<SourceNavStep[]>([]);
+  const sourceNavTop = sourceNavStack[sourceNavStack.length - 1];
+  const previewModel =
+    sourceNavTop?.kind === "model" ? (sourceNavTop.model ?? null) : null;
+  const previewFieldPaths = useMemo(
+    () => previewModel?.fields.map((field) => field.name),
+    [previewModel],
+  );
+  const previewAlreadyAttached = previewModel
+    ? Boolean(
+        databaseAttachedBuilderSource(sources, source, {
+          modelName: previewModel.name,
+        }),
+      )
+    : false;
+  const builderAttachPreview = useBuilderCmsAttachPreview({
+    documentId,
+    sourceTable: previewModel?.name ?? null,
+    fieldPaths: previewFieldPaths,
+    enabled:
+      open &&
+      panel === "source" &&
+      canEdit &&
+      Boolean(previewModel) &&
+      !previewAlreadyAttached,
+  });
+  useEffect(() => {
+    if (!sourceActionPending || !builderAttachPreview.data) return;
+    writeBuilderAttachPreviewToCache(
+      queryClient,
+      documentId,
+      builderAttachPreview.data,
+    );
+  }, [builderAttachPreview.data, documentId, queryClient, sourceActionPending]);
   useEffect(() => {
     // Always re-enter the Sources panel at its root, and don't retain a path
     // across close/reopen.
@@ -7331,6 +7675,7 @@ function DatabaseSettingsPanelSheet({
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onSetBuilderLiveWrites={onSetBuilderLiveWrites}
             sourceActionPending={sourceActionPending}
+            builderAttachPreviewPending={builderAttachPreview.isFetching}
             sourcePendingOperations={sourcePendingOperations}
           />
         ) : panel === "layout" ? (
@@ -7345,6 +7690,7 @@ function DatabaseSettingsPanelSheet({
         ) : panel === "property_visibility" ? (
           <DatabaseSettingsPropertyVisibilityPanel
             documentId={documentId}
+            databaseId={databaseId}
             properties={properties}
             activeView={activeView}
             items={items}
@@ -7393,7 +7739,9 @@ function DatabaseSettingsMainPanel({
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
-  const sourceBadgeCount = builderReviewableChangeSets(source).length;
+  const sourceBadgeCount = databaseSourceChangeSetsAreComplete(source)
+    ? builderReviewableChangeSets(source).length
+    : undefined;
   return (
     <div className="grid gap-3">
       <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2">
@@ -7453,6 +7801,23 @@ export function builderReviewableChangeSets(
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
   );
+}
+
+export function databaseActiveBuilderReview(args: {
+  prepared: ContentDatabaseSourceReviewPayload | null;
+  complete: ContentDatabaseSourceReviewPayload | null;
+  page: ContentDatabaseSourceReviewPayload | null;
+  open: boolean;
+}) {
+  return (
+    args.prepared ?? (args.open ? (args.complete ?? args.page) : args.page)
+  );
+}
+
+export function databaseSourceChangeSetsAreComplete(
+  source: ContentDatabaseSource | null,
+) {
+  return source?.projection?.changeSets !== "page";
 }
 
 function sourceReviewRiskRank(
@@ -7712,6 +8077,7 @@ function DatabaseSettingsSourcePanel({
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
+  builderAttachPreviewPending,
   sourcePendingOperations,
 }: {
   source: ContentDatabaseSource | null;
@@ -7728,11 +8094,11 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
@@ -7745,13 +8111,17 @@ function DatabaseSettingsSourcePanel({
   onReviewBuilderUpdate: (sourceId: string) => void;
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
+  builderAttachPreviewPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
 }) {
   const { isCodeMode } = useCodeMode();
   const navigate = useNavigate();
   const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
+  const builderAttachPending =
+    sourceActionPending || builderAttachPreviewPending;
   const builderConfigured = builderStatus.status?.configured === true;
+  const builderModelsQuery = useBuilderCmsModels(builderConfigured);
   const builderOrgName = builderStatus.status?.orgName ?? null;
   // Real space name(s) from the Admin API, falling back to the generic org
   // name (then a constant) so the drill-down never renders a blank label.
@@ -7778,11 +8148,15 @@ function DatabaseSettingsSourcePanel({
         sources={sources}
         builderConfigured={builderConfigured}
         builderSpaceLabel={builderSpaceLabel}
-        reviewableCount={builderSources.reduce(
-          (total, candidate) =>
-            total + builderReviewableChangeSets(candidate).length,
-          0,
-        )}
+        reviewableCount={
+          builderSources.every(databaseSourceChangeSetsAreComplete)
+            ? builderSources.reduce(
+                (total, candidate) =>
+                  total + builderReviewableChangeSets(candidate).length,
+                0,
+              )
+            : undefined
+        }
         onOpenBuilder={(builderSource) =>
           onNavPush(
             builderSource
@@ -7908,6 +8282,11 @@ function DatabaseSettingsSourcePanel({
                 join,
               )
             : await onFederateSource(top.candidate, join);
+          if ("responseProjection" in result) {
+            throw new Error(
+              "Detail-source attachment returned an item-source acknowledgement.",
+            );
+          }
           const detailsSource = findDetailsSource(result, top.candidate);
           onNavReplace(
             detailsSource
@@ -8000,6 +8379,7 @@ function DatabaseSettingsSourcePanel({
     return (
       <BuilderSpaceModelsView
         attachedModelNames={databaseAttachedBuilderModelNames(sources, source)}
+        modelsQuery={builderModelsQuery}
         onOpenModel={(model) => {
           const attached = databaseAttachedBuilderSource(sources, source, {
             modelName: model.name,
@@ -8049,7 +8429,7 @@ function DatabaseSettingsSourcePanel({
               displayName: model.displayName,
             }}
             canEdit={canEdit}
-            pending={sourceActionPending}
+            pending={builderAttachPending}
             onAddDetails={() =>
               onNavPush({
                 kind: "keyConfirm",
@@ -8071,7 +8451,7 @@ function DatabaseSettingsSourcePanel({
             <Button
               type="button"
               size="sm"
-              disabled={!canEdit || sourceActionPending}
+              disabled={!canEdit || builderAttachPending}
               onClick={async () => {
                 try {
                   await onAttachBuilderSource(model);
@@ -8086,7 +8466,7 @@ function DatabaseSettingsSourcePanel({
                 }
               }}
             >
-              {sourceActionPending ? (
+              {builderAttachPending ? (
                 <Spinner className="mr-1.5 size-3.5" />
               ) : (
                 <IconPlugConnected className="mr-1.5 size-3.5" />
@@ -8100,6 +8480,8 @@ function DatabaseSettingsSourcePanel({
   }
 
   const selectedSource = selectedBuilderSource;
+  const selectedSourceChangeSetsComplete =
+    databaseSourceChangeSetsAreComplete(selectedSource);
   const reviewableBuilderChangeSets =
     builderReviewableChangeSets(selectedSource);
   const outboundChangeSets = reviewableBuilderChangeSets;
@@ -8313,11 +8695,13 @@ function DatabaseSettingsSourcePanel({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm font-medium">
-                {conflictChangeSets.length > 0
+                {selectedSourceChangeSetsComplete &&
+                conflictChangeSets.length > 0
                   ? `${conflictChangeSets.length} change${
                       conflictChangeSets.length === 1 ? "" : "s"
                     } need review`
-                  : reviewableBuilderChangeSets.length > 0
+                  : selectedSourceChangeSetsComplete &&
+                      reviewableBuilderChangeSets.length > 0
                     ? `${reviewableBuilderChangeSets.length} change${
                         reviewableBuilderChangeSets.length === 1 ? "" : "s"
                       } ready to push`
@@ -8467,7 +8851,7 @@ function SourcesListView({
   sources: ContentDatabaseSource[];
   builderConfigured: boolean;
   builderSpaceLabel: string | null;
-  reviewableCount: number;
+  reviewableCount?: number;
   onOpenBuilder: (source?: ContentDatabaseSource) => void;
   onOpenNotion: () => void;
   onOpenLocalFolder: () => void;
@@ -9694,12 +10078,13 @@ function SourceDetailsFieldPicker({
 // is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
   attachedModelNames,
+  modelsQuery,
   onOpenModel,
 }: {
   attachedModelNames: string[];
+  modelsQuery: ReturnType<typeof useBuilderCmsModels>;
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
-  const modelsQuery = useBuilderCmsModels(true);
   const models = modelsQuery.data?.models ?? [];
   const [query, setQuery] = useState("");
 
@@ -10191,6 +10576,10 @@ export function builderSourceContinuationWatchdogDecision(refires: number) {
   return "refire";
 }
 
+export function builderSourceContinuationFailureDecision(failures: number) {
+  return failures <= 1 ? "retry" : "error";
+}
+
 export function builderSourceContinuationWatchdogDelay(refires: number) {
   return Math.min(
     BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS,
@@ -10594,6 +10983,7 @@ function DatabaseOpenPagesInSetting({
 
 function DatabaseSettingsPropertyVisibilityPanel({
   documentId,
+  databaseId,
   properties,
   activeView,
   items,
@@ -10604,6 +10994,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   onPropertiesHiddenChange,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   activeView: ContentDatabaseView;
   items: ContentDatabaseItem[];
@@ -10703,6 +11094,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
       <div className="border-t border-border/70 pt-3">
         <AddProperty
           documentId={documentId}
+          databaseId={databaseId}
           label={dbText("newProperty")}
           source={source}
           sources={sources}
@@ -11609,6 +12001,7 @@ export function DatabaseGroupHeader({
 }
 
 function DatabaseCalendarView({
+  databaseId,
   activeView,
   properties,
   items,
@@ -11629,6 +12022,7 @@ function DatabaseCalendarView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -11780,7 +12174,12 @@ function DatabaseCalendarView({
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addADatePropertyToUseCalendarView")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+            />
+          ) : null}
         </div>
       ) : databaseViewHasNoMatchingPages(
           items.length,
@@ -12060,6 +12459,7 @@ export interface DatabaseBoardGroup {
 }
 
 function DatabaseBoardView({
+  databaseId,
   activeView,
   properties,
   items,
@@ -12084,6 +12484,7 @@ function DatabaseBoardView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -12129,7 +12530,10 @@ function DatabaseBoardView({
     null,
   );
   const [dropGroupId, setDropGroupId] = useState<string | null>(null);
-  const configureProperty = useConfigureDocumentProperty(databaseDocumentId);
+  const configureProperty = useConfigureDocumentProperty(
+    databaseDocumentId,
+    databaseId,
+  );
   const canCreateGroup =
     canEdit && !!groupProperty && databaseBoardCanCreateGroup(groupProperty);
 
@@ -12314,7 +12718,12 @@ function DatabaseBoardView({
       ) : groupableProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addAStatusSelectMultiSelectOrCheckbox2")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+            />
+          ) : null}
         </div>
       ) : (
         <>
@@ -15048,26 +15457,30 @@ function DatabaseNameHeader({
   );
 }
 
-function DatabaseSelectionBar({
+export function DatabaseSelectionBar({
   selectedCount,
-  canEdit,
+  canEditSelected,
+  canDuplicateSelected,
+  canRemoveSelected,
   properties,
   selectedItems,
   duplicateDisabled,
-  deleteDisabled,
+  removeDisabled,
   removesFavoriteMembership,
   updateDisabled,
   onClearSelection,
   onSetPropertyValue,
   onDuplicateSelected,
-  onDeleteSelected,
+  onRemoveSelected,
 }: {
   selectedCount: number;
-  canEdit: boolean;
+  canEditSelected: boolean;
+  canDuplicateSelected: boolean;
+  canRemoveSelected: boolean;
   properties: DocumentProperty[];
   selectedItems: ContentDatabaseItem[];
   duplicateDisabled: boolean;
-  deleteDisabled: boolean;
+  removeDisabled: boolean;
   removesFavoriteMembership: boolean;
   updateDisabled: boolean;
   onClearSelection: () => void;
@@ -15076,7 +15489,7 @@ function DatabaseSelectionBar({
     operation: DatabaseBulkPropertyValueOperation,
   ) => Promise<void>;
   onDuplicateSelected: () => void;
-  onDeleteSelected: () => void;
+  onRemoveSelected: () => void;
 }) {
   return (
     <div className="flex h-8 items-center justify-between gap-2 border-y border-border/45 bg-muted/20 px-2 text-xs text-muted-foreground">
@@ -15084,46 +15497,48 @@ function DatabaseSelectionBar({
         {selectedCount} selected
       </span>
       <div className="flex items-center gap-1">
-        {canEdit ? (
-          <>
-            <DatabaseBulkEditPopover
-              properties={properties}
-              selectedCount={selectedCount}
-              selectedItems={selectedItems}
-              disabled={updateDisabled || properties.length === 0}
-              onSetPropertyValue={onSetPropertyValue}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-xs"
-              disabled={duplicateDisabled}
-              onClick={onDuplicateSelected}
-            >
-              <IconCopy className="size-3.5" />
-              Duplicate
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "h-7 gap-1.5 px-2 text-xs",
-                !removesFavoriteMembership &&
-                  "text-destructive hover:bg-destructive/10 hover:text-destructive",
-              )}
-              disabled={deleteDisabled}
-              onClick={onDeleteSelected}
-            >
-              {removesFavoriteMembership ? (
-                <IconStarOff className="size-3.5" />
-              ) : (
-                <IconTrash className="size-3.5" />
-              )}
-              {removesFavoriteMembership ? "Remove" : "Delete"}
-            </Button>
-          </>
+        {canEditSelected ? (
+          <DatabaseBulkEditPopover
+            properties={properties}
+            selectedCount={selectedCount}
+            selectedItems={selectedItems}
+            disabled={updateDisabled || properties.length === 0}
+            onSetPropertyValue={onSetPropertyValue}
+          />
+        ) : null}
+        {canDuplicateSelected ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-xs"
+            disabled={duplicateDisabled}
+            onClick={onDuplicateSelected}
+          >
+            <IconCopy className="size-3.5" />
+            Duplicate
+          </Button>
+        ) : null}
+        {canRemoveSelected ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-7 gap-1.5 px-2 text-xs",
+              !removesFavoriteMembership &&
+                "text-destructive hover:bg-destructive/10 hover:text-destructive",
+            )}
+            disabled={removeDisabled}
+            onClick={onRemoveSelected}
+          >
+            {removesFavoriteMembership ? (
+              <IconStarOff className="size-3.5" />
+            ) : (
+              <IconTrash className="size-3.5" />
+            )}
+            Remove
+          </Button>
         ) : null}
         <Button
           type="button"
@@ -15798,6 +16213,9 @@ function DatabasePropertyHeader({
   dropSide,
   sorts,
   filters,
+  onSortsChange,
+  onFiltersChange,
+  onPropertyHiddenChange,
   onPointerDown,
   onResize,
 }: {
@@ -15809,6 +16227,9 @@ function DatabasePropertyHeader({
   dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
@@ -15836,6 +16257,7 @@ function DatabasePropertyHeader({
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
+          databaseId={property.definition.databaseId!}
           icon={Icon}
           triggerClassName="h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground"
           onTriggerPointerDown={(event) => {
@@ -15851,6 +16273,11 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sorts={sorts}
+          filters={filters}
+          onSortsChange={onSortsChange}
+          onFiltersChange={onFiltersChange}
+          onHide={() => onPropertyHiddenChange(property.definition.id, true)}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
@@ -16068,6 +16495,7 @@ function ColumnHeaderMenuContent({
 
 function DatabasePropertiesMenu({
   documentId,
+  databaseId,
   properties,
   hiddenCount,
   activeView,
@@ -16076,6 +16504,7 @@ function DatabasePropertiesMenu({
   onPropertiesHiddenChange,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   hiddenCount: number;
   activeView: ContentDatabaseView;
@@ -16210,7 +16639,11 @@ function DatabasePropertiesMenu({
           className="border-t border-border p-2"
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <AddProperty documentId={documentId} label={dbText("newProperty")} />
+          <AddProperty
+            documentId={documentId}
+            databaseId={databaseId}
+            label={dbText("newProperty")}
+          />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -16225,37 +16658,11 @@ export function applyDatabaseView(
   sorts: DatabaseSort[],
   filterMode: DatabaseFilterMode = "and",
 ) {
-  const query = searchQuery.trim().toLowerCase();
-  const searched = query
-    ? items.filter((item) =>
-        databaseItemSearchText(item, properties).toLowerCase().includes(query),
-      )
-    : items;
-  const activeFilters = filters.filter(isActiveFilter);
-  const filtered = activeFilters.length
-    ? searched.filter((item) =>
-        databaseItemMatchesFilterTree(
-          item,
-          properties,
-          activeFilters,
-          filterMode,
-        ),
-      )
-    : searched;
-
-  if (sorts.length === 0) return filtered;
-
-  return [...filtered].sort((a, b) => {
-    for (const sort of sorts) {
-      const comparison = compareDatabaseSortValues(
-        databaseItemSortValue(a, properties, sort.key),
-        databaseItemSortValue(b, properties, sort.key),
-      );
-      if (comparison !== 0) {
-        return sort.direction === "asc" ? comparison : -comparison;
-      }
-    }
-    return 0;
+  return applyContentDatabaseTableQuery(items, properties, {
+    search: searchQuery,
+    filters,
+    sorts,
+    filterMode,
   });
 }
 
@@ -17190,7 +17597,11 @@ function DatabaseFilterValueControl({
   hideOptionsUntilQuery?: boolean;
   onValueChange: (value: string) => void;
 }) {
-  const configureProperty = useConfigureDocumentProperty(documentId);
+  const configureProperty = useConfigureDocumentProperty(
+    documentId,
+    properties.find((property) => property.definition.id === filter.key)
+      ?.definition.databaseId ?? "",
+  );
   const { session } = useSession();
   const currentUserEmail = session?.email?.trim() ?? "";
   const options = databaseFilterOptionChoices(
@@ -18233,9 +18644,11 @@ export function RowActionsCell({
 }) {
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
-  const deleteDocument = useDeleteDocument();
+  const { data: databaseDocument } = useDocument(databaseDocumentId);
+  const databaseQuery = useContentDatabase(databaseDocumentId);
   const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
+  const removeItems = useRemoveDatabaseItems(databaseDocumentId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const title = item.document.title || "Untitled";
@@ -18248,8 +18661,27 @@ export function RowActionsCell({
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const canDeleteWorkspace =
     isWorkspaceCatalog && workspaceSpace?.kind === "user";
+  const databaseData = isContentDatabaseUnavailable(databaseQuery.data)
+    ? undefined
+    : databaseQuery.data;
+  const databaseSources = databaseAttachedSources(
+    databaseData?.sources,
+    databaseData?.source ?? null,
+  );
+  const canRemoveFromDatabase = removesFavoriteMembership
+    ? databaseDocument?.canEdit === true
+    : databaseData !== undefined &&
+      databaseItemCanRemoveFromDatabase({
+        item,
+        databaseCanManage: databaseDocument?.canManage === true,
+        databaseSystemRole: databaseData.database.systemRole,
+        isWorkspaceCatalog,
+        sources: databaseSources,
+      });
+  const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
 
   async function duplicateRow() {
+    if (!canDuplicateRow) return;
     setMenuOpen(false);
     try {
       const response = await duplicateItem.mutateAsync({ itemId: item.id });
@@ -18263,15 +18695,19 @@ export function RowActionsCell({
     }
   }
 
-  async function deleteRow() {
+  async function removeRowOrDeleteWorkspace() {
+    if (!canRemoveFromDatabase && !canDeleteWorkspace) {
+      setConfirmDeleteOpen(false);
+      return;
+    }
     const previewMoved = onDeletedPreviewItem?.(item) ?? false;
     try {
       if (canDeleteWorkspace && workspaceSpace) {
         await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
       } else {
-        await deleteDocument.mutateAsync({
-          id: item.document.id,
-          databaseDocumentId,
+        await removeItems.mutateAsync({
+          documentId: databaseDocumentId,
+          documentIds: [item.document.id],
         });
       }
       await queryClient.invalidateQueries({
@@ -18286,10 +18722,15 @@ export function RowActionsCell({
       });
     } catch (err) {
       if (previewMoved) onPreviewItem?.(item);
-      toast.error(dbText("failedToDeleteRow"), {
-        description:
-          err instanceof Error ? err.message : dbText("somethingWentWrong"),
-      });
+      toast.error(
+        canDeleteWorkspace
+          ? dbText("failedToDeleteRow")
+          : dbText("failedToRemoveRowFromDatabase"),
+        {
+          description:
+            err instanceof Error ? err.message : dbText("somethingWentWrong"),
+        },
+      );
     }
   }
 
@@ -18316,7 +18757,7 @@ export function RowActionsCell({
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             {dbText("openPage")}
           </DropdownMenuItem>
-          {!isWorkspaceCatalog ? (
+          {canDuplicateRow ? (
             <DropdownMenuItem
               disabled={duplicateItem.isPending}
               onSelect={(event) => {
@@ -18328,21 +18769,21 @@ export function RowActionsCell({
               {dbText("duplicateRow")}
             </DropdownMenuItem>
           ) : null}
-          {!isWorkspaceCatalog || canDeleteWorkspace ? (
+          {canRemoveFromDatabase || canDeleteWorkspace ? (
             <DropdownMenuSeparator />
           ) : null}
-          {removesFavoriteMembership ? (
+          {removesFavoriteMembership && canRemoveFromDatabase ? (
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
                 setMenuOpen(false);
-                void deleteRow();
+                void removeRowOrDeleteWorkspace();
               }}
             >
               <IconStarOff className="mr-2 size-4 text-muted-foreground" />
               {sidebarText("removeFromFavorites")}
             </DropdownMenuItem>
-          ) : !isWorkspaceCatalog || canDeleteWorkspace ? (
+          ) : canRemoveFromDatabase || canDeleteWorkspace ? (
             <DropdownMenuItem
               className="text-destructive focus:bg-destructive/10 focus:text-destructive"
               onSelect={(event) => {
@@ -18352,7 +18793,9 @@ export function RowActionsCell({
               }}
             >
               <IconTrash className="mr-2 size-4" />
-              {canDeleteWorkspace ? "Delete workspace" : dbText("deleteRow")}
+              {canDeleteWorkspace
+                ? "Delete workspace"
+                : dbText("removeFromDatabase")}
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
@@ -18361,7 +18804,7 @@ export function RowActionsCell({
       <AlertDialog
         open={
           !removesFavoriteMembership &&
-          (!isWorkspaceCatalog || canDeleteWorkspace) &&
+          (canRemoveFromDatabase || canDeleteWorkspace) &&
           confirmDeleteOpen
         }
         onOpenChange={setConfirmDeleteOpen}
@@ -18369,7 +18812,9 @@ export function RowActionsCell({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {canDeleteWorkspace ? "Delete workspace?" : dbText("deleteRow2")}
+              {canDeleteWorkspace
+                ? "Delete workspace?"
+                : dbText("removeFromDatabaseQuestion")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {canDeleteWorkspace ? (
@@ -18378,10 +18823,7 @@ export function RowActionsCell({
                   will be permanently deleted. This cannot be undone.
                 </>
               ) : (
-                <>
-                  &ldquo;{title}&rdquo; and any sub-pages will be permanently
-                  deleted. This cannot be undone.
-                </>
+                dbText("removeFromDatabaseDescription", { title })
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -18389,14 +18831,16 @@ export function RowActionsCell({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={
-                deleteDocument.isPending || deleteContentSpace.isPending
-              }
-              onClick={() => void deleteRow()}
+              disabled={removeItems.isPending || deleteContentSpace.isPending}
+              onClick={() => void removeRowOrDeleteWorkspace()}
             >
-              {deleteDocument.isPending || deleteContentSpace.isPending
-                ? "Deleting..."
-                : "Delete"}
+              {removeItems.isPending || deleteContentSpace.isPending
+                ? canDeleteWorkspace
+                  ? "Deleting..."
+                  : dbText("removing")
+                : canDeleteWorkspace
+                  ? "Delete"
+                  : dbText("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -229,7 +229,11 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -242,7 +246,8 @@ Dispatch의 앱 소유 `ask_app`은 제출과 폴링 모두에서 선택된 앱�
 `status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, 원래의
 `app`과 `taskId`, 그리고 `pollAfterMs` / `poll`을 반환할 수 있습니다. 이는 상태
 읽기를 사용할 수 없다는 뜻이지 내구성 있는 작업이 실패했다는 뜻은 아닙니다. 정확히 같은
-`app`과 `taskId`로 `ask_app_status`를 재시도하세요. 제출하면 작업이 중복될 수 있으므로
+반환된 동일한 `poll.arguments`로 `ask_app_status`를 재시도하고, 있는 경우 `taskHandle`을
+포함하세요. 핸들이 없는 기존 결과는 동일한 `app`과 `taskId`를 재사용해야 합니다. 제출하면 작업이 중복될 수 있으므로
 복구를 위해 `ask_app`을 다시 제출하지 마세요. 영구적인 인증, 찾을 수 없음, 프로토콜
 오류는 계속 오류로 남습니다.
 

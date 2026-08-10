@@ -14,7 +14,7 @@ Agent Teams läuft auf dem Kern-Run-Manager: Ereignisse werden gestreamt und ble
 ## Das mentale Modell {#mental-model}
 
 - **Hauptchat** – der Orchestrator. Liest Ihre Anfrage, Delegierte. Schwere Arbeit erledigt sich selten von selbst.
-- **Subagenten** – werden mit ihrem eigenen Thread, ihrer eigenen Systemeingabeaufforderung und ihrem eigenen Toolset ausgeführt. Jeder ist einem „benutzerdefinierten Agenten“-Profil im [workspace](/docs/workspace) zugeordnet.
+- **Subagenten** – werden mit ihrem eigenen Thread, ihrer eigenen Systemeingabeaufforderung und ihrem eigenen Toolset ausgeführt. Jeder ist einem „benutzerdefinierten Agenten“-Profil im [Agent-Ressourcen](/docs/agent-resources) zugeordnet.
 - **Chips** – die umfangreiche Vorschaukarte, die inline im Hauptchat angezeigt wird und den aktuellen Schritt des Subagenten, die Streaming-Ausgabe und die abschließende Zusammenfassung anzeigt. Standardmäßig minimiert; Wird beim Klicken auf die vollständige Konversation erweitert.
 - **Bidirektionale Nachrichtenübermittlung** – der Hauptagent kann Folgenachrichten an einen laufenden Unteragenten senden; Ein Subagent kann eine Nachricht zurücksenden, wenn er einen unklaren Punkt erreicht.
 
@@ -105,7 +105,7 @@ Drei Möglichkeiten, einen Subagenten zu starten, von der geringsten bis zur exp
 
 Der Benutzer gibt `@agent-name` im Chat-Verfassenr ein. Ein Dropdown-Menü mit Workspace-Subagenten wird angezeigt. Wenn Sie eines auswählen, wird ein Chip eingefügt. Beim Senden delegiert der Hauptagent die Nachricht an diesen Unteragenten.
 
-Benutzerdefinierte Agenten befinden sich im Arbeitsbereich von `agents/<slug>.md` – einer Markdown-Datei mit YAML-Frontmatter. Informationen zum Format finden Sie unter [Custom Agents](/docs/workspace#custom-agents).
+Benutzerdefinierte Agenten befinden sich im Arbeitsbereich von `agents/<slug>.md` – einer Markdown-Datei mit YAML-Frontmatter. Informationen zum Format finden Sie unter [Custom Agents](/docs/agent-resources#custom-agents).
 
 ### 2. Der Hauptagent delegiert automatisch {#auto-delegate}
 
@@ -247,7 +247,7 @@ interface AgentTask {
 
 ## Benutzerdefinierte Agentenprofile {#profiles}
 
-Subagenten werden benutzerdefinierten Agentenprofilen zugeordnet – Markdown-Dateien unter `agents/<slug>.md` im Arbeitsbereich, die im `@mention`-Dropdown-Menü angezeigt werden und als Delegierungsziele dienen. [Workspace — Custom Agents](/docs/workspace#custom-agents) besitzt das vollständige Format (Frontmatter, `tools`, `delegate-default`, Modellüberschreibungen).
+Subagenten werden benutzerdefinierten Agentenprofilen zugeordnet – Markdown-Dateien unter `agents/<slug>.md` im Arbeitsbereich, die im `@mention`-Dropdown-Menü angezeigt werden und als Delegierungsziele dienen. [Agent-Ressourcen — Custom Agents](/docs/agent-resources#custom-agents) besitzt das vollständige Format (Frontmatter, `tools`, `delegate-default`, Modellüberschreibungen).
 
 ## Delegationstiefenschutz {#depth-guard}
 
@@ -326,6 +326,6 @@ Wenn ein Subagent die Obergrenze erreicht oder unterschreitet, fügt das Framewo
 
 ## Was kommt als nächstes?
 
-- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) – das Profilformat
+- [**Agent-Ressourcen — Custom Agents**](/docs/agent-resources#custom-agents) – das Profilformat
 - [**A2A Protocol**](/docs/a2a-protocol) – wenn der „Subagent“ vollständig in einer anderen App lebt
 - [**Actions**](/docs/actions) – die Tools, die ein Subagent aufruft

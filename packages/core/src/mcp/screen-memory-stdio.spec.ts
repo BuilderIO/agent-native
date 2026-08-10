@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import {
   appendLocalEvidenceReceipt,
   contactSheetRangeIsValid,
   projectScreenMemoryChapterCandidate,
+  queryScreenMemoryContextForStore,
   redactCredentialText,
   readScreenMemoryChapters,
   readScreenMemoryFrame,
@@ -17,6 +18,36 @@ import {
 } from "./screen-memory-stdio.js";
 
 describe("Screen Memory stdio MCP tools", () => {
+  it("uses the feature config beside an explicit store even with an isolated agent home", async () => {
+    const appData = await mkdtemp(join(tmpdir(), "screen-memory-explicit-"));
+    const store = join(appData, "screen-memory");
+    await mkdir(store, { recursive: true });
+    await writeFile(
+      join(appData, "feature-config.json"),
+      JSON.stringify({ screenMemory: { enabled: true, paused: false } }),
+    );
+    await writeFile(
+      join(store, "context.jsonl"),
+      `${JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        appName: "Chrome",
+        text: "REWIND-QA-EXPLICIT-STORE",
+      })}\n`,
+    );
+
+    const result = await queryScreenMemoryContextForStore(
+      { query: "REWIND-QA-EXPLICIT-STORE" },
+      store,
+      { HOME: join(appData, "isolated-agent-home") },
+    );
+
+    expect(result).toMatchObject({ enabled: true, paused: false, count: 1 });
+    expect(result.evidence[0]).toMatchObject({
+      sourceType: "app-context",
+      excerpt: "REWIND-QA-EXPLICIT-STORE",
+    });
+  });
+
   it("keeps the legacy tool names while documenting the bounded evidence contract", () => {
     const tools = screenMemoryMcpToolDefinitions();
 

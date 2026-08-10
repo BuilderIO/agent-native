@@ -1,9 +1,14 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getPendingTurn } from "./active-run-state.js";
 import {
+  activeRunLooksAlive,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  MAX_FOLLOWED_BACKGROUND_RUNS,
 } from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
 
@@ -381,6 +386,85 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("prefers a queued turn's snapshotted model over the live picker", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queue-model",
+      threadId: "thread-queue-model",
+      // The picker has already moved on while the message sat in the queue.
+      modelRef: { current: "claude-sonnet-4-6" },
+      engineRef: { current: "builder" },
+      effortRef: { current: "low" as const },
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Queued under the old model" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: {
+            agentNativeQueuedMessageId: "queued-model-1",
+            model: "claude-opus-4-6",
+            engine: "anthropic",
+            effort: "high",
+          },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      queuedMessageId: "queued-model-1",
+      model: "claude-opus-4-6",
+      engine: "anthropic",
+      effort: "high",
+    });
+  });
+
+  it("falls back to the live picker for queue entries without a model snapshot", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queue-legacy",
+      threadId: "thread-queue-legacy",
+      modelRef: { current: "claude-sonnet-4-6" },
+      engineRef: { current: "builder" },
+      effortRef: { current: "low" as const },
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Queued before snapshots existed" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: { custom: { agentNativeQueuedMessageId: "queued-legacy" } },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      model: "claude-sonnet-4-6",
+      engine: "builder",
+      effort: "low",
+    });
+  });
+
   it("uses an explicit fallback prompt when the user sends only attachments", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -726,6 +810,56 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("excludes legacy synthetic agent cards from structured history", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-legacy-agent-card-history",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Count signups" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-analytics",
+                toolName: "call-agent",
+                args: { agent: "analytics", message: "Count signups" },
+                result: "42 signups",
+              },
+              {
+                type: "tool-call",
+                toolCallId: "agent-analytics",
+                toolName: "agent:Analytics",
+                args: {},
+                result: "Done",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Use that in my todo" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const serializedHistory = JSON.stringify(body.structuredHistory);
+    expect(serializedHistory).toContain('"toolName":"call-agent"');
+    expect(serializedHistory).not.toContain("agent:Analytics");
+  });
+
   it("sends the explicit dev-frame surface for outer frame-hosted chat", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
@@ -876,6 +1010,82 @@ describe("createAgentChatAdapter", () => {
         },
       },
     });
+  });
+
+  it("does not replay a turn after a non-retryable database response", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const databaseMessage =
+      "The database became unavailable while processing this request. Refresh before deciding whether to retry.";
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          error: databaseMessage,
+          code: "database_unavailable",
+          retryable: false,
+        },
+        503,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-database-unavailable",
+      threadId: "thread-database-unavailable",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "search all calls" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(results.at(-1)).toMatchObject({
+      content: [
+        { type: "text", text: `Something went wrong: ${databaseMessage}` },
+      ],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: databaseMessage,
+            errorCode: "database_unavailable",
+            recoverable: false,
+          },
+        },
+      },
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "database_unavailable",
+          recoverable: false,
+        }),
+      }),
+    );
+    expect(JSON.stringify(results)).not.toContain('"retryable":false');
   });
 
   it("treats authentication failures as auth errors, not AI setup", async () => {
@@ -2120,7 +2330,7 @@ describe("createAgentChatAdapter", () => {
           toolName: "run-code",
           activity: true,
           result: "Stopped before this action started.",
-          isError: true,
+          outcome: "unknown",
         }),
       ]),
     );
@@ -2416,7 +2626,7 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("finished the new turn");
   });
 
-  it("aborts and continues automatically when an SSE stream stays alive without progress", async () => {
+  it("reattaches instead of aborting when an SSE stream stays alive without progress", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -2432,8 +2642,10 @@ describe("createAgentChatAdapter", () => {
     );
 
     let chatPostCount = 0;
+    let abortCount = 0;
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.includes("/runs/run-idle/abort")) {
+        abortCount += 1;
         return jsonResponse({ ok: true });
       }
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
@@ -2444,6 +2656,12 @@ describe("createAgentChatAdapter", () => {
               { type: "text", text: "finished after idle recovery" },
               { type: "done" },
             ]);
+      }
+      if (url.includes("/runs/run-idle/events")) {
+        return jsonResponse({ error: "gone" }, 404);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ active: false });
       }
       return jsonResponse({ error: "unexpected" }, 500);
     });
@@ -2470,10 +2688,14 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(1000);
     const results = await promise;
 
-    expect(fetchSpy).toHaveBeenCalledWith(
-      "/_agent-native/agent-chat/runs/run-idle/abort",
-      expect.objectContaining({ method: "POST" }),
-    );
+    // The server still believes this run is healthy; the browser's idle window
+    // expiring must never kill it.
+    expect(abortCount).toBe(0);
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/runs/run-idle/events"),
+      ),
+    ).toBe(true);
     expect(chatPostCount).toBe(2);
     const chatPosts = fetchSpy.mock.calls.filter(
       ([url, init]) =>
@@ -2534,7 +2756,7 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(30_000);
     const results = await promise;
 
     // A run that produces nothing visible no longer gives up on the first
@@ -2618,7 +2840,7 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(30_000);
     const results = await promise;
 
     expect(postCount).toBe(4);
@@ -4161,6 +4383,77 @@ describe("createAgentChatAdapter", () => {
     ]);
   });
 
+  it("excludes synthetic agent progress from continuation history", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+
+      postCount += 1;
+      if (postCount === 1) {
+        return sseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "call-analytics",
+              tool: "call-agent",
+              input: { agent: "analytics", message: "Count signups" },
+            },
+            { type: "agent_call", agent: "Analytics", status: "start" },
+          ],
+          "run-interrupted-agent-call",
+        );
+      }
+      return sseResponse([{ type: "done" }], "run-after-agent-call");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-interrupted-agent-call",
+      threadId: "thread-interrupted-agent-call",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "count signups" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(chatPosts).toHaveLength(2);
+    const secondBody = JSON.parse(chatPosts[1][1].body as string);
+    const serializedHistory = JSON.stringify(secondBody.structuredHistory);
+    expect(serializedHistory).toContain('"toolName":"call-agent"');
+    expect(serializedHistory).not.toContain("agent:Analytics");
+  });
+
   it("does not exhaust stalled recovery attempts while each continuation makes progress", async () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
@@ -5630,6 +5923,94 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
+  it("adds final text when a terminal followed run contains only completed tool work", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "sync-1",
+              tool: "sync-source",
+              input: {},
+            },
+            {
+              type: "tool_done",
+              id: "sync-1",
+              tool: "sync-source",
+              result: '{"synced":4}',
+              completedSideEffect: true,
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-tool-only",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-tool-only",
+          threadId: "thread-bg-tool-only",
+          turnId: requestTurnId,
+          status: "completed",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-bg-tool-only/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-tool-only",
+      threadId: "thread-bg-tool-only",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "sync the source" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.metadata?.custom?.runWarning?.errorCode).toBe(
+      "final_response_missing_after_tool",
+    );
+    expect(last.content.at(-1).text).toContain(
+      "stopped before sending a final message",
+    );
+  });
+
   it("keeps following instead of completing mid-turn when /runs/active re-observes the same chunk-boundary run", async () => {
     // Regression test for the brain.agent-native.com incident: a warm
     // sync-function instance can keep serving the OLD chunk's terminal row
@@ -6259,8 +6640,10 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    // Past the 150s follow idle window (polled at ~1s cadence).
-    await vi.advanceTimersByTimeAsync(165_000);
+    // Past the follow idle window, including polling/backoff headroom.
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 15_000,
+    );
     const results = await promise;
 
     expect(postCount).toBe(1);
@@ -6272,6 +6655,81 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "stopped before finishing and no continuation appeared",
     );
+  });
+
+  it("never condemns a run because the /runs/active poll itself failed", async () => {
+    // "The poll failed" is not "the run is gone". A 5xx from this route used
+    // to coerce to active=false, fall into the no-active-run branch, and drive
+    // a DURABLE abort of a run that was still working — the same
+    // unreadable-as-absent shape CLAUDE.md names. A flaky network tick must
+    // never kill a healthy background turn.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let abortCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-poll-flap",
+        );
+      }
+      if (url.includes("/abort")) {
+        abortCount += 1;
+        return jsonResponse({ ok: true });
+      }
+      // The route is down for the entire window.
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ error: "upstream unavailable" }, 503);
+      }
+      if (url.includes("/runs/run-poll-flap/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-poll-flap",
+      threadId: "thread-poll-flap",
+    });
+    let settled = false;
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "long job" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    ).then((r) => {
+      settled = true;
+      return r;
+    });
+    promise.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 15_000,
+    );
+
+    // Well past the idle window with an unreadable route: still following,
+    // and it never reached for the durable abort.
+    expect(abortCount).toBe(0);
+    expect(settled).toBe(false);
   });
 
   it("does not surface a fatal terminal outcome for a deferred successor still inside its redispatch bound (awaitingRedispatch)", async () => {
@@ -6397,6 +6855,7 @@ describe("createAgentChatAdapter", () => {
     );
 
     let postCount = 0;
+    const stalledProgressAt = Date.now();
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
@@ -6416,7 +6875,7 @@ describe("createAgentChatAdapter", () => {
           status: "running",
           dispatchMode: "background",
           heartbeatAt: Date.now(),
-          lastProgressAt: Date.now(),
+          lastProgressAt: stalledProgressAt,
           awaitingRedispatch: false,
         });
       }
@@ -6456,7 +6915,8 @@ describe("createAgentChatAdapter", () => {
 
   it("BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS sits comfortably between the server's redispatch budget and its hard bound", async () => {
     // The full derived timing chain (see this constant's doc comment):
-    //   GRACE_MS + FAST_SWEEP_MS  <  BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS  <  REDISPATCH_BOUND_MS
+    //   GRACE_MS + FAST_SWEEP_MS  <  RUN_NO_PROGRESS_HARD_TIMEOUT_MS
+    //     <  BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS  <  REDISPATCH_BOUND_MS
     // Imports the REAL run-store constants (not copied literals) so this
     // test breaks the moment any of the four numbers drift out of budget.
     const {
@@ -6464,6 +6924,8 @@ describe("createAgentChatAdapter", () => {
       UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     } = await import("../agent/run-store.js");
+    const { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } =
+      await import("../agent/run-manager.js");
 
     const worstCaseFirstAttemptMs =
       UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
@@ -6472,11 +6934,78 @@ describe("createAgentChatAdapter", () => {
     // window would even start to matter.
     expect(
       worstCaseFirstAttemptMs + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
-    ).toBeLessThan(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS);
+    ).toBeLessThan(RUN_NO_PROGRESS_HARD_TIMEOUT_MS);
+    expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBeLessThan(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
+    );
     expect(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS).toBeLessThan(
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     );
   });
+
+  it("re-reads server progress before condemning a run the attach outran", async () => {
+    // The kill verdict was rendered against a /runs/active snapshot fetched
+    // BEFORE the attach that had just blocked for its whole duration — so a run
+    // that streamed text and a full tool-argument payload DURING the attach
+    // still looked frozen and got durably aborted. Fleet-wide, 23 of 24
+    // client-watchdog kills hit runs that had progressed within 90s.
+    const source = readFileSync(
+      new URL("./agent-chat-adapter.ts", import.meta.url),
+      "utf8",
+    );
+    const verdictIdx = source.indexOf("const serverProgressAdvanced");
+    expect(verdictIdx).toBeGreaterThan(0);
+    const window = source.slice(
+      source.indexOf("const snapshotSaysStalled"),
+      verdictIdx,
+    );
+    // A second read of the authoritative progress value must happen between the
+    // attach and the verdict, and it must be gated so the healthy path pays
+    // nothing.
+    // Count-based, so renaming a variable cannot satisfy it: the authoritative
+    // progress route must be read TWICE — once for the pre-attach snapshot and
+    // once after the attach, before the verdict.
+    const activeReads = source.split("/runs/active?threadId=").length - 1;
+    expect(activeReads).toBeGreaterThanOrEqual(2);
+    // ...and the second read must sit between the attach and the verdict.
+    expect(window.split("/runs/active?threadId=").length - 1).toBe(1);
+    // ...gated, so a healthy run pays nothing for it.
+    expect(/if \(\w*[Ss]talled\w*\)/.test(window)).toBe(true);
+  });
+
+  it("per-turn follow budgets stay above the server's own ceilings", async () => {
+    // Regression pin for the top non-auth cause of "the chat just stopped".
+    // These client budgets were 10 min / 6 runs while ONE legal background
+    // chunk may run 13 min and the server allows a 90-min turn over 20
+    // continuations — so the client killed healthy turns that the server was
+    // still streaming, measured in prod as aborts at 11-25 minutes with
+    // progress recorded right up to the abort.
+    //
+    // The client is a backstop for a silent server, not the primary limit:
+    // it fires on a clock and cannot tell looping from working. Anything that
+    // is NOT progressing is already caught by BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
+    // and the repeated-terminal-reason detector. Imports the REAL server
+    // constants so this breaks the moment either side drifts.
+    const { BACKGROUND_SOFT_TIMEOUT_CEILING_MS } =
+      await import("../agent/run-manager.js");
+    const { MAX_TURN_WALL_CLOCK_MS, MAX_BACKGROUND_RUN_CONTINUATIONS } =
+      await import("../agent/production-agent.js");
+
+    // A single full-length chunk must fit inside the whole-turn client budget
+    // with room for more than one of them; this is the exact inversion that
+    // shipped.
+    expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS * 2).toBeLessThan(
+      MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+    );
+    // The server terminates first, so the turn ends with a terminal reason
+    // written by the side that can actually distinguish progress from a loop.
+    expect(MAX_TURN_WALL_CLOCK_MS).toBeLessThan(
+      MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+    );
+    expect(MAX_BACKGROUND_RUN_CONTINUATIONS).toBeLessThan(
+      MAX_FOLLOWED_BACKGROUND_RUNS,
+    );
+  }, 10_000);
 
   it("still self-POSTs a foreground continuation after run_timeout (foreground behavior pin)", async () => {
     // Foreground regression pin for the background follow-mode change: a run
@@ -6854,7 +7383,9 @@ describe("createAgentChatAdapter", () => {
     const results = await promise;
 
     expect(chatPostCount).toBe(3);
-    expect(abortCount).toBe(1);
+    // The client never aborts a run the server still owns; a server-sent
+    // auto_continue asks for a continuation POST, not a kill.
+    expect(abortCount).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalledWith(
       expect.stringContaining("/runs/run-first/events"),
       expect.any(Object),
@@ -6923,7 +7454,7 @@ describe("createAgentChatAdapter", () => {
     const results = await promise;
 
     // 1 initial + 4 repeated continuations, then the repetition cap (3) is
-    // exceeded — far short of MAX_TOTAL_TRANSIENT_CONTINUATIONS (32).
+    // exceeded — far short of MAX_TOTAL_TRANSIENT_CONTINUATIONS (12).
     expect(postCount).toBe(5);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -6939,5 +7470,626 @@ describe("createAgentChatAdapter", () => {
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
     expect(last.content.at(-1).text).toContain("repeating the same response");
+  });
+
+  it("gives a budget message, not a connection-failure message, when a progressing turn exhausts the total continuation cap", async () => {
+    // A turn that keeps completing a DIFFERENT tool every round never trips
+    // the empty/stalled/repeat/action-prep guards — it is "making real
+    // progress" the whole time, exactly what MAX_TOTAL_TRANSIENT_CONTINUATIONS
+    // (12) exists to bound. Reported bug: hitting that whole-turn ceiling was
+    // told to the user as "the agent connection kept failing", which is not
+    // what happened — nothing failed, the turn ran out of continuation budget.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      const tool = `update-step-${postCount}`;
+      return sseResponse([
+        { type: "tool_start", tool, input: { step: String(postCount) } },
+        { type: "tool_done", tool, result: `saved step ${postCount}` },
+        { type: "auto_continue", reason: "run_timeout" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-total-transient-budget",
+      threadId: "thread-total-transient-budget",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "keep applying these updates" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const results = await promise;
+
+    // 13 continuations trips MAX_TOTAL_TRANSIENT_CONTINUATIONS (12) even
+    // though every single round made real, distinct progress.
+    expect(postCount).toBe(13);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          message: expect.stringContaining(
+            "reached the limit on how many times it can be automatically continued",
+          ),
+          details: expect.stringContaining("total_transient_continuations: 13"),
+        }),
+      }),
+    );
+    const dispatchedRunError = dispatchEvent.mock.calls.find(
+      ([event]) => event?.type === "agent-chat:run-error",
+    )?.[0] as CustomEvent<{ message?: string }> | undefined;
+    expect(dispatchedRunError?.detail.message).not.toContain(
+      "connection kept failing",
+    );
+    expect(dispatchedRunError?.detail.message).not.toContain("connection");
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toContain(
+      "reached the limit on how many times it can be automatically continued",
+    );
+    expect(last.content.at(-1).text).not.toContain("connection kept failing");
+  });
+});
+
+describe("background follow per-turn budget", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("stops following after too many successor runs in one turn", async () => {
+    // Prod: a server stuck redispatching the same turn produced 26 chained
+    // runs over 22 minutes because the only budget was a per-idle-window
+    // timeout that every new successor reset.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    let successorCount = 0;
+    let requestTurnId = "";
+    const abortRequests: Array<Record<string, unknown>> = [];
+    const abortUrls: string[] = [];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "started " },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-chain-0",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        successorCount += 1;
+        return jsonResponse({
+          active: true,
+          runId: `run-chain-${successorCount}`,
+          threadId: "thread-chain",
+          turnId: requestTurnId,
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/events")) {
+        return emptySseResponse("run-chain");
+      }
+      if (url.includes("/runs/turn/") && init?.method === "POST") {
+        abortUrls.push(url);
+        abortRequests.push(JSON.parse(init.body as string));
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-chain",
+      threadId: "thread-chain",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "long job" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS);
+    const results = await promise;
+
+    expect(postCount).toBe(1);
+    expect(successorCount).toBeLessThanOrEqual(
+      MAX_FOLLOWED_BACKGROUND_RUNS + 2,
+    );
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError).toMatchObject({
+      errorCode: "background_follow_run_budget_exhausted",
+    });
+    expect(abortRequests.at(-1)).toMatchObject({
+      threadId: "thread-chain",
+      reason: "background_follow_run_budget_exhausted",
+    });
+    expect(abortUrls.at(-1)).toContain(
+      `/runs/turn/${encodeURIComponent(requestTurnId)}/abort`,
+    );
+  });
+
+  it("does not treat repeated zero-event SSE closures on the same run as progress", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    let eventRequestCount = 0;
+    const abortRequests: Array<Record<string, unknown>> = [];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "activity", label: "Contacting model" },
+            { type: "auto_continue", reason: "stream_ended" },
+          ],
+          "run-same-empty",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-same-empty",
+          threadId: "thread-same-empty",
+          turnId: requestTurnId,
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: 1_000,
+        });
+      }
+      if (url.includes("/runs/run-same-empty/events")) {
+        eventRequestCount += 1;
+        return emptySseResponse("run-same-empty");
+      }
+      if (url.includes("/runs/turn/") && init?.method === "POST") {
+        abortRequests.push(JSON.parse(init.body as string));
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-same-empty",
+      threadId: "thread-same-empty",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 20_000,
+    );
+    const results = await promise;
+
+    expect(eventRequestCount).toBeGreaterThan(1);
+    expect(eventRequestCount).toBeLessThan(50);
+    expect(abortRequests.at(-1)).toMatchObject({
+      threadId: "thread-same-empty",
+      reason: "background_run_lost",
+    });
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError).toMatchObject({
+      errorCode: "background_run_lost",
+    });
+    expect(last.metadata.custom.runError.details).toContain(
+      "background_follow_no_progress_detaches:",
+    );
+    expect(last.metadata.custom.runError.details).toContain(
+      "background_follow_last_detach_reason: stream_ended",
+    );
+    expect(last.metadata.custom.runError.details).toContain(
+      "background_follow_last_detach_source: client_watchdog",
+    );
+  });
+
+  it("does not treat sequenced keepalive and clear noise as background progress", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    let eventRequestCount = 0;
+    let abortReason = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "activity", label: "Contacting model" },
+            { type: "auto_continue", reason: "stream_ended" },
+          ],
+          "run-sequenced-noise",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-sequenced-noise",
+          threadId: "thread-sequenced-noise",
+          turnId: requestTurnId,
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          // Mirrors the incident: transport noise continued, but the server's
+          // authoritative real-progress timestamp did not move.
+          lastProgressAt: 1_000,
+        });
+      }
+      if (url.includes("/runs/run-sequenced-noise/events")) {
+        eventRequestCount += 1;
+        return sseResponse(
+          [
+            eventRequestCount % 2 === 0
+              ? { type: "clear", seq: eventRequestCount }
+              : { type: "stream_keepalive", seq: eventRequestCount },
+          ],
+          "run-sequenced-noise",
+        );
+      }
+      if (url.includes("/runs/turn/") && init?.method === "POST") {
+        abortReason = JSON.parse(init.body as string).reason;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-sequenced-noise",
+      threadId: "thread-sequenced-noise",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 20_000,
+    );
+    const results = await promise;
+
+    expect(eventRequestCount).toBeGreaterThan(1);
+    expect(abortReason).toBe("background_run_lost");
+    expect((results.at(-1) as any).metadata.custom.runError.errorCode).toBe(
+      "background_run_lost",
+    );
+  });
+
+  it.each([
+    ["a newer server progress timestamp", "server-progress"],
+    ["a successor run id", "successor"],
+  ] as const)(
+    "resets same-turn background idle time after %s",
+    async (_label, progressKind) => {
+      vi.useFakeTimers();
+      vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      let requestTurnId = "";
+      let activeRunId = "run-progress-0";
+      let serverProgressAt = 1_000;
+      let finish = false;
+      let abortCount = 0;
+      const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+          requestTurnId = JSON.parse(init.body as string).turnId;
+          return backgroundSseResponse(
+            [{ type: "auto_continue", reason: "stream_ended" }],
+            "run-progress-0",
+          );
+        }
+        if (url.includes("/runs/active")) {
+          return jsonResponse({
+            active: true,
+            runId: activeRunId,
+            threadId: "thread-progress-reset",
+            turnId: requestTurnId,
+            status: finish ? "completed" : "running",
+            dispatchMode: "background-processing",
+            terminalReason: finish ? "done" : null,
+            heartbeatAt: Date.now(),
+            lastProgressAt: serverProgressAt,
+          });
+        }
+        if (url.includes("/events")) {
+          if (finish) {
+            return sseResponse([{ type: "done", seq: 99 }], activeRunId);
+          }
+          return emptySseResponse(activeRunId);
+        }
+        if (url.includes("/runs/turn/") && init?.method === "POST") {
+          abortCount += 1;
+          return jsonResponse({ ok: true });
+        }
+        return jsonResponse({ error: "unexpected" }, 500);
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const adapter = createAgentChatAdapter({
+        apiUrl: "/_agent-native/agent-chat",
+        tabId: `chat-progress-${progressKind}`,
+        threadId: "thread-progress-reset",
+      });
+      const promise = drain(
+        adapter.run({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "keep working" }],
+            },
+          ],
+          abortSignal: new AbortController().signal,
+        } as any),
+      );
+
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS - 20_000,
+      );
+      if (progressKind === "server-progress") {
+        serverProgressAt += 1_000;
+      } else {
+        activeRunId = "run-progress-1";
+      }
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      const raceResult = await Promise.race([
+        promise.then(() => "settled" as const),
+        Promise.resolve("pending" as const),
+      ]);
+      expect(raceResult).toBe("pending");
+
+      finish = true;
+      await vi.advanceTimersByTimeAsync(10_000);
+      const results = await promise;
+
+      expect(abortCount).toBe(0);
+      expect(
+        results.some(
+          (result: any) =>
+            result.status?.type === "incomplete" &&
+            result.status?.reason === "error",
+        ),
+      ).toBe(false);
+    },
+  );
+});
+
+describe("activeRunLooksAlive", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("treats an unresolved local tool call as alive without asking the server", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "tc_1",
+            toolName: "slow-report",
+            argsText: "",
+            args: {},
+          },
+        ] as any,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("trusts the server's running status and fails safe on lookup errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ active: true, runId: "run-1", status: "running" }),
+      ),
+    );
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+      }),
+    ).resolves.toBe(true);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ active: false })),
+    );
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+      }),
+    ).resolves.toBe(false);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+      }),
+    ).resolves.toBe(true);
+  });
+});
+
+describe("empty-run continuation backoff", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("waits before re-POSTing a run that produced nothing", async () => {
+    // Re-sending the identical payload against the identical wall immediately
+    // is what burned four runs in ~315s in production.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          postCount += 1;
+          return postCount === 1
+            ? emptySseResponse("run-nothing")
+            : sseResponse([
+                { type: "text", text: "recovered" },
+                { type: "done" },
+              ]);
+        }
+        return jsonResponse({ error: "gone" }, 404);
+      }),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-empty-backoff",
+      threadId: "thread-empty-backoff",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "do it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(postCount).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await promise;
+    expect(postCount).toBe(2);
   });
 });

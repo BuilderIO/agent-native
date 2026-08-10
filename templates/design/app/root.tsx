@@ -13,7 +13,12 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
+import {
+  IconArrowsMaximize,
+  IconHierarchy2,
+  IconSun,
+  IconMoon,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -31,6 +36,7 @@ import type { LinksFunction } from "react-router";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { requestDesignUiToggle } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
@@ -128,7 +134,9 @@ function DesignCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
+  const isDesignEditor = location.pathname.startsWith("/design/");
   return (
     <CommandMenu
       open={open}
@@ -137,8 +145,8 @@ function DesignCommandMenu({
       changelogKey="design"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        <CommandMenu.Item onSelect={() => navigate("/agent")}>
-          <IconBrain size={16} />
+        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
+          <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
         <CommandMenu.Item onSelect={() => {}}>
@@ -146,6 +154,15 @@ function DesignCommandMenu({
         </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
+        {isDesignEditor ? (
+          <CommandMenu.Item
+            onSelect={requestDesignUiToggle}
+            keywords={["canvas", "focus", "panels", "hide ui", "show ui"]}
+          >
+            <IconArrowsMaximize size={16} />
+            {t("designEditor.keyboardShortcuts.commands.toggleUi")}
+          </CommandMenu.Item>
+        ) : null}
         <ThemeToggleItem />
       </CommandMenu.Group>
     </CommandMenu>

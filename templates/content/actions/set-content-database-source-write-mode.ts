@@ -1,9 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import {
   type ContentDatabaseResponse,
   type ContentDatabaseSourcePushMode,
@@ -16,6 +14,7 @@ import {
 } from "./_builder-cms-write-settings.js";
 import {
   getExistingSourceForWrite,
+  mutateContentDatabaseSourceMetadata,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -81,7 +80,6 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "admin");
 
-    const db = getDb();
     const source = await getExistingSourceForWrite(database.id, args.sourceId);
     if (!source) {
       throw new Error(
@@ -94,29 +92,35 @@ export default defineAction({
       );
     }
 
-    const next = buildBuilderCmsWriteModeJson({
-      sourceType: source.sourceType,
-      sourceTable: source.sourceTable,
-      capabilitiesJson: source.capabilitiesJson,
-      metadataJson: source.metadataJson,
-      liveWritesEnabled: args.liveWritesEnabled,
-      writeMode: args.writeMode as ContentDatabaseSourceWriteMode | undefined,
-      allowPublicationTransitions: args.allowPublicationTransitions,
-      allowedWriteModes: executableWriteModes(args.allowedWriteModes),
-      allowDraftWrites: args.allowDraftWrites,
-      allowPublishWrites: args.allowPublishWrites,
-    });
     const now = new Date().toISOString();
-    await db
-      .update(schema.contentDatabaseSources)
-      .set({
-        capabilitiesJson: next.capabilitiesJson,
-        metadataJson: next.metadataJson,
-        lastError: null,
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseSources.id, source.id));
+    await mutateContentDatabaseSourceMetadata({
+      sourceId: source.id,
+      now,
+      buildPatch: (current) => {
+        const next = buildBuilderCmsWriteModeJson({
+          sourceType: current.sourceType,
+          sourceTable: current.sourceTable,
+          capabilitiesJson: current.capabilitiesJson,
+          metadataJson: current.metadataJson,
+          liveWritesEnabled: args.liveWritesEnabled,
+          writeMode: args.writeMode as
+            | ContentDatabaseSourceWriteMode
+            | undefined,
+          allowPublicationTransitions: args.allowPublicationTransitions,
+          allowedWriteModes: executableWriteModes(args.allowedWriteModes),
+          allowDraftWrites: args.allowDraftWrites,
+          allowPublishWrites: args.allowPublishWrites,
+        });
+        return {
+          capabilitiesJson: next.capabilitiesJson,
+          metadataJson: next.metadataJson,
+          lastError: null,
+        };
+      },
+      failureMessage:
+        "Builder source settings changed repeatedly while saving write mode.",
+    });
 
-    return getContentDatabaseResponse(database.id);
+    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },
 });

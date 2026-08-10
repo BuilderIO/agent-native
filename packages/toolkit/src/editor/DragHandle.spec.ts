@@ -4,7 +4,24 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DragHandle, type DragHandleOptions } from "./DragHandle.js";
+import {
+  DragHandle,
+  dragPreviewTransform,
+  type DragHandleOptions,
+} from "./DragHandle.js";
+
+describe("dragPreviewTransform", () => {
+  it("keeps the grabbed point under the pointer", () => {
+    expect(
+      dragPreviewTransform({
+        clientX: 180,
+        clientY: 240,
+        pointerOffsetX: 32,
+        pointerOffsetY: 9,
+      }),
+    ).toBe("translate3d(148px, 231px, 0)");
+  });
+});
 
 function makeRect({
   left,
@@ -146,6 +163,21 @@ function childText(editor: Editor, index: number): string {
   return editor.state.doc.child(index).textContent;
 }
 
+function focusEditorWithNativeSelection(editor: Editor): void {
+  editor.view.dom.focus();
+  editor.commands.setTextSelection({ from: 1, to: 3 });
+  const textNode = editor.view.dom.querySelector("p")?.firstChild;
+  if (!(textNode instanceof Text)) {
+    throw new Error("Expected a paragraph text node");
+  }
+  const range = document.createRange();
+  range.setStart(textNode, 0);
+  range.setEnd(textNode, Math.min(2, textNode.length));
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
 afterEach(() => {
   document.body.innerHTML = "";
   document
@@ -160,11 +192,13 @@ describe("DragHandle menu", () => {
     try {
       clickHandle(handle);
 
-      expect(getMenuItems().map((item) => item.textContent)).toEqual([
+      const items = getMenuItems();
+      expect(items.map((item) => item.textContent)).toEqual([
         "Duplicate",
         "Delete",
         "Insert block below",
       ]);
+      expect(document.activeElement).toBe(items[0]);
     } finally {
       editor.destroy();
     }
@@ -222,6 +256,9 @@ describe("DragHandle menu", () => {
     const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
 
     try {
+      focusEditorWithNativeSelection(editor);
+      expect(document.activeElement).toBe(editor.view.dom);
+      expect(window.getSelection()?.toString()).toBe("Fi");
       handle.dispatchEvent(
         new MouseEvent("mousedown", {
           bubbles: true,
@@ -250,6 +287,63 @@ describe("DragHandle menu", () => {
       expect(editor.state.doc.childCount).toBe(2);
       expect(childText(editor, 0)).toBe("Second");
       expect(childText(editor, 1)).toBe("First");
+      expect(editor.state.selection.empty).toBe(true);
+      expect(editor.isFocused).toBe(false);
+      expect(window.getSelection()?.toString()).toBe("");
+
+      expect(editor.commands.undo()).toBe(true);
+      expect(childText(editor, 0)).toBe("First");
+      expect(childText(editor, 1)).toBe("Second");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves native selections outside the editor after a drop", () => {
+    const outside = document.createElement("p");
+    outside.textContent = "Keep this selection";
+    document.body.append(outside);
+    const { editor, handle } = mountEditor("<p>First</p><p>Second</p>");
+
+    try {
+      const textNode = outside.firstChild;
+      if (!(textNode instanceof Text)) {
+        throw new Error("Expected outside text");
+      }
+      const range = document.createRange();
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, 4);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+
+      handle.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          clientX: 12,
+          clientY: 12,
+        }),
+      );
+      document.dispatchEvent(
+        new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: 12,
+          clientY: 56,
+        }),
+      );
+      document.dispatchEvent(
+        new MouseEvent("mouseup", {
+          bubbles: true,
+          button: 0,
+          clientX: 12,
+          clientY: 56,
+        }),
+      );
+
+      expect(childText(editor, 0)).toBe("Second");
+      expect(childText(editor, 1)).toBe("First");
+      expect(window.getSelection()?.toString()).toBe("Keep");
     } finally {
       editor.destroy();
     }
@@ -271,6 +365,7 @@ describe("DragHandle menu", () => {
     );
 
     try {
+      focusEditorWithNativeSelection(source.editor);
       hoverAt(32, 12);
       source.handle.dispatchEvent(
         new MouseEvent("mousedown", {
@@ -315,6 +410,11 @@ describe("DragHandle menu", () => {
       expect(childText(target.editor, 0)).toBe("Move me");
       expect(childText(target.editor, 1)).toBe("Target first");
       expect(childText(target.editor, 2)).toBe("Target second");
+      expect(source.editor.state.selection.empty).toBe(true);
+      expect(target.editor.state.selection.empty).toBe(true);
+      expect(source.editor.isFocused).toBe(false);
+      expect(target.editor.isFocused).toBe(false);
+      expect(window.getSelection()?.toString()).toBe("");
     } finally {
       source.editor.destroy();
       target.editor.destroy();
@@ -337,6 +437,7 @@ describe("DragHandle menu", () => {
     );
 
     try {
+      focusEditorWithNativeSelection(source.editor);
       hoverAt(32, 12);
       source.handle.dispatchEvent(
         new MouseEvent("mousedown", {
@@ -381,6 +482,11 @@ describe("DragHandle menu", () => {
       expect(target.editor.state.doc.childCount).toBe(2);
       expect(childText(target.editor, 0)).toBe("Target first");
       expect(childText(target.editor, 1)).toBe("Target second");
+      expect(source.editor.state.selection.empty).toBe(true);
+      expect(target.editor.state.selection.empty).toBe(true);
+      expect(source.editor.isFocused).toBe(false);
+      expect(target.editor.isFocused).toBe(false);
+      expect(window.getSelection()?.toString()).toBe("");
     } finally {
       source.editor.destroy();
       target.editor.destroy();

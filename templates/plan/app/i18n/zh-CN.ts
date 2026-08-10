@@ -151,6 +151,7 @@ const messages = {
       artboardCanvas: "Plan 画板画布",
       zoomIn: "放大",
       zoomOut: "缩小",
+      zoomHint: "按住 ⌘/Ctrl 并滚动以缩放",
       markupSaveFailed: "无法保存标注。请重试。",
     },
     document: {
@@ -284,6 +285,7 @@ const messages = {
       advanced: "先进的",
       agentMissing: "连接代理以运行 - 添加 API 密钥或使用 Builder。",
       assessment: {
+        design: "自动检测到高保真请求；代理将创建精致的品牌化界面。",
         ui: "自动检测 UI 状态或流程；代理将制定线框优先计划。",
         visual: "汽车将要求代理商提供丰富的技术计划，包括图表和实施细节。",
       },
@@ -304,6 +306,10 @@ const messages = {
         ui: {
           description: "UI 流程 - 线框和状态",
           label: "用户界面流程",
+        },
+        design: {
+          description: "高保真设计 - 精致的品牌化界面",
+          label: "高保真设计",
         },
         visual: {
           description: "一般视觉 - 图表和注释",

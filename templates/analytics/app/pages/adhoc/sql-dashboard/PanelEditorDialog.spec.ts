@@ -101,7 +101,15 @@ describe("dashboard extension panel editor values", () => {
         source: "bigquery",
         width: 1,
         sql: "",
-        config: { extensionId: "old-extension" },
+        config: {
+          extensionId: "old-extension",
+          customBlock: {
+            authoredBy: "agent",
+            intent: "one-off",
+            scope: "dashboard",
+            nativeGapReason: "custom-visualization",
+          },
+        },
       },
       "Untitled panel",
       "dashboard/1",
@@ -112,5 +120,6 @@ describe("dashboard extension panel editor values", () => {
         "analytics.dashboard.dashboard%2F1.panel.pipeline-widget",
     });
     expect(panel.config).not.toHaveProperty("extensionId");
+    expect(panel.config).not.toHaveProperty("customBlock");
   });
 });

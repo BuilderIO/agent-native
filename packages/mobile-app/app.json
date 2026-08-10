@@ -33,6 +33,24 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#000000",
+          "image": "./assets/icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "expo-web-browser",
       "expo-secure-store",
       "@bacons/apple-targets",
@@ -75,7 +93,9 @@
       "./plugins/with-mobile-companion",
       "./plugins/with-ios-app-intents",
       "./plugins/with-ios-companion",
-      "./plugins/with-android-capture-tile"
+      "./plugins/with-android-capture-tile",
+      "./plugins/with-android-oauth-deeplink",
+      "./plugins/with-gradle-properties"
     ],
     "extra": {
       "router": {},

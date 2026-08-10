@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   AgentChatSurface,
+  getAgentPanelShortcutHints,
+  getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelChatSurface,
@@ -41,6 +43,27 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("keeps the active tab clear of the overflow edges", () => {
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 280, right: 340 },
+      ),
+    ).toBe(64);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 70, right: 140 },
+      ),
+    ).toBe(-54);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 140, right: 260 },
+      ),
+    ).toBe(0);
+  });
+
   it("hides sidebar chat tabs until a second main tab is open", () => {
     expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
     expect(
@@ -145,6 +168,16 @@ describe("AgentPanel header tab visibility", () => {
       "resources",
     );
   });
+
+  it("normalizes every legacy sidebar mode back to chat on chat-only surfaces", () => {
+    expect(normalizeAgentPanelModeForSurface("resources", false, true)).toBe(
+      "chat",
+    );
+    expect(normalizeAgentPanelModeForSurface("cli", false, true)).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("settings", true, true)).toBe(
+      "chat",
+    );
+  });
 });
 
 describe("AgentPanel mode and full-view visibility", () => {
@@ -160,8 +193,20 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(true);
   });
 
-  it("hides the full-view action for chat, CLI, or a missing page href", () => {
+  it("keeps the full Agent page reachable from chat-only sidebars", () => {
+    expect(shouldShowAgentPanelFullViewAction("/agent", "chat", true)).toBe(
+      true,
+    );
     expect(shouldShowAgentPanelFullViewAction("/agent", "chat")).toBe(false);
+  });
+
+  it("hides the full-view action when the sidebar is already on that route", () => {
+    expect(
+      shouldShowAgentPanelFullViewAction("/agent", "chat", true, "/agent"),
+    ).toBe(false);
+  });
+
+  it("hides the full-view action for CLI or a missing page href", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "cli")).toBe(false);
     expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
       false,
@@ -172,12 +217,69 @@ describe("AgentPanel mode and full-view visibility", () => {
   });
 });
 
+describe("AgentPanel shortcut hints", () => {
+  it("uses compact modifier glyphs on every platform", () => {
+    expect(getAgentPanelShortcutHints(true)).toEqual({
+      closeTab: "⌃W",
+      closeAllTabs: "⌃⌥W",
+      toggleSidebar: "⌘\\",
+      widenChat: "⌘⇧\\",
+    });
+    expect(getAgentPanelShortcutHints(false)).toEqual({
+      closeTab: "⌥W",
+      closeAllTabs: "^⌥W",
+      toggleSidebar: "^\\",
+      widenChat: "^⇧\\",
+    });
+  });
+});
+
+describe("AgentPanel header overflow actions", () => {
+  it("keeps width and full-view actions out of the icon row", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const headerActions = source.slice(
+      source.indexOf("const renderHeaderActions"),
+      source.indexOf(
+        "<DropdownMenu open=",
+        source.indexOf("const renderHeaderActions"),
+      ),
+    );
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(headerActions).not.toContain("IconArrowsHorizontal");
+    expect(headerActions).not.toContain("IconArrowsMaximize");
+    expect(overflowMenu).toContain("onSelect={wideDrawerAction}");
+    expect(overflowMenu).toContain(
+      "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
+    );
+    expect(overflowMenu).toContain('t("agentPanel.openFullView")');
+    expect(overflowMenu).not.toContain("fullscreenHint");
+    expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
+  });
+});
+
 describe("AgentChatSurface chrome defaults", () => {
   it("hides the legacy header and chat tab row by default", () => {
     const surface = AgentChatSurface({ mode: "page" });
+    const panel = surface.props.children[1];
 
-    expect(surface.props.showHeader).toBe(false);
-    expect(surface.props.showTabBar).toBe(false);
+    expect(panel.props.showHeader).toBe(false);
+    expect(panel.props.showTabBar).toBe(false);
+  });
+
+  it("mounts URL command sync for a full-page chat surface", () => {
+    const surface = AgentChatSurface({
+      mode: "page",
+      browserTabId: "tab-one",
+    });
+
+    expect(surface.props.children[0].type.name).toBe("URLSync");
+    expect(surface.props.children[0].props.browserTabId).toBe("tab-one");
   });
 
   it("allows an embedded host to opt back into the header chrome", () => {

@@ -20,7 +20,7 @@ import {
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   Tooltip,
@@ -83,10 +83,34 @@ function selectionIncludesBubbleToolbarExcludedNode(
   return includesExcludedNode;
 }
 
+export function shouldShowBubbleToolbar({
+  editor,
+  element,
+  state,
+  from,
+  to,
+}: {
+  editor: Editor;
+  element: HTMLElement;
+  state: EditorState;
+  from: number;
+  to: number;
+}) {
+  const focusBelongsToToolbar = element.contains(document.activeElement);
+  if (!editor.view.hasFocus() && !focusBelongsToToolbar) return false;
+  if (from === to) return false;
+  return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
+}
+
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const t = useT();
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+
+  const openLinkInput = useCallback(() => {
+    setLinkUrl(editor.getAttributes("link").href || "");
+    setShowLinkInput(true);
+  }, [editor]);
 
   useEffect(() => {
     const plugin = new Plugin<SelectionFillRange | null>({
@@ -105,6 +129,29 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         },
       },
       props: {
+        handleKeyDown(_view, event) {
+          if (
+            !(event.metaKey || event.ctrlKey) ||
+            event.shiftKey ||
+            event.altKey ||
+            event.key.toLowerCase() !== "k"
+          ) {
+            return false;
+          }
+
+          const { state } = editor;
+          const { from, to } = state.selection;
+          if (
+            from === to ||
+            selectionIncludesBubbleToolbarExcludedNode(state, from, to)
+          ) {
+            return false;
+          }
+
+          event.preventDefault();
+          openLinkInput();
+          return true;
+        },
         decorations(state) {
           const range = selectionFillPluginKey.getState(state);
           if (!range || range.from === range.to) return DecorationSet.empty;
@@ -153,7 +200,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       editor.off("blur", syncSelectionFill);
       editor.unregisterPlugin(selectionFillPluginKey);
     };
-  }, [editor]);
+  }, [editor, openLinkInput]);
 
   const handleSetLink = () => {
     if (linkUrl.trim()) {
@@ -175,9 +222,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       editor.chain().focus().unsetLink().run();
       return;
     }
-    const previousUrl = editor.getAttributes("link").href || "";
-    setLinkUrl(previousUrl);
-    setShowLinkInput(true);
+    openLinkInput();
   };
 
   const items = [
@@ -276,12 +321,8 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     <BubbleMenu
       editor={editor}
       className="bubble-toolbar"
-      shouldShow={({ editor, state, from, to }) => {
-        if (!editor.isFocused) return false;
-        const isSelection = from !== to;
-        if (!isSelection) return false;
-        return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
-      }}
+      updateDelay={0}
+      shouldShow={shouldShowBubbleToolbar}
     >
       {showLinkInput ? (
         <div
@@ -291,6 +332,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           <input
             autoFocus
             type="url"
+            aria-label={t("editor.pasteLink")}
             placeholder={t("editor.pasteLink")}
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
@@ -336,7 +378,15 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
               <Tooltip key={title}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={action}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      action();
+                    }}
+                    onClick={(event) => {
+                      if (event.detail === 0) action();
+                    }}
+                    aria-label={title}
                     className={cn(
                       "p-2 rounded",
                       isActive()

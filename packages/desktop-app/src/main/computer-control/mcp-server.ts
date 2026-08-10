@@ -12,12 +12,15 @@ import {
   assertValidComputerCommandEnvelope,
   type ComputerCommandEnvelope,
 } from "@agent-native/core/integrations";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { toNodeHandler } from "@modelcontextprotocol/node";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import type { BrowserControlLoopbackBridge } from "../browser-control/bridge";
-import type { BrowserTaskRegistration } from "../browser-control/protocol";
+import type {
+  BrowserCommand,
+  BrowserTaskRegistration,
+} from "../browser-control/protocol";
 import type { ComputerControlBroker } from "./broker";
 import { normalizeOrigin } from "./policy";
 import type { EphemeralScreenObserver } from "./screen-observer";
@@ -79,6 +82,28 @@ export class DesktopComputerMcpBridge {
   private readonly requestContext = new AsyncLocalStorage<RunContext>();
   private readonly token: () => string;
   private readonly leaseTtlMs: number;
+  private readonly mcpHandler = createMcpHandler(
+    () => {
+      const mcp = new McpServer({
+        name: "agent-native-desktop-computer",
+        version: "1.0.0",
+      });
+      this.registerTools(mcp);
+      return mcp;
+    },
+    {
+      legacy: "stateless",
+      responseMode: "json",
+      onerror: (error) => {
+        console.warn("[computer-control] MCP request failed:", error.message);
+      },
+    },
+  );
+  private readonly handleMcpNodeRequest = toNodeHandler(this.mcpHandler, {
+    onerror: (error) => {
+      console.warn("[computer-control] MCP adapter failed:", error.message);
+    },
+  });
   private httpServer?: HttpServer;
   private url?: string;
 
@@ -165,6 +190,7 @@ export class DesktopComputerMcpBridge {
     await this.options.browserBridge?.close();
     await this.options.broker.kill();
     this.options.broker.close();
+    await this.mcpHandler.close();
     const server = this.httpServer;
     this.httpServer = undefined;
     this.url = undefined;
@@ -230,29 +256,18 @@ export class DesktopComputerMcpBridge {
       response.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
-    if (
-      context.connector &&
-      request.method === "POST" &&
-      (await this.handleDirectConnectorRequest(context, request, response))
-    ) {
-      return;
+    let parsedBody: unknown;
+    if (context.connector && request.method === "POST") {
+      parsedBody = await readBoundedJson(request, 64 * 1024).catch(() => null);
+      if (
+        await this.handleDirectConnectorRequest(context, parsedBody, response)
+      ) {
+        return;
+      }
     }
-    const mcp = new McpServer({
-      name: "agent-native-desktop-computer",
-      version: "1.0.0",
-    });
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-    this.registerTools(mcp);
     try {
-      await mcp.connect(transport);
-      response.once("close", () => {
-        void transport.close().catch(() => undefined);
-        void mcp.close().catch(() => undefined);
-      });
       await this.requestContext.run(context, () =>
-        transport.handleRequest(request, response),
+        this.handleMcpNodeRequest(request, response, parsedBody),
       );
     } catch (error) {
       console.warn(
@@ -739,11 +754,10 @@ export class DesktopComputerMcpBridge {
 
   private async handleDirectConnectorRequest(
     context: RunContext,
-    request: IncomingMessage,
+    body: unknown,
     response: ServerResponse,
   ): Promise<boolean> {
-    const body = await readBoundedJson(request, 64 * 1024).catch(() => null);
-    const record = browserRecord(body, true);
+    const record = browserRecord(body ?? undefined, true);
     if (record.method !== "tools/call") return false;
     const params = browserRecord(record.params, true);
     const args = browserRecord(params.arguments, true);
@@ -869,6 +883,12 @@ export class DesktopComputerMcpBridge {
           text: String(input.text ?? "").slice(0, 100_000),
           replace: input.replace === true,
         });
+      case "browser.key":
+        return bridge.execute(registration, {
+          type: "key",
+          key: remoteBrowserKey(input.key),
+          modifiers: remoteBrowserModifiers(input.modifiers),
+        });
       case "browser.navigate":
         return bridge.execute(registration, {
           type: "navigate",
@@ -879,6 +899,8 @@ export class DesktopComputerMcpBridge {
           type: "scroll",
           deltaX: boundedRemoteNumber(input.deltaX),
           deltaY: boundedRemoteNumber(input.deltaY),
+          ...(input.x === undefined ? {} : { x: boundedRemoteNumber(input.x) }),
+          ...(input.y === undefined ? {} : { y: boundedRemoteNumber(input.y) }),
         });
       case "browser.stop":
         await bridge.stopTask(registration);
@@ -1054,6 +1076,49 @@ function boundedRemoteNumber(value: unknown): number {
     throw new Error("Remote browser numeric input is out of bounds.");
   }
   return number;
+}
+
+function remoteBrowserKey(
+  value: unknown,
+): Extract<BrowserCommand, { type: "key" }>["key"] {
+  const keys = new Set([
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "Backspace",
+    "Delete",
+    "End",
+    "Enter",
+    "Escape",
+    "Home",
+    "PageDown",
+    "PageUp",
+    "Space",
+    "Tab",
+  ]);
+  if (typeof value !== "string" || !keys.has(value)) {
+    throw new Error("Remote browser key is invalid.");
+  }
+  return value as Extract<BrowserCommand, { type: "key" }>["key"];
+}
+
+function remoteBrowserModifiers(
+  value: unknown,
+): Extract<BrowserCommand, { type: "key" }>["modifiers"] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("Remote browser modifiers are invalid.");
+  }
+  const allowed = new Set(["alt", "control", "meta", "shift"]);
+  if (
+    value.some(
+      (modifier) => typeof modifier !== "string" || !allowed.has(modifier),
+    )
+  ) {
+    throw new Error("Remote browser modifiers are invalid.");
+  }
+  return value as Extract<BrowserCommand, { type: "key" }>["modifiers"];
 }
 
 function scopeForSnapshot(snapshot: SemanticSnapshot) {

@@ -11,18 +11,21 @@
 import { createRequire } from "node:module";
 
 import {
+  assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
+  getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
-  resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
   resolveSecret,
 } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
-  normalizeOpenAiBaseUrl,
+  OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "./openai-compatible-endpoint.js";
+import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -96,6 +99,42 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
   return versionIndex === -1 ? trimmed : trimmed.slice(0, versionIndex);
 }
 
+/**
+ * True only when there is positive evidence this module is executing from a
+ * bundled serverless function where optional dependencies were inlined into the
+ * bundle and are therefore NOT resolvable via `require.resolve` — even though
+ * the dynamic `import()` the engine uses to load them still works.
+ *
+ * Deliberately narrow. The Nitro Vercel/Netlify presets (which agent-native's
+ * own `deploy` command emits) inline optional peers and always set these env
+ * markers, so they are a reliable signal. Other serverless runtimes — a
+ * container on Cloud Run / Google Cloud Functions (`K_SERVICE` /
+ * `FUNCTION_TARGET`), or a plain AWS Lambda — commonly ship a real
+ * `node_modules` where `require.resolve` is authoritative; there a resolve miss
+ * means the package is genuinely absent and must NOT be masked. Those runtimes
+ * are still covered *when the code is actually bundled*, via the module-path
+ * check below, which stays false for a normal `node_modules` layout.
+ */
+function isBundledServerlessRuntime(): boolean {
+  const env = process.env;
+  // Nitro's Vercel/Netlify presets inline optional peers into the function
+  // bundle; these platforms always set these markers.
+  if (env.VERCEL || env.NETLIFY) return true;
+  // Otherwise require direct evidence that this module is running from inside a
+  // bundle output directory (Vercel's `/var/task`, Nitro's `.output/server`,
+  // inlined `_libs`). This is the real signal that `require.resolve` cannot be
+  // trusted; it stays false for normal `node_modules` layouts (dev, tests, and
+  // container/Lambda/Cloud Run deploys that ship their dependencies), so a
+  // genuine "package not installed" miss still surfaces there.
+  try {
+    return /[\\/](?:_libs|\.vercel|\.netlify|\.output)[\\/]|\/var\/task\//.test(
+      import.meta.url ?? "",
+    );
+  } catch {
+    return false;
+  }
+}
+
 function canResolvePackage(packageName: string): boolean {
   const cached = _packageAvailabilityCache.get(packageName);
   if (cached !== undefined) return cached;
@@ -104,7 +143,15 @@ function canResolvePackage(packageName: string): boolean {
     require.resolve(packageName);
     available = true;
   } catch {
-    available = false;
+    // Bundled serverless runtimes (e.g. Nitro on Vercel/Netlify) inline optional
+    // provider packages into the function bundle, so require.resolve cannot find
+    // them even though the dynamic `import()` the engine actually uses to load
+    // them works. Treat them as available there and let the engine's own import
+    // be the real gate — it already fails with a clear "pnpm add …" message when
+    // the package is genuinely missing. Without this, every engine-usability
+    // gate rejects the AI-SDK engines at runtime and the agent silently falls
+    // back to the native Anthropic engine.
+    available = isBundledServerlessRuntime();
   }
   _packageAvailabilityCache.set(packageName, available);
   return available;
@@ -179,17 +226,41 @@ function findLatestSupportedVersionMatch(
   return best?.model;
 }
 
+export interface NormalizeModelOptions {
+  /**
+   * Force unrecognized (custom) model IDs to be kept verbatim, as if
+   * `engine.preserveCustomModels` were set on a live engine instance.
+   *
+   * The settings actions call `normalizeModelForEngine` with a static registry
+   * ENTRY, which never carries the runtime `preserveCustomModels` flag — that
+   * is only set on the engine INSTANCE created with an OpenAI-compatible
+   * `baseUrl`. They resolve the capability with
+   * {@link resolveEnginePreservesCustomModels} and pass it here so a gateway
+   * model (e.g. an Ollama `gemma4`) is not rewritten to the OpenAI default on
+   * save/read. First-party OpenAI (no gateway) leaves this unset, so an unknown
+   * or invalid model still normalizes to a supported one.
+   */
+  preserveCustomModels?: boolean;
+}
+
 export function normalizeModelForEngine(
   engine: Pick<
     AgentEngine,
     "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
   >,
   model: string | null | undefined,
+  options: NormalizeModelOptions = {},
 ): string {
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
-  if (engine.preserveCustomModels) return candidate;
+  // Preserve custom IDs verbatim BEFORE any catalog/version matching, so a
+  // version-shaped gateway model that happens to share a family with a
+  // built-in model (e.g. `gpt-5.4` on an OpenAI-compatible endpoint) is not
+  // rewritten to a catalog entry.
+  if (engine.preserveCustomModels || options.preserveCustomModels) {
+    return candidate;
+  }
 
   if (engine.supportedModels.length === 0) return candidate;
 
@@ -201,6 +272,98 @@ export function normalizeModelForEngine(
     findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
     engine.defaultModel
   );
+}
+
+type ModelResolvableEngine = Pick<
+  AgentEngine,
+  "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+>;
+
+/**
+ * Bound an untrusted, caller-supplied model preference to this engine's own
+ * catalog. Returns `undefined` — never a substitute — when the hint names
+ * anything the engine does not already offer, so a peer can never move the run
+ * to a different provider, an unknown id, or a capability tier this engine was
+ * not going to serve on its own.
+ */
+function resolveModelHintForEngine(
+  engine: ModelResolvableEngine,
+  hint: string | null | undefined,
+): string | undefined {
+  const candidate = typeof hint === "string" ? hint.trim() : "";
+  if (!candidate || candidate === "auto") return undefined;
+  // An engine with no catalog, or one that passes custom ids through verbatim
+  // (an OpenAI-compatible gateway), cannot prove membership — so it takes no
+  // hint at all rather than forwarding an unverifiable id to a provider.
+  if (engine.preserveCustomModels || engine.supportedModels.length === 0) {
+    return undefined;
+  }
+  const normalized = normalizeModelForEngine(engine, candidate);
+  // `normalizeModelForEngine` answers `defaultModel` both for "this IS the
+  // default" and for "no idea what this is", so an unmatched hint is only
+  // distinguishable by re-checking the raw candidate. Anything else it returns
+  // is a real catalog hit.
+  const matched =
+    normalized === engine.defaultModel
+      ? engine.supportedModels.includes(candidate)
+      : engine.supportedModels.includes(normalized);
+  return matched ? normalized : undefined;
+}
+
+/**
+ * Model for a delegated (A2A) run, in strict precedence: the receiving app's
+ * explicit configuration, then its own stored setting, then the caller's hint,
+ * then the engine default. An app that pins a model keeps it; a hint only fills
+ * the gap where the receiver would otherwise take a default it never chose.
+ *
+ * A rejected hint is logged and dropped — a delegated run must never fail over
+ * a preference.
+ */
+export function resolveDelegatedRunModel(
+  engine: ModelResolvableEngine,
+  options: {
+    explicitModel?: string | null;
+    storedModel?: string | null;
+    callerModelHint?: string | null;
+  },
+): string {
+  const own = options.explicitModel ?? options.storedModel;
+  if (own) return normalizeModelForEngine(engine, own);
+  const hinted = resolveModelHintForEngine(engine, options.callerModelHint);
+  if (!hinted && options.callerModelHint) {
+    console.log(
+      `[a2a] Ignoring caller model hint "${options.callerModelHint}" — not offered by engine ${engine.name}`,
+    );
+  }
+  return normalizeModelForEngine(engine, hinted ?? engine.defaultModel);
+}
+
+/**
+ * Whether models saved or read for this engine ENTRY should be preserved
+ * verbatim instead of normalized against the built-in catalog.
+ *
+ * `normalizeModelForEngine` honors a live engine's `preserveCustomModels`, but
+ * that flag is only set on an AI SDK engine INSTANCE when the provider is
+ * Ollama, or when OpenAI is pointed at an OpenAI-compatible gateway (a custom
+ * base URL — e.g. Ollama Cloud or LiteLLM), whose model IDs are not in the
+ * built-in catalogs.
+ * The static registry entry the settings actions pass to
+ * `normalizeModelForEngine` cannot carry that runtime flag, so this async
+ * helper reproduces the same decision from the request's stored/deploy config.
+ * Ollama always returns true because its local model inventory is user-defined;
+ * first-party OpenAI (no gateway) returns false so an unknown/invalid model
+ * still normalizes to a supported one.
+ */
+export async function resolveEnginePreservesCustomModels(
+  entry: Pick<AgentEngineEntry, "name">,
+): Promise<boolean> {
+  if (entry.name === "ai-sdk:ollama") return true;
+  if (entry.name !== "ai-sdk:openai") return false;
+  try {
+    return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));
+  } catch {
+    return false;
+  }
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
@@ -266,10 +429,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
   return null;
 }
 
-async function envKeyUsableForEntry(
-  entry: AgentEngineEntry,
-  key: string,
-): Promise<boolean> {
+async function envKeyUsableForEntry(key: string): Promise<boolean> {
   if (
     !(
       canUseDeployCredentialFallbackForRequest(key) &&
@@ -278,19 +438,41 @@ async function envKeyUsableForEntry(
   ) {
     return false;
   }
-  if (entry.name === "builder") {
-    return true;
-  }
   const value = readDeployCredentialEnv(key);
   if (!value) return false;
   return !(await getProviderCredentialAuthFailure({ key, value }));
 }
 
+/**
+ * Builder's deploy-env fallback is checked as a pair, not per-key: the
+ * auth-failure marker is fingerprinted from privateKey+publicKey together
+ * (see `builderCredentialFingerprint`), so a single-key lookup can never
+ * match it. Without this, a rejected deploy-level Builder key would keep
+ * reporting "usable" through this env-only path forever — the same class of
+ * bug as the per-scope check in `credential-provider.ts`'s
+ * `isCompleteBuilderConnection`.
+ */
+async function hasUsableBuilderEnvKeys(): Promise<boolean> {
+  const privateKey = canUseDeployCredentialFallbackForRequest(
+    "BUILDER_PRIVATE_KEY",
+  )
+    ? readDeployCredentialEnv("BUILDER_PRIVATE_KEY")
+    : null;
+  const publicKey = canUseDeployCredentialFallbackForRequest(
+    "BUILDER_PUBLIC_KEY",
+  )
+    ? readDeployCredentialEnv("BUILDER_PUBLIC_KEY")
+    : null;
+  if (!privateKey || !publicKey) return false;
+  return !(await getBuilderCredentialAuthFailure({ privateKey, publicKey }));
+}
+
 async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return false;
+  if (entry.name === "builder") return hasUsableBuilderEnvKeys();
   for (const key of entry.requiredEnvVars) {
-    if (!(await envKeyUsableForEntry(entry, key))) return false;
+    if (!(await envKeyUsableForEntry(key))) return false;
   }
   return true;
 }
@@ -378,16 +560,12 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
-    if (entry.name === "builder") {
-      const creds = await resolveBuilderCredentials();
-      return Boolean(creds.privateKey && creds.publicKey);
-    }
+    if (entry.name === "builder") return hasUsableBuilderConnection();
     for (const key of entry.requiredEnvVars) {
-      try {
-        if (!(await resolveUsableProviderSecret(key))) return false;
-      } catch {
-        return false;
-      }
+      // A throw here means the credential store could not be read. Let it
+      // propagate: swallowing it reports "no provider connected" to a user
+      // whose key is sitting in a row we simply failed to load.
+      if (!(await resolveUsableProviderSecret(key))) return false;
     }
     return true;
   };
@@ -472,22 +650,37 @@ function engineCreateConfig(
   };
 }
 
-async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
-  let raw: string | null | undefined = null;
-  try {
-    raw = await resolveSecret(OPENAI_BASE_URL_ENV_VAR);
-  } catch {
-    raw = null;
+async function resolveProviderBaseUrl(
+  envVar: string,
+): Promise<string | undefined> {
+  const raw = await resolveSecret(envVar);
+
+  if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
+    const deployValue = readDeployCredentialEnv(envVar);
+    if (!deployValue) return undefined;
+    return validateProviderBaseUrl(deployValue, {
+      allowPrivate: true,
+    });
   }
 
-  if (
-    !raw &&
-    canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
-  ) {
-    raw = readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR);
-  }
+  return raw
+    ? validateProviderBaseUrl(raw, {
+        allowLocalOllama:
+          envVar === OLLAMA_BASE_URL_ENV_VAR &&
+          process.env.NODE_ENV === "development",
+      })
+    : undefined;
+}
 
-  return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
+/**
+ * A Builder connection we could not read is not a missing connection. Throwing
+ * keeps that distinction instead of reporting "connect a provider" to a user
+ * whose org-shared keys exist but were unreadable.
+ */
+async function hasUsableBuilderConnection(): Promise<boolean> {
+  const creds = await resolveBuilderCredentialsDetailed();
+  assertCredentialStoreReadable(creds);
+  return Boolean(creds.privateKey && creds.publicKey);
 }
 
 async function resolveUsableProviderSecret(
@@ -499,22 +692,122 @@ async function resolveUsableProviderSecret(
   return authFailure ? null : value;
 }
 
+/**
+ * Return true only when the supplied key can be positively identified as a
+ * usable credential for a different registered provider.
+ *
+ * `ResolveEngineConfig.apiKey` is public and may be an opaque caller-provided
+ * key, so automatic selection must not silently replace it merely because a
+ * stored credential also exists. Delegated/internal callers, however,
+ * historically pass the current "active" provider key before the registry
+ * selects an app-default engine. Exact in-memory comparison lets us correct
+ * that proven mismatch without guessing from provider-specific key prefixes
+ * or exposing either value.
+ */
+async function apiKeyBelongsToDifferentProvider(
+  apiKey: string,
+  selectedEntry: AgentEngineEntry,
+): Promise<boolean> {
+  const selectedEnvVars = new Set(selectedEntry.requiredEnvVars);
+  const checkedEnvVars = new Set<string>();
+  for (const entry of _registry.values()) {
+    if (entry === selectedEntry || entry.name === "builder") continue;
+    for (const key of entry.requiredEnvVars) {
+      if (selectedEnvVars.has(key) || checkedEnvVars.has(key)) continue;
+      checkedEnvVars.add(key);
+      try {
+        if ((await resolveUsableProviderSecret(key)) === apiKey) return true;
+      } catch {
+        // An unrelated provider store failure is not proof that the explicit
+        // key belongs elsewhere. Preserve the caller's key and let the
+        // selected provider's own preflight report any relevant failure.
+      }
+    }
+  }
+  return false;
+}
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
+  preferResolvedCredential = false,
+  apiKeyEnvVar?: string,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
-  if (entry.name === "ai-sdk:openai") {
+  let matchingApiKey = apiKey;
+  // A declared provenance settles the question without inspecting values: a
+  // credential issued for another provider's env var is never this entry's
+  // key, so drop it on explicit branches too. Value comparison below cannot
+  // cover this — a host-supplied key (plugin `options.apiKey`) matches no
+  // stored secret, so it would otherwise reach whichever provider was picked.
+  if (
+    apiKeyEnvVar !== undefined &&
+    !entry.requiredEnvVars.includes(apiKeyEnvVar)
+  ) {
+    matchingApiKey = undefined;
+  }
+  // Automatic engine selection must also select that engine's credential.
+  // Callers historically passed one untagged "active" key before the registry
+  // chose an engine, which could hand an Anthropic key to an app-default
+  // OpenAI engine (or vice versa). Explicit engineOption branches retain their
+  // paired key. Automatic branches replace only a key proven to belong to a
+  // different configured provider; opaque caller-supplied keys keep the public
+  // `ResolveEngineConfig.apiKey` contract.
+  if (
+    preferResolvedCredential &&
+    entry.name !== "builder" &&
+    entry.requiredEnvVars.length > 0
+  ) {
+    let resolvedMatchingCredential: string | undefined;
+    let matchingCredentialUsesDeployFallback = false;
+    for (const key of entry.requiredEnvVars) {
+      const resolved = (await resolveUsableProviderSecret(key)) ?? undefined;
+      if (!resolved) continue;
+      resolvedMatchingCredential = resolved;
+      matchingCredentialUsesDeployFallback =
+        canUseDeployCredentialFallbackForRequest(key) &&
+        readDeployCredentialEnv(key) === resolved;
+      break;
+    }
+
+    const suppliedKeyMatchesSelected =
+      matchingApiKey !== undefined &&
+      matchingApiKey === resolvedMatchingCredential;
+    const suppliedKeyBelongsElsewhere =
+      matchingApiKey !== undefined &&
+      !suppliedKeyMatchesSelected &&
+      (await apiKeyBelongsToDifferentProvider(matchingApiKey, entry));
+
+    if (matchingApiKey === undefined || suppliedKeyBelongsElsewhere) {
+      // Keep deploy-only credentials implicit so provider SDKs retain their
+      // established env-fallback behavior. Scoped credentials must be passed
+      // explicitly. A proven different-provider key is replaced or cleared;
+      // an opaque caller-supplied key is preserved by the branch above.
+      matchingApiKey =
+        resolvedMatchingCredential && !matchingCredentialUsesDeployFallback
+          ? resolvedMatchingCredential
+          : undefined;
+    }
+  }
+  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
-      safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
+      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
+        allowLocalOllama:
+          entry.name === "ai-sdk:ollama" &&
+          process.env.NODE_ENV === "development",
+      });
     }
     if (safeExtra.baseUrl == null) {
-      const baseUrl = await resolveOpenAiBaseUrl();
+      const baseUrl = await resolveProviderBaseUrl(
+        entry.name === "ai-sdk:ollama"
+          ? OLLAMA_BASE_URL_ENV_VAR
+          : OPENAI_BASE_URL_ENV_VAR,
+      );
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
-  return engineCreateConfig(entry, apiKey, safeExtra);
+  return engineCreateConfig(entry, matchingApiKey, safeExtra);
 }
 
 /**
@@ -555,17 +848,9 @@ export async function isStoredEngineUsableForRequest(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  if (entry.name === "builder") {
-    const creds = await resolveBuilderCredentials();
-    return Boolean(creds.privateKey && creds.publicKey);
-  }
+  if (entry.name === "builder") return hasUsableBuilderConnection();
   for (const key of entry.requiredEnvVars) {
-    try {
-      if (await resolveUsableProviderSecret(key)) continue;
-    } catch {
-      return false;
-    }
-    return false;
+    if (!(await resolveUsableProviderSecret(key))) return false;
   }
   return true;
 }
@@ -587,10 +872,7 @@ export async function isResolvedEngineUsableForRequest(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return true;
 
-  if (entry.name === "builder") {
-    const creds = await resolveBuilderCredentials();
-    return Boolean(creds.privateKey && creds.publicKey);
-  }
+  if (entry.name === "builder") return hasUsableBuilderConnection();
 
   if (options.apiKey?.trim()) {
     const key = entry.requiredEnvVars[0];
@@ -602,12 +884,7 @@ export async function isResolvedEngineUsableForRequest(
   }
 
   for (const key of entry.requiredEnvVars) {
-    try {
-      if (await resolveUsableProviderSecret(key)) continue;
-    } catch {
-      return false;
-    }
-    return false;
+    if (!(await resolveUsableProviderSecret(key))) return false;
   }
   return true;
 }
@@ -620,10 +897,39 @@ export interface ResolveEngineConfig {
     | { name: string; config: Record<string, unknown> };
   /** API key (used as config for the resolved engine) */
   apiKey?: string;
+  /**
+   * Env var name `apiKey` was issued for, when the caller knows it. Declaring
+   * it keeps a provider-specific credential from reaching a different
+   * provider's engine; omit it for opaque keys.
+   */
+  apiKeyEnvVar?: string;
   /** Model override (used as part of engine config) */
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
+}
+
+/**
+ * Engine name a caller explicitly selected, when {@link resolveEngine} will
+ * honor it as a name. Callers resolve the API key before they call
+ * `resolveEngine`, so they need the same answer the registry will reach:
+ * an untagged "active" key resolved against a different provider's setting
+ * would otherwise ride along to whichever engine this names. Returns
+ * `undefined` for an engine instance, which carries its own credential.
+ */
+export function explicitEngineName(
+  engineOption: ResolveEngineConfig["engineOption"],
+): string | undefined {
+  if (!engineOption) return undefined;
+  if (typeof engineOption === "string") return engineOption;
+  if (
+    typeof engineOption === "object" &&
+    !("stream" in engineOption) &&
+    typeof engineOption.name === "string"
+  ) {
+    return engineOption.name;
+  }
+  return undefined;
 }
 
 /**
@@ -682,7 +988,7 @@ export async function getConfiguredEngineNameForRequest(
 export async function resolveEngine(
   config: ResolveEngineConfig,
 ): Promise<AgentEngine> {
-  const { engineOption, apiKey, model: _model, appId } = config;
+  const { engineOption, apiKey, apiKeyEnvVar, model: _model, appId } = config;
 
   // 1. Explicit instance passed directly
   if (
@@ -710,7 +1016,13 @@ export async function resolveEngine(
       );
     assertAgentEnginePackageInstalled(entry);
     return entry.create(
-      await engineCreateConfigForEntry(entry, apiKey, engineConfig),
+      await engineCreateConfigForEntry(
+        entry,
+        apiKey,
+        engineConfig,
+        false,
+        apiKeyEnvVar,
+      ),
     );
   }
 
@@ -722,7 +1034,15 @@ export async function resolveEngine(
         `[agent-engine] Unknown engine: "${engineOption}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
     assertAgentEnginePackageInstalled(entry);
-    return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+    return entry.create(
+      await engineCreateConfigForEntry(
+        entry,
+        apiKey,
+        undefined,
+        false,
+        apiKeyEnvVar,
+      ),
+    );
   }
 
   // 4. Env var — explicit engine name override
@@ -731,7 +1051,15 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(
+          entry,
+          apiKey,
+          undefined,
+          true,
+          apiKeyEnvVar,
+        ),
+      );
     }
   }
 
@@ -739,7 +1067,15 @@ export async function resolveEngine(
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
     if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(
+          entry,
+          apiKey,
+          undefined,
+          true,
+          apiKeyEnvVar,
+        ),
+      );
     }
   }
 
@@ -772,6 +1108,8 @@ export async function resolveEngine(
           stripInlineApiKeyConfig(
             storedConfig as Record<string, unknown> | undefined,
           ),
+          true,
+          apiKeyEnvVar,
         ),
       );
     }
@@ -779,7 +1117,13 @@ export async function resolveEngine(
 
   if (detectedFromUser) {
     return detectedFromUser.create(
-      await engineCreateConfigForEntry(detectedFromUser, apiKey),
+      await engineCreateConfigForEntry(
+        detectedFromUser,
+        apiKey,
+        undefined,
+        true,
+        apiKeyEnvVar,
+      ),
     );
   }
 
@@ -788,7 +1132,15 @@ export async function resolveEngine(
   // auth-failure markers so a rejected deploy key cannot permanently win.
   const detected = await detectEngineFromEnvForRequest();
   if (detected) {
-    return detected.create(await engineCreateConfigForEntry(detected, apiKey));
+    return detected.create(
+      await engineCreateConfigForEntry(
+        detected,
+        apiKey,
+        undefined,
+        true,
+        apiKeyEnvVar,
+      ),
+    );
   }
 
   // 9. Default: anthropic
@@ -799,7 +1151,13 @@ export async function resolveEngine(
     );
   }
   return anthropicEntry.create(
-    await engineCreateConfigForEntry(anthropicEntry, apiKey),
+    await engineCreateConfigForEntry(
+      anthropicEntry,
+      apiKey,
+      undefined,
+      true,
+      apiKeyEnvVar,
+    ),
   );
 }
 

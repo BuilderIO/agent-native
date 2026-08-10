@@ -120,7 +120,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return draft!;
   }
 
-  async function renderSelectedFrame(width = 320) {
+  async function renderSelectedFrame(width = 320, selected = true) {
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -134,7 +134,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           zoom={100}
           activeTool="move"
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
+          selectedScreenIds={selected ? ["screen-a"] : []}
           geometryById={{
             "screen-a": { x: 0, y: 0, width, height: 640 },
           }}
@@ -150,6 +150,401 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(label).not.toBeNull();
     return { frame: frame!, label: label! };
   }
+
+  it("reports an unchanged empty layer marquee selection once per drag", async () => {
+    const onLayerMarqueeSelectionChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          activeTool="move"
+          onPick={() => {}}
+          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
+        />,
+      );
+    });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+
+    await act(async () => {
+      dispatchMouse(surface!, "mousedown", 100, 100);
+      dispatchMouse(window, "mousemove", 140, 140);
+      dispatchMouse(window, "mousemove", 180, 180);
+      dispatchMouse(window, "mouseup", 180, 180);
+    });
+
+    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledTimes(1);
+    expect(onLayerMarqueeSelectionChange).toHaveBeenCalledWith(
+      [],
+      expect.objectContaining({ source: "marquee" }),
+    );
+  });
+
+  it("keeps the selection box moving when the drag also selects the frame", async () => {
+    const { frame, label } = await renderSelectedFrame(320, false);
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+
+    await act(async () => {
+      dispatchMouse(label, "mousedown", 320, 100);
+    });
+
+    const selectionBox = container.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    expect(selectionBox).not.toBeNull();
+    const before = {
+      frameLeft: Number.parseFloat(frame.style.left),
+      frameTop: Number.parseFloat(frame.style.top),
+      boxLeft: Number.parseFloat(selectionBox!.style.left),
+      boxTop: Number.parseFloat(selectionBox!.style.top),
+    };
+
+    await act(async () => {
+      dispatchMouse(window, "mousemove", 355, 125);
+      await nextAnimationFrame();
+    });
+
+    const frameDelta = {
+      x: Number.parseFloat(frame.style.left) - before.frameLeft,
+      y: Number.parseFloat(frame.style.top) - before.frameTop,
+    };
+    const boxDelta = {
+      x: Number.parseFloat(selectionBox!.style.left) - before.boxLeft,
+      y: Number.parseFloat(selectionBox!.style.top) - before.boxTop,
+    };
+    expect(frameDelta).toEqual(boxDelta);
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 355, 125);
+    });
+  });
+
+  it("reserves an empty screen body for frame selection", async () => {
+    const onPick = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper" />
+          )}
+          onPick={onPick}
+        />,
+      );
+    });
+    const interactiveBody = container.querySelector<HTMLElement>(
+      ".design-canvas-iframe-wrapper",
+    );
+    const screenCard =
+      container.querySelector<HTMLElement>("[data-screen-card]");
+    expect(interactiveBody).not.toBeNull();
+    expect(screenCard).not.toBeNull();
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      screenCard!.click();
+    });
+
+    expect(onPick).toHaveBeenCalledWith("screen-a");
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
+  });
+
+  it("keeps screen content with child layers interactive before frame selection", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content:
+                "<!doctype html><html><body><button>Layer</button></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper" />
+          )}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const interactiveBody = container.querySelector<HTMLElement>(
+      ".design-canvas-iframe-wrapper",
+    );
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
+  });
+
+  it("drags a selected frame from its selection outline", async () => {
+    const { frame } = await renderSelectedFrame();
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(dragSurface).not.toBeNull();
+    const before = { left: frame.style.left, top: frame.style.top };
+
+    await act(async () => {
+      dispatchMouse(dragSurface!, "mousedown", 320, 740);
+      dispatchMouse(window, "mousemove", 355, 765);
+      await nextAnimationFrame();
+    });
+
+    expect(frame.style.left).not.toBe(before.left);
+    expect(frame.style.top).not.toBe(before.top);
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 355, 765);
+    });
+  });
+
+  it("drags every screen in a multi-selection from the group outline", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+            {
+              id: "screen-b",
+              filename: "screen-b.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          selectedScreenIds={["screen-a", "screen-b"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const frameA = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const frameB = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-b"]',
+    );
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(frameA).not.toBeNull();
+    expect(frameB).not.toBeNull();
+    expect(dragSurface).not.toBeNull();
+    const beforeA = { left: frameA!.style.left, top: frameA!.style.top };
+    const beforeB = { left: frameB!.style.left, top: frameB!.style.top };
+
+    await act(async () => {
+      dispatchMouse(dragSurface!, "mousedown", 450, 450);
+      dispatchMouse(window, "mousemove", 490, 480);
+      await nextAnimationFrame();
+    });
+
+    const deltaA = {
+      x:
+        Number.parseFloat(frameA!.style.left) - Number.parseFloat(beforeA.left),
+      y: Number.parseFloat(frameA!.style.top) - Number.parseFloat(beforeA.top),
+    };
+    const deltaB = {
+      x:
+        Number.parseFloat(frameB!.style.left) - Number.parseFloat(beforeB.left),
+      y: Number.parseFloat(frameB!.style.top) - Number.parseFloat(beforeB.top),
+    };
+    expect(deltaA.x).not.toBe(0);
+    expect(deltaA.y).not.toBe(0);
+    expect(deltaB.x).toBeCloseTo(deltaA.x);
+    expect(deltaB.y).toBeCloseTo(deltaA.y);
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 490, 480);
+    });
+  });
+
+  it("leaves Cmd+D for the layer hotkey when no frame is selected", async () => {
+    const onDuplicate = vi.fn();
+    const rendered = (selectedScreenIds: string[]) => (
+      <MultiScreenCanvas
+        screens={[
+          {
+            id: "screen-a",
+            filename: "screen-a.html",
+            content: "<!doctype html><html><body></body></html>",
+          },
+        ]}
+        zoom={100}
+        activeTool="move"
+        selectedScreenIds={selectedScreenIds}
+        geometryById={{ "screen-a": { x: 0, y: 0, width: 320, height: 640 } }}
+        onDuplicate={onDuplicate}
+        onPick={() => {}}
+      />
+    );
+    const pressDuplicate = () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "d",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      return event;
+    };
+
+    await act(async () => {
+      root.render(rendered([]));
+    });
+    let event = await act(async () => pressDuplicate());
+    // The shared hotkey hook drops anything already defaultPrevented, so
+    // claiming the event here would silently swallow layer duplication.
+    expect(event.defaultPrevented).toBe(false);
+    expect(onDuplicate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(rendered(["screen-a"]));
+    });
+    event = await act(async () => pressDuplicate());
+    expect(event.defaultPrevented).toBe(true);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+    expect(onDuplicate.mock.calls[0]![0]).toBe("screen-a");
+  });
+
+  it("copies a selected frame on alt-drag from its selection outline instead of moving it", async () => {
+    const onDuplicate = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          onDuplicate={onDuplicate}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(frame).not.toBeNull();
+    expect(dragSurface).not.toBeNull();
+    const before = { left: frame!.style.left, top: frame!.style.top };
+
+    await act(async () => {
+      dispatchMouseAlt(dragSurface!, "mousedown", 320, 400);
+      dispatchMouseAlt(window, "mousemove", 400, 460);
+      await nextAnimationFrame();
+      dispatchMouseAlt(window, "mouseup", 400, 460);
+    });
+
+    expect(frame!.style.left).toBe(before.left);
+    expect(frame!.style.top).toBe(before.top);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+    const [duplicatedId, request] = onDuplicate.mock.calls[0]!;
+    expect(duplicatedId).toBe("screen-a");
+    expect(request.mode).toBe("alt-drag");
+    expect(request.canvasPosition.x).toBeGreaterThan(0);
+    expect(request.canvasPosition.y).toBeGreaterThan(0);
+  });
+
+  it("copies every frame in a multi-selection on alt-drag, keeping their relative layout", async () => {
+    const onDuplicate = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+            {
+              id: "screen-b",
+              filename: "screen-b.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          selectedScreenIds={["screen-a", "screen-b"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+          }}
+          onDuplicate={onDuplicate}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const frameA = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(frameA).not.toBeNull();
+    expect(dragSurface).not.toBeNull();
+    const beforeA = { left: frameA!.style.left, top: frameA!.style.top };
+
+    await act(async () => {
+      dispatchMouseAlt(dragSurface!, "mousedown", 450, 450);
+      dispatchMouseAlt(window, "mousemove", 490, 480);
+      await nextAnimationFrame();
+      dispatchMouseAlt(window, "mouseup", 490, 480);
+    });
+
+    expect(frameA!.style.left).toBe(beforeA.left);
+    expect(frameA!.style.top).toBe(beforeA.top);
+    expect(onDuplicate).toHaveBeenCalledTimes(2);
+    const placed = new Map<string, { x: number; y: number }>(
+      onDuplicate.mock.calls.map(([duplicatedId, request]) => [
+        duplicatedId,
+        request.canvasPosition,
+      ]),
+    );
+    const placedA = placed.get("screen-a")!;
+    const placedB = placed.get("screen-b")!;
+    expect(placedA.x).toBeGreaterThan(0);
+    expect(placedB.x - placedA.x).toBeCloseTo(420);
+    expect(placedB.y - placedA.y).toBeCloseTo(100);
+  });
 
   it("keeps pending review discoverable in constant-size frame chrome", async () => {
     const onReviewPendingScreen = vi.fn();
@@ -181,9 +576,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(badge?.textContent).toContain(
       "designEditor.nodeRewrite.reviewCandidate",
     );
+    // Counter-scaled to stay a constant screen size at 25% zoom. The live
+    // value comes from the --an-chrome-scale custom property that
+    // applyViewToDom writes every gesture frame; React still renders the same
+    // number as the var's fallback, which is what this asserts.
     expect(
       badge?.closest<HTMLElement>("[data-frame-label]")?.style.transform,
-    ).toContain("scale(4)");
+    ).toContain("scale(var(--an-chrome-scale, 4))");
     await act(async () => badge?.click());
     expect(onReviewPendingScreen).toHaveBeenCalledWith("screen-review");
   });
@@ -203,6 +602,44 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(fullView!.getAttribute("aria-label")).toBe(
       "designEditor.modes.interact",
     );
+  });
+
+  it("hides narrow breakpoint width suffixes without truncating the device label", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390, 768],
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          metadataById={{ "screen-a": { width: 1280, height: 640 } }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 160 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const breakpointFrames = container.querySelectorAll<HTMLElement>(
+      "[data-breakpoint-frame]",
+    );
+    expect(breakpointFrames).toHaveLength(2);
+    expect(
+      breakpointFrames[0]?.querySelector("[data-breakpoint-width]"),
+    ).toBeNull();
+    expect(
+      breakpointFrames[1]?.querySelector("[data-breakpoint-width]"),
+    ).not.toBeNull();
+    expect(
+      breakpointFrames[0]?.querySelector("[data-frame-title]")?.textContent,
+    ).toBe("Mobile");
   });
 
   it("does not visually nudge a draft for pointer jitter below the drag threshold", async () => {
@@ -819,6 +1256,8 @@ describe("canvas iframe identity", () => {
       expect(iframe!.srcdoc).toContain(
         "body > [data-agent-native-node-id]{translate:4096px 4096px;}",
       );
+      expect(iframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
+      expect(iframe!.getAttribute("data-screen-iframe-id")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       rectSpy.mockRestore();
@@ -980,6 +1419,8 @@ describe("canvas iframe identity", () => {
       );
       expect(staticIframe!.srcdoc).toContain("left-edge");
       expect(staticIframe!.srcdoc).toContain("right-edge");
+      expect(staticIframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
+      expect(staticIframe!.style.background).toBe("hsl(0, 0%, 10%)");
       expect(staticIframe!.srcdoc).not.toContain("<script");
 
       const initialActiveIframe = activeIframe!;

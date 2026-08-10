@@ -1,13 +1,14 @@
 import crypto from "node:crypto";
 
-import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client";
 import {
   deleteCookie,
   defineEventHandler,
+  getChunkedCookie,
   getCookie,
   getMethod,
   getQuery,
-  setCookie,
+  setChunkedCookie,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -15,6 +16,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
+import { resolveSecret } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getAppUrl, resolveOAuthRedirectUri } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -22,6 +24,7 @@ import {
   finishMcpOAuthAuthorization,
   startMcpOAuthAuthorization,
   type McpOAuthDiscoveryState,
+  validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
 import {
   addOAuthRemoteServer,
@@ -32,6 +35,25 @@ import {
 
 const FLOW_COOKIE = "an_mcp_oauth_flow";
 const FLOW_TTL_SECONDS = 10 * 60;
+const FLOW_COOKIE_CHUNK_SIZE = 2_800;
+const FLOW_COOKIE_MAX_CHUNKS = 8;
+const CHUNKED_COOKIE_PREFIX = "__chunked__";
+
+const MANAGED_MCP_OAUTH_CLIENTS = [
+  {
+    serverOrigin: "https://mcp.hubspot.com",
+    clientIdKeys: [
+      "HUBSPOT_MCP_CLIENT_ID",
+      "HUBSPOT_INTEGRATION_CLIENT_ID",
+      "HUBSPOT_CLIENT_ID",
+    ],
+    clientSecretKeys: [
+      "HUBSPOT_MCP_CLIENT_SECRET",
+      "HUBSPOT_INTEGRATION_CLIENT_SECRET",
+      "HUBSPOT_CLIENT_SECRET",
+    ],
+  },
+] as const;
 
 export interface McpOAuthFlow {
   name: string;
@@ -44,7 +66,7 @@ export interface McpOAuthFlow {
   redirectUri: string;
   state: string;
   codeVerifier: string;
-  clientInformation: OAuthClientInformationMixed;
+  clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
   returnUrl?: string;
   expiresAt: number;
@@ -52,6 +74,20 @@ export interface McpOAuthFlow {
 
 export interface McpOAuthRoutesOptions {
   reconfigure: () => Promise<void>;
+}
+
+export function redirectWithStagedCookies(
+  event: H3Event,
+  location: string,
+): Response {
+  const headers = new Headers({
+    Location: location,
+    "Cache-Control": "no-store",
+  });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return new Response(null, { status: 302, headers });
 }
 
 export function mountMcpOAuthRoutes(
@@ -113,7 +149,13 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = query.scope === "org" ? "org" : "user";
+  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope);
+  if (!requestedScope) {
+    setResponseStatus(event, 400);
+    return {
+      error: "Managed MCP OAuth connections must use personal scope.",
+    };
+  }
   const requestedOrgId = text(query.orgId);
   const org =
     requestedScope === "org"
@@ -147,16 +189,32 @@ async function handleMcpOAuthStart(
 
   const state = crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
+  const requestContext = {
+    userEmail: session.email,
+    orgId: org?.orgId ?? undefined,
+  };
   try {
-    const started = await runWithRequestContext(
-      { userEmail: session.email, orgId: org?.orgId ?? undefined },
-      () =>
-        startMcpOAuthAuthorization({
-          serverUrl: urlCheck.url!.toString(),
-          redirectUrl: redirectUri,
-          state,
-        }),
-    );
+    const started = await runWithRequestContext(requestContext, async () => {
+      const clientInformation = await resolveManagedMcpOAuthClient(
+        urlCheck.url!,
+      );
+      if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
+        return null;
+      }
+      return startMcpOAuthAuthorization({
+        serverUrl: urlCheck.url!.toString(),
+        redirectUrl: redirectUri,
+        state,
+        ...(clientInformation ? { clientInformation } : {}),
+      });
+    });
+    if (!started) {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          "HubSpot personal MCP connect is not configured for this workspace. A workspace owner must register the HubSpot MCP Auth App once; after that, any workspace member can connect a personal account.",
+      };
+    }
     const flow: McpOAuthFlow = {
       name,
       url: urlCheck.url!.toString(),
@@ -175,14 +233,8 @@ async function handleMcpOAuthStart(
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
       expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
     };
-    setCookie(event, FLOW_COOKIE, encryptSecretValue(JSON.stringify(flow)), {
-      httpOnly: true,
-      secure: redirectUri.startsWith("https://"),
-      sameSite: "lax",
-      path: "/",
-      maxAge: FLOW_TTL_SECONDS,
-    });
-    return Response.redirect(started.authorizationUrl.href, 302);
+    setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
+    return redirectWithStagedCookies(event, started.authorizationUrl.href);
   } catch {
     setResponseStatus(event, 400);
     return {
@@ -190,6 +242,46 @@ async function handleMcpOAuthStart(
         "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
     };
   }
+}
+
+function isManagedMcpOAuthServer(serverUrl: URL): boolean {
+  return MANAGED_MCP_OAUTH_CLIENTS.some(
+    (client) => client.serverOrigin === serverUrl.origin,
+  );
+}
+
+export function resolveMcpOAuthScope(
+  serverUrl: URL,
+  requestedScope: unknown,
+): RemoteMcpScope | null {
+  if (isManagedMcpOAuthServer(serverUrl) && requestedScope === "org") {
+    return null;
+  }
+  return requestedScope === "org" ? "org" : "user";
+}
+
+export async function resolveManagedMcpOAuthClient(
+  serverUrl: URL,
+): Promise<StoredOAuthClientInformation | undefined> {
+  const client = MANAGED_MCP_OAUTH_CLIENTS.find(
+    (candidate) => candidate.serverOrigin === serverUrl.origin,
+  );
+  if (!client) return undefined;
+
+  for (let index = 0; index < client.clientIdKeys.length; index += 1) {
+    const [clientId, clientSecret] = await Promise.all([
+      resolveSecret(client.clientIdKeys[index]),
+      resolveSecret(client.clientSecretKeys[index]),
+    ]);
+    if (clientId && clientSecret) {
+      return {
+        client_id: clientId,
+        client_secret: clientSecret,
+        token_endpoint_auth_method: "client_secret_post",
+      } as StoredOAuthClientInformation;
+    }
+  }
+  return undefined;
 }
 
 async function handleMcpOAuthCallback(
@@ -202,21 +294,29 @@ async function handleMcpOAuthCallback(
   const query = getQuery(event);
   const code = text(query.code);
   const state = text(query.state);
+  const iss = text(query.iss);
   const providerError = text(query.error);
-  const flow = readFlow(event);
-  deleteCookie(event, FLOW_COOKIE, { path: "/" });
-  if (providerError || !code || !state) {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth authorization was not completed." };
-  }
+  const flow = readMcpOAuthFlowCookie(event);
+  clearMcpOAuthFlowCookies(event);
   const org =
     flow?.scope === "org" ? await getOrgContext(event).catch(() => null) : null;
   if (
+    !state ||
     !flow ||
     !isValidMcpOAuthFlow(flow, session.email, org?.orgId ?? undefined, state)
   ) {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth state is invalid or expired." };
+  }
+  try {
+    validateMcpOAuthCallbackIssuer(flow.discoveryState, iss);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "MCP OAuth authorization response issuer is invalid." };
+  }
+  if (providerError || !code) {
+    setResponseStatus(event, 400);
+    return { error: "MCP OAuth authorization was not completed." };
   }
   if (flow.scope === "org" && !isOrgAdmin(org?.role)) {
     setResponseStatus(event, 403);
@@ -238,6 +338,7 @@ async function handleMcpOAuthCallback(
           codeVerifier: flow.codeVerifier,
           discoveryState: flow.discoveryState,
           authorizationCode: code,
+          iss,
         }),
     );
     const result = await addOAuthRemoteServer(flow.scope, flow.scopeId, {
@@ -253,22 +354,57 @@ async function handleMcpOAuthCallback(
     await options.reconfigure();
     const returnPath =
       flow.returnUrl ??
-      `/settings/connections?connected=mcp-${encodeURIComponent(flow.name)}`;
-    return Response.redirect(getAppUrl(event, returnPath), 302);
+      `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
+    return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
   } catch {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization could not be completed." };
   }
 }
 
-function readFlow(event: H3Event): McpOAuthFlow | null {
-  const encrypted = getCookie(event, FLOW_COOKIE);
+export function setMcpOAuthFlowCookie(
+  event: H3Event,
+  flow: McpOAuthFlow,
+  secure: boolean,
+): void {
+  const encrypted = encryptSecretValue(JSON.stringify(flow));
+  const chunkCount = Math.ceil(encrypted.length / FLOW_COOKIE_CHUNK_SIZE);
+  if (chunkCount > FLOW_COOKIE_MAX_CHUNKS) {
+    throw new Error("MCP OAuth flow state exceeds the cookie size limit.");
+  }
+  setChunkedCookie(event, FLOW_COOKIE, encrypted, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    maxAge: FLOW_TTL_SECONDS,
+    chunkMaxLength: FLOW_COOKIE_CHUNK_SIZE,
+  });
+}
+
+export function readMcpOAuthFlowCookie(event: H3Event): McpOAuthFlow | null {
+  const primaryCookie = getCookie(event, FLOW_COOKIE);
+  if (!primaryCookie) return null;
+  if (primaryCookie.startsWith(CHUNKED_COOKIE_PREFIX)) {
+    const rawCount = primaryCookie.slice(CHUNKED_COOKIE_PREFIX.length);
+    if (!/^\d+$/.test(rawCount)) return null;
+    const chunkCount = Number(rawCount);
+    if (chunkCount < 2 || chunkCount > FLOW_COOKIE_MAX_CHUNKS) return null;
+  }
+  const encrypted = getChunkedCookie(event, FLOW_COOKIE);
   if (!encrypted) return null;
   try {
     const parsed = JSON.parse(decryptSecretValue(encrypted)) as McpOAuthFlow;
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+export function clearMcpOAuthFlowCookies(event: H3Event): void {
+  deleteCookie(event, FLOW_COOKIE, { path: "/" });
+  for (let index = 1; index <= FLOW_COOKIE_MAX_CHUNKS; index += 1) {
+    deleteCookie(event, `${FLOW_COOKIE}.${index}`, { path: "/" });
   }
 }
 

@@ -472,6 +472,18 @@ describe("slackAdapter", () => {
       "fetch",
       vi.fn((url: string) => {
         const parsed = new URL(String(url));
+        if (parsed.pathname.endsWith("/auth.test")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ ok: true, team_id: "T123", bot_id: "B123" }),
+            ),
+          );
+        }
+        if (parsed.pathname.endsWith("/bots.info")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ ok: true, bot: { app_id: "A123" } })),
+          );
+        }
         expect(parsed.pathname).toBe("/api/chat.getPermalink");
         expect(parsed.searchParams.get("channel")).toBe("C123");
         expect(parsed.searchParams.get("message_ts")).toBe("111.222");
@@ -508,19 +520,29 @@ describe("slackAdapter", () => {
 
   it("ignores non-Slack permalink responses", async () => {
     process.env.NODE_ENV = "development";
-    process.env.SLACK_BOT_TOKEN = "slack-token-example";
+    process.env.SLACK_BOT_TOKEN = "slack-token-invalid-example";
     process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              ok: true,
-              permalink: "https://example.invalid/archives/C123/p123456",
-            }),
-          ),
-      ),
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url);
+        if (parsed.pathname.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T123", bot_id: "B123" }),
+          );
+        }
+        if (parsed.pathname.endsWith("/bots.info")) {
+          return new Response(
+            JSON.stringify({ ok: true, bot: { app_id: "A123" } }),
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            permalink: "https://example.invalid/archives/C123/p123456",
+          }),
+        );
+      }),
     );
 
     const parsed = await slackAdapter().parseIncomingMessage(slackEvent());
@@ -557,6 +579,40 @@ describe("slackAdapter", () => {
     );
     expect(authorizations).toContain("Bearer managed-token");
     expect(authorizations).not.toContain("Bearer legacy-token");
+  });
+
+  it("does not let a legacy token from another Slack app answer the event", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_BOT_TOKEN = "fusion-token-example";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    process.env.SLACK_ALLOWED_API_APP_IDS = "A123";
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url);
+        calls.push(parsed.pathname);
+        if (parsed.pathname.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T123", bot_id: "BFUSION" }),
+          );
+        }
+        if (parsed.pathname.endsWith("/bots.info")) {
+          return new Response(
+            JSON.stringify({ ok: true, bot: { app_id: "AFUSION" } }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }));
+      }),
+    );
+
+    const adapter = slackAdapter();
+    const parsed = await adapter.parseIncomingMessage(slackEvent());
+
+    await expect(
+      adapter.sendResponse({ text: "done", platformContext: {} }, parsed!),
+    ).rejects.toThrow("no Slack bot token is configured");
+    expect(calls).toEqual(["/api/auth.test", "/api/bots.info"]);
   });
 
   it("hydrates bounded thread context, reactions, file references, and trust", async () => {
@@ -901,6 +957,7 @@ describe("slackAdapter", () => {
       kind: "slack-stream",
       streamTs: "999.003",
     });
+    expect(progress?.responseTargetRef).toBe("999.003");
     expect(
       requests.find((request) => request.method === "chat.startStream"),
     ).toBeUndefined();
@@ -1208,6 +1265,217 @@ describe("slackAdapter", () => {
       status: "delivered",
       messageRefs: ["1783979488.631319"],
     });
+  });
+
+  it("reconciles accepted terminal chunks before retrying a fresh post", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryBodies: Array<Record<string, unknown>> = [];
+    const reconciliationUrls: string[] = [];
+    let reconciliationCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (String(url).includes("conversations.replies")) {
+          reconciliationUrls.push(String(url));
+          reconciliationCalls += 1;
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                messages:
+                  reconciliationCalls === 1
+                    ? []
+                    : deliveryBodies.map((body, index) => ({
+                        ts: `message-${index + 1}`,
+                        blocks: body.blocks,
+                      })),
+              }),
+            ),
+          );
+        }
+        if (String(url).includes("chat.postMessage")) {
+          deliveryBodies.push(JSON.parse(String(init?.body ?? "{}")));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ok: true,
+                ts: `message-${deliveryBodies.length}`,
+              }),
+            ),
+          );
+        }
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }),
+    );
+    const message = { text: "x".repeat(8_100), platformContext: {} };
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      text: "make a design ask",
+      timestamp: 1,
+      platformContext: { channelId: "C123", threadTs: "123.456" },
+    };
+    const opts = {
+      idempotencyKey: "a2a-continuation:cont-1",
+      reconcileAfter: 1_783_979_263_000,
+    };
+
+    const firstReceipt = await slackAdapter().sendResponse(
+      message,
+      incoming,
+      opts,
+    );
+    const retryReceipt = await slackAdapter().sendResponse(
+      message,
+      incoming,
+      opts,
+    );
+
+    expect(deliveryBodies).toHaveLength(3);
+    expect(reconciliationCalls).toBe(2);
+    const markers = deliveryBodies.map(
+      (body) =>
+        (body.blocks as Array<{ block_id?: string }> | undefined)?.[0]
+          ?.block_id,
+    );
+    expect(new Set(markers).size).toBe(3);
+    expect(
+      markers.every(
+        (marker) =>
+          typeof marker === "string" &&
+          /^agent_native_terminal_[0-9a-f]{32}$/.test(marker),
+      ),
+    ).toBe(true);
+    expect(firstReceipt).toEqual({
+      status: "delivered",
+      messageRefs: ["message-1", "message-2", "message-3"],
+    });
+    expect(retryReceipt).toEqual(firstReceipt);
+    expect(reconciliationUrls[0]).toContain("oldest=1783979263");
+  });
+
+  it("fails closed when terminal delivery reconciliation is unavailable", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        deliveryUrls.push(String(url));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              String(url).includes("conversations.replies")
+                ? { ok: false, error: "ratelimited" }
+                : { ok: true, ts: "unexpected" },
+            ),
+          ),
+        );
+      }),
+    );
+
+    await expect(
+      slackAdapter().sendResponse(
+        { text: "done", platformContext: {} },
+        {
+          platform: "slack",
+          externalThreadId: "C123:123.456",
+          text: "make a design ask",
+          timestamp: 1,
+          platformContext: { channelId: "C123", threadTs: "123.456" },
+        },
+        { idempotencyKey: "a2a-continuation:cont-1" },
+      ),
+    ).rejects.toThrow("ratelimited");
+
+    expect(deliveryUrls.some((url) => url.includes("chat.postMessage"))).toBe(
+      false,
+    );
+  });
+
+  it("aborts a stalled reconciliation body before a fresh post outlives its claim", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const controller = new AbortController();
+    const deliveryUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        deliveryUrls.push(String(url));
+        return Promise.resolve({
+          json: () =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              );
+            }),
+        } as Response);
+      }),
+    );
+
+    const delivery = slackAdapter().sendResponse(
+      { text: "done", platformContext: {} },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a design ask",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+      {
+        idempotencyKey: "a2a-continuation:cont-1",
+        signal: controller.signal,
+      },
+    );
+    await vi.waitFor(() => expect(deliveryUrls).toHaveLength(1));
+    controller.abort(new Error("delivery claim expired"));
+
+    await expect(delivery).rejects.toThrow("delivery claim expired");
+    expect(deliveryUrls).toEqual([
+      expect.stringContaining("conversations.replies"),
+    ]);
+  });
+
+  it("does not replace a strict stable target with a fresh terminal post", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const deliveryUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        deliveryUrls.push(String(url));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              String(url).includes("chat.update")
+                ? { ok: false, error: "message_not_found" }
+                : { ok: true },
+            ),
+          ),
+        );
+      }),
+    );
+
+    await expect(
+      slackAdapter().sendResponse(
+        { text: "done", platformContext: {} },
+        {
+          platform: "slack",
+          externalThreadId: "C123:123.456",
+          text: "make a design ask",
+          timestamp: 1,
+          platformContext: { channelId: "C123", threadTs: "123.456" },
+        },
+        {
+          idempotencyKey: "a2a-continuation:cont-1",
+          placeholderRef: "1719000000.000001",
+          strictTargetRef: true,
+        },
+      ),
+    ).rejects.toThrow("message_not_found");
+
+    expect(deliveryUrls.some((url) => url.includes("chat.postMessage"))).toBe(
+      false,
+    );
   });
 
   it("fails delivery when no Slack bot token is configured", async () => {

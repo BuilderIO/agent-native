@@ -1,23 +1,14 @@
 import type {
   BuilderCmsModelSummary,
+  ContentDatabaseItem,
   ContentDatabaseResponse,
+  ContentDatabaseTableQuery,
 } from "@shared/api";
 // @vitest-environment happy-dom
 //
-// Narrow regression test for the create-row and Builder-attach error toasts
-// added on top of DatabaseView's `createRow` and the source Attach handler.
-// Both used to swallow mutation rejections silently; they now show
-// `toast.error(...)`. This test mounts the real, unmodified `DatabaseView`
-// (the smallest exported surface that contains both handlers — the inner
-// `DatabaseTable`/`DatabaseSettingsSourcePanel` components are not exported)
-// with every hook mocked to keep the database "empty" (no items, no
-// properties, no attached source) so none of the heavier row/property
-// subtrees mount. It only exercises two flows:
-//   1. Clicking "New" when `addItem.mutateAsync` rejects.
-//   2. Drilling into Settings -> Sources -> Builder -> a space -> a model and
-//      clicking "Attach" when `attachSource.mutateAsync` rejects, and
-//      confirming the success-only `onNavReplace([])` did not also run (the
-//      model leaf must still be showing, not the Sources root).
+// Mount the real DatabaseView with an empty mocked database so UI regressions
+// can cover its composed controls and mutation error paths without heavier row
+// and property subtrees.
 import type { QueryClient as QueryClientType } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -122,16 +113,28 @@ vi.mock("@agent-native/core/client/settings", () => ({
 
 vi.mock("@/hooks/use-content-database", () => ({
   isContentDatabaseUnavailable: () => false,
-  useContentDatabase: (documentId: string, limit: number) => {
-    contentDatabaseQueryMock(documentId, limit);
+  useContentDatabase: (
+    documentId: string,
+    limit: number,
+    tableQuery?: ContentDatabaseTableQuery,
+  ) => {
+    contentDatabaseQueryMock(documentId, limit, tableQuery);
     return {
       data: databaseResponse,
       isLoading: false,
-      isFetching: limit !== databasePagination.limit,
+      isFetching: limit !== databasePagination.limit || Boolean(tableQuery),
     };
   },
   useAddDatabaseItem: () => addItemMutation,
+  useAddContentDatabaseSourceFieldProperty: () => benignMutation,
   useAttachContentDatabaseSource: () => attachSourceMutation,
+  useBuilderCmsAttachPreview: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+  }),
+  writeBuilderAttachPreviewToCache: vi.fn(),
   useChangeContentDatabaseSourceRole: () => benignMutation,
   useRefreshContentDatabaseSource: () => benignMutation,
   useDisconnectContentDatabaseSource: () => benignMutation,
@@ -149,7 +152,8 @@ vi.mock("@/hooks/use-content-database", () => ({
   useContentDatabasePersonalView: () => ({ data: undefined, isLoading: false }),
   useUpdateContentDatabasePersonalView: () => benignMutation,
   useUpdateContentDatabaseView: () => benignMutation,
-  useDeleteDatabaseItems: () => benignMutation,
+  useRemoveDatabaseItems: () => benignMutation,
+  useDuplicateDatabaseItem: () => benignMutation,
   useDuplicateDatabaseItems: () => benignMutation,
   useMoveDatabaseItem: () => benignMutation,
   useBuilderCmsModels: () => builderCmsModelsQuery,
@@ -160,6 +164,14 @@ vi.mock("@/hooks/use-document-properties", () => ({
   useConfigureDocumentProperty: () => benignMutation,
 }));
 
+vi.mock("@/hooks/use-content-spaces", () => ({
+  useContentSpaces: () => ({
+    data: { spaces: [] },
+    isLoading: false,
+  }),
+  useDeleteContentSpace: () => benignMutation,
+}));
+
 vi.mock("@/hooks/use-documents", () => ({
   useDocument: () => ({ data: fakeDocument }),
   seedDatabaseItemDocumentCaches: vi.fn(),
@@ -167,6 +179,7 @@ vi.mock("@/hooks/use-documents", () => ({
   useUpdateDocument: () => benignMutation,
 }));
 
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { messagesByLocale } from "@/i18n-data";
 
 import { DatabaseView, defaultDatabaseViewConfig } from "./DatabaseView";
@@ -186,6 +199,7 @@ const databaseResponse: ContentDatabaseResponse = {
     id: "database-1",
     documentId: "document-1",
     title: "Test database",
+    systemRole: null,
     viewConfig: databaseViewConfig,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -206,6 +220,8 @@ const fakeDocument = {
   position: 0,
   isFavorite: false,
   hideFromSearch: false,
+  canEdit: true,
+  canManage: true,
   database: databaseResponse.database,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -227,7 +243,7 @@ function findButtonByText(container: HTMLElement, text: string) {
   );
 }
 
-describe("DatabaseView error toasts", () => {
+describe("DatabaseView UI regressions", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClientType;
@@ -241,6 +257,8 @@ describe("DatabaseView error toasts", () => {
     contentDatabaseQueryMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     attachSourceMutation.mutateAsync.mockReset();
+    benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
+    databaseResponse.items = [];
     databasePagination.totalItems = 0;
     databasePagination.hasMore = false;
 
@@ -279,16 +297,67 @@ describe("DatabaseView error toasts", () => {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter>
-            <DatabaseView
-              databaseId="database-1"
-              databaseDocumentId="document-1"
-            />
-          </MemoryRouter>
+          <AppToolkitProvider>
+            <MemoryRouter>
+              <DatabaseView
+                databaseId="database-1"
+                databaseDocumentId="document-1"
+              />
+            </MemoryRouter>
+          </AppToolkitProvider>
         </QueryClientProvider>,
       );
     });
   }
+
+  it("opens the main toolbar Sort and Filter menus with pointer and keyboard activation", async () => {
+    await renderDatabaseView();
+
+    const sortButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Sort"]',
+    );
+    const filterButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter"]',
+    );
+    expect(sortButton).toBeTruthy();
+    expect(filterButton).toBeTruthy();
+    expect(sortButton?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(filterButton?.getAttribute("aria-haspopup")).toBe("menu");
+
+    await act(async () => {
+      sortButton?.focus();
+      sortButton?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(sortButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector("[role=menu]")).toBeTruthy();
+
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(sortButton?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      filterButton?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(filterButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector("[role=menu]")).toBeTruthy();
+  });
 
   it("shows a toast and does not create a row when addItem.mutateAsync rejects", async () => {
     addItemMutation.mutateAsync.mockRejectedValue(new Error("network down"));
@@ -312,7 +381,7 @@ describe("DatabaseView error toasts", () => {
     );
   });
 
-  it("requests the whole bounded search window and hides the partial no-match state", async () => {
+  it("keeps search page-bounded and hides the partial no-match state", async () => {
     databasePagination.totalItems = 571;
     databasePagination.hasMore = true;
     await renderDatabaseView();
@@ -338,7 +407,11 @@ describe("DatabaseView error toasts", () => {
       await Promise.resolve();
     });
 
-    expect(contentDatabaseQueryMock).toHaveBeenCalledWith("document-1", 571);
+    expect(contentDatabaseQueryMock).toHaveBeenCalledWith(
+      "document-1",
+      100,
+      expect.objectContaining({ search: "Quiet Comet" }),
+    );
     expect(container.textContent).toContain(
       messagesByLocale["en-US"].database.loadingDatabase,
     );
@@ -407,5 +480,77 @@ describe("DatabaseView error toasts", () => {
     // root.
     expect(findButtonByText(container, "Attach")).toBeTruthy();
     expect(container.textContent).toContain("Article");
+  });
+
+  it("removes the confirmed selection snapshot without clearing newer selections", async () => {
+    const row = (id: string, title: string): ContentDatabaseItem => ({
+      id: `item-${id}`,
+      databaseId: "database-1",
+      document: {
+        id: `document-${id}`,
+        parentId: "document-1",
+        title,
+        content: "",
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        accessRole: "viewer",
+        canView: true,
+        canEdit: false,
+        canManage: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      position: 0,
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: null,
+        error: null,
+        version: null,
+      },
+    });
+    databaseResponse.items = [row("a", "Alpha"), row("b", "Beta")];
+    await renderDatabaseView();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Alpha"]')
+        ?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Remove")?.click();
+    });
+    expect(document.querySelector('[role="alertdialog"]')).toBeTruthy();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Beta"]')
+        ?.click();
+    });
+    const confirmRemove = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[role="alertdialog"] button',
+      ),
+    ].find((button) => button.textContent?.trim() === "Remove");
+    expect(confirmRemove).toBeTruthy();
+
+    await act(async () => {
+      confirmRemove?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
+      documentId: "document-1",
+      itemIds: ["item-a"],
+    });
+    expect(container.textContent).toContain("1 selected");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Deselect Beta"]',
+      ),
+    ).toBeTruthy();
   });
 });

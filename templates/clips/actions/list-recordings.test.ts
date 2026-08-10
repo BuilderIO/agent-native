@@ -82,7 +82,45 @@ vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(),
 }));
 
-import action, { resolveListRecordingMedia } from "./list-recordings";
+import action, {
+  mergeViewCounts,
+  resolveListRecordingMedia,
+} from "./list-recordings";
+
+describe("list-recordings view counts", () => {
+  it("counts one view per logged session, not per viewer", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: 3 }],
+        [{ recordingId: "rec-1", count: 11 }],
+      ),
+    ).toEqual({ "rec-1": 11 });
+  });
+
+  it("falls back to counted viewers for pre-migration clips", () => {
+    expect(mergeViewCounts([{ recordingId: "rec-1", count: 5 }], [])).toEqual({
+      "rec-1": 5,
+    });
+  });
+
+  it("never reports fewer views than counted viewers", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: 9 }],
+        [{ recordingId: "rec-1", count: 2 }],
+      ),
+    ).toEqual({ "rec-1": 9 });
+  });
+
+  it("normalizes driver-provided string counts", () => {
+    expect(
+      mergeViewCounts(
+        [{ recordingId: "rec-1", count: "2" }],
+        [{ recordingId: "rec-1", count: "6" }],
+      ),
+    ).toEqual({ "rec-1": 6 });
+  });
+});
 
 describe("list-recordings editor media", () => {
   it("coerces the editor media flag from GET query parameters", () => {

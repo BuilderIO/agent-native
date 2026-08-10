@@ -5,9 +5,9 @@ description: "Automatisations déclenchées et planifiées par des événements 
 
 # Automatisations
 
-Une **automatisation** est une règle : _quand X se produit, faites Y_ — décrite en langage naturel. L'agent exécute les instructions afin que les automatisations aient accès à chaque action, outil et serveur MCP que l'agent peut utiliser dans une discussion interactive.
+Une **automatisation** est une tâche exécutée par l'agent selon un calendrier ou lorsqu'un événement survient : _quand X se produit, faites Y_. **Scheduled** et **Event** sont deux types de déclencheurs, pas des produits distincts.
 
-Les automatisations étendent [recurring jobs](/docs/recurring-jobs) avec des **déclencheurs d'événements**, des **conditions en langage naturel** et des **HTTP sortants** via l'outil `web-request`. Ils utilisent le même format de fichier `jobs/<name>.md`, le même stockage et le même flux de travail de « création à trois voies » que les tâches récurrentes — voir [Recurring Jobs](/docs/recurring-jobs#job-file) pour le format partagé. Cette page couvre uniquement les nouveautés en matière d'automatisations basées sur des événements.
+Le framework présentait à l'origine les automatisations planifiées comme des **Recurring Jobs**. Ce nom, le chemin `jobs/<name>.md` et l'outil `manage-jobs` restent disponibles pour compatibilité. La nouvelle documentation utilise **Automations** comme terme générique ; consultez [Recurring Jobs](/docs/recurring-jobs) pour maintenir une ancienne tâche planifiée ou utiliser la portée organisation et les champs avancés.
 
 <Diagram id="doc-block-1vqdjiw" title="Quand X se produit, faites Y" summary={"Un événement se déclenche sur le bus, une condition facultative en langage naturel le contrôle et l'agent exécute le corps d'automatisation avec un accès complet aux outils."}>
 
@@ -72,9 +72,15 @@ Les déclencheurs d'événements peuvent inclure un `condition` : une chaîne e
 
 L'agent découvre les événements disponibles, confirme le plan et rédige l'automatisation pour vous.
 
-### Depuis les paramètres UI
+### Depuis l'interface Automations
 
-Les automatisations apparaissent dans le panneau des paramètres. Les utilisateurs peuvent les afficher, les activer/désactiver et les supprimer ici.
+Ouvrez **Automations** dans la page Agent complète pour afficher et gérer les automatisations planifiées et déclenchées par événement. L'URL de compatibilité reste `/agent#jobs`, afin que les liens et favoris existants continuent de fonctionner.
+
+<Callout tone="warning">
+
+`manage-automations` prend en charge les automatisations personnelles et d'organisation pour les déclencheurs Scheduled et Event. Les automatisations d'événement d'une organisation sont visibles par ses membres, mais s'exécutent toujours en tant que leur créateur ; les administrateurs peuvent les gérer sans changer cette identité.
+
+</Callout>
 
 Le troisième chemin (écriture manuelle du fichier `jobs/<name>.md` via `resourcePut`) fonctionne exactement comme pour [recurring jobs](/docs/recurring-jobs#creating). Pour une automatisation basée sur les événements, vous ajoutez le thème déclencheur d'événement ci-dessous à ce même fichier. Une tâche déclenchée par un événement définit `schedule: ""` et fournit `triggerType: event`, un nom `event` et un `condition` facultatif :
 
@@ -172,11 +178,11 @@ emit(
     customerEmail: "jane@example.com",
     total: 49.99,
   },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
-Le `owner` dans les étendues de métadonnées d'émission déclenchées par les automatisations : seules les automatisations appartenant au même utilisateur (ou les automatisations partagées) sont évaluées.
+Le `owner` des métadonnées d'émission détermine quelles automatisations se déclenchent. Les automatisations d'événement personnelles et d'organisation exigent une correspondance exacte avec `createdBy`.
 
 ## Conditions {#conditions}
 
@@ -228,7 +234,7 @@ Les clés sont des secrets ad hoc créés par les utilisateurs ou l'agent à des
 
 ## Outils d'agent {#agent-tools}
 
-Toutes les opérations d'automatisation sont accessibles via un seul outil `manage-automations` avec un paramètre `action` :
+Les automatisations personnelles et d'organisation utilisent `manage-automations` avec un paramètre `action` :
 
 | Actions       | Objectif                                                                                       |
 | ------------- | ---------------------------------------------------------------------------------------------- |
@@ -240,6 +246,8 @@ Toutes les opérations d'automatisation sont accessibles via un seul outil `mana
 | `fire-test`   | Émettre un événement `test.event.fired` pour valider les automatisations                       |
 
 Outil supplémentaire : `web-request` — HTTP sortant avec substitution `${keys.NAME}`.
+
+`manage-automations` prend en charge la portée organisation, les remplacements de modèle et les listes d'autorisation MCP strictement appliquées. `manage-jobs` reste disponible pour les anciennes intégrations uniquement planifiées et les métadonnées de livraison.
 
 ## Points de terminaison API {#api}
 
@@ -280,7 +288,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -361,6 +370,7 @@ notification à mon webhook."_
 
 ```yaml
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"

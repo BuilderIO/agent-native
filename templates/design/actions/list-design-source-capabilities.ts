@@ -1,13 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { DESIGN_CAPABILITY_NAMES } from "../shared/design-source-capabilities.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -57,9 +55,8 @@ export default defineAction({
           typeof rawData === "string" ? JSON.parse(rawData) : {};
         const connectionId = designConnectionIdFromData(rawDesignData);
 
-        const ownerEmail = getRequestUserEmail();
-        const orgId = getRequestOrgId() ?? null;
-        if (connectionId && ownerEmail) {
+        if (connectionId && getRequestUserEmail()) {
+          const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
           const [conn] = await db
             .select({
               capabilities: schema.designLocalhostConnections.capabilities,

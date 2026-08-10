@@ -43,6 +43,13 @@ import {
   resolveDocBlockType,
   type DocSegment,
 } from "../../lib/doc-block-segments";
+import { accordionBlock } from "./blocks/accordion";
+import { badgeBlock } from "./blocks/badge";
+import { bannerBlock } from "./blocks/banner";
+import { cardsBlock } from "./blocks/cards";
+import { comparisonBlock } from "./blocks/comparison";
+import { noticeBlock } from "./blocks/notice";
+import { stepsBlock } from "./blocks/steps";
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 export {
@@ -69,6 +76,14 @@ function getDocBlockRegistry(): BlockRegistry {
   if (cachedRegistry) return cachedRegistry;
   const registry = new BlockRegistry();
   registerLibraryBlocks(registry);
+  // Docs-specific blocks (not in the shared library)
+  registry.register(stepsBlock);
+  registry.register(cardsBlock);
+  registry.register(comparisonBlock);
+  registry.register(noticeBlock);
+  registry.register(bannerBlock);
+  registry.register(accordionBlock);
+  registry.register(badgeBlock);
   cachedRegistry = registry;
   return registry;
 }
@@ -211,7 +226,7 @@ export function DocBlock({
   if (segment.source === "mdx") {
     data = segment.data;
   } else if (type === "mermaid") {
-    data = { code: segment.body.trim() };
+    data = { source: segment.body.trim() };
   } else {
     const trimmed = segment.body.trim();
     if (!trimmed) {

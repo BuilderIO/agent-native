@@ -10,6 +10,7 @@
  *
  * Supported presets:
  * - cloudflare_pages: Outputs dist/ with _worker.js for Cloudflare Pages
+ * - cloudflare_module: Outputs a native Cloudflare Worker under .output/server
  *
  * Usage: node deploy/build.js (called automatically by `agent-native build`)
  */
@@ -22,18 +23,31 @@ import { fileURLToPath } from "url";
 
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
+  AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_BACKGROUND_PROCESSOR_A2A,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import {
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
+  INTEGRATION_RETRY_SWEEP_PATH,
+  INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isIntegrationDurableDispatchConfigured,
+} from "../integrations/integration-durable-dispatch-config.js";
+import { isValidCron } from "../jobs/cron.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
-  DEFAULT_SSR_CDN_CACHE_CONTROL,
-  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
-  DEFAULT_SSR_CACHE_CONTROL,
+  resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
@@ -45,6 +59,11 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
+import { cloneServerBundleForFunction, copyDir } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -67,6 +86,171 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+export const CLOUDFLARE_MODULE_PRESETS = [
+  "cloudflare_module",
+  "cloudflare-module",
+] as const;
+
+export function isCloudflareModulePreset(targetPreset: string): boolean {
+  return (CLOUDFLARE_MODULE_PRESETS as readonly string[]).includes(
+    targetPreset,
+  );
+}
+
+export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
+
+export function generateCloudflareModuleWorkerEntry(): string {
+  return `let handler;
+
+export * from "./index.mjs";
+
+async function loadHandler() {
+  handler ??= (await import("./index.mjs")).default;
+  return handler;
+}
+
+function initializeBindings(env) {
+  if (!env) return;
+  globalThis.__cf_env = env;
+  globalThis.__env__ = env;
+  globalThis.process = globalThis.process || { env: {} };
+  globalThis.process.env = globalThis.process.env || {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") globalThis.process.env[key] = value;
+  }
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    if (typeof ctx?.waitUntil === "function") {
+      request.waitUntil = ctx.waitUntil.bind(ctx);
+    }
+    initializeBindings(env);
+    return (await loadHandler()).fetch(request, env, ctx);
+  },
+  async scheduled(controller, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).scheduled?.(controller, env, ctx);
+  },
+  async email(message, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).email?.(message, env, ctx);
+  },
+  async queue(batch, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).queue?.(batch, env, ctx);
+  },
+  async tail(traces, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).tail?.(traces, env, ctx);
+  },
+  async trace(traces, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).trace?.(traces, env, ctx);
+  },
+};
+`;
+}
+
+export function patchCloudflareModuleNitroEntry(code: string): string {
+  const factoryMatch = code.match(
+    /function ([A-Za-z_$][\w$]*)\(e\)\{let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\),([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\);return\{async fetch\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{/,
+  );
+  if (!factoryMatch) {
+    throw new Error(
+      "[deploy] Could not find Nitro's Cloudflare module handler factory",
+    );
+  }
+
+  const [
+    ,
+    factoryName,
+    handlerName,
+    handlerFactoryName,
+    hooksName,
+    hooksFactoryName,
+    requestName,
+    envName,
+    contextName,
+  ] = factoryMatch;
+  const eagerInitialization = `let ${handlerName}=${handlerFactoryName}(),${hooksName}=${hooksFactoryName}();`;
+  if (!code.includes(eagerInitialization)) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler changed its initialization shape`,
+    );
+  }
+
+  const bindingMatch = code.match(
+    new RegExp(
+      `globalThis\\.__env__=${envName},([A-Za-z_$][\\w$]*)\\(${requestName},\\{env:${envName},context:${contextName}\\}\\);?`,
+    ),
+  );
+  if (!bindingMatch) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler does not initialize Cloudflare bindings as expected`,
+    );
+  }
+  const bindingInitialization = bindingMatch[0];
+
+  let patched = code.replace(
+    eagerInitialization,
+    `let ${handlerName},${hooksName};`,
+  );
+  patched = patched.replace(
+    bindingInitialization,
+    `${bindingInitialization}${handlerName}??=${handlerFactoryName}();`,
+  );
+  const hookCall = `${hooksName}.callHook(`;
+  if (!patched.includes(hookCall)) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler has no Cloudflare lifecycle hooks`,
+    );
+  }
+  patched = patched
+    .split(hookCall)
+    .join(`(${hooksName}??=${hooksFactoryName}()).callHook(`);
+
+  return patched;
+}
+
+export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
+  const configPath = path.join(serverDir, "wrangler.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${configPath} for cloudflare_module`,
+    );
+  }
+  const nitroEntryPath = path.join(serverDir, "index.mjs");
+  if (!fs.existsSync(nitroEntryPath)) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${nitroEntryPath} for cloudflare_module`,
+    );
+  }
+
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    main?: string;
+    compatibility_flags?: unknown;
+    [key: string]: unknown;
+  };
+  config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
+  const compatibilityFlags = Array.isArray(config.compatibility_flags)
+    ? config.compatibility_flags.filter(
+        (flag): flag is string => typeof flag === "string",
+      )
+    : [];
+  config.compatibility_flags = [
+    ...new Set([...compatibilityFlags, "nodejs_compat"]),
+  ];
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  fs.writeFileSync(
+    nitroEntryPath,
+    patchCloudflareModuleNitroEntry(fs.readFileSync(nitroEntryPath, "utf8")),
+  );
+  fs.writeFileSync(
+    path.join(serverDir, CLOUDFLARE_MODULE_WORKER_ENTRY),
+    generateCloudflareModuleWorkerEntry(),
+  );
+}
 export const NITRO_RUNTIME_IGNORE_PATTERNS = [
   "**/*.spec.ts",
   "**/*.spec.tsx",
@@ -692,6 +876,10 @@ export function generateWorkerEntry(
   options: GenerateWorkerEntryOptions = {},
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
+  // The worker ships as a static bundle with no access to runtime env, so the
+  // deployment-wide SSR cache policy is baked in from this build's env.
+  const ssrCacheHeaders = resolveSsrCacheHeaders();
+  const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -729,20 +917,48 @@ export function generateWorkerEntry(
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
     const varName = `action_${i}`;
+    const handlerName = `action_handler_${i}`;
     actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
     // Mirror the runtime mount (action-routes.ts): `path = http?.path ?? name`.
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
-      `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
+      `  const ${handlerName} = defineEventHandler(async (event) => {
+    const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
+    const requestMethod = event.req.method;
+    const isFrontendMutation =
+      event.req.headers.get("x-agent-native-frontend") === "1" &&
+      ["POST", "PUT", "DELETE"].includes(configuredMethod) &&
+      ["POST", "PUT", "DELETE"].includes(requestMethod);
+    if (requestMethod !== configuredMethod && !isFrontendMutation) {
+      return new Response(
+        JSON.stringify({ error: \`Method not allowed. Use \${configuredMethod}.\` }),
+        { status: 405, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
-      const result = await ${varName}.run(params, { caller: "http" });
+      const caller =
+        event.req.headers.get("x-agent-native-frontend") === "1"
+          ? "frontend"
+          : "http";
+      const result = await ${varName}.run(params, { caller });
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
       return new Response(JSON.stringify({ error: err?.message || "Action failed" }), { status: err?.message?.startsWith("Invalid action parameters") ? 400 : 500, headers: { "Content-Type": "application/json" } });
     }
-  }));`,
+  });
+  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, ${handlerName});
+${["post", "put", "delete"]
+  .filter(
+    (method) =>
+      method !== a.method && ["post", "put", "delete"].includes(a.method),
+  )
+  .map(
+    (method) =>
+      `  app.on(${JSON.stringify(method.toUpperCase())}, ${JSON.stringify(routePath)}, ${handlerName});`,
+  )
+  .join("\n")}`,
     );
   }
 
@@ -884,7 +1100,9 @@ function requestWithMountedApiPrefixStripped(request) {
     return request;
   }
   url.pathname = strippedPathname;
-  return new Request(url, request);
+  const rewritten = new Request(url, request);
+  rewritten.waitUntil = request.waitUntil;
+  return rewritten;
 }
 
 function prefixMountedPath(path, basePath) {
@@ -951,6 +1169,59 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getPostHogClientConfigScript() {
+  // MUST stay consistent with resolvePublicPostHogConfig in
+  // server/posthog-config.ts (worker bundles a string copy; it can't import it).
+  // Never falls back to POSTHOG_API_KEY — that key can be a private one and
+  // this string is inlined into the public, CDN-cached HTML shell.
+  const env = globalThis.process?.env || {};
+  const posthogKey = firstNonEmpty(
+    env.POSTHOG_PUBLIC_KEY,
+    env.VITE_POSTHOG_KEY,
+    env.VITE_POSTHOG_PUBLIC_KEY,
+  );
+  if (!posthogKey) return null;
+  const posthogHost = (
+    firstNonEmpty(
+      env.POSTHOG_PUBLIC_HOST,
+      env.VITE_POSTHOG_HOST,
+      env.POSTHOG_HOST,
+    ) || "https://us.i.posthog.com"
+  ).replace(/\\/+$/, "");
+  const config = {
+    posthogKey,
+    posthogHost,
+    posthogErrorTracking:
+      (env.POSTHOG_ERROR_TRACKING || "").trim().toLowerCase() !== "false",
+  };
+  return (
+    '<script data-agent-native-posthog-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
+function getRealtimeClientConfigScript() {
+  // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
+  // server/sentry-config.ts (worker bundles a string copy; it can't import it).
+  // Fail closed: require BOTH hosted transport AND an explicit gateway URL — no
+  // production default, since this ships into the CDN-cached shell.
+  const env = globalThis.process?.env || {};
+  if (firstNonEmpty(env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
+    return null;
+  }
+  const gatewayBaseUrl = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
+  if (!gatewayBaseUrl) return null;
+  const config = { realtime: { transport: "hosted", gatewayBaseUrl } };
+  return (
+    '<script data-agent-native-realtime-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function injectHeadScript(html, script) {
   if (!script) return html;
   const headCloseIdx = html.indexOf("</head>");
@@ -958,9 +1229,9 @@ function injectHeadScript(html, script) {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
-const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
-const DEFAULT_SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};
+// Resolved from AGENT_NATIVE_SSR_CACHE at build time.
+const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
+const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1058,13 +1329,12 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     else headers.delete("vary");
   }
 
-  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
-  headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
-  // Netlify function responses are dynamic by default and can otherwise show
-  // Cache-Status fwd=bypass even with Cache-Control: public. Keep this
-  // Netlify-specific header so SSR HTML/.data are served from the shared
-  // durable CDN cache instead of stampeding origin — for every visitor.
-  headers.set("netlify-cdn-cache-control", DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
+  for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
+    headers.set(name, value);
+  }
+  for (const [name, value] of Object.entries(SSR_CACHE_KEY_HEADERS)) {
+    headers.set(name, value);
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -1102,7 +1372,14 @@ function applyImmutableAssetCacheHeaders(response, request) {
 }
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -1129,7 +1406,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(request, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,
@@ -1314,8 +1591,10 @@ ${
 
 export default {
   async fetch(request, env, ctx) {
-    // Expose env and ctx bindings globally for compatibility
-    if (ctx) globalThis.__cf_ctx = ctx;
+    // Attach the request-scoped continuation hook before any URL rewrite.
+    if (typeof ctx?.waitUntil === "function") {
+      request.waitUntil = ctx.waitUntil.bind(ctx);
+    }
     if (env) {
       globalThis.process = globalThis.process || { env: {} };
       globalThis.process.env = globalThis.process.env || {};
@@ -1485,6 +1764,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
+  // guard:allow-raw-color - static shell loads before app theme tokens exist
   return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
@@ -1782,7 +2062,8 @@ async function buildCloudflarePages() {
   // fails: context-xray token counts fall back to char/4 estimates and the
   // OG image route falls back to SVG.
   const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.filter(
-    (p) => !Object.hasOwn(CLOUDFLARE_WORKER_STUB_MODULES, p),
+    (p) =>
+      !Object.prototype.hasOwnProperty.call(CLOUDFLARE_WORKER_STUB_MODULES, p),
   ).map((p) => `--external:${p}`);
 
   execFileSync(
@@ -2084,46 +2365,7 @@ function getDirSize(dir: string): number {
   return size;
 }
 
-export function copyDir(
-  src: string,
-  dest: string,
-  ancestorRealPaths = new Set<string>(),
-) {
-  const realSrc = fs.realpathSync(src);
-  if (ancestorRealPaths.has(realSrc)) return;
-  const nextAncestorRealPaths = new Set(ancestorRealPaths);
-  nextAncestorRealPaths.add(realSrc);
-
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isSymbolicLink()) {
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(srcPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          console.warn(
-            `[deploy] Skipping broken symlink while copying ${srcPath}`,
-          );
-          continue;
-        }
-        throw error;
-      }
-      if (stat.isDirectory()) {
-        copyDir(srcPath, destPath, nextAncestorRealPaths);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-      }
-    } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, nextAncestorRealPaths);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
+export { copyDir };
 
 const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "darwin-arm64",
@@ -2139,6 +2381,46 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
+const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
+  "@sparticuz/chromium",
+  "playwright-core",
+] as const;
+const SERVERLESS_BROWSER_RUNTIME_CONSUMER = "@agent-native/creative-context";
+const PACKAGE_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+  "devDependencies",
+  "peerDependencies",
+];
+
+// Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
+// and 32-bit-arm prebuilds of these native packages are ~100MB that can never
+// execute there, and Netlify copies the whole server dir again for every extra
+// emitted function — so the dead weight is paid once per function. Cold start
+// scales with bundle size, and a page that opens several requests at once
+// scales out to that many cold containers, which is how this surfaces: 502/504
+// on the first burst rather than as an obviously slow deploy.
+const SERVERLESS_NATIVE_PACKAGE_SUFFIXES = [
+  "linux-x64-gnu",
+  "linux-x64-musl",
+  "linux-arm64-gnu",
+  "linux-arm64-musl",
+];
+
+export function isServerlessNativePlatformPackage(
+  packageName: string,
+): boolean {
+  return SERVERLESS_NATIVE_PACKAGE_SUFFIXES.some((suffix) =>
+    packageName.endsWith(suffix),
+  );
+}
+
+// Names a prebuild package by the platform it targets: `darwin-arm64`,
+// `resvg-js-win32-ia32-msvc`, `linux-x64-gnu`. Matching only says "this is a
+// per-platform prebuild"; isServerlessNativePlatformPackage decides whether it
+// can run in the function.
+const SERVERLESS_PLATFORM_PACKAGE_NAME =
+  /(?:^|-)(?:darwin|win32|linux|android|freebsd)-[a-z0-9]+(?:-[a-z0-9]+)?$/;
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
 const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
@@ -2188,6 +2470,216 @@ function nodeModulesAncestors(startDir: string): string[] {
     current = parent;
   }
   return dirs;
+}
+
+function readPackageManifest(
+  packageDir: string,
+): Record<string, unknown> | null {
+  const packageJsonPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) return null;
+  const manifest: unknown = JSON.parse(
+    fs.readFileSync(packageJsonPath, "utf8"),
+  );
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return null;
+  }
+  return manifest as Record<string, unknown>;
+}
+
+function manifestDeclaresDependency(
+  manifest: Record<string, unknown> | null,
+  packageName: string,
+): boolean {
+  if (!manifest) return false;
+  return PACKAGE_DEPENDENCY_FIELDS.some((field) => {
+    const deps = manifest[field];
+    if (!deps || typeof deps !== "object" || Array.isArray(deps)) return false;
+    return Object.prototype.hasOwnProperty.call(deps, packageName);
+  });
+}
+
+/**
+ * Which dependency gives this app a path to the serverless browser runtime, or
+ * null when it has none. Resolution cannot answer this: findInstalledPackageRoot
+ * falls back to an ancestor + .pnpm store walk, so in a workspace every app
+ * "resolves" the sibling package that actually declares Chromium and ships its
+ * ~80MB into every emitted function.
+ */
+export function findServerlessBrowserRuntimeConsumer(
+  projectCwd = cwd,
+): string | null {
+  const manifest = readPackageManifest(projectCwd);
+  for (const packageName of [
+    ...SERVERLESS_BROWSER_RUNTIME_PACKAGES,
+    SERVERLESS_BROWSER_RUNTIME_CONSUMER,
+  ]) {
+    if (manifestDeclaresDependency(manifest, packageName)) return packageName;
+    const linked = path.join(
+      projectCwd,
+      "node_modules",
+      ...packageName.split("/"),
+    );
+    if (fs.existsSync(linked)) return packageName;
+  }
+  return null;
+}
+
+function packageRootFromResolvedPath(
+  packageName: string,
+  resolvedPath: string,
+): string | null {
+  let current = path.dirname(resolvedPath);
+  while (true) {
+    const manifest = readPackageManifest(current);
+    if (manifest?.name === packageName) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+export function findInstalledPackageRoot(
+  packageName: string,
+  nodeModulesRoots: string[],
+  fromPackageDir?: string,
+): string | null {
+  if (fromPackageDir) {
+    try {
+      const requireFromPackage = createRequire(
+        path.join(fromPackageDir, "package.json"),
+      );
+      const resolvedPath = requireFromPackage.resolve(packageName);
+      const resolvedRoot = packageRootFromResolvedPath(
+        packageName,
+        resolvedPath,
+      );
+      if (resolvedRoot) return resolvedRoot;
+      // coercion-ok: resolution failure means this optional store lookup is absent.
+    } catch {
+      // The dependency may be available only through the workspace pnpm store.
+    }
+  }
+
+  const packagePath = packageName.split("/");
+  const pnpmPrefix = `${packageName.replace("/", "+")}@`;
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, ...packagePath);
+    if (readPackageManifest(direct)?.name === packageName) return direct;
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(pnpmRoot, entry, "node_modules", ...packagePath);
+      if (readPackageManifest(nested)?.name === packageName) return nested;
+    }
+  }
+  return null;
+}
+
+function copyRuntimePackageTree(
+  packageName: string,
+  packageDir: string,
+  serverDir: string,
+  nodeModulesRoots: string[],
+  copiedPackages: Set<string>,
+): number {
+  if (copiedPackages.has(packageName)) return 0;
+  copiedPackages.add(packageName);
+
+  const destination = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  copyDir(packageDir, destination);
+
+  const manifest = readPackageManifest(packageDir);
+  const dependencies = manifest?.dependencies;
+  if (!dependencies || typeof dependencies !== "object") return 1;
+
+  let copiedCount = 1;
+  for (const dependencyName of Object.keys(
+    dependencies as Record<string, unknown>,
+  )) {
+    const dependencyDir = findInstalledPackageRoot(
+      dependencyName,
+      nodeModulesRoots,
+      packageDir,
+    );
+    if (!dependencyDir) {
+      throw new Error(
+        `[deploy] Could not resolve ${dependencyName}, required by ${packageName}, for the serverless browser runtime.`,
+      );
+    }
+    copiedCount += copyRuntimePackageTree(
+      dependencyName,
+      dependencyDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+  return copiedCount;
+}
+
+export function copyInstalledBrowserRuntimePackages(
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): number {
+  if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  const nodeModulesRoots = nodeModulesAncestors(projectCwd);
+  const consumer = findServerlessBrowserRuntimeConsumer(projectCwd);
+  if (!consumer) {
+    const skippedBytes = SERVERLESS_BROWSER_RUNTIME_PACKAGES.reduce(
+      (total, packageName) => {
+        const packageDir = findInstalledPackageRoot(
+          packageName,
+          nodeModulesRoots,
+        );
+        return packageDir ? total + getDirSize(packageDir) : total;
+      },
+      0,
+    );
+    console.log(
+      `[deploy] Skipped the serverless browser runtime (${SERVERLESS_BROWSER_RUNTIME_PACKAGES.join(
+        ", ",
+      )}): this app depends on neither ${SERVERLESS_BROWSER_RUNTIME_CONSUMER} ` +
+        `nor a browser package. Kept ${(skippedBytes / 1024 / 1024).toFixed(1)}MB out of every emitted function.`,
+    );
+    return 0;
+  }
+
+  const copiedPackages = new Set<string>();
+  let copiedCount = 0;
+  for (const packageName of SERVERLESS_BROWSER_RUNTIME_PACKAGES) {
+    const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
+    if (!packageDir) continue;
+    copiedCount += copyRuntimePackageTree(
+      packageName,
+      packageDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+
+  if (copiedCount === 0) {
+    // Not the same as the skip above: the app asked for the browser runtime and
+    // the build could not find it, so anything that opens a browser will fail
+    // at runtime instead of at build time.
+    console.warn(
+      `[deploy] ${consumer} needs the serverless browser runtime but none of ` +
+        `${SERVERLESS_BROWSER_RUNTIME_PACKAGES.join(", ")} is installed; the function ships without it.`,
+    );
+    return 0;
+  }
+
+  console.log(
+    `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle (required by ${consumer}).`,
+  );
+  return copiedCount;
 }
 
 function findInstalledLibsqlNativePackage(
@@ -2321,28 +2813,322 @@ export function findInstalledResvgPackages(
 
 /**
  * Deploy-time gate for emitting the second `-background` Netlify function.
- * Reads the same env flag the runtime gate uses
- * (`AGENT_CHAT_DURABLE_BACKGROUND`).
- *
- * DEFAULT-OFF (opt-in), matching the runtime gate (`isFlagEnabled` in
- * durable-background.ts): unset/empty/unknown means DISABLED; an app opts IN
- * only with an explicit truthy value (`true`/`1`/`yes`/`on`). A premature
- * fleet-wide default-on caused real-user incidents (2026-06-24) before the
- * async worker path was proven, so durable is opt-in until verified live. This
- * gate is what emits the 15-min `-background` function so the `_process-run`
- * dispatch lands on it (async 202 → the worker runs with the real 15-min budget
- * → its ~13-min soft-timeout fits). The deploy gate and runtime gate MUST agree:
- * if the deploy emitted no `-background` function but the runtime still routed
- * the worker into the ~13-min timeout regime, the worker would overshoot the
- * ~60s synchronous wall and re-dispatch in a loop. (The runtime now also guards
- * the ~13-min budget on the real function name via `isInBackgroundFunctionRuntime`,
- * so a missing emit degrades to clean 40s-chunked runs rather than the loop.)
+ * Netlify deploys are default-on; an explicit falsy
+ * `AGENT_CHAT_DURABLE_BACKGROUND` value opts out. This is called only from the
+ * Netlify preset, so non-Netlify builds remain unaffected. The gate and runtime
+ * default must agree: otherwise the runtime could target a worker that the
+ * deploy did not emit.
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
-  const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return false;
-  const v = raw.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
+  return !isDurableBackgroundFlagExplicitlyDisabled();
+}
+
+/**
+ * True when this build MUST ship the `-background` function: either the chat
+ * opt-in or the integration durable dispatch depends on it at runtime.
+ */
+function isDurableBackgroundEmitRequired(): boolean {
+  return (
+    isDurableBackgroundDeployEnabled() ||
+    isIntegrationDurableDispatchDeployEnabled() ||
+    isRecurringJobsDeployEnabled()
+  );
+}
+
+export const NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME =
+  "server-integration-recovery";
+
+export function isIntegrationDurableDispatchDeployEnabled(): boolean {
+  return isIntegrationDurableDispatchConfigured();
+}
+
+const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
+export const NETLIFY_RECURRING_JOBS_FUNCTION_NAME =
+  "agent-native-recurring-jobs";
+
+/** Shared shape for the `AGENT_NATIVE_DISABLE_*` build kill switches. */
+function isDisabledByEnv(name: string): boolean {
+  const value = process.env[name]?.trim();
+  return !!value && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+export function isRecurringJobsDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS");
+}
+
+/**
+ * Keep-warm is ON by default, and on a provisioned database that is the right
+ * default. It is the wrong default on a metered scale-to-zero tier: a
+ * once-a-minute wake means autosuspend NEVER fires, so the endpoint bills (and
+ * quota-limits) as if it were awake 100% of the time with zero users online. On
+ * a free-tier Neon that exhausts the compute quota and the database then
+ * hard-blocks every read mid-session — the symptom is a dead app, not a slow one.
+ */
+export function isKeepWarmDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM");
+}
+
+/**
+ * The background warm is a separate, much more expensive knob than the server
+ * warm and gets its own switch. Warming `server` is one health request; warming
+ * the `-background` Lambda is a *fresh container*, so every ping pays the full
+ * on-demand `ensureTable()` schema-probe fan-out (hundreds of
+ * `information_schema` round trips) before it does anything. At the default
+ * cadence that is ~1,440 manufactured cold starts a day that no user asked for.
+ * Turn this off to keep dispatch-latency protection for the server function
+ * while dropping the probe storm.
+ */
+export function isKeepWarmBackgroundDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND");
+}
+
+const DEFAULT_KEEP_WARM_SCHEDULE = "* * * * *";
+
+/**
+ * Cadence for the keep-warm schedule, overridable with
+ * `AGENT_NATIVE_KEEP_WARM_SCHEDULE` (standard 5-field cron).
+ *
+ * An unparseable value THROWS rather than falling back to the default. Falling
+ * back would leave an operator who set this specifically to stop burning
+ * database quota still burning it at the original once-a-minute cadence, with a
+ * successful build and nothing in the log to say the value was ignored.
+ */
+export function resolveKeepWarmSchedule(): string {
+  const raw = process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE?.trim();
+  if (!raw) return DEFAULT_KEEP_WARM_SCHEDULE;
+  const fields = raw.split(/\s+/);
+  // The field count is checked separately from the field values because
+  // `isValidCron` also accepts 6-field (seconds) and `@daily` forms that
+  // Netlify's scheduler does not; "5 fields" is the narrower contract.
+  if (fields.length !== 5 || !isValidCron(raw)) {
+    throw new Error(
+      `AGENT_NATIVE_KEEP_WARM_SCHEDULE must be a 5-field cron expression ` +
+        `(minute hour day month weekday); got "${raw}" (${fields.length} field(s)). ` +
+        `Example: "*/5 * * * *" for every five minutes.`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * Emit a site-local Netlify Scheduled Function that wakes the public server
+ * function and its database every minute. GitHub Actions schedules can be
+ * delayed by tens of minutes, which is longer than a scale-to-zero database's
+ * autosuspend window and leaves the next visitor to pay the cold-start cost.
+ *
+ * Both halves are opt-out and the cadence is configurable — see
+ * `isKeepWarmDeployEnabled`, `isKeepWarmBackgroundDeployEnabled`, and
+ * `resolveKeepWarmSchedule`. The tradeoff this function encodes is next-visitor
+ * latency against database awake-time, and only the deployment knows which of
+ * those it is paying for.
+ */
+export function emitSingleTemplateNetlifyKeepWarmFunction(
+  projectCwd: string,
+): void {
+  if (!isKeepWarmDeployEnabled()) {
+    console.log(
+      "[build] Keep-warm emit skipped: AGENT_NATIVE_DISABLE_KEEP_WARM is set. " +
+        "The database is free to autosuspend; the next visitor after an idle " +
+        "period pays its cold start.",
+    );
+    return;
+  }
+  // Resolved before anything is removed or written, so a bad cron fails the
+  // build rather than leaving a wiped/half-emitted function directory behind.
+  const keepWarmSchedule = resolveKeepWarmSchedule();
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverBundle = path.join(internalDir, "server", "main.mjs");
+  if (!fs.existsSync(serverBundle)) {
+    console.warn(
+      "[build] Keep-warm emit skipped: expected Nitro Netlify function at " +
+        ".netlify/functions-internal/server/main.mjs was not found.",
+    );
+    return;
+  }
+
+  const dest = path.join(internalDir, NETLIFY_KEEP_WARM_FUNCTION_NAME);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+
+  // The background Lambda is a SEPARATE container from `server`: warming the
+  // health route never touches it, so it cold-started on essentially every
+  // dispatch (18.4s observed to reach the agent loop). A POST with no runId is
+  // rejected by the `_process-run` route before any DB work, so this only keeps
+  // the container alive.
+  const backgroundEntryPath = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  const backgroundWarmPath =
+    isKeepWarmBackgroundDeployEnabled() &&
+    isDurableBackgroundEmitRequired() &&
+    fs.existsSync(backgroundEntryPath)
+      ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
+      : "null";
+  const entry = `const HEALTH_PATH = "/_agent-native/health";
+const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
+const REQUEST_TIMEOUT_MS = 25_000;
+
+function siteOrigin(request) {
+  return new URL(request.url).origin;
+}
+
+async function warmBackgroundFunction(origin) {
+  if (!BACKGROUND_WARM_PATH) return;
+  const url = new URL(BACKGROUND_WARM_PATH, origin);
+  try {
+    // Best-effort: an unwarmed background function is a latency problem, not a
+    // reason to fail the scheduled run that also warms the server + database.
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": "agent-native-netlify-keep-warm",
+      },
+      body: "{}",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    console.log("[agent-native-keep-warm] Warmed", url.toString(), response.status);
+  } catch (error) {
+    console.warn("[agent-native-keep-warm] Background warm failed:", url.toString(), error);
+  }
+}
+
+export default async function handler(request) {
+  const origin = siteOrigin(request);
+  const backgroundWarm = warmBackgroundFunction(origin);
+  const url = new URL(HEALTH_PATH, origin);
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { "user-agent": "agent-native-netlify-keep-warm" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.error("[agent-native-keep-warm] Health request failed:", url.toString(), error);
+    throw error;
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      "[agent-native-keep-warm] Health request failed with " +
+        response.status +
+        ": " +
+        body.slice(0, 500),
+    );
+  }
+
+  await backgroundWarm;
+  console.log("[agent-native-keep-warm] Warmed", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: "agent-native server keep warm",
+  generator: "agent-native build",
+  schedule: ${JSON.stringify(keepWarmSchedule)},
+  nodeBundler: "none",
+};
+`;
+
+  fs.writeFileSync(
+    path.join(dest, `${NETLIFY_KEEP_WARM_FUNCTION_NAME}.mjs`),
+    entry,
+  );
+  console.log(
+    `[build] Emitted Netlify scheduled keep-warm function ` +
+      `"${NETLIFY_KEEP_WARM_FUNCTION_NAME}" (schedule "${keepWarmSchedule}", ` +
+      `background warm ${backgroundWarmPath === "null" ? "off" : "on"}).`,
+  );
+}
+
+/**
+ * Emit the durable recurring-job trigger. Netlify's scheduled function only
+ * hands off work; the existing `-background` function owns the long sweep so
+ * a model run is not constrained by the synchronous scheduled-function wall.
+ */
+export function emitSingleTemplateNetlifyRecurringJobsFunction(
+  projectCwd: string,
+): void {
+  if (!isRecurringJobsDeployEnabled()) return;
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const backgroundEntry = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  if (!fs.existsSync(backgroundEntry)) {
+    throw new Error(
+      "[build] Recurring-job trigger cannot be emitted without the durable background function.",
+    );
+  }
+
+  const functionName = NETLIFY_RECURRING_JOBS_FUNCTION_NAME;
+  const dest = path.join(internalDir, functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+  const entry = `import { createHmac } from "node:crypto";
+
+const BACKGROUND_PATH = ${JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)};
+const SWEEP_PATH = ${JSON.stringify(RECURRING_JOBS_SWEEP_PATH)};
+const TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+const PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+
+function siteOrigin(request) {
+  return new URL(request.url).origin;
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`\${TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+export default async function handler(request) {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const url = new URL(BACKGROUND_PATH, siteOrigin(request));
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+      "user-agent": "agent-native-recurring-jobs",
+    },
+    body: JSON.stringify({
+      [PROCESSOR_FIELD]: PROCESSOR_ROUTE,
+      [PROCESSOR_ROUTE_FIELD]: SWEEP_PATH,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      \`[recurring-jobs] Durable sweep handoff failed (\${response.status}): \${body.slice(0, 500)}\`,
+    );
+  }
+  console.log("[recurring-jobs] Durable sweep handed off", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: "agent-native recurring jobs",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+  console.log(
+    `[build] Emitted Netlify scheduled recurring-job function "${functionName}".`,
+  );
 }
 
 /**
@@ -2413,12 +3199,15 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverDir = path.join(internalDir, "server");
   if (!fs.existsSync(path.join(serverDir, "main.mjs"))) {
-    // Nitro output layout differs from what we expected — skip rather than
-    // guess. The single-function deploy is unaffected.
-    console.warn(
-      "[build] Durable-background emit skipped: expected Nitro Netlify function " +
-        "at .netlify/functions-internal/server/main.mjs was not found.",
-    );
+    // Nitro output layout differs from what we expected — cannot guess.
+    const message =
+      "Durable-background emit skipped: expected Nitro Netlify function " +
+      "at .netlify/functions-internal/server/main.mjs was not found.";
+    // Shipping without the function when the runtime depends on it is worse
+    // than a red build: the deploy silently loses the 15-min budget forever.
+    if (isDurableBackgroundEmitRequired())
+      throw new Error(`[build] ${message}`);
+    console.warn(`[build] ${message}`);
     return;
   }
   const backgroundName = AGENT_BACKGROUND_FUNCTION_NAME;
@@ -2428,23 +3217,30 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   // NOT scanned — emitting there is why the standalone attempt 404'd.
   const dest = path.join(internalDir, backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(serverDir, dest);
+  cloneServerBundleForFunction(serverDir, dest);
   // Drop the original Nitro `/*` entry so our entry is the entrypoint and the
   // copied bundle does NOT re-register the catch-all `config.path`.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
   const a2aProcessTaskPath = JSON.stringify("/_agent-native/a2a/_process-task");
+  const integrationProcessTaskPath = JSON.stringify(
+    "/_agent-native/integrations/process-task",
+  );
   const backgroundProcessorField = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_FIELD,
   );
   const backgroundProcessorA2A = JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A);
+  const backgroundProcessorIntegration = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
+  );
   const backgroundProcessorRoute = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_ROUTE,
   );
   const backgroundProcessorRouteField = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   );
+  const recurringJobsSweepPath = JSON.stringify(RECURRING_JOBS_SWEEP_PATH);
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
@@ -2457,10 +3253,13 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 // The framework route the Nitro router dispatches to (the _process-run plugin).
 const PROCESS_RUN_PATH = ${processRunPath};
 const A2A_PROCESS_TASK_PATH = ${a2aProcessTaskPath};
+const INTEGRATION_PROCESS_TASK_PATH = ${integrationProcessTaskPath};
 const BACKGROUND_PROCESSOR_FIELD = ${backgroundProcessorField};
 const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
+const BACKGROUND_PROCESSOR_INTEGRATION = ${backgroundProcessorIntegration};
 const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
+const RECURRING_JOBS_SWEEP_PATH = ${recurringJobsSweepPath};
 
 function processorPathFromBody(body) {
   if (!body) return null;
@@ -2469,12 +3268,19 @@ function processorPathFromBody(body) {
     if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
       return A2A_PROCESS_TASK_PATH;
     }
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] ===
+      BACKGROUND_PROCESSOR_INTEGRATION
+    ) {
+      return INTEGRATION_PROCESS_TASK_PATH;
+    }
     const route = parsed?.[BACKGROUND_PROCESSOR_ROUTE_FIELD];
     if (
       parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
       typeof route === "string" &&
       route.startsWith("/") &&
-      route.includes("/api/_agent-native-background/") &&
+      (route === RECURRING_JOBS_SWEEP_PATH ||
+        route.includes("/api/_agent-native-background/")) &&
       !route.includes("?") &&
       !route.includes("#")
     ) {
@@ -2546,6 +3352,7 @@ export const config = {
 };
 `;
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), entry);
+  assertEmittedBackgroundFunctionOnDisk(dest, backgroundName);
   console.log(
     `[build] Emitted durable-background function "${backgroundName}" into the ` +
       `scanned dir .netlify/functions-internal with config { background:true } ` +
@@ -2555,6 +3362,101 @@ export const config = {
       `verification of Netlify async (202) invocation — see ` +
       `docs/design/durable-agent-runs.md.`,
   );
+}
+
+/**
+ * Prove the artifact Netlify will scan actually landed. A partial copy (the
+ * entry without its handler bundle) deploys as a function that 500s on every
+ * invocation, which looks exactly like "no background function" at runtime.
+ * Exported so the workspace deploy asserts the same shape.
+ */
+export function assertEmittedBackgroundFunctionOnDisk(
+  destDir: string,
+  functionName: string,
+): void {
+  const missing = [`${functionName}.mjs`, "main.mjs"].filter(
+    (file) => !fs.existsSync(path.join(destDir, file)),
+  );
+  if (missing.length === 0) return;
+  throw new Error(
+    `[build] Durable-background function "${functionName}" was not fully emitted — ` +
+      `missing ${missing.join(", ")} in ${destDir}. Netlify would deploy without ` +
+      "the 15-min background function and every agent turn would silently run on " +
+      "the synchronous function wall.",
+  );
+}
+
+export function emitSingleTemplateNetlifyIntegrationRecoveryFunction(
+  projectCwd: string,
+): void {
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverDir = path.join(internalDir, "server");
+  if (!fs.existsSync(path.join(serverDir, "main.mjs"))) {
+    console.warn(
+      "[build] Integration recovery emit skipped: expected Nitro Netlify function " +
+        "at .netlify/functions-internal/server/main.mjs was not found.",
+    );
+    return;
+  }
+  const functionName = NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME;
+  const dest = path.join(internalDir, functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  cloneServerBundleForFunction(serverDir, dest);
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+
+  const entry = `import { createHmac } from "node:crypto";
+
+const SWEEP_PATH = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_PATH)};
+const SWEEP_SUBJECT = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT)};
+globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
+
+function enabled() {
+  const raw = process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  if (!raw) return false;
+  return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`${INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+let cachedHandler;
+
+export default async function handler(request, context) {
+  if (!enabled()) return new Response(null, { status: 204 });
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    console.error("[integration-recovery] A2A_SECRET is required; sweep skipped");
+    return new Response(null, { status: 204 });
+  }
+  cachedHandler ??= (await import("./main.mjs")).default;
+  const url = new URL(request.url);
+  url.pathname = SWEEP_PATH;
+  const rewritten = new Request(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ taskId: SWEEP_SUBJECT }),
+  });
+  return cachedHandler(rewritten, context);
+}
+
+export const config = {
+  name: "integration pending-task recovery",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
 }
 
 /**
@@ -2683,7 +3585,89 @@ export function bundleYjsRuntimeForServerlessOutput(
     );
   }
 
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const bundledImport = path
+      .relative(path.dirname(filePath), bundledYjsPath)
+      .split(path.sep)
+      .join("/");
+    const relativeBundledImport = bundledImport.startsWith(".")
+      ? bundledImport
+      : `./${bundledImport}`;
+    const source = fs.readFileSync(filePath, "utf-8");
+    const rewritten = source.replace(
+      /(\b(?:from\s*|import\s*\(\s*|import\s*))(["'])\.\.?\/(?:\.\.\/)*_libs\/yjs\.mjs\2/g,
+      (_match, importPrefix: string, quote: string) =>
+        `${importPrefix}${quote}${relativeBundledImport}${quote}`,
+    );
+    if (rewritten !== source) fs.writeFileSync(filePath, rewritten);
+  });
+
   return bareImports;
+}
+
+// Netlify's hard limit is 250MB unzipped per function; a bundle this far under
+// it still leaves room for growth, and today's server functions land near 70MB
+// once the dead weight is out. Apps that legitimately ship the browser runtime
+// get its ~85MB on top, so the budget stays a regression signal rather than a
+// tax on Chromium-backed templates.
+const NETLIFY_FUNCTION_SIZE_BUDGET_BYTES = 120 * 1024 * 1024;
+const NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES = 100 * 1024 * 1024;
+
+function reportNetlifyFunctionSizes(
+  projectCwd: string,
+  internalDir: string,
+  failures: string[],
+): void {
+  if (!fs.existsSync(internalDir)) return;
+
+  const functions = fs
+    .readdirSync(internalDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({
+      name: entry.name,
+      dir: path.join(internalDir, entry.name),
+      size: getDirSize(path.join(internalDir, entry.name)),
+    }))
+    .sort((a, b) => b.size - a.size);
+  if (functions.length === 0) return;
+
+  const toMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+  const total = functions.reduce((sum, fn) => sum + fn.size, 0);
+  // Every extra function is a full second copy of the bundle: the clone is
+  // hard-linked on disk, but zip-it-and-ship-it sees regular files and uploads
+  // each one whole, so the total is what the deploy actually pays.
+  console.log(
+    `[deploy] Netlify functions: ${functions.length} (${functions
+      .map((fn) => `${fn.name} ${toMb(fn.size)}MB`)
+      .join(", ")}) — ${toMb(total)}MB uploaded in total.`,
+  );
+
+  const budget =
+    NETLIFY_FUNCTION_SIZE_BUDGET_BYTES +
+    (findServerlessBrowserRuntimeConsumer(projectCwd)
+      ? NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES
+      : 0);
+  for (const fn of functions) {
+    if (fn.size <= budget) continue;
+    // node_modules is always the biggest child and names nothing useful; the
+    // packages inside it are what a regression actually adds.
+    const nodeModulesDir = path.join(fn.dir, "node_modules");
+    const inspectDir = fs.existsSync(nodeModulesDir) ? nodeModulesDir : fn.dir;
+    const largest = fs
+      .readdirSync(inspectDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => ({
+        name: entry.name,
+        size: getDirSize(path.join(inspectDir, entry.name)),
+      }))
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 3)
+      .map((child) => `${child.name} ${toMb(child.size)}MB`)
+      .join(", ");
+    failures.push(
+      `function ${fn.name} is ${toMb(fn.size)}MB, over the ${toMb(budget)}MB budget — largest: ${largest}`,
+    );
+  }
 }
 
 export function assertSingleTemplateNetlifyBuildOutput(
@@ -2849,7 +3833,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
-  if (isDurableBackgroundDeployEnabled()) {
+  if (isDurableBackgroundEmitRequired()) {
     const backgroundDir = path.join(
       internalDir,
       AGENT_BACKGROUND_FUNCTION_NAME,
@@ -2886,10 +3870,38 @@ export function assertSingleTemplateNetlifyBuildOutput(
     }
   }
 
+  if (isIntegrationDurableDispatchDeployEnabled()) {
+    const recoveryEntryPath = path.join(
+      internalDir,
+      NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME,
+      `${NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME}.mjs`,
+    );
+    if (!fs.existsSync(recoveryEntryPath)) {
+      failures.push(
+        `integration durable dispatch is enabled but ${path.relative(
+          projectCwd,
+          recoveryEntryPath,
+        )} was not emitted`,
+      );
+    } else {
+      const recoveryEntry = fs.readFileSync(recoveryEntryPath, "utf-8");
+      if (!/\bschedule\s*:\s*["']\* \* \* \* \*["']/.test(recoveryEntry)) {
+        failures.push(
+          `integration recovery entry ${path.relative(
+            projectCwd,
+            recoveryEntryPath,
+          )} is missing the one-minute schedule`,
+        );
+      }
+    }
+  }
+
+  reportNetlifyFunctionSizes(projectCwd, internalDir, failures);
+
   if (failures.length > 0) {
     throw new Error(
       "[deploy] Netlify deploy guard failed; refusing to publish an output " +
-        "that would likely serve Netlify 404s:\n" +
+        "that would likely serve Netlify 404s or blow the function size limit:\n" +
         failures.map((failure) => `- ${failure}`).join("\n"),
     );
   }
@@ -2952,6 +3964,7 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   let copied = 0;
 
   for (const packageName of LIBSQL_NATIVE_PACKAGE_NAMES) {
+    if (!isServerlessNativePlatformPackage(packageName)) continue;
     const src = findInstalledLibsqlNativePackage(nodeModulesRoots, packageName);
     if (!src) continue;
 
@@ -2968,7 +3981,13 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
 
 function copyInstalledResvgPackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
-  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd));
+  // `resvg-js` itself is the JS wrapper that gets imported; everything else in
+  // the scope is a per-platform prebuild.
+  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd)).filter(
+    ({ packageName }) =>
+      packageName === RESVG_PACKAGE_PREFIX ||
+      isServerlessNativePlatformPackage(packageName),
+  );
   if (packages.length === 0) return;
 
   const destScopeDir = path.join(serverDir, "node_modules", RESVG_SCOPE);
@@ -3037,13 +4056,7 @@ export function sanitizeServerlessFunctionPackageManifest(
   }
 
   let removed = 0;
-  const depFields = [
-    "dependencies",
-    "optionalDependencies",
-    "devDependencies",
-    "peerDependencies",
-  ];
-  for (const field of depFields) {
+  for (const field of PACKAGE_DEPENDENCY_FIELDS) {
     const deps = packageJson[field];
     if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
     const depRecord = deps as Record<string, unknown>;
@@ -3076,6 +4089,92 @@ export function sanitizeServerlessFunctionPackageManifest(
       `[deploy] Removed ${removed} desktop-only package reference(s) from ${path.relative(cwd, functionDir)}.`,
     );
   }
+}
+
+/**
+ * Nitro's dependency tracer is not subject to the copy-time filters above, so
+ * it ships every prebuild of a multi-platform native package plus whatever the
+ * local dev server left in `data/`. Prune both from the function dir before it
+ * is cloned for the extra functions, since each clone is zipped and uploaded in
+ * full.
+ *
+ * Only prunes inside a directory that still holds a runnable prebuild under the
+ * `isServerlessNativePlatformPackage` naming (`@libsql`, `@resvg`). Packages
+ * that name prebuilds differently — `@img/sharp-linux-x64` has no gnu/musl
+ * suffix — read as entirely dead and must be left alone.
+ */
+export function pruneServerlessFunctionDeadWeight(
+  functionDir: string | undefined,
+): number {
+  if (!functionDir || !fs.existsSync(functionDir)) return 0;
+
+  let removedBytes = 0;
+  const removedNames: string[] = [];
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  const packageDirs: string[] = [];
+  if (fs.existsSync(nodeModulesDir)) {
+    packageDirs.push(nodeModulesDir);
+    for (const entry of fs.readdirSync(nodeModulesDir, {
+      withFileTypes: true,
+    })) {
+      if (entry.isDirectory() && entry.name.startsWith("@")) {
+        packageDirs.push(path.join(nodeModulesDir, entry.name));
+      }
+    }
+  }
+
+  for (const packageDir of packageDirs) {
+    const prebuilds = fs
+      .readdirSync(packageDir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          SERVERLESS_PLATFORM_PACKAGE_NAME.test(entry.name),
+      )
+      .map((entry) => entry.name);
+    const runnable = prebuilds.filter(isServerlessNativePlatformPackage);
+    if (runnable.length === 0) continue;
+
+    for (const name of prebuilds) {
+      if (isServerlessNativePlatformPackage(name)) continue;
+      const deadDir = path.join(packageDir, name);
+      removedBytes += getDirSize(deadDir);
+      removedNames.push(path.relative(functionDir, deadDir));
+      fs.rmSync(deadDir, { recursive: true, force: true });
+    }
+
+    const survivors = runnable.filter((name) =>
+      fs.existsSync(path.join(packageDir, name)),
+    );
+    if (survivors.length === 0) {
+      throw new Error(
+        `[deploy] Pruning dead-platform prebuilds from ${path.relative(
+          cwd,
+          packageDir,
+        )} removed every runnable Linux prebuild (had: ${runnable.join(", ")}).`,
+      );
+    }
+  }
+
+  const dataDir = path.join(functionDir, "data");
+  if (fs.existsSync(dataDir)) {
+    removedBytes += getDirSize(dataDir);
+    removedNames.push("data");
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+
+  if (removedNames.length > 0) {
+    console.log(
+      `[deploy] Pruned ${removedNames.length} unrunnable path(s) (${(
+        removedBytes /
+        1024 /
+        1024
+      ).toFixed(
+        1,
+      )}MB) from ${path.relative(cwd, functionDir)}: ${removedNames.join(", ")}.`,
+    );
+  }
+  return removedBytes;
 }
 
 /**
@@ -3272,7 +4371,10 @@ export async function runNitroBuildPipeline(
 
   if (hasClientBuild && publicOutputDir) {
     copyDir(clientDir, publicOutputDir);
-    if (appBasePath) {
+    if (
+      appBasePath &&
+      !publicDirIsMountedAtBasePath(publicOutputDir, appBasePath)
+    ) {
       copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
     }
     console.log(
@@ -3281,6 +4383,22 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+}
+
+/**
+ * Nitro's serverless presets end `output.publicDir` in `{{ baseURL }}`
+ * (netlify: `dist{{ baseURL }}`, vercel: `static{{ baseURL }}`, cloudflare:
+ * `{{ output.dir }}{{ baseURL }}`), so for those the public dir already IS the
+ * mount path. Mirroring again produced a whole second client build one level
+ * deeper that nothing ever served — the workspace deploy only deleted it again.
+ * Presets whose public dir is flat (`node-server`) still need the mirror.
+ */
+export function publicDirIsMountedAtBasePath(
+  publicOutputDir: string,
+  appBasePath: string,
+): boolean {
+  const mountSuffix = path.sep + appBasePath.slice(1).split("/").join(path.sep);
+  return path.resolve(publicOutputDir).endsWith(mountSuffix);
 }
 
 /**
@@ -3298,6 +4416,53 @@ const BROWSER_ONLY_SERVER_LIBS = [
   "@excalidraw/mermaid-to-excalidraw",
   "mermaid",
 ];
+
+/**
+ * Packages that Nitro can discover through the shared server graph but that
+ * cannot be evaluated in a Cloudflare Worker. Keep the network-capable SDKs
+ * real; these are limited to Node/native/browser-runtime packages whose
+ * server-side paths already fail closed when the capability is unavailable.
+ */
+export const CLOUDFLARE_MODULE_STUB_MODULES = [
+  "@napi-rs/canvas",
+  "@resvg/resvg-js",
+  "@sentry/node",
+  "@sparticuz/chromium-min",
+  "better-sqlite3",
+  "chartjs-node-canvas",
+  "chokidar",
+  "fsevents",
+  "node-pty",
+  "playwright",
+  "playwright-core",
+] as const;
+
+/**
+ * Mirror the fail-closed package stubs used by the Pages bundler in Nitro's
+ * Rolldown graph. Without this, the native module preset emits a valid module
+ * graph that still crashes at Worker cold start when a Node-only optional
+ * dependency is evaluated.
+ */
+export function createCloudflareModuleStubPlugin() {
+  const stubbed = new Set<string>(CLOUDFLARE_MODULE_STUB_MODULES);
+  const stubIdPrefix = "\0agent-native-cloudflare-module-stub:";
+
+  return {
+    name: "agent-native-cloudflare-module-stub",
+    resolveId(id: string) {
+      const packageName = id.startsWith("@")
+        ? id.split("/").slice(0, 2).join("/")
+        : id.split("/")[0];
+      if (!stubbed.has(packageName) || id !== packageName) return null;
+      return `${stubIdPrefix}${packageName}`;
+    },
+    load(id: string) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      const packageName = id.slice(stubIdPrefix.length);
+      return CLOUDFLARE_WORKER_STUB_MODULES[packageName] ?? null;
+    },
+  };
+}
 
 /**
  * Dependencies Nitro itself must bundle outside the controlled serverless
@@ -3384,6 +4549,35 @@ function createBrowserOnlyServerStubPlugin() {
   };
 }
 
+export function resolveNitroBuildReplacements(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  return {
+    // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
+    // function so preview OAuth relays can target this immutable deployment
+    // even though the value is unavailable in the function runtime.
+    "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
+      env.DEPLOY_ID?.trim() || env.AGENT_NATIVE_BUILD_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
+      env.GA_MEASUREMENT_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
+      env.GTM_CONTAINER_ID?.trim() || "",
+    ),
+    // Netlify's netlify.toml environment is available while this deploy
+    // build runs, but is not injected into the deployed Function. Nitro is
+    // a separate server build, so embed release migration ownership here as
+    // well as in the Vite server bundle.
+    "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+      env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
+      env.CONTEXT?.trim() || "",
+    ),
+  };
+}
+
 async function buildWithNitro() {
   console.log(`[deploy] Building for preset "${preset}" via Nitro...`);
   const appBasePath = normalizeConfiguredAppBasePath();
@@ -3424,6 +4618,13 @@ async function buildWithNitro() {
   // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
   // from `server/agents-bundle.ts` to guarantee identical content.
   const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
+  const nitroAgentConfig = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext(
+      "build",
+      process.env.NODE_ENV === "development" ? "development" : "production",
+    ),
+  );
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.
   const nitroWorkspaceCore = await getWorkspaceCoreExports(cwd);
@@ -3435,7 +4636,9 @@ async function buildWithNitro() {
       }
     : null;
   const agentsBundleModuleSource = () => {
-    const bundle = readAgentsBundleFromFs(cwd, nitroWorkspaceSource);
+    const bundle = readAgentsBundleFromFs(cwd, nitroWorkspaceSource, {
+      instructions: nitroAgentConfig.instructions,
+    });
     return `// AUTO-GENERATED by @agent-native/core deploy build (Nitro virtual)
 // Contains the inlined AGENTS.md + .agents/skills/ content from the template,
 // merged with the workspace core's AGENTS.md + skills/ when present.
@@ -3475,14 +4678,7 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
-    replace: {
-      "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
-        process.env.GA_MEASUREMENT_ID?.trim() || "",
-      ),
-      "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
-        process.env.CONTEXT?.trim() || "",
-      ),
-    },
+    replace: resolveNitroBuildReplacements(),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render
@@ -3498,7 +4694,12 @@ export default bundle;
       ...(preset === "netlify" || preset === "vercel" || preset === "aws-lambda"
         ? { external: ["yjs"] }
         : {}),
-      plugins: [createBrowserOnlyServerStubPlugin()],
+      plugins: [
+        ...(preset.startsWith("cloudflare")
+          ? [createCloudflareModuleStubPlugin()]
+          : []),
+        createBrowserOnlyServerStubPlugin(),
+      ],
     },
     ...(providedPluginsNitroPlugin
       ? { plugins: [providedPluginsNitroPlugin] }
@@ -3520,32 +4721,57 @@ export default bundle;
     cwd,
   });
 
+  if (isCloudflareModulePreset(preset)) {
+    configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
+  }
+
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
+    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    // Before the Netlify block below clones this dir into the extra functions,
+    // so they inherit the pruned bundle instead of a second full copy.
+    pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
-  // Durable background agent runs (default-OFF / opt-in; enable with a truthy
-  // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
-  // function whose name ends in `-background` re-exporting the same handler
-  // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-  // function. When not opted in this is a no-op and the single-function
-  // deploy is byte-for-byte unchanged.
-  if (preset === "netlify" && isDurableBackgroundDeployEnabled()) {
-    try {
-      emitSingleTemplateNetlifyBackgroundFunction(cwd);
-    } catch (err) {
-      console.warn(
-        "[build] Failed to emit durable-background Netlify function (non-fatal):",
-        err instanceof Error ? err.message : err,
-      );
-    }
+  if (isCloudflareModulePreset(preset)) {
+    bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
   if (preset === "netlify") {
+    // Durable background agent runs are default-on for Netlify; a falsy
+    // AGENT_CHAT_DURABLE_BACKGROUND value opts out. Additive ONLY: emits a
+    // SECOND Netlify function whose name ends in `-background` re-exporting the
+    // same handler bundle, so the chat `_process-run` POST lands on Netlify's
+    // async (15-min) function. When opted out this is a no-op and the
+    // single-function deploy is byte-for-byte unchanged.
+    // NOT wrapped in try/catch: this block only runs when the runtime depends
+    // on the function, and a swallowed failure ships an app that loses the
+    // background budget for the life of the deploy with nothing in the log.
+    if (isDurableBackgroundEmitRequired()) {
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    }
+
+    emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
+
+    // Emit keep-warm after the background artifact so it only pings a function
+    // that this build actually produced.
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    if (isIntegrationDurableDispatchDeployEnabled()) {
+      try {
+        emitSingleTemplateNetlifyIntegrationRecoveryFunction(cwd);
+      } catch (err) {
+        console.warn(
+          "[build] Failed to emit integration recovery Netlify function (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     writeSingleTemplateNetlifyRedirects(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }
@@ -3627,8 +4853,43 @@ export default bundle;
     if (bareImports.size > 0) {
       const libsDir = path.join(outputDir, "_libs");
       fs.mkdirSync(libsDir, { recursive: true });
+      function rewriteExternalImports(mod: string, outFile: string) {
+        function rewriteImports(dir: string) {
+          if (!fs.existsSync(dir)) return;
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              rewriteImports(p);
+              continue;
+            }
+            if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
+              continue;
+            const code = fs.readFileSync(p, "utf8");
+            const relPath = path
+              .relative(path.dirname(p), outFile)
+              .replace(/\\/g, "/");
+            const importPath = relPath.startsWith(".")
+              ? relPath
+              : "./" + relPath;
+            const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const re = new RegExp(`from["']${escaped}["']`, "g");
+            const rewritten = code.replace(re, `from"${importPath}"`);
+            if (rewritten !== code) fs.writeFileSync(p, rewritten);
+          }
+        }
+        rewriteImports(outputDir);
+      }
       for (const mod of bareImports) {
         const outFile = path.join(libsDir, `${mod.replace(/[/@]/g, "_")}.mjs`);
+        // Nitro may already have emitted a correctly minified module wrapper
+        // for this dependency. Replacing that wrapper with an esbuild CJS
+        // adapter loses its public export aliases and makes otherwise valid
+        // sibling chunks fail during Worker module linking.
+        if (fs.existsSync(outFile)) {
+          console.log(`[deploy] Retaining Nitro external: ${mod}`);
+          rewriteExternalImports(mod, outFile);
+          continue;
+        }
         try {
           // Resolve the module — check workspace node_modules and pnpm store
           let resolvedMod = mod;
@@ -3921,6 +5182,10 @@ async function main() {
       // Nitro's native presets produce split chunks that wrangler can't upload
       // as multi-module Workers. Use the custom esbuild-based bundler.
       await buildCloudflarePages();
+      break;
+    case "cloudflare_module":
+    case "cloudflare-module":
+      await buildWithNitro();
       break;
     default:
       // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)

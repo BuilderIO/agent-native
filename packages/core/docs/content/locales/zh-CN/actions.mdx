@@ -89,7 +89,7 @@ Actions 是您的应用所做的任何事情的唯一事实来源。使用 `defi
 
 如果 UI 和代理都需要做某事，请采取行动 - 而不是自定义
 路线。对于何时路由型协议才是正确的调用，请参阅[首选 Actions
-对于应用程序操作](/docs/server#actions-first)。
+对于应用程序操作](/docs/server-overview#actions-first)。
 
 ## 从一个动作开始 {#hello-action}
 
@@ -251,7 +251,7 @@ export default defineAction({
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — 默认 `POST`。 `GET` actions 会自动标记为 `readOnly`，因此成功的调用不会触发 UI 轮询刷新。
 - **`http: { path: "..." }`** — 覆盖 `/_agent-native/actions/` 下安装的 URL。默认为文件名。 **路径覆盖仅针对直接 HTTP 调用方更改 URL** — 无论此覆盖如何，`useActionQuery`、`useActionMutation` 和 `callAction` 始终调用 `/_agent-native/actions/<name>`，因此覆盖路径会使这些挂钩 404。仅对外部 HTTP 调用方使用路径覆盖。另请注意，覆盖路径中的 `:param` 路由段**不会**解析为 `run()` 参数 - 只有查询字符串参数和 JSON 正文字段。
 - **`http: false`** — 完全禁用 HTTP 端点。仅限代理 + CLI。
-- **`readOnly: true`** — 即使对于不变异的 POST actions 也显式跳过轮询刷新。
+- **`readOnly: true`** — 即使对于不变异的 POST actions 也显式跳过轮询刷新。 它**不是**访问控制：它不限制谁可以调用该 action，也不影响 `useActionQuery`、`useActionMutation` 或任何客户端 hook。它的唯一作用是抑制调用后的刷新事件，并让该 action 不参与写入审计。要对模型隐藏某个 action，请使用 `agentTool: false`；要限制调用方，请使用上面的认证/访问选项。
 - **`parallelSafe: true`** — 允许变异操作与其他同回合工具调用同时运行。仅当操作内部并发安全且与顺序无关时才设置此项；默认情况下改变 actions 序列化。
 
 ### 保持操作面较小 {#small-surface}
@@ -376,12 +376,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

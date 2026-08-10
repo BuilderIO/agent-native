@@ -1,0 +1,232 @@
+---
+title: "服务器"
+description: "代理本机应用中的 Nitro 服务器层：它的用途、何时该使用自定义路由，以及各部分如何衔接。"
+---
+
+# 服务器
+
+`server/` 目录是代理本机应用的基础设施层。它负责启动任务、身份验证，以及 Actions 无法覆盖的 HTTP 表面。大多数产品行为都应该放在 [Actions](/docs/actions) 中。服务器的作用是让这些 Actions 变得可用。
+
+<Diagram id="doc-block-server-overview-1" title="请求如何流经服务器" summary="调用方到达 Nitro 服务器后，大多数请求由 Actions 处理；中间件和路由覆盖 Actions 无法表达的情况。两条路径都可以查询数据库。">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">浏览器 / UI</div>
+    <div class="diagram-node">Agent 循环</div>
+    <div class="diagram-node">
+      外部客户端<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro 服务器</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">主要路径</small>
+    </div>
+    <div class="srv-or diagram-muted">或</div>
+    <div class="srv-path">
+      <span class="diagram-pill">中间件</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">路由</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL 数据库<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 服务器的定位 {#role}
+
+在传统的 Web 应用中，服务器是大多数逻辑所在之处：业务规则、数据访问和展示都发生在路由处理函数内部。代理本机应用的做法不同。逻辑放在 Actions 中，由代理和 UI 作为平等的一方共享。服务器的职责是协调：运行数据库迁移、配置身份验证、挂载 Agent 循环,以及处理 Actions 本身无法表达的少数 HTTP 相关事项。
+
+<Diagram id="doc-block-server-overview-2" title="传统服务器 vs. Agent-Native">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">传统方式</div>
+    <div class="diagram-node">浏览器</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>服务器</strong>
+      <small class="diagram-muted">逻辑集中于此</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">路由处理函数</span>
+        <span class="cmp-tag">业务逻辑</span>
+        <span class="cmp-tag">数据访问</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>数据库</div>
+  </div>
+  <div class="cmp-vs diagram-muted">对比</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent-Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">浏览器 / UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>服务器</strong>
+      <small class="diagram-muted">仅负责协调</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">身份验证</span>
+        <span class="cmp-tag">迁移</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>数据库</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+浏览器请求、Agent 循环和外部 API 客户端都经由同一个 Nitro 服务器路由，并读取同一个 SQL 数据库。不存在为代理和 UI 分别搭建的后端。服务器层的作用就是把 Actions 暴露给外部世界。
+
+## server/ 目录中有什么 {#server-directory}
+
+以下是每个代理本机应用都会自带的 `server/` 目录及其中的文件。每一项对应服务器层的一个具体部分：它做什么、什么时候该用它，以及它与框架其余部分如何连接。
+
+| 页面                                  | 涵盖内容                                                                   |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| **[数据库](/docs/server-database)**   | 使用 `table()` 助手定义 schema、`getDb`，以及可拥有表（ownable table）模式 |
+| **[中间件](/docs/server-middleware)** | `server/middleware/` 中的身份验证守卫，以及为何它运行在此处而非插件中      |
+| **[插件](/docs/server-plugins)**      | 用于身份验证和 agent-chat 的启动插件，以及可选的应用自有数据库迁移         |
+| **[路由](/docs/server-routes)**       | 基于文件的路由、SSR 兜底路由，以及如何将自定义路由限定到请求用户           |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) 是驱动代理本机 HTTP 层的服务器工具集。你在 `server/` 中配置的大部分内容都属于 Nitro：基于文件的路由、启动插件和中间件。
+
+- **基于文件的路由**：文件名直接映射到 HTTP 方法和 URL 路径，无需注册。`server/routes/api/health.get.ts` 会自动变成 `GET /api/health`。更多细节参见[路由](/docs/server-routes)。
+- **插件**：在服务器启动时注册并加载一次的代码。框架辅助函数会初始化身份验证和 agent-chat；可选的应用自有数据库迁移在第一个请求到达时可能仍在运行。更多细节参见[插件](/docs/server-plugins)。
+- **中间件**：在每个到来的请求到达路由之前都会运行的代码。身份验证守卫就位于 `server/middleware/` 中。更多细节参见[中间件](/docs/server-middleware)。
+
+Nitro 同时与部署环境无关。同一个应用可以零代码改动地部署到 Node.js、Cloudflare Workers、Netlify、Vercel 及其他运行时，只需设置一个预设（preset）。参见[部署](/docs/deployment)。
+
+底层的请求/响应 API 是 [H3](https://h3.unjs.io)。当你在自定义路由中看到 `defineEventHandler`、`createError` 或 `getQuery` 时，那就是 H3。[Nitro 文档](https://nitro.build/guide)和 [H3 文档](https://h3.unjs.io)是框架未直接涵盖内容的参考资料。
+
+## 优先默认使用 Actions {#actions-first}
+
+Agent-Native 的架构思路有所不同。每当你为应用构思一个新功能时，先考虑它能否做成一个 Action。举例来说，如果 UI 和代理都需要执行某项操作,应该定义一个 Action，而不是自定义 API 路由。Actions 会自动成为：
+
+- 代理工具。
+- 类型化的前端 Hook。
+- `/_agent-native/actions/:name` 下的 HTTP 端点。
+- 可通过 MCP 和 A2A 调用的工具。
+- 用于开发的 CLI 命令。
+
+只有在你需要路由形态的协议或二进制/流式行为时，才使用自定义的 `/api/*` 路由。更多细节参见 [Actions](/docs/actions)。
+
+## 下一步 {#whats-next}
+
+- [**Actions**](/docs/actions)：默认的操作表面。只有在不适用时才考虑自定义路由。
+- [**数据库**](/docs/server-database)：自定义路由和 Actions 都会导入的 `getDb()`/schema 模式
+- [**中间件**](/docs/server-middleware)：身份验证守卫与 `server/middleware/` 目录
+- [**插件**](/docs/server-plugins)：用于迁移、身份验证和代理的启动插件
+- [**路由**](/docs/server-routes)：基于文件的路由、请求上下文和 SSR 兜底路由

@@ -90,7 +90,15 @@ page. For the full surface map, see [Agent Surfaces](/docs/agent-surfaces).
 
 If the UI and agent both need to do something, reach for an action — not a custom
 route. For when a route-shaped protocol _is_ the right call, see [Prefer Actions
-For App Operations](/docs/server#actions-first).
+For App Operations](/docs/server-overview#actions-first).
+
+On this page: [Start with one action](#hello-action), [Defining an action](#defining),
+[Run context](#run-context), [Access control](#access-control),
+[Authorization](#authorize), [Human-in-the-loop approval](#needs-approval),
+[Audit logging](#audit),
+[Calling from the UI](#ui), [Native chat UI](#native-chat-ui),
+[Calling from the CLI](#cli), [A2A](#a2a), [MCP](#mcp),
+[Standard actions](#standard-actions), and [Feature flags](#feature-flags).
 
 ## Start with one action {#hello-action}
 
@@ -131,7 +139,7 @@ pnpm action hello --name Steve
 Then run the app-agent loop against the folder:
 
 ```bash
-pnpm agent "Call hello for Steve and explain the result"
+npx agent-native agent "Call hello for Steve and explain the result"
 ```
 
 That is the same app-agent loop your scheduled jobs, chat UI, external MCP
@@ -225,7 +233,7 @@ export default defineAction({
 
 For a `GET` action, `leadId` is passed as a query param: `/_agent-native/actions/get-lead?leadId=abc`.
 
-<Endpoint id="doc-block-uhuudd" title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead" summary={"Every action is mounted here automatically — the filename is the action name."} auth={"Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`"} params={[
+<Endpoint id="doc-block-uhuudd" title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead" summary={"Every action is mounted here automatically — the filename is the action name."} auth={"Session cookie (frontend calls carry `X-Agent-Native-Frontend: 1`), or `Authorization: Bearer <token>` for external callers"} params={[
   {
     "name": "leadId",
     "in": "query",
@@ -244,14 +252,14 @@ For a `GET` action, `leadId` is passed as a query param: `/_agent-native/actions
   }
 ]}>
 
-POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.
+POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override. External systems can call the same route with a long-lived bearer token — see [HTTP API](/docs/http-api).
 
 </Endpoint>
 
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — default `POST`. `GET` actions are auto-marked `readOnly` so successful calls don't trigger a UI poll-refresh.
 - **`http: { path: "..." }`** — override the mounted URL under `/_agent-native/actions/`. Defaults to the filename. **Path overrides change the URL only for direct HTTP callers** — `useActionQuery`, `useActionMutation`, and `callAction` always call `/_agent-native/actions/<name>` regardless of this override, so overriding the path makes those hooks 404. Use path overrides only for external HTTP callers. Note also that `:param` route segments in the override path are **not** parsed into `run()` args — only query-string params and JSON body fields are.
 - **`http: false`** — disable the HTTP endpoint entirely. Agent + CLI only.
-- **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
+- **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate. It is **not** access control: it does not restrict who may call the action, and it does not affect `useActionQuery`, `useActionMutation`, or any client hook. Its only effects are suppressing the post-call refresh event and opting the action out of write-auditing. To hide an action from the model use `agentTool: false`; to gate callers use the auth/access options above.
 - **`parallelSafe: true`** — allow a mutating action to run concurrently with other same-turn tool calls. Only set this when the action is internally concurrency-safe and order-independent; mutating actions serialize by default.
 
 ### Keep the action surface small {#small-surface}
@@ -259,7 +267,7 @@ POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `
 Every action the agent can see is a tool in the model's context window, and a long, overlapping tool list degrades the model's tool-selection quality. Design the action surface like an API you maintain, not one action per UI affordance:
 
 - Prefer **one CRUD-style `update`** that takes a patch of optional fields over N per-field actions (`update-name`, `update-order`, `update-color`, …). The caller sends only what changed.
-- Before adding a new read action per query/filter, reach for a generic escape hatch: the [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
+- Before adding a new read action per query/filter, reach for a generic escape hatch: the [provider API trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
 - Mark UI-only or programmatic actions [`agentTool: false`](#agent-tool) so they stay frontend/HTTP-callable without spending a slot in the model's tool list.
 - Delete or hide actions the UI no longer uses instead of leaving them exposed to the model.
 
@@ -267,7 +275,7 @@ A repo-level advisory helper, `node scripts/audit-template-actions.mjs [template
 
 ### Exposure flags {#exposure-flags}
 
-Four flags control _who_ can invoke an action. All default to the permissive value, so you only set one to tighten a specific surface. This table is the glanceable summary; the subsections add the one detail each needs.
+Five flags control _who_ can invoke an action. All default to the permissive value, so you only set one to tighten a specific surface. This table is the glanceable summary; the subsections add the one detail each needs.
 
 | Flag            | Default       | Restrictive value → who can still call                                      | Typical use                                                     |
 | --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -275,8 +283,9 @@ Four flags control _who_ can invoke an action. All default to the permissive val
 | `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403) | Auth-adjacent ops (delete account, change org membership/roles) |
 | `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces | Safe read/ingest tools reachable without authentication         |
 | `needsApproval` | `false`       | `true` → the agent **pauses**; a human must approve the specific call       | Consequential side effects (send email, charge a card, delete)  |
+| `authorize`     | none          | a guard function → only callers it accepts, on **every** surface            | Operations restricted to a role (per-app RBAC, admin-only ops)  |
 
-These are independent: `agentTool` controls the model's view, `toolCallable` controls only the extension iframe, `publicAgent` adds an opt-in public surface (public web routes never imply public tool exposure), and `needsApproval` gates execution after the call is made — see [Human-in-the-loop approval](#needs-approval) below.
+These are independent: `agentTool` controls the model's view, `toolCallable` controls only the extension iframe, `publicAgent` adds an opt-in public surface (public web routes never imply public tool exposure), `needsApproval` gates execution after the call is made — see [Human-in-the-loop approval](#needs-approval) below — and `authorize` decides whether this caller may run the action at all, on every dispatch path, before `run` is entered — see [Authorization](#authorize).
 
 #### `agentTool` — hide from the model {#agent-tool}
 
@@ -340,24 +349,30 @@ export default defineAction({
 
 `ActionRunContext` fields:
 
-| Field         | Type                    | Notes                                                                                                                                                           |
-| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
-| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                         |
-| `caller`      | `ActionCaller`          | How the action was invoked (see below).                                                                                                                         |
-| `send`        | `(event) => void`       | Optional. Emit an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`); `undefined` elsewhere.                                   |
-| `attachments` | `AgentChatAttachment[]` | Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: "tool"`; `undefined` on all other surfaces.           |
+| Field                                           | Type                                                   | Notes                                                                                                                                                                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`                                     | `string \| undefined`                                  | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one.                                                                                     |
+| `orgId`                                         | `string \| null`                                       | Resolved org id, or `null` when the request has no org.                                                                                                                                                                                             |
+| `caller`                                        | `ActionCaller`                                         | How the action was invoked (see below).                                                                                                                                                                                                             |
+| `send`                                          | `(event) => void`                                      | Optional. Emit an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`); `undefined` elsewhere.                                                                                                                       |
+| `attachments`                                   | `AgentChatAttachment[]`                                | Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: "tool"`; `undefined` on all other surfaces.                                                                                               |
+| `signal`                                        | `AbortSignal`                                          | Aborts when the run is soft-timed-out, cancelled, or the server shuts down. Populated only when `caller: "tool"`. Long-running actions can observe it to cancel early instead of waiting for the per-tool 60s hard timeout.                         |
+| `actionName`                                    | `string \| undefined`                                  | The registry key of the action being called (e.g. `delete-recording`), set at each dispatch site so cross-cutting concerns like the audit log can attribute the call. `undefined` for direct programmatic `run()` calls that bypass the dispatcher. |
+| `threadId` / `runId` / `turnId`                 | `string \| undefined`                                  | The agent conversation thread, run attempt, and turn that triggered this call. Populated only when `caller: "tool"`, so the audit log can link a mutation back to the exact agent run.                                                              |
+| `automation`                                    | `ActionAutomationContext \| undefined`                 | Present only when `caller: "automation"` — `{ triggerId, triggerName, policyId? }` for the event-triggered automation that dispatched this call.                                                                                                    |
+| `networkProtocol` / `networkId` / `networkPeer` | `"a2a" \| "mcp" \| "provider-api"`, `string`, `string` | Verified lineage for a direct delegated call — the protocol, a correlation id (e.g. the A2A delegation JWT id), and the calling peer. Set only for those direct-dispatch paths.                                                                     |
 
-`caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`:
+`caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
 
-| `caller`     | Set when…                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `"tool"`     | The in-app agent loop, a sub-agent / agent team, or an A2A request (A2A drives the same agent loop, so its tool calls are `"tool"`). |
-| `"frontend"` | A browser call via `useActionMutation` / `useActionQuery` / `callAction` (tagged with the `X-Agent-Native-Frontend: 1` header).      |
-| `"http"`     | A bare programmatic `POST` / `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                   |
-| `"cli"`      | `pnpm action <name>` (the CLI runner).                                                                                               |
-| `"mcp"`      | An external agent over the MCP `tools/call` endpoint.                                                                                |
-| `"a2a"`      | Reserved for a future direct A2A action dispatch. Today A2A runs through the agent loop, so those calls are `"tool"`.                |
+| `caller`       | Set when…                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"tool"`       | The in-app agent loop, a sub-agent / agent team, or natural-language cross-app A2A delegation (which drives the same agent loop, so its tool calls are `"tool"`).                                |
+| `"frontend"`   | A browser call via `useActionMutation` / `useActionQuery` / `callAction` (tagged with the `X-Agent-Native-Frontend: 1` header).                                                                  |
+| `"http"`       | A bare programmatic `POST` / `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                                                                               |
+| `"cli"`        | `pnpm action <name>` (the CLI runner).                                                                                                                                                           |
+| `"mcp"`        | An external agent over the MCP `tools/call` endpoint.                                                                                                                                            |
+| `"a2a"`        | A direct HTTP call to `/_agent-native/actions/<name>` carrying a signed A2A delegation token — an explicitly exposed, cross-app dispatch distinct from the natural-language `"tool"` path above. |
+| `"automation"` | An event-triggered automation dispatched from a stored workspace trigger. `ctx.automation` carries the trigger lineage. See [Automations](/docs/automations).                                    |
 
 `run` stays backward compatible: existing 1-argument handlers and handlers that only destructure `{ send }` continue to work unchanged.
 
@@ -376,12 +391,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },
@@ -389,6 +407,47 @@ export default defineAction({
 ```
 
 For list and read actions, use `accessFilter` to scope the query to the current user and org. For actions that update or delete a specific row, use `assertAccess` to confirm the caller is allowed before writing. See [Security](/docs/security#access-guards) and [Sharing](/docs/sharing) for the full helper API.
+
+### Authorization {#authorize}
+
+`accessFilter` / `assertAccess` scope _which rows_ a permitted caller may touch. `authorize` answers the question before that one: **may this caller run this operation at all?** Give it a guard function and it runs before `run()` on every caller — agent tool, HTTP, frontend, MCP, A2A, and CLI:
+
+```ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+The guard wraps `run` itself rather than hanging off the action entry, because `run` is the one thing all six dispatch sites go through — there is no caller that can reach the body without passing the check. A guard that throws denies with its own message; one that returns `false` denies with a generic 403; anything else, including `undefined`, allows. Because the gate needs a caller identity, an unattended CLI or cron invocation with no user email is denied rather than waved through.
+
+The wrappers compose in this order:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+Authorization sits _inside_ input validation, so a guard that inspects `args` is handed the parsed, coerced value its type promises rather than whatever shape the caller sent. Auditing is outermost, so a denial is still recorded.
+
+`requireAny` fails at definition time, not at request time: calling it with no roles, or with a role outside the declared vocabulary, throws when the module loads. `authorize: coachAccess.requireAny()` is a dropped argument, and it should break where the mistake is rather than surface later as an unexplained 403.
+
+The three mechanisms are not interchangeable:
+
+| Mechanism                     | Question it answers                                | Applies to                  |
+| ----------------------------- | -------------------------------------------------- | --------------------------- |
+| `authorize`                   | May this caller perform the operation at all?      | All six dispatch sites      |
+| `needsApproval`               | Should a human bless this specific permitted call? | The agent loop only         |
+| `accessFilter`/`assertAccess` | Which rows may this permitted caller see or write? | Inside `run`, per query/row |
+
+A restricted write action typically needs both `authorize` and `assertAccess`: the first keeps non-coaches out of the operation, the second keeps a coach out of another org's plan. `needsApproval` is a separate axis again — it never restricts _who_ may call, only whether the agent may proceed unattended.
+
+`coachAccess` above comes from `defineAppRoles`, the per-app role overlay on org membership. See [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) for the role model and its guarantees.
 
 ### Human-in-the-loop approval {#needs-approval}
 

@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -29,12 +27,13 @@ import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   canRefreshLocallyBlockedBuilderReview,
   findOpenSourceChangeSet,
+  getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
+  reviewedBuilderChangeSetRevisionId,
   resolveDatabaseForSourceMutation,
   serializeSourceRowRecord,
   sourceChangeSetKey,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 
 export const BUILDER_SOURCE_REVIEW_PREPARE_LIMIT = 100;
 
@@ -125,10 +124,20 @@ function maxRisk(
 
 export function reviewPreparePriority(
   changeSet: ContentDatabaseSourceChangeSet,
+  source?: ContentDatabaseSource,
 ) {
-  if (changeSet.state === "pending_push") return 0;
-  if (changeSet.state === "staged_revision") return 1;
-  return 2;
+  const statePriority =
+    changeSet.state === "pending_push"
+      ? 0
+      : changeSet.state === "staged_revision"
+        ? 2
+        : 4;
+  const effectPriority =
+    source &&
+    resolveBuilderCmsWriteEffect({ source, changeSet }) === "create_draft"
+      ? 0
+      : 1;
+  return statePriority + effectPriority;
 }
 
 function parsePayload(value: string) {
@@ -140,40 +149,6 @@ function parsePayload(value: string) {
   } catch {
     return {};
   }
-}
-
-function stableReviewValue(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "undefined";
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableReviewValue).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableReviewValue(record[key])}`)
-    .join(",")}}`;
-}
-
-function reviewedRevisionChangeSetId(
-  changeSet: ContentDatabaseSourceChangeSet,
-) {
-  const revision = createHash("sha256")
-    .update(
-      stableReviewValue({
-        databaseItemId: changeSet.databaseItemId,
-        documentId: changeSet.documentId,
-        kind: changeSet.kind,
-        direction: "outbound",
-        pushMode: changeSet.pushMode ?? "autosave",
-        fieldChanges: changeSet.fieldChanges,
-        bodyChange: changeSet.bodyChange,
-      }),
-    )
-    .digest("hex")
-    .slice(0, 16);
-  return `${changeSet.id}-revision-${revision}`;
 }
 
 function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
@@ -360,6 +335,16 @@ async function approveChangeSetForReview(args: {
     updatedAt: args.now,
   });
 
+  const existingPayloadMatches = (row: {
+    fieldChangesJson: string;
+    bodyChangeJson: string | null;
+  }) =>
+    row.fieldChangesJson === JSON.stringify(args.changeSet.fieldChanges) &&
+    row.bodyChangeJson ===
+      (args.changeSet.bodyChange
+        ? JSON.stringify(args.changeSet.bodyChange)
+        : null);
+
   if (existing) {
     const existingExecutions = await db
       .select({
@@ -380,58 +365,64 @@ async function approveChangeSetForReview(args: {
     // Once dispatch may have happened, the approved payload is evidence. Keep
     // it byte-for-byte and let reconciliation decide what can happen next.
     if (existing.state === "approved" && !mayRefreshApprovedPayload) {
+      if (existingPayloadMatches(existing)) {
+        return {
+          id: existing.id,
+          state: "approved" as const,
+          changeSet: {
+            ...approvedChangeSet(existing.id),
+            summary: existing.summary,
+            fieldChanges: JSON.parse(
+              existing.fieldChangesJson,
+            ) as ContentDatabaseSourceChangeSet["fieldChanges"],
+            bodyChange: existing.bodyChangeJson
+              ? (JSON.parse(
+                  existing.bodyChangeJson,
+                ) as ContentDatabaseSourceChangeSet["bodyChange"])
+              : null,
+            updatedAt: existing.updatedAt,
+          },
+        };
+      }
+      // A failed, dispatched, or otherwise non-refreshable gate owns its exact
+      // approved payload forever. A materially different local edit must fall
+      // through to a new revision identity instead of aliasing that evidence.
+    } else {
+      await db
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          direction: "outbound",
+          state: "approved",
+          pushMode: args.changeSet.pushMode ?? "autosave",
+          localOnly: 1,
+          summary,
+          fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
+          bodyChangeJson: args.changeSet.bodyChange
+            ? JSON.stringify(args.changeSet.bodyChange)
+            : null,
+          updatedAt: args.now,
+        })
+        .where(eq(schema.contentDatabaseSourceChangeSets.id, existing.id));
+      if (existing.state !== "approved") {
+        await db.insert(schema.contentDatabaseSourceChangeReviews).values({
+          id: crypto.randomUUID(),
+          ownerEmail: args.ownerEmail,
+          sourceId: args.sourceId,
+          changeSetId: existing.id,
+          reviewerEmail: args.reviewerEmail,
+          decision: "approved",
+          stateFrom: existing.state,
+          stateTo: "approved",
+          note: "Approved by Builder update review.",
+          createdAt: args.now,
+        });
+      }
       return {
         id: existing.id,
         state: "approved" as const,
-        changeSet: {
-          ...approvedChangeSet(existing.id),
-          summary: existing.summary,
-          fieldChanges: JSON.parse(
-            existing.fieldChangesJson,
-          ) as ContentDatabaseSourceChangeSet["fieldChanges"],
-          bodyChange: existing.bodyChangeJson
-            ? (JSON.parse(
-                existing.bodyChangeJson,
-              ) as ContentDatabaseSourceChangeSet["bodyChange"])
-            : null,
-          updatedAt: existing.updatedAt,
-        },
+        changeSet: approvedChangeSet(existing.id),
       };
     }
-    await db
-      .update(schema.contentDatabaseSourceChangeSets)
-      .set({
-        direction: "outbound",
-        state: "approved",
-        pushMode: args.changeSet.pushMode ?? "autosave",
-        localOnly: 1,
-        summary,
-        fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
-        bodyChangeJson: args.changeSet.bodyChange
-          ? JSON.stringify(args.changeSet.bodyChange)
-          : null,
-        updatedAt: args.now,
-      })
-      .where(eq(schema.contentDatabaseSourceChangeSets.id, existing.id));
-    if (existing.state !== "approved") {
-      await db.insert(schema.contentDatabaseSourceChangeReviews).values({
-        id: crypto.randomUUID(),
-        ownerEmail: args.ownerEmail,
-        sourceId: args.sourceId,
-        changeSetId: existing.id,
-        reviewerEmail: args.reviewerEmail,
-        decision: "approved",
-        stateFrom: existing.state,
-        stateTo: "approved",
-        note: "Approved by Builder update review.",
-        createdAt: args.now,
-      });
-    }
-    return {
-      id: existing.id,
-      state: "approved" as const,
-      changeSet: approvedChangeSet(existing.id),
-    };
   }
 
   // Local Builder diffs are materialized with deterministic IDs (for example,
@@ -442,7 +433,7 @@ async function approveChangeSetForReview(args: {
   // Bind a materially changed follow-up to a deterministic payload revision so
   // its review, execution, and idempotency evidence cannot alias the old row.
   const changeSetId = selectedExisting
-    ? reviewedRevisionChangeSetId(args.changeSet)
+    ? reviewedBuilderChangeSetRevisionId(args.changeSet)
     : args.changeSet.id;
   await db.insert(schema.contentDatabaseSourceChangeSets).values({
     id: changeSetId,
@@ -667,7 +658,7 @@ export default defineAction({
           const database = await resolveDatabaseForSourceMutation(args);
           if (!database) throw new Error("Database not found.");
           await assertAccess("document", database.documentId, "editor");
-          const snapshot = await getContentDatabaseSourceSnapshotForWrite(
+          const snapshot = await getContentDatabaseSourceSnapshotForReview(
             database,
             args.sourceId,
             args.documentIds,
@@ -716,7 +707,11 @@ export default defineAction({
         throw new Error("No pending local Builder changes to review.");
       }
       const reviewableChanges = [...allReviewableChanges]
-        .sort((a, b) => reviewPreparePriority(a) - reviewPreparePriority(b))
+        .sort(
+          (a, b) =>
+            reviewPreparePriority(a, snapshot) -
+            reviewPreparePriority(b, snapshot),
+        )
         .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
       const authoritativeSnapshot = await withAuthoritativeBuilderTargetRows({
         source: snapshot,
@@ -767,16 +762,16 @@ export default defineAction({
         approvalStartedAt,
       );
 
-      const { reviewedSnapshot, response } = await timing.measure(
-        "reconciliation_and_response_load",
-        async () => ({
-          reviewedSnapshot: await getContentDatabaseSourceSnapshotForWrite(
+      const reviewedSnapshot = await timing.measure(
+        "reconciliation_snapshot_load",
+        () =>
+          getContentDatabaseSourceSnapshotForWrite(
             database,
             args.sourceId,
-            args.documentIds,
+            reviewableChanges.every((changeSet) => changeSet.documentId)
+              ? reviewableChanges.map((changeSet) => changeSet.documentId!)
+              : args.documentIds,
           ),
-          response: await getContentDatabaseResponse(database.id),
-        }),
       );
       if (!reviewedSnapshot) throw new Error("Builder source disappeared.");
       // Build the review payload from the TARGET source snapshot, not
@@ -799,7 +794,6 @@ export default defineAction({
       review.preparedRowLimit = reviewableChanges.length;
 
       const result = {
-        ...response,
         review,
         preparedChangeSetMappings,
         timings: timing.finish(),

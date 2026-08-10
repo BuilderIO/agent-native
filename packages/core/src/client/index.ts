@@ -49,6 +49,7 @@ export {
   type FeatureFlagRules,
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
+export { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 export {
   SettingsPanel,
   SettingsTabsPage,
@@ -56,6 +57,8 @@ export {
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
   useAgentSettingsTabs,
+  type AgentSettingsTabFactory,
+  type AgentSettingsTabFactoryContext,
   useBuilderConnectFlow,
   useBuilderStatus,
   withBuilderConnectTrackingParams,
@@ -93,6 +96,8 @@ export {
   stopSessionReplay,
   getAnalyticsAnonymousId,
   getAnalyticsSessionId,
+  setAnalyticsSessionId,
+  clearAnalyticsSessionId,
   getFirstTouchAttribution,
   setSentryUser,
   setTrackingIdentity,
@@ -223,9 +228,17 @@ export {
 } from "./review/index.js";
 export {
   BuilderConnectCard,
+  DefaultBuilderConnectCardView,
   ProviderReadinessBadge,
   SetupConnectionsPage,
+  useBuilderConnectCardController,
+  type BuilderConnectCardAction,
+  type BuilderConnectCardControllerOptions,
   type BuilderConnectCardProps,
+  type BuilderConnectCardRenderContext,
+  type BuilderConnectCardStatus,
+  type BuilderConnectCardViewModel,
+  type DefaultBuilderConnectCardViewProps,
   type ProviderReadinessBadgeProps,
   type SetupConnectionsPageProps,
 } from "./setup-connections/index.js";
@@ -291,7 +304,16 @@ export {
 export {
   ShareButton,
   ShareDialog,
+  useShareButtonController,
   type ShareButtonProps,
+  type ShareButtonController,
+  type ShareButtonControllerOptions,
+  type ShareButtonOrgMember,
+  type ShareButtonOrgMemberSearch,
+  type ShareButtonRole,
+  type ShareButtonShare,
+  type ShareButtonSharesResponse,
+  type ShareButtonVisibility,
   type ShareDialogProps,
 } from "./sharing/index.js";
 export {

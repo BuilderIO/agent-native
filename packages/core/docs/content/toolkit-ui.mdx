@@ -8,6 +8,14 @@ description: "How to use @agent-native/toolkit UI primitives, the local app-adap
 Toolkit UI primitives live under `@agent-native/toolkit/ui/*`. They are the
 shared shadcn-style building blocks used by templates and reusable kits.
 
+If your company already has a React component library, register it through the
+semantic design-system bridge instead of replacing feature code. The bridge is
+styling-runtime agnostic, supports partial adapters with per-control fallback,
+and lets shared Toolkit and Core-owned feature views consume the same company
+components. See [Custom Design Systems](/docs/custom-design-system) for the 17
+semantic contracts, build-time theme tokens, conformance tests, and adapter
+recipes.
+
 <WireframeBlock id="doc-block-toolkit-ui-primitives">
   <Screen
     surface="desktop"
@@ -104,6 +112,14 @@ still exports every primitive directly, so external, non-template packages can
 keep importing `@agent-native/toolkit/ui/*` without adopting local adapters.
 Core also keeps old imports working through its own re-export shims for code
 written before Toolkit adapters existed.
+
+For new customization, prefer `designSystem={designSystem}` over the legacy
+`components={{ Button }}` override. The design-system adapter uses semantic
+props such as intent, emphasis, pending state, controlled values, and controlled
+open state rather than shadcn variant names. When both APIs provide the button,
+`designSystem.components.ActionButton` wins. A missing or failed custom control
+falls back to Toolkit’s default adapter without disabling the rest of the
+registered system.
 
 ## Shell hooks {#shell-hooks}
 

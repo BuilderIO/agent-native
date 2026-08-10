@@ -75,7 +75,7 @@ export function TaskQueueHealth() {
     oldestAge === "none" ? t("dispatch.pages.queueAgeNone") : oldestAge;
 
   return (
-    <section className="rounded-lg border bg-card p-4">
+    <section className="rounded-lg bg-card p-4">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <IconPlayerPlay

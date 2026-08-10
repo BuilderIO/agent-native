@@ -14,11 +14,11 @@
     "server/**/*",
     "shared/**/*",
     "actions/**/*",
+    "scripts/**/*",
     "vite.config.ts",
     "vitest.config.ts",
     "react-router.config.ts",
     ".react-router/types/**/*",
     ".generated/**/*"
-  ],
-  "exclude": ["**/*.test.ts", "**/*.spec.ts"]
+  ]
 }

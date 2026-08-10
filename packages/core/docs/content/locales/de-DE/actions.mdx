@@ -91,7 +91,7 @@ eingebetteter Sidecar oder als vollständiger App-Bildschirm, siehe [Agent Surfa
 
 Wenn sowohl der UI als auch der Agent etwas tun müssen, greifen Sie zu einer Aktion – nicht zu einer benutzerdefinierten Aktion
 Route. Wenn ein routenförmiges Protokoll der richtige Aufruf ist, lesen Sie [Bevorzugen Sie Actions
-Für App Operations](/docs/server#actions-first).
+Für App Operations](/docs/server-overview#actions-first).
 
 ## Beginnen Sie mit einer Aktion {#hello-action}
 
@@ -253,7 +253,7 @@ Standard ist POST; `http: { method: "GET" }` macht daraus GET. React-Hooks und `
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** – Standard `POST`. `GET` actions werden automatisch als `readOnly` markiert, sodass erfolgreiche Anrufe keine UI-Umfrageaktualisierung auslösen.
 - **`http: { path: "..." }`** – überschreibt den gemounteten URL unter `/_agent-native/actions/`. Standardmäßig wird der Dateiname verwendet. **Pfadüberschreibungen ändern den URL nur für direkte HTTP-Aufrufer** – `useActionQuery`, `useActionMutation` und `callAction` rufen unabhängig von dieser Überschreibung immer `/_agent-native/actions/<name>` auf, sodass das Überschreiben des Pfads diese Hooks zu 404 macht. Verwenden Sie Pfadüberschreibungen nur für externe HTTP-Aufrufer. Beachten Sie auch, dass `:param`-Routensegmente im Override-Pfad **nicht** in `run()`-Argumente geparst werden – nur Abfragezeichenfolgenparameter und JSON-Textfelder.
 - **`http: false`** – Deaktivieren Sie den HTTP-Endpunkt vollständig. Nur Agent + CLI.
-- **`readOnly: true`** – Überspringen Sie die Polling-Aktualisierung explizit, auch für POST actions, die nicht mutieren.
+- **`readOnly: true`** – Überspringen Sie die Polling-Aktualisierung explizit, auch für POST actions, die nicht mutieren. Es ist **keine** Zugriffskontrolle: Es schränkt nicht ein, wer die Action aufrufen darf, und es wirkt sich nicht auf `useActionQuery`, `useActionMutation` oder andere Client-Hooks aus. Die einzigen Effekte sind das Unterdrücken des Refresh-Events nach dem Aufruf und das Ausnehmen der Action vom Schreib-Auditing. Um eine Action vor dem Modell zu verbergen, verwenden Sie `agentTool: false`; um Aufrufer einzuschränken, verwenden Sie die obigen Auth-/Zugriffsoptionen.
 - **`parallelSafe: true`** – ermöglicht die gleichzeitige Ausführung einer Mutationsaktion mit anderen Werkzeugaufrufen für die gleiche Drehung. Legen Sie dies nur fest, wenn die Aktion intern nebenläufigkeitssicher und reihenfolgeunabhängig ist. mutierende actions-Serialisierung standardmäßig.
 
 ### Halten Sie die Aktionsfläche klein {#small-surface}
@@ -269,7 +269,7 @@ Ein Beratungshelfer auf Repo-Ebene, `node scripts/audit-template-actions.mjs [te
 
 ### Belichtungsflags {#exposure-flags}
 
-Vier Flags steuern, _wer_ eine Aktion aufrufen kann. Alle sind standardmäßig auf den zulässigen Wert eingestellt, sodass Sie nur einen festlegen, um eine bestimmte Oberfläche zu straffen. Diese Tabelle ist die übersichtliche Zusammenfassung; Die Unterabschnitte fügen jeweils das eine Detail hinzu, das jeder benötigt.
+Fünf Flags steuern, _wer_ eine Aktion aufrufen kann. Alle sind standardmäßig auf den zulässigen Wert eingestellt, sodass Sie nur einen festlegen, um eine bestimmte Oberfläche zu straffen. Diese Tabelle ist die übersichtliche Zusammenfassung; Die Unterabschnitte fügen jeweils das eine Detail hinzu, das jeder benötigt.
 
 | Flagge          | Standard     | Einschränkender Wert → wer noch anrufen kann                                            | Typische Verwendung                                                                           |
 | --------------- | ------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -277,8 +277,9 @@ Vier Flags steuern, _wer_ eine Aktion aufrufen kann. Alle sind standardmäßig a
 | `toolCallable`  | `true`       | `false` → alles **außer** der Sandbox-Erweiterung Iframe Bridge (403)                   | Benachbarte Vorgänge autorisieren (Konto löschen, Organisationsmitgliedschaft/-rollen ändern) |
 | `publicAgent`   | aus (privat) | `{ expose: true }` → fügt die Aktion **öffentlichen** MCP/A2A/OpenAPI-Oberflächen hinzu | Sichere Lese-/Ingest-Tools, die ohne Authentifizierung erreichbar sind                        |
 | `needsApproval` | `false`      | `true` → der Agent **pausiert**; Ein Mensch muss den konkreten Anruf genehmigen         | Folgenebenwirkungen (E-Mail senden, Karte aufladen, löschen)                                  |
+| `authorize`     | keine        | eine Guard-Funktion → nur Aufrufer, die sie akzeptiert, auf **jeder** Oberfläche        | Vorgänge, die auf eine Rolle beschränkt sind (RBAC pro App, Admin-only-Vorgänge)              |
 
-Diese sind unabhängig: `agentTool` steuert die Modellansicht, `toolCallable` steuert nur den Erweiterungs-Iframe, `publicAgent` fügt eine öffentliche Opt-in-Oberfläche hinzu (öffentliche Webrouten bedeuten niemals die Offenlegung öffentlicher Tools) und `needsApproval` steuert die Ausführung, nachdem der Aufruf erfolgt ist – siehe [Human-in-the-loop approval](#needs-approval) unten.
+Diese sind unabhängig: `agentTool` steuert die Modellansicht, `toolCallable` steuert nur den Erweiterungs-Iframe, `publicAgent` fügt eine öffentliche Opt-in-Oberfläche hinzu (öffentliche Webrouten bedeuten niemals die Offenlegung öffentlicher Tools), `needsApproval` steuert die Ausführung, nachdem der Aufruf erfolgt ist – siehe [Human-in-the-loop approval](#needs-approval) unten – und `authorize` entscheidet, ob dieser Aufrufer die Aktion überhaupt ausführen darf, auf jedem Dispatch-Pfad, bevor `run` betreten wird – siehe [Authorization](#authorize).
 
 #### `agentTool` – vor dem Modell verstecken {#agent-tool}
 
@@ -378,12 +379,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },
@@ -391,6 +395,47 @@ export default defineAction({
 ```
 
 Zum Auflisten und Lesen von actions verwenden Sie `accessFilter`, um die Abfrage auf den aktuellen Benutzer und die aktuelle Organisation zu beschränken. Für actions, die eine bestimmte Zeile aktualisieren oder löschen, verwenden Sie `assertAccess`, um vor dem Schreiben zu bestätigen, dass der Aufrufer zugelassen ist. Den vollständigen Helfer API finden Sie unter [Security](/docs/security#access-guards) und [Sharing](/docs/sharing).
+
+### Autorisierung {#authorize}
+
+`accessFilter` / `assertAccess` grenzen ein, _welche Zeilen_ ein zugelassener Aufrufer anfassen darf. `authorize` beantwortet die Frage davor: **Darf dieser Aufrufer diesen Vorgang überhaupt ausführen?** Geben Sie ihm eine Guard-Funktion, und sie läuft vor `run()` bei jedem Aufrufer – Agent-Tool, HTTP, Frontend, MCP, A2A und CLI:
+
+```ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+Der Guard umschließt `run` selbst, statt am Eintrag der Aktion zu hängen, denn `run` ist das Einzige, was alle sechs Dispatch-Stellen durchlaufen – es gibt keinen Aufrufer, der den Rumpf erreichen kann, ohne die Prüfung zu bestehen. Ein Guard, der wirft, verweigert mit seiner eigenen Meldung; einer, der `false` zurückgibt, verweigert mit einem generischen 403; alles andere, einschließlich `undefined`, erlaubt. Da die Sperre eine Aufrufer-Identität benötigt, wird ein unbeaufsichtigter CLI- oder Cron-Aufruf ohne Benutzer-E-Mail abgelehnt statt durchgewunken.
+
+Die Wrapper werden in dieser Reihenfolge zusammengesetzt:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+Die Autorisierung sitzt _innerhalb_ der Eingabevalidierung: Ein Guard, der `args` prüft, erhält damit den geparsten, konvertierten Wert, den sein Typ verspricht, und nicht die Form, die der Aufrufer gesendet hat. Das Auditing liegt ganz außen, sodass auch eine Ablehnung protokolliert wird.
+
+`requireAny` schlägt zur Definitionszeit fehl, nicht zur Anfragezeit: Ein Aufruf ohne Rollen oder mit einer Rolle außerhalb des deklarierten Vokabulars wirft beim Laden des Moduls. `authorize: coachAccess.requireAny()` ist ein vergessenes Argument, und das soll dort brechen, wo der Fehler liegt, statt später als unerklärter 403 aufzutauchen.
+
+Die drei Mechanismen sind nicht austauschbar:
+
+| Mechanismus                   | Frage, die er beantwortet                                            | Gilt für                               |
+| ----------------------------- | -------------------------------------------------------------------- | -------------------------------------- |
+| `authorize`                   | Darf dieser Aufrufer den Vorgang überhaupt ausführen?                | Alle sechs Dispatch-Stellen            |
+| `needsApproval`               | Soll ein Mensch diesen konkreten zugelassenen Aufruf absegnen?       | Nur die Agentenschleife                |
+| `accessFilter`/`assertAccess` | Welche Zeilen darf dieser zugelassene Aufrufer sehen oder schreiben? | Innerhalb von `run`, pro Abfrage/Zeile |
+
+Eine eingeschränkte Schreib-Aktion benötigt typischerweise sowohl `authorize` als auch `assertAccess`: Ersteres hält Nicht-Coaches aus dem Vorgang heraus, Letzteres hält einen Coach vom Plan einer anderen Organisation fern. `needsApproval` ist wiederum eine eigene Achse – es schränkt nie ein, _wer_ aufrufen darf, sondern nur, ob der Agent unbeaufsichtigt fortfahren darf.
+
+`coachAccess` oben stammt von `defineAppRoles`, der App-spezifischen Rollenüberlagerung der Organisationsmitgliedschaft. Das Rollenmodell und seine Garantien finden Sie unter [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac).
 
 ### Human-in-the-Loop-Genehmigung {#needs-approval}
 

@@ -91,6 +91,15 @@ When meetings are enabled, the Clips desktop app also watches for native Zoom (`
 
 All actions go through `accessFilter` / `assertAccess`. AI work delegates via `sendToAgentChat` per the `delegate-to-agent` skill — never inline LLM calls.
 
+### Calendar provider-API boundary
+
+These calendar-sourced actions are shortcuts, not a capability ceiling — but do
+not add raw `provider-api-request` access for Google Calendar until the provider
+API runtime can resolve Clips `calendar_accounts` through sharing/access checks
+and read their encrypted `app_secrets` token refs. Clips calendar grants are not
+stored in core `oauth_tokens`, so bypassing that model would break the account
+sharing/status boundary.
+
 ## Sharing meeting notes and transcripts
 
 Meeting share links always include generated notes: the summary, key points,

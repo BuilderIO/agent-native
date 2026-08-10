@@ -59,6 +59,28 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
  * markers. These are signed/authenticated through other mechanisms (HMAC,
  * JWT, internal token) so they don't need cookie-based CSRF protection.
  */
+/**
+ * Sub-prefixes that must stay CSRF-protected even though a broader entry in
+ * `CSRF_ALLOWLIST_PREFIXES` covers them. Checked first, and they win.
+ *
+ * An allowlist entry is a promise that everything beneath it authenticates on
+ * something the browser will not attach by itself. Mount a route that calls
+ * `requireSessionContext` under such a prefix and that promise silently breaks:
+ * the route now rides the ambient `SameSite=None` session cookie with no
+ * first-party check, and nothing about the route's own code looks wrong.
+ * `/integrations/remote/*` is exactly that shape — device-token relay routes
+ * and cookie-authenticated control routes share one subtree.
+ */
+const CSRF_PROTECTED_PREFIXES = [
+  // Remote-device relay. The device's own routes (poll/result/heartbeat)
+  // authenticate with a bearer token and send no cookies, so they never reach
+  // the check; the sibling routes (register, enqueue, computer/approvals,
+  // computer/commands) are session-authenticated and must not be exempt —
+  // approving a browser-control operation is a state change an attacker page
+  // must never be able to make ride the victim's cookie.
+  "/integrations/remote/",
+];
+
 const CSRF_ALLOWLIST_PREFIXES = [
   // Integration webhooks — verified by HMAC against a per-integration secret.
   "/integrations/",
@@ -155,6 +177,9 @@ function requestHasCookies(event: any): boolean {
 function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
   if (!pathname.startsWith(frameworkPrefix)) return false;
   const sub = pathname.slice(frameworkPrefix.length);
+  for (const protectedPrefix of CSRF_PROTECTED_PREFIXES) {
+    if (sub.startsWith(protectedPrefix)) return false;
+  }
   for (const allowed of CSRF_ALLOWLIST_PREFIXES) {
     if (sub.startsWith(allowed)) return true;
   }

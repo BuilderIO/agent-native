@@ -1,7 +1,5 @@
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
-import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
-import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { buildLegacyAgentSettingsRoute } from "@agent-native/core/client/navigation";
+import { Navigate, useLocation } from "react-router";
 
 import messages from "@/i18n/en-US";
 
@@ -10,13 +8,12 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  const t = useT();
-  useSetPageTitle(t("settings.agentTitle"));
+  const location = useLocation();
 
   return (
-    <AgentTabsPage
-      appName="Slides"
-      extraTabFactories={[createCreativeContextAgentTab]}
+    <Navigate
+      to={buildLegacyAgentSettingsRoute(location.hash, location.search)}
+      replace
     />
   );
 }

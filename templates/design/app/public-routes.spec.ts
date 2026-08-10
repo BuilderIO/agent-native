@@ -5,6 +5,7 @@ import { isPublicDesignAppPath } from "./public-routes";
 describe("isPublicDesignAppPath", () => {
   it.each([
     "/visual-edit",
+    "/visual-edit/local-design-id",
     "/design",
     "/design/public-design-id",
     "/present/public-design-id",

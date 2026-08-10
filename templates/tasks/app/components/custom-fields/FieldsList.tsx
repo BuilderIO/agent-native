@@ -1,4 +1,5 @@
 import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -37,6 +38,7 @@ export function FieldsList({
   activeFieldId: string | null;
   setActiveFieldId: (fieldId: string | null) => void;
 }) {
+  const t = useT();
   const { fields, isPending, isError, error } = useCustomFields();
   const { fieldIds: visibleFieldIds } = useVisibleTaskFieldIds();
   const updateVisibleTaskFields = useUpdateVisibleTaskFields();
@@ -79,9 +81,9 @@ export function FieldsList({
       });
       setActiveFieldId(created.id);
       focusAgentChat();
-      toast.success("Field created.");
+      toast.success(t("fields.createdToast"));
     } catch (caught) {
-      toast.error((caught as Error)?.message ?? "Could not create field.");
+      toast.error((caught as Error)?.message ?? t("fields.createError"));
       throw caught;
     }
   }
@@ -94,10 +96,15 @@ export function FieldsList({
       setPendingDelete(null);
       if (activeFieldId === field.id) setActiveFieldId(null);
       toast.success(
-        `Deleted ${field.title}${result.deletedValues ? ` and ${result.deletedValues} task values` : ""}.`,
+        result.deletedValues
+          ? t("fields.deletedWithValuesToast", {
+              title: field.title,
+              count: result.deletedValues,
+            })
+          : t("fields.deletedToast", { title: field.title }),
       );
     } catch (caught) {
-      toast.error((caught as Error)?.message ?? "Could not delete field.");
+      toast.error((caught as Error)?.message ?? t("fields.deleteError"));
     }
   }
 
@@ -122,7 +129,7 @@ export function FieldsList({
       <div className="grid shrink-0 gap-3">
         <FieldCreateBar busy={busy} onCreate={handleCreate} />
         <ChipSelect
-          label="Task card fields"
+          label={t("fields.taskCardFieldsLabel")}
           options={visibleFieldOptions}
           selectedIds={visibleFieldIds}
           onSelectedIdsChange={(fieldIds) =>
@@ -130,8 +137,8 @@ export function FieldsList({
           }
           disabled={busy || isPending || updateVisibleTaskFields.isPending}
           limit={TASK_CARD_FIELD_LIMIT}
-          addButtonLabel="Add field"
-          emptyLabel="No fields selected"
+          addButtonLabel={t("fields.addFieldButtonLabel")}
+          emptyLabel={t("fields.noFieldsSelectedLabel")}
         />
       </div>
 
@@ -140,22 +147,22 @@ export function FieldsList({
           <FieldsListSkeleton />
         ) : isError ? (
           <div
-            aria-label="Fields list"
+            aria-label={t("fields.listAriaLabel")}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 outline-none"
           >
             <ListErrorMessage
               error={error}
-              fallbackMessage="Failed to load fields."
+              fallbackMessage={t("fields.loadError")}
             />
           </div>
         ) : orderedFields.length === 0 ? (
           <div
-            aria-label="Fields list"
+            aria-label={t("fields.listAriaLabel")}
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1 outline-none"
           >
             <ListEmptyState
-              heading="No fields yet"
-              description="Create a field above to start adding task structure."
+              heading={t("fields.emptyHeading")}
+              description={t("fields.emptyDescription")}
             />
           </div>
         ) : (
@@ -163,7 +170,7 @@ export function FieldsList({
             <List
               items={orderedFields}
               selectionEnabled={false}
-              ariaLabel="Fields list"
+              ariaLabel={t("fields.listAriaLabel")}
               onReorder={handleReorder}
               renderItem={({ item, sortable }) => (
                 <FieldListRow
@@ -198,18 +205,15 @@ export function FieldsList({
           onOpenChange={(open) => {
             if (!open) setPendingDelete(null);
           }}
-          entityLabel="field"
+          entityLabel={t("fields.entitySingular")}
           itemTitle={pendingDelete?.title ?? null}
           pending={deleteField.isPending}
           description={
-            pendingDelete ? (
-              <>
-                This deletes &quot;{pendingDelete.title}&quot; and removes its
-                values from every task.
-              </>
-            ) : (
-              "This deletes the field and removes its values from every task."
-            )
+            pendingDelete
+              ? t("fields.deleteFieldDescriptionWithTitle", {
+                  title: pendingDelete.title,
+                })
+              : t("fields.deleteFieldDescription")
           }
           onConfirm={() => void handleDelete()}
         />

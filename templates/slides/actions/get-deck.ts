@@ -52,7 +52,9 @@ export default defineAction({
 
     const access = await resolveAccess("deck", args.id);
     if (!access) {
-      throw new Error("Deck not found");
+      // 404 rather than 403/500 so HTTP callers can't probe for decks they
+      // can't see, and so the slide preview can tell "missing" from "broken".
+      throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
     }
 
     const row = access.resource;
@@ -66,6 +68,18 @@ export default defineAction({
         title: row.title || data?.title,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
+        sourceImport: data?.sourceImport
+          ? {
+              mode: data.sourceImport.mode,
+              format: data.sourceImport.format,
+              fidelity: data.sourceImport.fidelity,
+              slideCount: data.sourceImport.slideCount,
+              slideIds: data.sourceImport.slideIds,
+              ...(typeof data.sourceImport.imagesSkipped === "number"
+                ? { imagesSkipped: data.sourceImport.imagesSkipped }
+                : {}),
+            }
+          : null,
         slideCount: slides.length,
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',

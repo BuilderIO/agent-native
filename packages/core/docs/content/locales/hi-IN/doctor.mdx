@@ -5,6 +5,10 @@ description: सुरक्षा और माइग्रेशन जाँ�
 
 # Doctor
 
-`agent-native doctor` आठ guards चलाता है: सात सुरक्षा guards और `migration-manifest`। यह installed `migration-manifest.json` में imports ढूँढता है और इसका opt-out नहीं है। `agent-native doctor --only migration-manifest` चलाएँ, `npx @agent-native/core@latest upgrade --codemods` से preview करें और `--yes` से लागू करें। JSON में `guardsRun` सभी आठ नाम दिखाता है।
+Generated apps और workspaces में source code होता है जिसे repository development workflow के माध्यम से बदला जा सकता है, जिसमें वह agent frame भी शामिल है जिसे जानबूझकर workspace और write tooling दी गई हो। `agent-native doctor` source में security-critical code invariants जाँचता है। यह read-only है: doctor code edit नहीं करता, केवल report करता है।
+
+`agent-native doctor` नौ guards चलाता है: आठ सुरक्षा guards और `migration-manifest`। यह installed `migration-manifest.json` में imports ढूँढता है और इसका opt-out नहीं है। `agent-native doctor --only migration-manifest` चलाएँ, `npx @agent-native/core@latest upgrade --codemods` से preview करें और `--yes` से लागू करें। JSON में `guardsRun` सभी नौ नाम दिखाता है।
+
+CLI हर नए app और workspace में `pnpm doctor` तथा `pnpm agent-native:doctor` commands जोड़ता है। Workspace root से चलाने पर `apps/<name>` के हर app की जाँच होती है। Findings मिलने पर builds डिफ़ॉल्ट रूप से fail होती हैं; `failOnBuild: false` केवल reviewed exception के रूप में उपयोग करें।
 
 `planned` चिह्नित entries केवल warnings के रूप में दिखती हैं और rewrite नहीं होतीं। Active entries findings होती हैं; codemod उन्हें तभी rewrite करता है जब destination export installed हो।

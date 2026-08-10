@@ -5,7 +5,7 @@ description: "Branching, CODEOWNERS, revisão de PR e como o Dispatch lida com a
 
 # Governança do espaço de trabalho
 
-> **Qual documento do espaço de trabalho?** Esta página aborda a **governança** — quem analisa, aprova e possui o que em vários aplicativos em um único repositório. Para a camada de personalização do agente (Recursos do Agente: `AGENTS.md`, memória, skills, agentes personalizados) consulte [Recursos do Agente](/docs/workspace); para o formato de implantação (um monorepo, muitos aplicativos), consulte [Multi-App Workspaces](/docs/multi-app-workspace).
+> **Qual documento do espaço de trabalho?** Esta página aborda a **governança** — quem analisa, aprova e possui o que em vários aplicativos em um único repositório. Para a camada de personalização do agente (Recursos do Agente: `AGENTS.md`, memória, skills, agentes personalizados) consulte [Recursos do Agente](/docs/agent-resources); para o formato de implantação (um monorepo, muitos aplicativos), consulte [Multi-App Workspaces](/docs/multi-app-workspace).
 
 Este guia aborda o lado operacional da execução de um espaço de trabalho nativo do agente: como ramificar, quem revisa o quê, como configurar a propriedade do código e como o plano de controle do Dispatch se ajusta ao seu modelo de governança.
 
@@ -87,7 +87,7 @@ Mantenha os galhos de curta duração. As ramificações de longa duração dive
 
 ### Ramificação sem desenvolvedor
 
-Nem todo mundo que precisa fazer alterações se sente confortável com o git. [Builder.io](https://www.builder.io) oferece suporte a um modelo de ramificação visual que mapeia ramificações git nos bastidores — útil para alterações de conteúdo e cópia, ajustes de layout, iterações de design e testes A/B sem um ambiente de desenvolvimento.
+Nem todo mundo que precisa fazer alterações se sente confortável com o git. [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=workspace_management) oferece suporte a um modelo de ramificação visual que mapeia ramificações git nos bastidores — útil para alterações de conteúdo e cópia, ajustes de layout, iterações de design e testes A/B sem um ambiente de desenvolvimento.
 
 ## Propriedade do código
 
@@ -207,7 +207,7 @@ O aplicativo [Dispatch](/docs/dispatch) é o plano de controle de tempo de execu
 
 O Dispatch gerencia: segredos do cofre, conexões reutilizáveis do espaço de trabalho, recursos do espaço de trabalho (skills, instruções, perfis de agentes, servidores MCP), aprovações e registros de auditoria. Para configuração de rota de aplicativo público (`workspaceApp.audience`/`publicPaths`/`protectedPaths`), consulte [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment).
 
-Para o modelo de recursos e caminhos canônicos, consulte [Recursos do Agente — Global resources](/docs/workspace#global-resources).
+Para o modelo de recursos e caminhos canônicos, consulte [Recursos do Agente — Global resources](/docs/agent-resources#global-resources).
 
 ## Lista de verificação de configuração
 
@@ -228,7 +228,7 @@ Para um novo espaço de trabalho, após executar `npx @agent-native/core@latest 
 - [ ] Registre conexões de espaço de trabalho reutilizáveis para contas de provedor compartilhadas e, em seguida,
       conceder aplicativos como Brain, Analytics, Mail ou Dispatch somente quando necessário
       essa conta
-- [ ] Adicione skills para todo o espaço de trabalho, instruções de proteção e recursos de referência de marca/empresa por meio da página Recursos. Consulte [Recursos do Agente](/docs/workspace#global-resources) para obter a tabela completa de modelos de recursos e o pacote inicial recomendado.
+- [ ] Adicione skills para todo o espaço de trabalho, instruções de proteção e recursos de referência de marca/empresa por meio da página Recursos. Consulte [Recursos do Agente](/docs/agent-resources#global-resources) para obter a tabela completa de modelos de recursos e o pacote inicial recomendado.
 - [ ] Configure a política de aprovação e os e-mails do aprovador
 - [ ] Configurar SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) para notificações administrativas
 - [ ] Conecte Slack ou Telegram para mensagens no espaço de trabalho

@@ -59,7 +59,6 @@ import type {
 } from "./types.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
-const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
@@ -85,6 +84,10 @@ export interface PromptComposerProps {
   ) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Override the generic document attachment cap for a multipart host. */
+  maxDocumentAttachmentBytes?: number;
+  /** Label used in the visible document attachment limit error. */
+  documentAttachmentLimitLabel?: string;
   autoFocus?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -105,6 +108,10 @@ export interface PromptComposerProps {
    * prompt forms; chat surfaces can opt into the full sidebar menu.
    */
   plusMenuMode?: "full" | "upload-only" | "hidden";
+  /**
+   * Include extension creation in the full "+" menu. Defaults to false.
+   */
+  extensionTools?: boolean;
   /** Programmatically seed the composer with plain text. */
   initialText?: string;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
@@ -227,6 +234,19 @@ function formatInlineTextFile(name: string, text: string): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Only a confirmed-missing engine that also has a setup component to render
+ * may block typing: a disabled composer with no way out is never an acceptable
+ * terminal state, and `unknown`/`unavailable` mean the status check has not
+ * answered — not that no provider is configured.
+ */
+export function shouldGateComposerForMissingEngine(input: {
+  state: string;
+  hasSetupComponent: boolean;
+}): boolean {
+  return input.state === "missing" && input.hasSetupComponent;
 }
 
 export async function buildPromptComposerSubmission(options: {
@@ -442,6 +462,8 @@ function PromptComposerInner({
   onSubmit,
   placeholder,
   disabled,
+  maxDocumentAttachmentBytes,
+  documentAttachmentLimitLabel,
   autoFocus,
   className,
   style,
@@ -453,6 +475,7 @@ function PromptComposerInner({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
+  extensionTools = false,
   initialText,
   initialTextKey,
   modeControl,
@@ -531,26 +554,6 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
-  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
-    if (!resolvedModelStatusChecksEnabled) return true;
-    const state =
-      agentEngineConfigured.state === "missing"
-        ? "missing"
-        : await modelsAdapter.fetchAgentEngineConfiguredState!(
-            resolvedModelStatusChecksEnabled,
-            {
-              timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
-            },
-          );
-    if (state !== "missing") return true;
-    bounceMissingKeySetup();
-    return false;
-  }, [
-    agentEngineConfigured.state,
-    bounceMissingKeySetup,
-    modelsAdapter,
-    resolvedModelStatusChecksEnabled,
-  ]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -591,6 +594,12 @@ function PromptComposerInner({
     [composerEffort, composerEngine, composerModel, onSubmit],
   );
   const useInlineMissingKeySetup = layoutVariant === "compact";
+  const gateComposer = shouldGateComposerForMissingEngine({
+    state: agentEngineConfigured.state,
+    hasSetupComponent: Boolean(
+      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
+    ),
+  });
 
   return (
     <>
@@ -613,30 +622,32 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          missingApiKey && "cursor-pointer",
+          gateComposer && "cursor-pointer",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={missingApiKey ? bounceMissingKeySetup : undefined}
+        onClick={gateComposer ? bounceMissingKeySetup : undefined}
       >
         <PromptAttachmentStrip />
         <TiptapComposer
           focusRef={handleRef}
-          disabled={disabled || missingApiKey}
+          disabled={disabled || gateComposer}
+          maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
+          documentAttachmentLimitLabel={documentAttachmentLimitLabel}
           placeholder={
-            missingApiKey ? "Connect AI above to continue..." : placeholder
+            gateComposer ? "Connect AI above to continue..." : placeholder
           }
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
-          onBeforeSubmit={ensureAgentEngineReadyForSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
           }
+          extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
           toolbarSlot={toolbarSlot}

@@ -1,7 +1,7 @@
 import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
-const SEO_TITLE = "Agent-Native Clips - Open Source screen recorder";
+const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
   "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
 

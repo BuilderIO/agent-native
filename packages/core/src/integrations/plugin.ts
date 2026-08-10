@@ -9,7 +9,13 @@ import {
 import { getRequestHeader } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+import {
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
+  isInBackgroundFunctionRuntime,
+} from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
+import { isServerlessRuntime } from "../db/client.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -28,12 +34,19 @@ import {
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
+  reconcileTerminalA2AParentIfDisabled,
+  recoverA2AContinuationAfterProcessorFailure,
+  recoverDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
-import { failA2AContinuation } from "./a2a-continuations-store.js";
+import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
 import { mergeIntegrationAdapters } from "./adapter-overrides.js";
 import { discordAdapter } from "./adapters/discord.js";
 import { emailAdapter } from "./adapters/email.js";
@@ -65,22 +78,43 @@ import {
   updateIntegrationInstallation,
   upsertIntegrationInstallation,
 } from "./installations-store.js";
+import { recoverDueIntegrationCampaigns } from "./integration-campaign-recovery.js";
+import {
+  claimIntegrationCampaignDeliveryForTask,
+  completeIntegrationCampaignTaskAfterA2A,
+  completeIntegrationCampaignTask,
+  failIntegrationCampaignTaskDeliveryContainment,
+  failDisabledIntegrationCampaignTask,
+  failIntegrationCampaign,
+  refreshIntegrationCampaignTaskA2AReceiptRetry,
+  terminalizeIntegrationCampaignForTask,
+  transitionIntegrationCampaignTaskToA2AReceiptRetry,
+  transitionIntegrationCampaignTaskToDeliveryRetry,
+  waitForA2AIntegrationCampaign,
+} from "./integration-campaigns-store.js";
+import {
+  dispatchPendingIntegrationTask,
+  INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
+  INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  integrationDispatchScopeValue,
+  isInIntegrationRecoveryRuntime,
+  isIntegrationDurableDispatchEnabledForTask,
+} from "./integration-durable-dispatch.js";
 import {
   forgetIntegrationMemory,
   integrationMemoryActions,
   listIntegrationMemory,
   rememberForIntegrationScope,
 } from "./integration-memory.js";
+import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
 import {
-  extractBearerToken,
-  signInternalToken,
-  verifyInternalToken,
-} from "./internal-token.js";
-import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
+  retryStuckPendingTasks,
+  startPendingTasksRetryJob,
+} from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
-  failTaskDeliveryTransition,
-  getNextPendingTaskIdForThread,
+  getNextPendingTaskForThread,
+  getPendingTask,
   insertPendingTask,
   isDuplicateEventError,
   MAX_PENDING_TASK_ATTEMPTS,
@@ -89,6 +123,7 @@ import {
   markTaskFailed,
   markTaskRetryable,
   stageTaskDeliveryPayload,
+  type PendingTask,
 } from "./pending-tasks-store.js";
 import {
   claimNextComputerCommand,
@@ -162,28 +197,163 @@ import {
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-let a2aContinuationRetryInterval: ReturnType<typeof setInterval> | null = null;
+// Timer-driven sweep only — the atomic DB claim inside
+// processDueA2AContinuations already makes concurrent calls (this timer, the
+// opportunistic post-dispatch sweep, etc.) safe.
+let a2aContinuationJob: IntervalJobHandle | null = null;
+let a2aContinuationStartupTimer: ReturnType<typeof setTimeout> | null = null;
+const A2A_CONTINUATION_SWEEP_INTERVAL_MS = 60_000;
+const INTEGRATION_DELIVERY_LEASE_MS = 2 * 60_000;
+
+async function checkpointIntegrationDeliveryRetry(
+  task: PendingTask,
+  payload: string,
+  errorMessage: string,
+  event: unknown,
+  campaignLease?: {
+    campaignId: string;
+    runId: string;
+    leaseToken: string;
+    campaignStatus: "completed" | "failed" | "waiting-a2a";
+  },
+): Promise<"requeued" | "superseded"> {
+  let terminalStatus: "completed" | "failed" | undefined;
+  let confirmedReceipt = false;
+  let awaitingA2ACompletion = false;
+  try {
+    const parsed = JSON.parse(
+      payload,
+    ) as Partial<IntegrationResponseDeliveryTaskPayload>;
+    terminalStatus = parsed.campaignTerminalStatus;
+    confirmedReceipt = parsed.deliveryReceipt?.status === "delivered";
+    awaitingA2ACompletion = parsed.awaitingA2ACompletion === true;
+  } catch {}
+  if (awaitingA2ACompletion) {
+    if (campaignLease && campaignLease.campaignStatus !== "waiting-a2a") {
+      throw new Error("A2A receipt retry lease has the wrong custody mode");
+    }
+    const transitioned = campaignLease
+      ? await transitionIntegrationCampaignTaskToA2AReceiptRetry(task.id, {
+          payload,
+          errorMessage,
+          campaignId: campaignLease.campaignId,
+          runId: campaignLease.runId,
+          leaseToken: campaignLease.leaseToken,
+          nextRunAt: Date.now() + 15_000,
+        })
+      : await refreshIntegrationCampaignTaskA2AReceiptRetry(task.id, {
+          payload,
+          errorMessage,
+        });
+    if (!transitioned) return "superseded";
+    await dispatchPendingIntegrationTask({
+      taskId: task.id,
+      task: {
+        platform: task.platform,
+        externalThreadId: task.externalThreadId,
+        platformContext: task.dispatchScope
+          ? { channelId: task.dispatchScope }
+          : undefined,
+      },
+      event,
+      baseUrl: getBaseUrl(event),
+      campaignContinuation: true,
+      allowPortableConfirmedReceiptReconciliation: confirmedReceipt,
+    });
+    return "requeued";
+  }
+  if (terminalStatus && !campaignLease && !confirmedReceipt) {
+    throw new Error("Campaign delivery retry is missing its lease");
+  }
+  if (terminalStatus && campaignLease) {
+    if (terminalStatus !== campaignLease.campaignStatus) {
+      throw new Error(
+        "Campaign delivery retry status does not match its lease",
+      );
+    }
+    const transitioned = await transitionIntegrationCampaignTaskToDeliveryRetry(
+      task.id,
+      {
+        payload,
+        errorMessage,
+        campaignStatus: campaignLease.campaignStatus,
+        campaignId: campaignLease.campaignId,
+        runId: campaignLease.runId,
+        leaseToken: campaignLease.leaseToken,
+      },
+    );
+    if (!transitioned) {
+      return "superseded";
+    }
+  } else {
+    await markTaskDeliveryRetryable(task.id, payload, errorMessage);
+  }
+  await dispatchPendingIntegrationTask({
+    taskId: task.id,
+    task: {
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    },
+    event,
+    baseUrl: getBaseUrl(event),
+  });
+  return "requeued";
+}
+
+async function containFailedDeliveryTransition(
+  task: PendingTask,
+  errorMessage: string,
+  event: unknown,
+): Promise<void> {
+  const contained = await failIntegrationCampaignTaskDeliveryContainment(
+    task.id,
+    errorMessage,
+  );
+  if (!contained) {
+    throw new Error("Delivery containment lost pending-task custody");
+  }
+  const nextTask = await getNextPendingTaskForThread(
+    task.platform,
+    task.externalThreadId,
+  );
+  if (!nextTask) return;
+  await dispatchPendingIntegrationTask({
+    taskId: nextTask.id,
+    task: {
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: nextTask.dispatchScope
+        ? { channelId: nextTask.dispatchScope }
+        : undefined,
+    },
+    event,
+    baseUrl: getBaseUrl(event),
+  });
+}
 
 function startA2AContinuationRetryJob(
   adapters: Map<string, PlatformAdapter>,
 ): void {
-  if (a2aContinuationRetryInterval) return;
-  const initialTimer = setTimeout(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
+  if (a2aContinuationJob || a2aContinuationStartupTimer) return;
+  a2aContinuationStartupTimer = setTimeout(() => {
+    a2aContinuationStartupTimer = null;
+    a2aContinuationJob = startIntervalJob(
+      () => processDueA2AContinuations({ adapters }),
+      {
+        intervalMs: A2A_CONTINUATION_SWEEP_INTERVAL_MS,
+        onError: (err) => {
+          console.error(
+            "[integrations] A2A continuation retry job failed:",
+            err,
+          );
+        },
+      },
+    );
   }, 10_000);
-  unrefTimer(initialTimer);
-  a2aContinuationRetryInterval = setInterval(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
-  }, 60_000);
-  unrefTimer(a2aContinuationRetryInterval);
-}
-
-function unrefTimer(timer: ReturnType<typeof setInterval>): void {
-  (timer as unknown as { unref?: () => void }).unref?.();
+  a2aContinuationStartupTimer.unref?.();
 }
 
 // ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────
@@ -725,38 +895,27 @@ export function createIntegrationsPlugin(
           externalEventKey: opts?.dedupeKey
             ? systemNoticeEventKey(opts.dedupeKey, dedupeTtlMs)
             : undefined,
+          dispatchScope: integrationDispatchScopeValue({
+            platform: incoming.platform,
+            externalThreadId: noticeThreadId,
+            platformContext: incoming.platformContext,
+          }),
         });
       } catch (err) {
         if (isDuplicateEventError(err)) return;
         throw err;
       }
 
-      // The SQL row is the durable source of truth. This best-effort self-call
-      // only reduces latency; the recurring pending-task sweep retries a row
-      // if the serverless host freezes this webhook execution immediately.
-      let token: string | undefined;
-      try {
-        token = signInternalToken(taskId);
-      } catch (err) {
-        if (process.env.NODE_ENV === "production") throw err;
-      }
-      void fetch(`${getBaseUrl(event)}${P}/process-task`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      await dispatchPendingIntegrationTask({
+        taskId,
+        task: {
+          platform: incoming.platform,
+          externalThreadId: noticeThreadId,
+          platformContext: incoming.platformContext,
         },
-        body: JSON.stringify({ taskId }),
-      }).catch((err) => {
-        console.warn("[integrations] System notice dispatch failed:", err);
+        event,
+        baseUrl: getBaseUrl(event),
       });
-    }
-
-    async function requireSession(event: any): Promise<boolean> {
-      const session = await getSession(event).catch(() => null);
-      if (session?.email) return true;
-      setResponseStatus(event, 401);
-      return false;
     }
 
     async function requireSessionContext(
@@ -903,9 +1062,10 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        if (!(await requireSession(event))) return { error: "unauthorized" };
+        const scope = await requireSessionContext(event);
+        if (!scope) return { error: "unauthorized" };
         try {
-          return await getTaskQueueStats();
+          return await getTaskQueueStats(scope);
         } catch (err: any) {
           setResponseStatus(event, 500);
           return { error: err?.message ?? String(err) };
@@ -1439,21 +1599,32 @@ export function createIntegrationsPlugin(
             ? ((await readBody(event)) as {
                 waitMs?: unknown;
                 computerCapabilities?: unknown;
+                browserSession?: unknown;
               })
             : {};
         let pollingDevice = device;
         if (
           method === "POST" &&
-          Object.prototype.hasOwnProperty.call(body, "computerCapabilities")
+          (Object.prototype.hasOwnProperty.call(body, "computerCapabilities") ||
+            Object.prototype.hasOwnProperty.call(body, "browserSession"))
         ) {
-          const computerCapabilities = readComputerCapabilities(
-            body.computerCapabilities,
-          );
           const updated = await updateRemoteDeviceDetails({
             id: device.id,
             metadata: {
               ...(device.metadata ?? {}),
-              computerCapabilities,
+              ...(Object.prototype.hasOwnProperty.call(
+                body,
+                "computerCapabilities",
+              )
+                ? {
+                    computerCapabilities: readComputerCapabilities(
+                      body.computerCapabilities,
+                    ),
+                  }
+                : {}),
+              ...(Object.prototype.hasOwnProperty.call(body, "browserSession")
+                ? { browserSession: readBrowserSession(body.browserSession) }
+                : {}),
             },
           });
           if (updated) pollingDevice = updated;
@@ -1595,10 +1766,83 @@ export function createIntegrationsPlugin(
       }),
     );
 
+    // ─── Durable pending-task recovery sweep ─────────────────────
+    h3.use(
+      `${P}/retry-stuck-tasks`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const body = (await readBody(event)) as {
+          taskId?: string;
+          [AGENT_BACKGROUND_PROCESSOR_FIELD]?: string;
+        };
+        if (body?.taskId !== INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT) {
+          setResponseStatus(event, 400);
+          return { error: "invalid sweep subject" };
+        }
+        if (!process.env.A2A_SECRET) {
+          setResponseStatus(event, 503);
+          return { error: "durable integration recovery is not configured" };
+        }
+        const token = extractBearerToken(
+          getRequestHeader(event, "authorization"),
+        );
+        if (
+          !token ||
+          !verifyInternalToken(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, token)
+        ) {
+          setResponseStatus(event, 401);
+          return { error: "Invalid or expired internal token" };
+        }
+        const webhookBaseUrl = getBaseUrl(event);
+        const [pendingTasks, campaigns, a2aContinuations] = await Promise.all([
+          // Portable (fire-and-forget) dispatch loses tasks whenever the
+          // self-dispatch POST dies with the container, and the in-process
+          // retry interval does not survive a serverless freeze. Sweeping only
+          // durable scopes left those deployments with no recovery at all, so
+          // the queue is swept regardless of dispatch mode.
+          retryStuckPendingTasks({
+            webhookBaseUrl,
+            limit: 20,
+          }).catch((error) => {
+            console.error(
+              "[integrations] Pending-task recovery failed:",
+              error,
+            );
+            return { error: "pending-task-recovery-failed" };
+          }),
+          recoverDueIntegrationCampaigns({
+            event,
+            webhookBaseUrl,
+            limit: 20,
+          }).catch((error) => {
+            console.error("[integrations] Campaign recovery failed:", error);
+            return { error: "campaign-recovery-failed" };
+          }),
+          recoverDueA2AContinuations({
+            webhookBaseUrl,
+            limit: 10,
+          }).catch((error) => {
+            console.error("[integrations] A2A recovery failed:", error);
+            return { error: "a2a-recovery-failed" };
+          }),
+        ]);
+        return {
+          ok: true,
+          pendingTasks,
+          campaigns,
+          a2aContinuations,
+        };
+      }),
+    );
+
     // ─── Process pending task (cross-platform task queue) ────────
     // POST /_agent-native/integrations/process-task
-    // Internal endpoint invoked via fire-and-forget self-webhook from the
-    // public webhook handler. Auth: HMAC bearer signed with A2A_SECRET.
+    // Internal endpoint invoked from the public webhook handler through either
+    // the portable self-dispatch path or an acknowledged background handoff.
+    // Auth: HMAC bearer signed with A2A_SECRET.
     // Each invocation runs the agent loop in a fresh function execution.
     h3.use(
       `${P}/process-task`,
@@ -1608,7 +1852,11 @@ export function createIntegrationsPlugin(
           return { error: "Method not allowed" };
         }
 
-        const body = (await readBody(event)) as { taskId?: string };
+        const body = (await readBody(event)) as {
+          taskId?: string;
+          [AGENT_BACKGROUND_PROCESSOR_FIELD]?: string;
+          [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]?: boolean;
+        };
         const taskId = body?.taskId;
         if (!taskId) {
           setResponseStatus(event, 400);
@@ -1645,10 +1893,77 @@ export function createIntegrationsPlugin(
         }
 
         // Atomic claim: only one invocation gets to process this task
-        const task = await claimPendingTask(taskId);
+        const dispatchOutcome =
+          body[AGENT_BACKGROUND_PROCESSOR_FIELD] ===
+          AGENT_BACKGROUND_PROCESSOR_INTEGRATION
+            ? "background-acknowledged"
+            : "portable-unconfirmed";
+        const campaignContinuation =
+          body[INTEGRATION_CAMPAIGN_PROCESSOR_FIELD] === true;
+        const task = campaignContinuation
+          ? await getPendingTask(taskId)
+          : await claimPendingTask(taskId, { dispatchOutcome });
         if (!task) {
           setResponseStatus(event, 200);
           return { ok: true, skipped: "already-claimed-or-missing" };
+        }
+        if (campaignContinuation && task.status !== "processing") {
+          setResponseStatus(event, 200);
+          return { ok: true, skipped: "campaign-task-not-processing" };
+        }
+        let taskPayload:
+          | IntegrationSystemNoticeTaskPayload
+          | IntegrationResponseDeliveryTaskPayload
+          | { kind?: undefined };
+        try {
+          taskPayload = JSON.parse(task.payload) as typeof taskPayload;
+        } catch {
+          await markTaskFailed(task.id, "Invalid integration task payload");
+          setResponseStatus(event, 400);
+          return { error: "Invalid integration task payload" };
+        }
+        const durableCampaignEnabled =
+          isIntegrationDurableDispatchEnabledForTask({
+            platform: task.platform,
+            externalThreadId: task.externalThreadId,
+            platformContext: task.dispatchScope
+              ? { channelId: task.dispatchScope }
+              : undefined,
+          });
+        const a2aOutcome = campaignContinuation
+          ? await getA2AContinuationTaskOutcome(task.id)
+          : null;
+        const confirmedDeliveryReceipt =
+          taskPayload.kind === "response-delivery" &&
+          taskPayload.deliveryReceipt?.status === "delivered";
+        const confirmedDeliveryProof =
+          confirmedDeliveryReceipt || a2aOutcome === "terminal-delivered";
+        if (
+          campaignContinuation &&
+          !durableCampaignEnabled &&
+          !confirmedDeliveryProof
+        ) {
+          await failDisabledIntegrationCampaignTask(task.id);
+          const nextTask = await getNextPendingTaskForThread(
+            task.platform,
+            task.externalThreadId,
+          );
+          if (nextTask) {
+            await dispatchPendingIntegrationTask({
+              taskId: nextTask.id,
+              task: {
+                platform: task.platform,
+                externalThreadId: task.externalThreadId,
+                platformContext: nextTask.dispatchScope
+                  ? { channelId: nextTask.dispatchScope }
+                  : undefined,
+              },
+              event,
+              baseUrl: getBaseUrl(event),
+            });
+          }
+          setResponseStatus(event, 200);
+          return { ok: true, failed: "campaign-disabled" };
         }
 
         let deliveryRetryTransitionStarted = false;
@@ -1656,6 +1971,14 @@ export function createIntegrationsPlugin(
           | { payload: string; errorMessage: string }
           | undefined;
         let confirmedDeliveryRetryPayload: string | undefined;
+        let campaignDeliveryLease:
+          | {
+              campaignId: string;
+              runId: string;
+              leaseToken: string;
+              campaignStatus: "completed" | "failed" | "waiting-a2a";
+            }
+          | undefined;
         try {
           const adapter = adapterMap.get(task.platform);
           if (!adapter) {
@@ -1670,11 +1993,10 @@ export function createIntegrationsPlugin(
               isIntegrationCaller: true,
             },
             async () => {
-              const taskPayload = JSON.parse(task.payload) as
-                | IntegrationSystemNoticeTaskPayload
-                | IntegrationResponseDeliveryTaskPayload
-                | { kind?: undefined };
-              if (taskPayload.kind === "system-notice") {
+              if (
+                !campaignContinuation &&
+                taskPayload.kind === "system-notice"
+              ) {
                 if (!adapter.sendSystemNotice) {
                   throw new Error(
                     `Platform ${task.platform} cannot deliver system notices`,
@@ -1700,8 +2022,46 @@ export function createIntegrationsPlugin(
                 return;
               }
               if (taskPayload.kind === "response-delivery") {
+                if (
+                  campaignContinuation &&
+                  taskPayload.awaitingA2ACompletion &&
+                  a2aOutcome === "terminal-delivered"
+                ) {
+                  const completed =
+                    await completeIntegrationCampaignTaskAfterA2A(task.id);
+                  return completed
+                    ? ("completed" as const)
+                    : ("campaign-active" as const);
+                }
                 let receipt: void | PlatformDeliveryReceipt =
                   taskPayload.deliveryReceipt;
+                let deliveryLease:
+                  | { campaignId: string; runId: string; leaseToken: string }
+                  | undefined;
+                if (campaignContinuation && !receipt) {
+                  const runId = `integration-delivery-${crypto.randomUUID()}`;
+                  const leaseToken = crypto.randomUUID();
+                  const deliveryClaim =
+                    await claimIntegrationCampaignDeliveryForTask(task.id, {
+                      runId,
+                      leaseToken,
+                      leaseDurationMs: INTEGRATION_DELIVERY_LEASE_MS,
+                    });
+                  if (!deliveryClaim) return "campaign-active" as const;
+                  deliveryLease = {
+                    campaignId: deliveryClaim.id,
+                    runId,
+                    leaseToken,
+                  };
+                  campaignDeliveryLease = {
+                    ...deliveryLease,
+                    campaignStatus:
+                      taskPayload.campaignTerminalStatus ??
+                      (taskPayload.awaitingA2ACompletion
+                        ? "waiting-a2a"
+                        : "completed"),
+                  };
+                }
                 if (!receipt) {
                   receipt = await adapter.sendResponse(
                     taskPayload.message,
@@ -1743,6 +2103,70 @@ export function createIntegrationsPlugin(
                   deliveredPayload,
                   receipt,
                 );
+                const campaignTerminalStatus =
+                  taskPayload.campaignTerminalStatus;
+                if (campaignTerminalStatus) {
+                  const errorMessage =
+                    "Integration campaign exhausted its continuation limit";
+                  const terminalized = deliveryLease
+                    ? campaignTerminalStatus === "failed"
+                      ? await failIntegrationCampaign(
+                          deliveryLease.campaignId,
+                          {
+                            runId: deliveryLease.runId,
+                            leaseToken: deliveryLease.leaseToken,
+                            errorMessage,
+                          },
+                        )
+                      : await completeIntegrationCampaignTask(
+                          deliveryLease.campaignId,
+                          {
+                            integrationTaskId: task.id,
+                            runId: deliveryLease.runId,
+                            leaseToken: deliveryLease.leaseToken,
+                          },
+                        )
+                    : await terminalizeIntegrationCampaignForTask(task.id, {
+                        status: campaignTerminalStatus,
+                        ...(campaignTerminalStatus === "failed"
+                          ? { errorMessage }
+                          : {}),
+                      });
+                  if (deliveryLease && !terminalized) {
+                    return "campaign-active" as const;
+                  }
+                  return campaignTerminalStatus === "failed"
+                    ? ("campaign-failed" as const)
+                    : ("completed" as const);
+                }
+                if (taskPayload.awaitingA2ACompletion) {
+                  if (deliveryLease) {
+                    const waiting = await waitForA2AIntegrationCampaign(
+                      deliveryLease.campaignId,
+                      {
+                        runId: deliveryLease.runId,
+                        leaseToken: deliveryLease.leaseToken,
+                        nextRunAt: Date.now() + 15_000,
+                      },
+                    );
+                    if (!waiting) return "campaign-active" as const;
+                  }
+                  if (
+                    a2aOutcome === "terminal-without-delivery" &&
+                    (await reconcileTerminalA2AParentIfDisabled(task.id))
+                  ) {
+                    return "campaign-failed" as const;
+                  }
+                  if (a2aOutcome !== "active") {
+                    console.warn(
+                      `[integrations] Waiting campaign ${task.id} has A2A outcome ${a2aOutcome} without terminal delivery proof`,
+                    );
+                  }
+                  return "campaign-active" as const;
+                }
+                if (campaignContinuation) {
+                  return "campaign-active" as const;
+                }
                 return;
               }
               const resources = await loadResourcesForPrompt(
@@ -1751,25 +2175,46 @@ export function createIntegrationsPlugin(
                 options?.appId,
                 task.orgId,
               );
-              const result = await processIntegrationTask(task, {
-                adapter,
-                systemPrompt: baseSystemPrompt + resources,
-                actions,
-                initialToolNames,
-                model,
-                apiKey: getApiKey(),
-                engine: options?.engine,
-                ownerEmail: task.ownerEmail,
-                appId: options?.appId,
-              });
+              const result = await processIntegrationTask(
+                task,
+                {
+                  adapter,
+                  systemPrompt: baseSystemPrompt + resources,
+                  actions,
+                  initialToolNames,
+                  model,
+                  apiKey: getApiKey(),
+                  engine: options?.engine,
+                  ownerEmail: task.ownerEmail,
+                  appId: options?.appId,
+                },
+                {
+                  enabled: durableCampaignEnabled,
+                  continuationInvocation: campaignContinuation,
+                },
+              );
               if (result?.status === "delivery-pending") {
                 deliveryRetryTransitionStarted = true;
-                await markTaskDeliveryRetryable(
-                  task.id,
+                const checkpoint = await checkpointIntegrationDeliveryRetry(
+                  task,
                   JSON.stringify(result.payload),
                   result.errorMessage,
+                  event,
+                  result.campaignLease,
                 );
+                if (checkpoint === "superseded") {
+                  return "campaign-active" as const;
+                }
                 return "delivery-retry" as const;
+              }
+              if (
+                result?.status === "campaign-pending" ||
+                result?.status === "campaign-active"
+              ) {
+                return "campaign-active" as const;
+              }
+              if (result?.status === "campaign-failed") {
+                return "campaign-failed" as const;
               }
               return "completed" as const;
             },
@@ -1778,25 +2223,53 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 202);
             return { ok: true, taskId, retrying: "response-delivery" };
           }
+          if (processingResult === "campaign-active") {
+            setResponseStatus(event, 202);
+            return { ok: true, taskId, continuing: true };
+          }
+          if (processingResult === "campaign-failed") {
+            await markTaskFailed(
+              taskId,
+              "Integration campaign exhausted its continuation limit",
+            );
+            const nextTask = await getNextPendingTaskForThread(
+              task.platform,
+              task.externalThreadId,
+            );
+            if (nextTask) {
+              await dispatchPendingIntegrationTask({
+                taskId: nextTask.id,
+                task: {
+                  platform: task.platform,
+                  externalThreadId: task.externalThreadId,
+                  platformContext: nextTask.dispatchScope
+                    ? { channelId: nextTask.dispatchScope }
+                    : undefined,
+                },
+                event,
+                baseUrl: getBaseUrl(event),
+              });
+            }
+            setResponseStatus(event, 200);
+            return { ok: true, taskId, failed: "campaign-exhausted" };
+          }
           await markTaskCompleted(taskId);
-          const nextTaskId = await getNextPendingTaskIdForThread(
+          const nextTask = await getNextPendingTaskForThread(
             task.platform,
             task.externalThreadId,
           );
-          if (nextTaskId) {
-            const nextToken = signInternalToken(nextTaskId);
-            void fetch(`${getBaseUrl(event)}${P}/process-task`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(nextToken ? { Authorization: `Bearer ${nextToken}` } : {}),
+          if (nextTask) {
+            await dispatchPendingIntegrationTask({
+              taskId: nextTask.id,
+              task: {
+                platform: task.platform,
+                externalThreadId: task.externalThreadId,
+                platformContext: nextTask.dispatchScope
+                  ? { channelId: nextTask.dispatchScope }
+                  : undefined,
               },
-              body: JSON.stringify({ taskId: nextTaskId }),
-            }).catch((err) => {
-              console.error(
-                "[integrations] Failed to dispatch queued thread turn:",
-                err,
-              );
+              event,
+              baseUrl: getBaseUrl(event),
             });
           }
           await processDueA2AContinuations({
@@ -1815,11 +2288,17 @@ export function createIntegrationsPlugin(
             : "processor failed";
           if (deliveryRetryRecovery) {
             try {
-              await markTaskDeliveryRetryable(
-                taskId,
+              const checkpoint = await checkpointIntegrationDeliveryRetry(
+                task,
                 deliveryRetryRecovery.payload,
                 `${deliveryRetryRecovery.errorMessage}: ${errorMessage}`,
+                event,
+                campaignDeliveryLease,
               );
+              if (checkpoint === "superseded") {
+                setResponseStatus(event, 202);
+                return { ok: true, taskId, continuing: true };
+              }
               setResponseStatus(event, 202);
               return { ok: true, taskId, retrying: "response-delivery" };
             } catch (transitionError) {
@@ -1827,9 +2306,10 @@ export function createIntegrationsPlugin(
                 transitionError instanceof Error
                   ? transitionError.message
                   : String(transitionError);
-              await failTaskDeliveryTransition(
-                taskId,
+              await containFailedDeliveryTransition(
+                task,
                 `Could not safely checkpoint the delivery receipt: ${transitionMessage}`,
+                event,
               ).catch((failureTransitionError) => {
                 console.error(
                   "[integrations] Failed to contain delivery receipt transition failure:",
@@ -1839,24 +2319,48 @@ export function createIntegrationsPlugin(
             }
           } else if (confirmedDeliveryRetryPayload) {
             try {
-              await markTaskDeliveryRetryable(
-                taskId,
+              const checkpoint = await checkpointIntegrationDeliveryRetry(
+                task,
                 confirmedDeliveryRetryPayload,
                 `Provider delivery was confirmed but history persistence failed: ${errorMessage}`,
+                event,
+                campaignDeliveryLease,
               );
+              if (checkpoint === "superseded") {
+                setResponseStatus(event, 202);
+                return { ok: true, taskId, continuing: true };
+              }
               console.error("[integrations] process-task failure:", err);
               setResponseStatus(event, 202);
               return { ok: true, taskId, retrying: "response-delivery" };
             } catch (transitionError) {
+              const transitionMessage =
+                transitionError instanceof Error
+                  ? transitionError.message
+                  : String(transitionError);
               console.error(
                 "[integrations] Failed to requeue confirmed delivery history:",
                 transitionError,
               );
+              await containFailedDeliveryTransition(
+                task,
+                `Could not safely checkpoint confirmed delivery history: ${transitionMessage}`,
+                event,
+              ).catch((failureTransitionError) => {
+                console.error(
+                  "[integrations] Failed to contain confirmed delivery history transition failure:",
+                  failureTransitionError,
+                );
+              });
+              console.error("[integrations] process-task failure:", err);
+              setResponseStatus(event, 500);
+              return { error: "Internal task failed" };
             }
           } else if (deliveryRetryTransitionStarted) {
-            await failTaskDeliveryTransition(
-              taskId,
+            await containFailedDeliveryTransition(
+              task,
               `Could not safely checkpoint the delivery retry: ${errorMessage}`,
+              event,
             ).catch((transitionError) => {
               console.error(
                 "[integrations] Failed to contain delivery retry transition failure:",
@@ -1921,15 +2425,18 @@ export function createIntegrationsPlugin(
             adapters: adapterMap,
           });
         } catch (err: any) {
-          // Mark the continuation failed so it isn't left dangling, and surface
-          // a 500 to the caller instead of leaking an unhandled rejection.
-          await failA2AContinuation(
-            continuationId,
-            err?.message?.slice(0, 500) || "continuation processing failed",
-          ).catch(() => {});
+          const reason =
+            err?.message?.slice(0, 500) || "continuation processing failed";
+          await recoverA2AContinuationAfterProcessorFailure(continuationId, {
+            adapters: adapterMap,
+            reason,
+          }).catch(() => {
+            console.error(
+              `[integrations] A2A continuation ${continuationId} recovery scheduling failed`,
+            );
+          });
           console.error(
-            "[integrations] process-a2a-continuation failure:",
-            err,
+            `[integrations] process-a2a-continuation failure for ${continuationId}; durable recovery requested`,
           );
           setResponseStatus(event, 500);
           return { error: "Failed to process A2A continuation" };
@@ -2018,18 +2525,21 @@ export function createIntegrationsPlugin(
             ownerEmail: control.ownerEmail,
             orgId: control.orgId,
             externalEventKey: `control:${control.id}`,
+            dispatchScope: integrationDispatchScopeValue({
+              platform: incoming.platform,
+              externalThreadId: incoming.externalThreadId,
+              platformContext: incoming.platformContext,
+            }),
           });
-          const processUrl = `${getBaseUrl(event)}${P}/process-task`;
-          const token = signInternalToken(taskId);
-          void fetch(processUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          await dispatchPendingIntegrationTask({
+            taskId,
+            task: {
+              platform: incoming.platform,
+              externalThreadId: incoming.externalThreadId,
+              platformContext: incoming.platformContext,
             },
-            body: JSON.stringify({ taskId }),
-          }).catch((err) => {
-            console.error("[slack] Approval dispatch failed:", err);
+            event,
+            baseUrl: getBaseUrl(event),
           });
         } catch (err) {
           console.error("[slack] Interaction handling failed:", err);
@@ -2480,6 +2990,8 @@ export function createIntegrationsPlugin(
         if (parts[0] === "remote") return;
         // Already handled by the dedicated /process-task route above
         if (parts[0] === "process-task") return;
+        // Already handled by the signed durable recovery route above
+        if (parts[0] === "retry-stuck-tasks") return;
         // Already handled by the dedicated /process-a2a-continuation route above
         if (parts[0] === "process-a2a-continuation") return;
         // These are framework-owned control-plane routes, not integration
@@ -2914,42 +3426,53 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Start pending-tasks retry sweeper ────────────────────────
-    // Sweeps the integration_pending_tasks queue every 60s and re-fires the
-    // processor for any tasks that got stuck (initial dispatch lost or
-    // processor killed mid-flight). No-ops gracefully if the queue table
-    // hasn't been created yet on this deployment.
-    startPendingTasksRetryJob({
-      webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
-    });
-    startA2AContinuationRetryJob(adapterMap);
-    startRemoteCommandsRetryJob();
-    startRemotePushDeliveryJob();
+    // Serverless functions mount the same Nitro app as the durable workers,
+    // but they are not a stable host for recurring integration jobs. Starting
+    // these timers in every cold-started instance multiplies recovery sweeps
+    // and pollers against the shared database; scheduled/background workers
+    // own this work on hosted deployments.
+    if (
+      !isInBackgroundFunctionRuntime() &&
+      !isInIntegrationRecoveryRuntime() &&
+      !isServerlessRuntime()
+    ) {
+      // ─── Start pending-tasks retry sweeper ────────────────────────
+      // Sweeps the integration_pending_tasks queue every 60s and re-fires the
+      // processor for any tasks that got stuck (initial dispatch lost or
+      // processor killed mid-flight). No-ops gracefully if the queue table
+      // hasn't been created yet on this deployment.
+      startPendingTasksRetryJob({
+        webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
+      });
+      startA2AContinuationRetryJob(adapterMap);
+      startRemoteCommandsRetryJob();
+      startRemotePushDeliveryJob();
 
-    // ─── Start Google Docs poller/push ────────────────────────────
-    if (adapterMap.has("google-docs")) {
-      // Defer startup slightly so the server is fully ready
-      setTimeout(() => {
-        // We don't know the base URL at plugin init time — it depends on
-        // the incoming request. For push mode, the webhook URL needs to be
-        // resolved. We pass it as a special option; the poller will attempt
-        // to register a watch when the first request reveals the base URL,
-        // or use the WEBHOOK_BASE_URL env var if set.
-        const baseUrl = process.env.WEBHOOK_BASE_URL;
-        const webhookUrl = baseUrl
-          ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
-          : undefined;
+      // ─── Start Google Docs poller/push ────────────────────────────
+      if (adapterMap.has("google-docs")) {
+        // Defer startup slightly so the server is fully ready
+        setTimeout(() => {
+          // We don't know the base URL at plugin init time — it depends on
+          // the incoming request. For push mode, the webhook URL needs to be
+          // resolved. We pass it as a special option; the poller will attempt
+          // to register a watch when the first request reveals the base URL,
+          // or use the WEBHOOK_BASE_URL env var if set.
+          const baseUrl = process.env.WEBHOOK_BASE_URL;
+          const webhookUrl = baseUrl
+            ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
+            : undefined;
 
-        void startGoogleDocsPoller({
-          systemPrompt: baseSystemPrompt,
-          actions,
-          initialToolNames,
-          model: model ?? "",
-          apiKey: getApiKey(),
-          ownerEmail: "integration@google-docs",
-          webhookUrl,
-        });
-      }, 2000);
+          void startGoogleDocsPoller({
+            systemPrompt: baseSystemPrompt,
+            actions,
+            initialToolNames,
+            model: model ?? "",
+            apiKey: getApiKey(),
+            ownerEmail: "integration@google-docs",
+            webhookUrl,
+          });
+        }, 2000);
+      }
     }
 
     if (process.env.DEBUG)
@@ -3006,6 +3529,39 @@ function readComputerCapabilities(value: unknown) {
     browser: readSurface(input?.browser),
     desktop: readSurface(input?.desktop, true),
   };
+}
+
+function readBrowserSession(value: unknown) {
+  if (value === null) return null;
+  const input = readObject(value);
+  if (!input) return null;
+  const handle = readString(input.handle);
+  const origin = readString(input.origin);
+  const title = readString(input.title);
+  if (
+    input.version !== 1 ||
+    !handle ||
+    handle.length > 128 ||
+    !/^bsn_[0-9a-f-]+$/i.test(handle) ||
+    !origin ||
+    origin.length > 2_048 ||
+    !title ||
+    title.length > 512
+  ) {
+    return null;
+  }
+  try {
+    const url = new URL(origin);
+    if (
+      url.origin !== origin ||
+      (url.protocol !== "http:" && url.protocol !== "https:")
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return { version: 1, handle, origin, title };
 }
 
 function advertisedComputerOperationClasses(

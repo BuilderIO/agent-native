@@ -35,7 +35,42 @@ them:
 
 Jumping straight to code is how you get slop. Let the phases (below) do the work.
 
+## Authority and direction record
+
+Before generating, make a compact direction record: the job this surface must
+do, its audience, one-sentence visual thesis, the active design-system id or
+token source, approved references, and any unresolved choice that could change
+the result. This keeps a strong point of view without asking the model to fill
+in the user's intent silently.
+
+Resolve visual authority in this order:
+
+1. The current-turn product, audience, content, accessibility, and explicit
+   brand constraints.
+2. The active Agent-Native design system and its registered tokens, components,
+   type, imagery rules, and custom instructions.
+3. Approved Creative Context assets, components, and examples.
+4. Impeccable-inspired quality heuristics for hierarchy, subtraction,
+   composition, contrast, motion, and bounded review.
+5. Generic defaults only when the sources above are absent.
+
+The active design system is a contract, not a mood board. Do not swap its
+palette, fonts, component grammar, or imagery policy because a generic
+anti-pattern list prefers something else. A user can explicitly request a
+replacement or detachment; do not infer that request from a vague adjective.
+References can guide composition and narrative, but they do not silently
+transfer their tokens or brand identity.
+
+When the source is a transcript, meeting note, or pasted brief, treat it as
+evidence rather than a finished story. Preserve the user's terminology and
+exact claims, separate facts from interpretation and visual references, and
+ask one targeted question or mark an assumption when a missing choice would
+change the design. Never smooth an evidence gap into confident copy.
+
 ## Aesthetic quality bar — beat distributional convergence
+
+The rules in this section are fallback quality heuristics. They do not
+override an active Agent-Native design system or an explicit brand constraint.
 
 You sample toward the "on-distribution" center by default; refuse it. **Every
 "don't" here carries a "do"** — a banned default plus where to go instead —
@@ -171,6 +206,16 @@ defaults. The banned-defaults list above still applies, plus:
   your colors". Keep structure and layout genuinely varied per screen while the
   palette, type, and components stay on-brand.
 
+## Generation Application State
+
+- `design-generation-session:<designId>` — multi-screen generation planning
+  state from `generate-screens` (canvas region assignments, per-frame
+  instructions consumed by `generate-design`).
+- `show-design-questions` opens pre-generation questions in the main canvas
+  (`show-questions` state).
+- `guided-questions` may hold a one-click chat choice for the current variant
+  set.
+
 ## Generation Workflow — the canonical 5-phase flow
 
 This flow mirrors Claude Design's UX: clarify only what's unclear → show variants → user picks → refine. Don't collapse phases into one shot for new, open-ended designs.
@@ -239,7 +284,12 @@ Favor choice-first questions (2-5 concrete options, `allowOther: true`, and a
 combining multiple answers — stacking multi-select questions multiplies
 follow-up ambiguity instead of resolving it.
 
-**Carry the form-factor answer through to generation — do not just ask and discard it.** A "Desktop web app" answer means the generated screen's canvas frame must be desktop-sized (~1440×1024), not left at whatever a screen with no placement falls back to. Map the answer to real frame geometry: pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen to `generate-screens`, explicit `width`/`height` per variant to `present-design-variants`, or an explicit `canvasFrames` entry to `generate-design` — see Phase 2 and Phase 3 below. For "Both / responsive," generate at desktop width and rely on the responsive breakpoint system (see `responsive-breakpoints` skill) rather than guessing a size.
+**Carry the form-factor answer through to generation — do not just ask and discard it.** Map the answer to the design's device SET, not to separate per-device screen files. Device widths of the SAME page are breakpoint frames of one document (see the `responsive-breakpoints` skill), never a `mobile.html` + `desktop.html` pair. Pass the answer through `generate-design`'s `devices` param — `("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`:
+
+- If the prompt/answer names specific devices, generate EXACTLY those, deduped ("mobile" only → one mobile frame; "mobile, tablet, desktop" → all three).
+- If nothing about form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
+
+The WIDEST requested device is the base/primary frame; narrower devices become breakpoint frames (never at the primary width). Device frame sizes: mobile 390×844, tablet 768×1024, desktop 1440×900. `present-design-variants` still takes explicit `width`/`height` per variant to size its exploration screens (see Phase 2).
 
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
@@ -254,16 +304,16 @@ screen name.
   "designId": "<the design id>",
   "prompt": "Pick a direction",
   "variants": [
-    { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>...full self-contained HTML..." },
-    { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." },
-    { "id": "c", "label": "Soft & Spacious", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." }
+    { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 900, "content": "<!DOCTYPE html>...full self-contained HTML..." },
+    { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 900, "content": "<!DOCTYPE html>..." },
+    { "id": "c", "label": "Soft & Spacious", "width": 1440, "height": 900, "content": "<!DOCTYPE html>..." }
   ]
 }
 ```
 
-Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
+Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -289,10 +339,11 @@ pnpm action generate-design \
   --prompt "Description of the design" \
   --files '[{"filename":"index.html","content":"<full HTML>","fileType":"html"}]' \
   --tweaks '[{"id":"accent","label":"Accent","type":"color-swatch","options":[...],"defaultValue":"#0EA5E9","cssVar":"--color-accent"}]' \
-  --canvasFrames '[{"filename":"index.html","x":0,"y":0,"width":1440,"height":1024}]'
+  --devices '["desktop","mobile"]' \
+  --canvasFrames '[{"filename":"index.html","x":0,"y":0,"width":1440,"height":900}]'
 ```
 
-Always pass `canvasFrames` with an explicit `width`/`height` matching the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024 as above) — a screen saved without a placement falls back to a generic default that won't match a desktop-intended design. For multiple screens generated together, call `generate-screens` first and pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen; it returns the matching `canvasFrame` to forward to each `generate-design` call.
+Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`) so a new design renders the right device frames: the widest device becomes the primary `canvasFrames` placement and each narrower device is added as a breakpoint frame of the SAME document — not an extra file. Default to Desktop + Mobile when the form factor is unspecified; never auto-add a tablet or a redundant desktop. When you also pass `canvasFrames` explicitly, size the primary to the widest device (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — a screen saved without a placement falls back to a generic default that won't match the intended device. For genuinely distinct screens generated together (Home / Dashboard / Checkout — NOT per-device copies of one page), call `generate-screens` first; it returns the matching `canvasFrame` to forward to each `generate-design` call.
 
 #### Non-web sizes — ad units, print one-pagers, social sizes
 
@@ -314,6 +365,8 @@ canonical sizes to reuse instead of guessing:
 - **Social**: Instagram Post 1080×1080, Instagram Story 1080×1920, X Post
   1200×675, Facebook Cover 820×312, LinkedIn Cover 1584×396.
 
+Frame geometry is always numbers — `"width": 800`, never `"800"` or `"800px"`. String dimensions are rejected.
+
 At small ad-unit sizes (320×50, 160×600), text commonly runs 9-11px — smaller
 than this skill's general 16px body-text floor — because there is no room to
 reflow. That is expected for these formats; it stays legible in @2x+ exports
@@ -322,7 +375,7 @@ size. Avoid dense multi-line copy at these sizes regardless.
 
 ### Phase 4 — Always ship tweaks with the design
 
-`generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs.
+`generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs. When a user asks to add a tweak control to an existing design, preserve the existing useful tweaks and add/update only the requested definitions — read the current file with `get-design-snapshot` first if source edits are needed, and persist the complete updated tweak list through `generate-design`.
 
 ### Phase 5 — Audit, screenshot, fix, and eyeball before calling it ready
 
@@ -347,9 +400,42 @@ instead — fall back to a careful read of the HTML plus the audit findings. The
 returned screenshot `url` is for human review (embed it as `![...](url)` in
 your reply); also still scan the rendered output yourself for anything the
 diagnostics don't catch — broken hierarchy, empty/loading/error states for app
-UI, and whether the copy/content still sounds real.
+UI, and whether the copy/content still sounds real. To compare two design
+snapshots/branches for a file-level visual diff (added/removed/modified) —
+e.g. after a large refactor or before/after a review pass — call
+`get-design-review` instead of eyeballing both versions.
+
+After generation or a broad update, leave the user in the screen overview
+(`navigate --view editor --editorView overview`) when the work involves
+multiple screens or artboard placement — it's the primary editing surface for
+selecting, moving, resizing, and entering focused single-screen editing via a
+frame's Interact button. Reserve single-screen mode as the default landing
+view only when the user asked to focus one specific screen.
 
 ## HTML Structure Requirements
+
+### The save gate rejects malformed markup
+
+Every path that persists model-authored HTML — `generate-design`, `create-file`,
+`present-design-variants`, `edit-design`, `update-file`, canvas edits — runs an
+integrity check, and a **new** file is held to it strictly. Import paths
+(Figma, localhost, templates, duplication) deliberately do not fail closed:
+that markup comes from a real app or an existing design, and rejecting it would
+block bringing work in rather than prevent a bad generation.
+Rejections name the file, line, column, and offending source line — fix exactly
+what it points at instead of re-sending the payload differently. Blocked: an
+attribute quote that is never closed; an unclosed element or a closing tag with
+no opener; content ending mid-tag (a payload cut off in transit); a
+`<style>`/`<script>` missing its opener or closer; duplicated editor-managed
+style blocks; more than one `<html>`/`<body>`.
+
+This exists because the HTML parser never throws — it recovers silently and
+renders a page, just not the one you wrote. An unterminated quote in `<head>`
+swallows every following tag into that attribute, so the Tailwind runtime stops
+applying and the screen renders unstyled with no console error to show it.
+
+Saves may also return non-blocking `warnings` (e.g. utility classes with no
+reachable Tailwind runtime). Fix those before reporting the design as ready.
 
 ### Mandatory Elements
 
@@ -391,7 +477,11 @@ Every `index.html` must include:
     }
 
     /* Base styles */
-    body { font-family: var(--font-body); }
+    body {
+      font-family: var(--font-body);
+      min-height: 100vh;
+      min-height: 100dvh; /* fill the frame — see Full-height frames below */
+    }
     h1, h2, h3, h4, h5, h6 {
       font-family: var(--font-heading);
       text-wrap: balance;
@@ -410,13 +500,23 @@ Every `index.html` must include:
   </style>
 </head>
 <body class="bg-[var(--color-primary)] text-[var(--color-text)]">
-  <!-- All interactive state goes on a root x-data -->
-  <div x-data="{ /* component state */ }">
+  <!-- Root wrapper fills the device viewport: prefer min-h-screen over inline height:100vh -->
+  <div x-data="{ /* component state */ }" class="min-h-screen">
     <!-- Content -->
   </div>
 </body>
 </html>
 ```
+
+**Full-height frames.** Overview frames now default to at least the device
+viewport height and grow to fit their own content at their own width
+(Framer-style), so a short page must still fill its frame instead of leaving a
+stubby box. The mandatory `body` rule above sets `min-height: 100dvh` (with a
+`100vh` fallback) for exactly this. Put full-height intent on the top-level
+wrapper with Tailwind's `min-h-screen` rather than raw inline `height: 100vh` —
+the editor keeps device-anchored full-height utilities pinned to the device
+viewport, so a full-height hero fills the frame without triggering runaway
+growth.
 
 ### Alpine.js Patterns
 
@@ -641,7 +741,10 @@ Fontshare `<link>`/`@import` and confirm it renders.
 
 A prototype with more than one screen is **multiple files** in the same design
 (e.g. `index.html`, `dashboard.html`, `checkout.html`). The editor shows them
-all in the artboard/overview and as screen tabs.
+all in the artboard/overview and as screen tabs. This is only for genuinely
+distinct screens — the mobile and desktop views of the *same* page are
+breakpoint frames of ONE document (the `devices` param + the
+`responsive-breakpoints` model), never a second file.
 
 The preview renders each file in a sandboxed `srcdoc` iframe. A real
 `<a href="/pricing">` or `<a href="page.html">` resolves against the *app* URL
@@ -670,6 +773,12 @@ the prototype. **Never link screens with real URLs.** Use one of:
 External links (`https://…`) are allowed — the editor opens them in a new tab.
 Never use `target="_top"` or relative paths expecting a real page load.
 
+## Locked subtrees
+
+Treat `data-agent-native-locked="true"` as authoritative: locked elements and
+their descendants stay byte-for-byte unchanged, and the server enforces this.
+Ask the user to unlock the layer in the Layers panel if they want it changed.
+
 ## Making edits — minimal, scoped "smart" diffs
 
 When refining an existing design, change the **smallest** amount possible. Full
@@ -697,6 +806,12 @@ regeneration is slow, expensive, and regresses unrelated parts.
 4. **Treat `:root` as the global spec.** For theme-wide restyles, edit the
    tokens in `:root` rather than touching every element.
 5. **Don't add unrequested features** during a refinement pass.
+
+For selecting/editing DOM elements as code layers (layer projection, the
+deterministic `apply-visual-edit` slice, and the semantic React/TSX handoff),
+read `references/code-layers.md`. For the VS Code-style source workbench
+(explorer, quick open, `list-source-files`/`apply-source-edit`), read
+`references/code-workspace.md`.
 
 ## Tailwind v4 + motion gotchas
 
@@ -792,6 +907,26 @@ persists it. `open-component-source` navigates to the component's source
 location (the design file for inline/Alpine designs, or the resolved external
 file for localhost/fusion sources).
 
+## Suggested auto layout
+
+For an absolute/freeform container, first measure its direct children and
+present the proposed direction, visual order, gap, four-side padding,
+alignment, and sizing — do not mutate source until the user applies the
+preview. Inline HTML/Alpine applies the reviewed proposal through one
+`apply-visual-edit`-backed content transaction so undo restores the exact
+prior structure. Local React uses the semantic source handoff (see
+`references/code-layers.md`, never generic AST rewriting), preserves nested
+absolute descendants and responsive logic, and applies the approved proposal
+as one reversible source edit.
+
+## Editor extensions
+
+Design editor extensions render in the right inspector slot
+`design.editor.inspector` (`create-extension` →
+`add-extension-slot-target` → `install-extension`). Read
+`references/editor-extensions.md` for the context shape and the AI-driven
+style/artboard change flow.
+
 ## Realistic app-state content
 
 For app/product UI (not marketing pages), populate lists and tables with
@@ -829,9 +964,13 @@ tokened SVG/CSS, not photos.
 
 - **Use the Assets generation tool** (`generate-asset`, or `insert-asset` once
   an asset is chosen) instead of `<img>` placeholder URLs or colored-div
-  stand-ins. See the Core Rules image-generation bullet in `AGENTS.md` for the
-  full calling convention (default `tier: "fast"`, `callerAppId: "design"`,
-  matching `aspectRatio`).
+  stand-ins — for raster generation, restyling, or editing existing
+  screenshots/photos. Always pass `callerAppId: "design"`. If no Assets MCP
+  tool is available, use the first-party Assets app via `call-agent` with
+  agent `"assets"` when available. If the user attached an image, use its
+  hosted chat-attachment URL or call `upload-image` to create one before
+  delegating. If no image/upload provider is configured, say that specific
+  setup is needed and continue any non-image Design work separately.
 - **Write image prompts as art direction, not a one-line label.** Specify
   subject, composition, lens/framing, lighting, and palette, and tie the
   palette/mood back to the design's own `:root` tokens so the image reads as
@@ -847,6 +986,8 @@ tokened SVG/CSS, not photos.
   Mismatched aspect ratios force ugly crops in the browser.
 - **Always write real `alt` text** describing the image's content — never
   leave `alt=""` on a meaningful (non-decorative) image.
-- **Placement is a two-step pass**: call `insert-asset` to place the chosen
-  image, then do one `edit-design` pass to adjust surrounding layout/spacing
-  if the inserted figure doesn't sit flush with the rest of the design.
+- **Placement is a two-step pass**: when the Assets picker returns a selected
+  asset, preserve its `assetId`, `runId`, and URLs verbatim; call `insert-asset`
+  to place the chosen image, then do one `edit-design` pass (using
+  `get-design-snapshot` first) to adjust surrounding layout/spacing if the
+  inserted figure doesn't sit flush with the rest of the design.

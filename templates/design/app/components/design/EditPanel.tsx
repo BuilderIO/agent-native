@@ -28,7 +28,6 @@ import {
   type InteractionState,
 } from "@shared/interaction-states";
 import {
-  IconAdjustmentsHorizontal,
   IconAlignCenter,
   IconAlignJustified,
   IconAlignLeft,
@@ -44,12 +43,12 @@ import {
   IconBorderCorners,
   IconBorderRadius,
   IconBorderStyle,
-  IconBrush,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconCode,
   IconComponents,
+  IconDeviceMobile,
   IconExternalLink,
   IconDroplet,
   IconEye,
@@ -74,7 +73,6 @@ import {
   IconLink,
   IconLinkOff,
   IconMinus,
-  IconMessageCircle,
   IconPerspective,
   IconPhoto,
   IconPlus,
@@ -86,7 +84,6 @@ import {
   IconRotate3d,
   IconShadow,
   IconSquare,
-  IconTypography,
   IconUnlink,
   IconVector,
   IconWaveSine,
@@ -220,12 +217,12 @@ import {
 } from "./edit-panel/fill-gradient-helpers";
 import { FillProperties } from "./edit-panel/fill-properties";
 import { FramePresetsPanel } from "./edit-panel/frame-presets-panel";
+import type { InspectCodeSourceLocation } from "./edit-panel/inspect-code-source";
 import {
   InspectorIconButton,
   InspectorSegment,
   RowDragHandle,
   SectionIconButton,
-  SectionIconToggle,
   useRowDragReorder,
 } from "./edit-panel/inspector-controls";
 import {
@@ -332,7 +329,7 @@ import {
   type MotionKeyframeCssProperty,
   type ScrubInputChangeMeta,
 } from "./inspector";
-import { IconLayoutSettings } from "./inspector/design-icons";
+import { IconLayoutSettings, IconText } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
 import {
   GlslShaderEffectSection,
@@ -399,16 +396,39 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-export type InspectorTab = "design" | "tweaks" | "comments";
+export type InspectorTab = "design" | "tweaks" | "comments" | "code";
+
+/** Floor for a typed/preset frame size. Matches the frame tool's own minimum
+ *  so a frame cannot be typed smaller than it can be drawn. */
+const MIN_SCREEN_FRAME_SIZE_PX = 24;
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
   selectedElements?: ElementInfo[];
   selectedScreenGeometry?: ScreenGeometrySelection | null;
+  /**
+   * Resizes/moves the selected screen frame. When omitted the geometry fields
+   * stay read-only, which is what read-only viewers and non-editable designs
+   * get. Supplying it also reveals the size-preset picker: the frame tool's
+   * full-panel preset list is only reachable *before* a frame exists, so
+   * without this an existing frame could never be set to a device size.
+   */
+  /** Design-level canvas background — the surround, not a screen's document.
+   *  Omit onCanvasBackgroundChange to hide the Canvas section (read-only). */
+  canvasBackground?: string | null;
+  onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
+  onScreenGeometryChange?: (
+    screenId: string,
+    next: Partial<
+      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+    >,
+  ) => void;
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
   width?: number;
+  /** Viewer mode exposes inspection and comments, never editing controls. */
+  readOnly?: boolean;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
   tweaks?: TweakDefinition[];
@@ -418,6 +438,9 @@ interface EditPanelProps {
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onExport?: (settings: ExportSettingsValue[]) => void;
+  /** Rasterizes the current selection for the export preview. Must go through
+   *  the same renderer as `onExport`, or the preview lies about the output. */
+  onRenderExportPreview?: () => Promise<Blob>;
   exporting?: boolean;
   /** Active file id — used for component prop editing context. */
   fileId?: string;
@@ -688,14 +711,91 @@ export interface InspectCodeData {
    * Resolved source file for real-app sources (localhost / fusion), when the
    * resolveNodeToFile capability is available.
    */
-  sourceLocation?: {
-    /** Absolute path on disk — used to build the vscode:// deep link. */
-    absolutePath: string;
-    line?: number;
-    column?: number;
-    /** Optional snippet to show above the Open-in-VS-Code button. */
-    snippet?: string;
-  } | null;
+  sourceLocation?:
+    | (InspectCodeSourceLocation & {
+        /** Optional snippet to show above the Open-in-VS-Code button. */
+        snippet?: string;
+      })
+    | null;
+}
+
+function sourcePositionLabel(
+  source: Pick<InspectCodeSourceLocation, "filePath" | "line" | "column">,
+): string {
+  if (source.line == null) return source.filePath;
+  return `${source.filePath}:${source.line}${
+    source.column == null ? "" : `:${source.column}`
+  }`;
+}
+
+function sourcePrecisionLabel(
+  method: InspectCodeSourceLocation["method"],
+): string | null {
+  if (method === "debug-stack") return "Runtime-transformed location"; // i18n-ignore design inspector technical provenance label
+  if (method === "debug-source" || method === "data-attribute") {
+    return "Authored source location"; // i18n-ignore design inspector technical provenance label
+  }
+  return null;
+}
+
+function SourceLocationSummary({
+  source,
+}: {
+  source: InspectCodeSourceLocation;
+}) {
+  const precision = sourcePrecisionLabel(source.method);
+  const ownerPrecision = source.owner
+    ? sourcePrecisionLabel(source.owner.method)
+    : null;
+  return (
+    <div className="space-y-1">
+      <div
+        className="rounded bg-[var(--design-editor-control-bg)] px-2 py-1.5"
+        title={sourcePositionLabel(source)}
+      >
+        <div className="flex min-w-0 items-center gap-1">
+          <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
+          {source.componentName ? (
+            <span className="shrink-0 font-medium text-foreground">
+              {source.componentName}
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+            {sourcePositionLabel(source)}
+          </span>
+        </div>
+        {precision ? (
+          <div className="mt-0.5 pl-4 text-[9px] text-muted-foreground/70">
+            {precision}
+          </div>
+        ) : null}
+      </div>
+      {source.owner ? (
+        <div
+          className="rounded border border-border/60 px-2 py-1 text-[10px] text-muted-foreground"
+          title={sourcePositionLabel(source.owner)}
+        >
+          <div className="truncate">
+            <span className="mr-1 font-medium text-foreground/80">
+              {"Owner" /* i18n-ignore design inspector provenance label */}
+            </span>
+            {source.owner.componentName
+              ? `${source.owner.componentName} · `
+              : ""}
+            <span className="font-mono">
+              {sourcePositionLabel(source.owner)}
+            </span>
+            {source.owner.key ? ` · key ${source.owner.key}` : ""}
+          </div>
+          {ownerPrecision ? (
+            <div className="mt-0.5 text-[9px] text-muted-foreground/70">
+              {ownerPrecision}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -883,18 +983,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
           </Button>
         </div>
 
-        {source && (
-          <div
-            className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
-            title={source.absolutePath}
-          >
-            <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
-              {source.absolutePath}
-              {source.line != null ? `:${source.line}` : ""}
-            </span>
-          </div>
-        )}
+        {source ? <SourceLocationSummary source={source} /> : null}
 
         {snippet ? (
           <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
@@ -908,7 +997,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
           </p>
         )}
 
-        {source && (
+        {source?.absolutePath ? (
           <a
             href={vscodeDeepLink(
               source.absolutePath,
@@ -927,16 +1016,145 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
               {"Open in VS Code" /* i18n-ignore design inspector action */}
             </Button>
           </a>
-        )}
+        ) : null}
       </PopoverContent>
     </Popover>
+  );
+}
+
+function CodeInspectPanel({
+  data,
+  element,
+  screen,
+}: {
+  data?: InspectCodeData;
+  element: ElementInfo | null;
+  screen: ScreenGeometrySelection | null | undefined;
+}) {
+  const [copied, setCopied] = useState(false);
+  const snippet = data
+    ? (elementHtmlPreview(data) ??
+      data.sourceLocation?.snippet ??
+      data.html?.trim() ??
+      null)
+    : null;
+  const bounds = element?.boundingRect ?? screen;
+  const measurements = bounds
+    ? [
+        ["X", bounds.x],
+        ["Y", bounds.y],
+        ["W", bounds.width],
+        ["H", bounds.height],
+      ]
+    : [];
+  const styles = element
+    ? [
+        ["Display", element.computedStyles.display],
+        ["Position", element.computedStyles.position],
+        ["Font", element.computedStyles.fontSize],
+        ["Color", element.computedStyles.color],
+      ].filter(([, value]) => value)
+    : [];
+
+  const handleCopy = () => {
+    if (!snippet) return;
+    void navigator.clipboard
+      ?.writeText(snippet)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {});
+  };
+
+  return (
+    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="flex h-10 items-center justify-between gap-2 border-b border-border/90 px-3">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <IconCode className="size-3.5 text-muted-foreground" />
+          <h3 className="truncate text-[13px] font-semibold text-foreground">
+            {"Code & measurements" /* i18n-ignore design inspector heading */}
+          </h3>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[10px]"
+          onClick={handleCopy}
+          disabled={!snippet}
+        >
+          {
+            copied
+              ? "Copied" /* i18n-ignore design inspector action */
+              : "Copy" /* i18n-ignore design inspector action */
+          }
+        </Button>
+      </div>
+
+      {measurements.length > 0 ? (
+        <PanelSection
+          title={"Measurements" /* i18n-ignore design inspector section */}
+        >
+          <div className="grid grid-cols-2 gap-2">
+            {measurements.map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px]"
+              >
+                <span className="text-muted-foreground">{label}</span>
+                <span className="font-mono text-foreground">
+                  {Math.round(Number(value))}px
+                </span>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
+      ) : null}
+
+      {styles.length > 0 ? (
+        <PanelSection
+          title={"Computed styles" /* i18n-ignore design inspector section */}
+        >
+          <div className="space-y-1 text-[11px]">
+            {styles.map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-3">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="max-w-[65%] truncate font-mono text-foreground">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
+      ) : null}
+
+      <PanelSection title={"Code" /* i18n-ignore design inspector section */}>
+        {data?.sourceLocation ? (
+          <div className="mb-2">
+            <SourceLocationSummary source={data.sourceLocation} />
+          </div>
+        ) : null}
+        {snippet ? (
+          <pre className="max-h-80 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
+            <code>{highlightedHtml(snippet)}</code>
+          </pre>
+        ) : (
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            {
+              "Select a layer to inspect its code and measurements." /* i18n-ignore design inspector empty */
+            }
+          </p>
+        )}
+      </PanelSection>
+    </div>
   );
 }
 
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
-  if (TEXT_TAGS.has(tag)) return IconTypography;
+  if (TEXT_TAGS.has(tag)) return IconText;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
   if (tag === "button" || tag === "a") return IconComponents;
@@ -1039,13 +1257,72 @@ function ScreenSelectionHeader({
   );
 }
 
+/** Preset picker for a selected frame's size. Kept behind a popover on the
+ *  Size label rather than an always-visible list: the frame tool's full-panel
+ *  preset list only exists before a frame is drawn, so a selected frame had no
+ *  way to reach the same sizes. */
+function ScreenSizePresetPicker({
+  onPick,
+}: {
+  onPick: (preset: FrameSizePreset) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const label = t("editPanel.framePresets.applyToFrame");
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-hover-bg)] hover:text-foreground"
+              aria-label={label}
+            >
+              <IconDeviceMobile className="size-3.5" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="left">{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" side="left" className="w-56 p-0">
+        <div className="flex max-h-80 flex-col overflow-hidden">
+          <FramePresetsPanel
+            onPick={(preset) => {
+              onPick(preset);
+              setOpen(false);
+            }}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ScreenGeometryProperties({
   screen,
+  onGeometryChange,
 }: {
   screen: ScreenGeometrySelection;
+  onGeometryChange?: (
+    screenId: string,
+    next: Partial<
+      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+    >,
+  ) => void;
 }) {
   const t = useT();
   const noop = useCallback(() => {}, []);
+  const editable = Boolean(onGeometryChange);
+  const commit = useCallback(
+    (
+      next: Partial<
+        Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+      >,
+    ) => onGeometryChange?.(screen.id, next),
+    [onGeometryChange, screen.id],
+  );
 
   return (
     <PanelSection title={t("editPanel.sections.positionLayout")}>
@@ -1055,40 +1332,51 @@ function ScreenGeometryProperties({
           <ScrubInput
             label="X"
             value={Math.round(screen.x)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ x: value }) : noop}
             unit="px"
-            disabled
+            disabled={!editable}
             inputClassName="h-6"
           />
           <ScrubInput
             label="Y"
             value={Math.round(screen.y)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ y: value }) : noop}
             unit="px"
-            disabled
+            disabled={!editable}
             inputClassName="h-6"
           />
         </div>
       </div>
       <div className="space-y-1.5">
-        <SubsectionLabel>
-          {"Size" /* i18n-ignore design inspector label */}
-        </SubsectionLabel>
+        <div className="flex items-center justify-between gap-2">
+          <SubsectionLabel>
+            {"Size" /* i18n-ignore design inspector label */}
+          </SubsectionLabel>
+          {editable ? (
+            <ScreenSizePresetPicker
+              onPick={(preset) =>
+                commit({ width: preset.width, height: preset.height })
+              }
+            />
+          ) : null}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <ScrubInput
             label="W"
             value={Math.round(screen.width)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ width: value }) : noop}
             unit="px"
-            disabled
+            min={MIN_SCREEN_FRAME_SIZE_PX}
+            disabled={!editable}
             inputClassName="h-6"
           />
           <ScrubInput
             label="H"
             value={Math.round(screen.height)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ height: value }) : noop}
             unit="px"
-            disabled
+            min={MIN_SCREEN_FRAME_SIZE_PX}
+            disabled={!editable}
             inputClassName="h-6"
           />
         </div>
@@ -1099,16 +1387,16 @@ function ScreenGeometryProperties({
 
 function InspectorTabsHeader({
   activeTab,
+  readOnly,
   onActiveTabChange,
   trailing,
   commentsCount = 0,
-  compact = false,
 }: {
   activeTab: InspectorTab;
+  readOnly: boolean;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
   commentsCount?: number;
-  compact?: boolean;
 }) {
   const t = useT();
 
@@ -1120,20 +1408,15 @@ function InspectorTabsHeader({
         className="min-w-0"
       >
         <TabsList className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0">
-          <TabsTrigger
-            value="design"
-            aria-label={t("navigation.brand")}
-            className={cn(
-              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-7 px-0" : "px-1.5",
-            )}
-          >
-            {compact ? (
-              <IconBrush className="size-3.5" />
-            ) : (
-              t("navigation.brand")
-            )}
-          </TabsTrigger>
+          {!readOnly ? (
+            <TabsTrigger
+              value="design"
+              aria-label={t("navigation.brand")}
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {t("navigation.brand")}
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger
             value="comments"
             aria-label={
@@ -1141,43 +1424,37 @@ function InspectorTabsHeader({
                 ? t("review.commentsTab", { count: commentsCount })
                 : t("review.comments")
             }
-            className={cn(
-              "group h-6 min-w-0 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-auto gap-0.5 px-1" : "gap-1 px-1.5",
-            )}
+            className="group h-6 min-w-0 rounded-md gap-1 px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            {compact ? (
-              <IconMessageCircle className="size-3.5" />
-            ) : (
-              <span className="truncate">{t("review.comments")}</span>
-            )}
+            <span className="truncate">{t("review.comments")}</span>
             {commentsCount > 0 ? (
               <span
                 className={cn(
                   "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
-                  compact
-                    ? "h-3.5 min-w-3.5 px-0.5 text-[8px]"
-                    : "h-4 min-w-4 px-1 text-[9px]",
+                  "h-4 min-w-4 px-1 text-[9px]",
                 )}
               >
                 {commentsCount > 99 ? "99+" : commentsCount}
               </span>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger
-            value="tweaks"
-            aria-label={t("designEditor.tweaks")}
-            className={cn(
-              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-7 px-0" : "px-1.5",
-            )}
-          >
-            {compact ? (
-              <IconAdjustmentsHorizontal className="size-3.5" />
-            ) : (
-              t("designEditor.tweaks")
-            )}
-          </TabsTrigger>
+          {!readOnly ? (
+            <TabsTrigger
+              value="tweaks"
+              aria-label={t("designEditor.tweaks")}
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {t("designEditor.tweaks")}
+            </TabsTrigger>
+          ) : (
+            <TabsTrigger
+              value="code"
+              aria-label={"Code" /* i18n-ignore design inspector tab */}
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {"Code" /* i18n-ignore design inspector tab */}
+            </TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
@@ -1190,10 +1467,14 @@ function PageProperties({
   styles,
   onStyleChange,
   onStylesChange,
+  canvasBackground,
+  onCanvasBackgroundChange,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  canvasBackground?: string | null;
+  onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
   const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
@@ -1215,6 +1496,20 @@ function PageProperties({
 
   return (
     <div>
+      {/* With nothing selected you are looking at the canvas, so this edits the
+          canvas surround. The section below still owns the SCREEN's own
+          document background and type defaults. */}
+      {onCanvasBackgroundChange ? (
+        <PanelSection title={t("editPanel.sections.canvas")}>
+          <ColorInput
+            label={t("editPanel.labels.background")}
+            value={canvasBackground ?? ""}
+            // meta carries phase: "preview" while dragging vs "commit" on
+            // release. Dropping it persists every tick and the picker jumps.
+            onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
+          />
+        </PanelSection>
+      ) : null}
       <PanelSection title={t("editPanel.sections.page")}>
         <ColorInput
           label={t("editPanel.labels.background")}
@@ -1264,36 +1559,132 @@ function PageProperties({
  * frame above the export rows). Renders a proportional placeholder reflecting
  * the selected element's aspect ratio, fill, radius and dimensions.
  */
-function ExportPreview({ element }: { element: ElementInfo | null }) {
+/** Rasterizes through the same path the export actions use, so the preview
+ *  cannot disagree with the file. A failed render must stay visibly failed —
+ *  never substitute a synthesized stand-in for the real content. */
+function ExportPreview({
+  element,
+  onRender,
+}: {
+  element: ElementInfo | null;
+  onRender?: () => Promise<Blob>;
+}) {
+  const t = useT();
   const rect = element?.boundingRect;
-  const width = rect?.width ?? 0;
-  const height = rect?.height ?? 0;
-  const aspect = width > 0 && height > 0 ? width / height : 1;
-  const styles = element?.computedStyles ?? {};
-  const fill = cssColorOrFallback(
-    styles.backgroundColor || styles.color,
-    "var(--design-editor-control-bg)",
-  );
-  const radius = Math.min(8, cssLengthNumber(styles.borderRadius || "0"));
+  // Selection sources disagree on whether boundingRect is populated (layer-tree
+  // picks in overview report nothing), so the rendered bitmap — which exists
+  // only once a real capture succeeded — is the honest size to caption with.
+  const [rendered, setRendered] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const width = rendered?.width ?? rect?.width ?? null;
+  const height = rendered?.height ?? rect?.height ?? null;
+  const aspect =
+    width != null && height != null && width > 0 && height > 0
+      ? width / height
+      : 1;
+  const [state, setState] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "ready"; url: string }
+    | { status: "failed" }
+  >({ status: "idle" });
+
+  useEffect(() => {
+    if (!onRender) {
+      setState({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setState({ status: "loading" });
+    setRendered(null);
+    void onRender()
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setState({ status: "ready", url: objectUrl });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: "failed" });
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [onRender]);
 
   return (
     <div className="mt-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-3">
       <div
-        className="mx-auto flex max-h-28 items-center justify-center"
+        className="mx-auto flex max-h-28 items-center justify-center overflow-hidden"
         style={{
           aspectRatio: aspect,
           width: aspect >= 1 ? "100%" : "auto",
           height: aspect < 1 ? "7rem" : "auto",
         }}
       >
-        <div
-          className="size-full border border-[var(--design-editor-control-border)] shadow-sm"
-          style={{ background: fill, borderRadius: radius }}
-        />
+        {state.status === "ready" ? (
+          <img
+            src={state.url}
+            alt=""
+            className="size-full object-contain"
+            style={{
+              imageRendering: "auto",
+            }}
+            onLoad={(event) =>
+              setRendered({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              })
+            }
+          />
+        ) : (
+          <div className="flex size-full items-center justify-center rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] px-2 text-center !text-[10px] text-muted-foreground">
+            {state.status === "failed"
+              ? t("editPanel.exportPreview.failed")
+              : t("editPanel.exportPreview.rendering")}
+          </div>
+        )}
       </div>
-      <p className="mt-2 text-center text-[10px] tabular-nums text-muted-foreground">
-        {Math.round(width)} × {Math.round(height)}
-      </p>
+      {width != null && height != null ? (
+        <p className="mt-2 text-center text-[10px] tabular-nums text-muted-foreground">
+          {Math.round(width)} × {Math.round(height)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Named, collapsed-by-default "Preview" row. An icon-only toggle in the
+ *  section header reads as "export an image", not "reveal what will export". */
+function ExportPreviewDisclosure({
+  element,
+  onRender,
+}: {
+  element: ElementInfo | null;
+  onRender?: () => Promise<Blob>;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = "Preview"; // i18n-ignore design inspector label
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((shown) => !shown)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1 !text-[11px] font-medium text-muted-foreground hover:text-foreground"
+      >
+        {open ? (
+          <IconChevronDown className="size-3 shrink-0" />
+        ) : (
+          <IconChevronRight className="size-3 shrink-0 rtl:-scale-x-100" />
+        )}
+        {label}
+      </button>
+      {open ? <ExportPreview element={element} onRender={onRender} /> : null}
     </div>
   );
 }
@@ -1407,9 +1798,13 @@ export const EditPanel = memo(function EditPanel({
   selectedElement,
   selectedElements,
   selectedScreenGeometry,
+  canvasBackground,
+  onCanvasBackgroundChange,
+  onScreenGeometryChange,
   pageStyles = {},
   headerTrailing,
   width = 256,
+  readOnly = false,
   activeTab = "design",
   onActiveTabChange,
   tweaks = [],
@@ -1419,6 +1814,7 @@ export const EditPanel = memo(function EditPanel({
   onStyleChange: onStyleChangeProp,
   onStylesChange: onStylesChangeProp,
   onExport,
+  onRenderExportPreview,
   exporting = false,
   fileId,
   activeContent,
@@ -1453,7 +1849,6 @@ export const EditPanel = memo(function EditPanel({
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
     DEFAULT_EXPORT_SETTINGS,
   );
-  const [showExportPreview, setShowExportPreview] = useState(false);
   // Element interaction-state selector (Default / Hover / Focus / …). Owned
   // here (not lifted to the parent) per the mission contract — DesignEditor
   // only needs to react to changes via onInteractionStateChange, it doesn't
@@ -1580,7 +1975,6 @@ export const EditPanel = memo(function EditPanel({
 
   useEffect(() => {
     setExportSettings(DEFAULT_EXPORT_SETTINGS);
-    setShowExportPreview(false);
   }, [selectedElementKey]);
 
   useEffect(() => {
@@ -1770,10 +2164,16 @@ export const EditPanel = memo(function EditPanel({
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const resolvedActiveTab: InspectorTab =
+    readOnly && (activeTab === "design" || activeTab === "tweaks")
+      ? "code"
+      : activeTab;
+
   // Frame presets belong to the Design inspector. Keep Comments and Tweaks
   // visible when the Frame tool remains armed while another tab is active.
   const showFramePresets =
-    activeTab === "design" &&
+    !readOnly &&
+    resolvedActiveTab === "design" &&
     activeTool === "frame" &&
     Boolean(onCreateScreenFromPreset);
 
@@ -1787,18 +2187,18 @@ export const EditPanel = memo(function EditPanel({
         style={{ width }}
       >
         <InspectorTabsHeader
-          activeTab={activeTab}
+          activeTab={resolvedActiveTab}
+          readOnly={readOnly}
           onActiveTabChange={handleActiveTabChange}
           trailing={headerTrailing}
           commentsCount={reviewCommentsCount}
-          compact={width < 280}
         />
 
         {showFramePresets ? (
           <FramePresetsPanel
             onPick={(preset) => onCreateScreenFromPreset?.(preset)}
           />
-        ) : activeTab === "design" ? (
+        ) : resolvedActiveTab === "design" ? (
           <>
             <SelectionHeader
               element={inspectorElement}
@@ -1915,7 +2315,12 @@ export const EditPanel = memo(function EditPanel({
               ) : null}
 
               {!inspectorElement && selectedScreenGeometry ? (
-                <ScreenGeometryProperties screen={selectedScreenGeometry} />
+                <ScreenGeometryProperties
+                  screen={selectedScreenGeometry}
+                  onGeometryChange={
+                    readOnly ? undefined : onScreenGeometryChange
+                  }
+                />
               ) : null}
 
               {!inspectorElement && !selectedScreenGeometry && (
@@ -1923,6 +2328,10 @@ export const EditPanel = memo(function EditPanel({
                   styles={pageStyles}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  canvasBackground={canvasBackground}
+                  onCanvasBackgroundChange={
+                    readOnly ? undefined : onCanvasBackgroundChange
+                  }
                 />
               )}
 
@@ -2006,22 +2415,7 @@ export const EditPanel = memo(function EditPanel({
                 </>
               )}
               {onExport ? (
-                <PanelSection
-                  title={t("editPanel.sections.export")}
-                  actions={
-                    <SectionIconToggle
-                      label={
-                        showExportPreview
-                          ? "Hide preview" /* i18n-ignore design inspector action */
-                          : "Show preview" /* i18n-ignore design inspector action */
-                      }
-                      active={showExportPreview}
-                      onClick={() => setShowExportPreview((shown) => !shown)}
-                    >
-                      <IconPhoto className="size-3.5" />
-                    </SectionIconToggle>
-                  }
-                >
+                <PanelSection title={t("editPanel.sections.export")}>
                   <ExportSettingsPanel
                     key={selectedElementKey}
                     value={exportSettings}
@@ -2040,9 +2434,14 @@ export const EditPanel = memo(function EditPanel({
                     }
                     onExport={onExport}
                   />
-                  {showExportPreview ? (
-                    <ExportPreview element={inspectorElement} />
-                  ) : null}
+                  {/* Distinct from the settings panel's key: two siblings
+                      sharing one key makes React duplicate the panel on every
+                      re-render, so the section grows an Export block per tick. */}
+                  <ExportPreviewDisclosure
+                    key={`${selectedElementKey}:preview`}
+                    element={inspectorElement}
+                    onRender={onRenderExportPreview}
+                  />
                 </PanelSection>
               ) : null}
 
@@ -2090,7 +2489,7 @@ export const EditPanel = memo(function EditPanel({
               ) : null}
             </div>
           </>
-        ) : activeTab === "tweaks" ? (
+        ) : resolvedActiveTab === "tweaks" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
               <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
@@ -2127,7 +2526,13 @@ export const EditPanel = memo(function EditPanel({
               />
             </div>
           </div>
-        ) : activeTab === "comments" && reviewCommentsPanelProps ? (
+        ) : resolvedActiveTab === "code" ? (
+          <CodeInspectPanel
+            data={inspectCode}
+            element={inspectorElement}
+            screen={selectedScreenGeometry}
+          />
+        ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
           <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
       </div>

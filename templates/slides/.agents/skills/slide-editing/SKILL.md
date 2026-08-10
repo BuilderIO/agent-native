@@ -1,11 +1,18 @@
 ---
 name: slide-editing
-description: How to edit individual slides -- content formatting, HTML styling rules, updating slide content in the database.
+description: >-
+  Edit individual slides, including content formatting, HTML styling, and
+  bounded source and visual-fidelity checks. Use when changing an existing
+  slide rather than creating a new deck.
 ---
 
 # Slide Editing
 
-Slides are HTML content stored inside the deck JSON. Each slide's `content` field is a self-contained HTML string that renders at 1920x1080 resolution.
+Slides are HTML content stored inside the deck JSON. Each slide's `content`
+field is a self-contained HTML string rendered at the intrinsic dimensions for
+its aspect ratio: 16:9 is 960x540, 1:1 is 1080x1080, 9:16 is 540x960, and 4:5
+is 864x1080. These canonical dimensions come from the shared aspect-ratio
+registry; do not assume a fixed 1920x1080 canvas.
 
 ## Slide HTML Structure
 
@@ -19,7 +26,13 @@ Every slide uses this wrapper:
 
 ## Styling Rules
 
-All generated slides follow these conventions:
+These are fallback defaults only. When a design system is linked, its hydrated
+tokens control color, typography, spacing, borders, imagery, and slide defaults;
+a reference deck controls composition and markup idiom only. The generic
+Impeccable-inspired quality bar can flag hierarchy, contrast, density, and
+anti-pattern issues, but it cannot replace the active system.
+
+When no system is linked, generated slides may use these conventions:
 
 | Element | Style |
 |---------|-------|
@@ -32,6 +45,17 @@ All generated slides follow these conventions:
 | Sub-bullets | `&#x25CB;` (open circle), padding-left: 36px |
 | Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
 | Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
+
+## Fit and Density
+
+Fit the main content to the native content area, not merely to the outer
+wrapper. For the default 16:9 canvas, the standard `80px 110px` padding leaves
+740x380px. Keep titles to two lines, content slides to three short bullets or
+three compact cards, and two-column slides to two or three short items per
+column. If the source is denser, split it across slides. Never use zoom,
+`transform: scale()`, clipping, or scroll overflow to hide a fit issue; body
+text must remain at least 16px. Explicitly reduced slide padding is allowed when
+the content still needs the space.
 
 ## Updating a Slide
 
@@ -46,14 +70,44 @@ To edit a slide's content:
    approved native template or component when it already fits; generate
    net-new structure only when the relevant corpus is empty.
 4. **Update the slide** with the `update-slide` action using `deckId`,
-   `slideId`, and `fullContent`. Do not write deck rows directly and do not add
-   raw `/api/decks/:id` PUT calls for normal slide edits.
+   `slideId`, and `fullContent`. Do not write deck rows directly or add raw
+   full-deck writes for normal slide edits; use `patch-deck` for browser/editor
+   changes.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
+
+6. For factual edits, compare changed text against the retrieved source and
+   preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
+   or visual similarity is not proof of source fidelity.
 
 If retrieval produces a new immutable context pack, keep its `contextPackId`
 and reuse labels with the deck provenance. Existing slide HTML is not proof of
 which source version influenced it.
+
+## Freeform Canvas Objects
+
+Manual text boxes and other freeform canvas objects are absolutely positioned
+children of `.fmd-slide`. Give each one a stable `data-slide-object-id`:
+
+```html
+<div
+  class="fmd-text-box"
+  data-slide-object-id="slide-object-unique-id"
+  style="position: absolute; left: 160px; top: 120px; width: 420px;"
+>
+  Editable text
+</div>
+```
+
+- Preserve `data-slide-object-id` when updating, moving, resizing, or styling an
+  existing object.
+- Mint a new unique object ID when duplicating an object.
+- Do not use runtime-only `data-builder-id` values in saved slide HTML.
+- Keep generated flex and grid content in normal flow. Do not silently
+  absolute-position a nested layout child just to make it draggable; create a
+  deliberate freeform object instead.
+- Build editable shapes with styled HTML elements such as `div`. Do not use
+  inline SVG, which the slide sanitizer removes.
 
 ## Image Placeholders
 

@@ -48,6 +48,13 @@ tauri-plugin-fs = "2.5.1"
 # tauri-plugin-notification`). Powers the Granola-style "Meeting starting
 # in N min — Join + Record" banners.
 tauri-plugin-notification = "2"
+# System clipboard writes from Rust (arboard). The share link is copied when a
+# recording finishes, at which point the popover webview is usually unfocused —
+# `navigator.clipboard.writeText` rejects with `NotAllowedError: Document is not
+# focused` in exactly that case, so the write has to happen native-side. v2.3.2
+# is the current latest (verified via `cargo info
+# tauri-plugin-clipboard-manager`).
+tauri-plugin-clipboard-manager = "2.3.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sentry = "0.48.3"

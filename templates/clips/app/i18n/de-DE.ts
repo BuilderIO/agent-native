@@ -302,7 +302,6 @@ const messages = {
       "Speicher angeschlossen. Ich schaue mir diesen Clip an...",
     signInToFinish: "Melden Sie sich an, um den Vorgang abzuschließen",
     signInIfYours: "Melden Sie sich an, wenn dies Ihnen gehört",
-    openDashboard: "Dashboard öffnen",
     checkAgain: "Erneut prüfen",
     backToHome: "Zurück nach Hause",
     generatingTitle: "Titel wird generiert",
@@ -470,6 +469,9 @@ const messages = {
     agentLinkUnavailable: "Agent-Link konnte nicht erstellt werden.",
     retryAgentLink: "Erneut versuchen",
     gifPreview: "GIF-Vorschau",
+    copyEmailPreview: "E-Mail-Vorschau kopieren",
+    emailPreviewCopied: "E-Mail-Vorschau kopiert",
+    emailPreviewCopyFailed: "E-Mail-Vorschau konnte nicht kopiert werden",
     openPlayer: "Spieler öffnen",
     chooseFile: "Datei auswählen",
     remove: "Entfernen",
@@ -499,6 +501,7 @@ const messages = {
     makePublicAndCopy: "Veröffentlichen und kopieren",
     copy: "Kopie",
     addPeopleByEmail: "Personen per E-Mail hinzufügen",
+    invite: "Einladen",
     notifyPeople: "Benachrichtigen Sie die Leute",
     peopleWithAccess: "Menschen mit Zugang",
     ownerRole: "Eigentümer",
@@ -566,6 +569,9 @@ const messages = {
     useColor: "Verwenden Sie {{color}}",
     logo: "Logo",
     logoPreview: "Logo-Vorschau",
+    logoUsage:
+      "Wird Empfängern in Freigabe-E-Mails und auf öffentlichen Clip-Seiten angezeigt.",
+    emailHeaderPreview: "Kopfbereich der Freigabe-E-Mail",
     dropReplace: "Legen Sie ein neues Bild ab, um es zu ersetzen",
     dropHere: "Geben Sie hier einen PNG / JPG / SVG ein",
     uploading: "Hochladen…",
@@ -637,6 +643,7 @@ const messages = {
     pageTitle: "Einstellungen · Clips",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
+    preferencesTitle: "Voreinstellungen",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
@@ -666,10 +673,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
 ### Hinzugefügt
 
 - Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
-    profile: "Profil",
-    email: "E-Mail",
-    displayName: "Anzeigename",
-    displayNamePlaceholder: "Dein Name",
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -679,9 +682,16 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     transcriptCleanupDescription:
       "Zeige das native Transkript sofort an und bereinige es im Hintergrund, sobald es verfügbar ist.",
     notifications: "Benachrichtigungen",
+    sharing: "Teilen",
+    defaultVisibility: "Standard-Sichtbarkeit neuer Aufnahmen",
+    defaultVisibilityDescription:
+      "Gilt für jede Aufnahme, die du erstellst. Du kannst die Sichtbarkeit pro Aufnahme weiterhin ändern.",
+    visibilityPrivate: "Privat - nur du",
+    visibilityOrg: "Organisation - alle in deinem Workspace",
+    visibilityPublic: "Öffentlich - alle mit dem Link",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand eine Aufnahme kommentiert, reagiert oder mit dir teilt.",
+      "Erhalte eine E-Mail, wenn jemand deine Aufnahme kommentiert oder darauf reagiert.",
     saved: "Einstellungen gespeichert",
     saveFailed: "Speichern fehlgeschlagen",
     builderConnectedToast: "Builder.io verbunden",
@@ -690,12 +700,12 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Builder.io ist der primäre Speicherpfad für Clips-Uploads. S3 ist verfügbar, wenn du deinen eigenen Bucket verwenden musst.",
     checkingBuilder: "Builder.io wird geprüft",
     builderConnected: "Builder.io verbunden",
-    connectBuilder: "Builder.io nutzen (kostenlos)",
+    connectBuilder: "Builder.io nutzen",
     builderConnectedFor: "Builder.io wird für {{orgName}} verwendet.",
     builderConnectedGeneric:
       "Neue Clips verwenden den verbundenen Builder.io-Anbieter.",
     builderIncludes:
-      "Enthält Objektspeicher, Uploads und verwaltete Transkription für neue Clips.",
+      "Der kostenlose Tarif von Builder.io umfasst Objektspeicher, Uploads und verwaltete Transkription für neue Clips.",
     s3Title: "S3-kompatibler Speicher",
     secondary: "Sekundär",
     active: "Aktiv",
@@ -723,8 +733,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     s3RegionInvalid:
       'Muss eine gültige Region sein (z. B. us-east-1) oder "auto"',
     apiSetup: "KI-Einrichtung",
-    apiSetupDescription:
-      "Verbinde KI mit kostenlosen Builder.io-Credits oder deinen eigenen LLM-Schlüsseln.",
+    apiSetupDescription: "Wähle, wie Clips eine Verbindung zur KI herstellt.",
     builderEasySetup: "Kostenlose Builder.io-Credits",
     builderAiAvailable:
       "Enthaltene KI-Guthaben und verwaltete Transkription sind für Clips verfügbar.",
@@ -732,8 +741,13 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Nutze Builder.io zuerst für enthaltene KI-Guthaben, Objektspeicher, Uploads und verwaltete Transkription.",
     providerKeyTitle: "Eigenen Anbieter-Schlüssel verwenden",
     providerKeyDescription:
-      "Füge Anthropic-, OpenAI-, Gemini-, Groq- oder OpenRouter-Schlüssel für anbieterseitig abgerechnete Nutzung hinzu.",
+      "Wähle Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere oder Ollama für anbieterseitig abgerechnete Nutzung.",
     providerKeysSet: "{{count}} gesetzt",
+    providerActionTitle: "KI-Anbieter",
+    providerActionDescription:
+      "Builder.io bietet einen kostenlosen Tarif, oder eigene Schlüssel verwenden.",
+    providerManage: "Verwalten",
+    providerCustomKeys: "Eigene Schlüssel",
     checkingProviderKeys: "Anbieter-Schlüssel werden geprüft…",
     keySet: "Gesetzt",
     keyCleared: "Speicher-Anmeldedaten gelöscht",
@@ -813,6 +827,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Noch keine Organisation. Erstelle eine über den Organisationswechsler, um zu beginnen.",
     description: "Organisationsverwaltung: Branding, Mitglieder, Einladungen.",
     adminsOnlyBranding: "Nur Administratoren können das Branding bearbeiten.",
+    brandingLoadFailed:
+      "Das Branding der Organisation konnte nicht geladen werden.",
     members: "Mitglieder",
     pendingInvites: "Ausstehende Einladungen",
     noPendingInvites: "Keine ausstehenden Einladungen.",
@@ -833,11 +849,25 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     recentViewers: "Aktuelle Zuschauer",
     noViewers: "Noch keine Zuschauer.",
     anonymous: "Anonym",
-    anon: "Anon",
     moreViewers: "+{{count}} weitere",
     viewedBy: "Angesehen von",
     someone: "Jemand",
     noViewsYet: "Noch keine Aufrufe.",
+    viewsCount_one: "{{count}} Aufruf",
+    viewsCount_other: "{{count}} Aufrufe",
+    agentViewsCount_one: "{{count}} KI-Agenten-Aufruf",
+    agentViewsCount_other: "{{count}} KI-Agenten-Aufrufe",
+    totalViewsSummary:
+      "{{total}} Aufrufe insgesamt, {{unique}} eindeutige Zuschauer",
+    viewsTab: "Aufrufe",
+    insightsTab: "Einblicke",
+    humanViews: "Menschliche Aufrufe",
+    agentViews: "Aufrufe durch KI-Agenten",
+    noAgentViewsYet: "Noch keine Aufrufe durch KI-Agenten.",
+    unknownAgent: "Unbekannter Agent",
+    totalVideoViews: "Videoaufrufe insgesamt",
+    averageCompletionRate: "Durchschnittliche Abschlussrate",
+    moreInsights: "Mehr Einblicke",
   },
   libraryGrid: {
     spaceRoot: "Space-Stamm",
@@ -861,6 +891,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     loadFailedBody:
       "Beim Laden dieser Liste ist etwas schiefgelaufen. Deine Aufnahmen sind sicher — versuche es erneut.",
     retry: "Erneut versuchen",
+    paginationRange: "{{start}}–{{end}} von {{total}}",
+    paginationPrevious: "Zurück",
+    paginationNext: "Weiter",
+    paginationPage: "Seite {{page}} von {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Benachrichtigungen · Clips",
@@ -942,6 +976,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     replyingTo: "Antwort an",
     commentAt: "Kommentar bei",
     writeReply: "Antwort schreiben...",
+    editComment: "Kommentar bearbeiten",
     commentButton: "Kommentar",
     composerPlaceholder: "Kommentar hinzufügen…",
     mentionSomeone: "Jemanden erwähnen",
@@ -1108,6 +1143,19 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     spaceCreated: "Bereich erstellt",
     createFailed: "Bereich konnte nicht erstellt werden",
   },
+  spaceDialog: {
+    deleteSpace: "Bereich löschen",
+    renameSpace: "Bereich umbenennen",
+    deleteTitle: "„{{name}}“ löschen?",
+    deleteDescription:
+      "Dadurch wird der Bereich gelöscht und aus allen Aufnahmen entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
+    renamed: "Bereich umbenannt",
+    deleted: "„{{name}}“ gelöscht",
+    renameFailed: "Bereich konnte nicht umbenannt werden",
+    deleteFailed: "Bereich konnte nicht gelöscht werden",
+    renaming: "Wird umbenannt...",
+    deleting: "Wird gelöscht...",
+  },
   signInPrompt: {
     title: "Anmelden, um {{intent}}",
     description:
@@ -1136,7 +1184,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Nach 5 Minuten kam keine Antwort von Builder. Prüfe das Popup und versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    connectBuilder: "Builder.io nutzen (kostenlos)",
+    connectBuilder: "Builder.io nutzen",
     free: "Kostenlos",
     configureS3: "S3-kompatiblen Speicher konfigurieren",
     whyPrompt: "Warum sehe ich das?",
@@ -1270,10 +1318,15 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     cameraOff: "Camera off (Lokalisiert)",
     includeCameraAria: "Include camera in this recording (Lokalisiert)",
     startRecording: "Start recording (Lokalisiert)",
+    micOffConfirmTitle: "Record without a microphone? (Lokalisiert)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Lokalisiert)",
+    startWithoutMic: "Start anyway (Lokalisiert)",
     uploadVideo: "Upload video (Lokalisiert)",
     importLoom: "Import Loom (Lokalisiert)",
     importing: "Importing... (Lokalisiert)",
     import: "Import (Lokalisiert)",
+    recordNew: "Neu aufnehmen",
   },
   playerSettings: {
     title: "Settings (Lokalisiert)",
@@ -1323,6 +1376,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     couldNotImportLoom: "Could not import that Loom. (Lokalisiert)",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
+    linkCopied: "Link kopiert",
+    copyLinkAction: "Link kopieren",
     noLocalRecordingData:
       "No local recording data is available to download. (Lokalisiert)",
     recordingDownloadStarted: "Recording download started (Lokalisiert)",
@@ -1344,12 +1399,31 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     downloadDesktopApp: "Download desktop app (Lokalisiert)",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
-    downloadRecording: "Download recording (Lokalisiert)",
+    downloadRecording: "Download (Lokalisiert)",
     openRecorderInTab: "Open recorder in tab (Lokalisiert)",
     connectStorageToFinish:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
+  },
+  importRoute: {
+    pageTitle: "Loom importieren — Clips",
+    title: "Loom importieren",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importieren",
+    helperText:
+      "Funktioniert hervorragend mit Loom. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
+    stageFetching: "Dein Video wird geladen…",
+    stageUploading: "Rohmaterial wird hochgeladen…",
+    stageTranscript: "Sprache und Bildschirminhalte agentenlesbar machen…",
+    stageFinalizing: "Wird Agent-Native gemacht…",
+    importingSubtitle:
+      "Aus einer flachen Aufnahme wird ein Agent-Native-Primitive.",
+    doneHeading: "Und fertig! Dein Video ist jetzt:",
+    benefitTranscript: "Sprache & Bildschirminhalte, vollständig durchsuchbar",
+    benefitQueryable: "Von deinem Agenten verstanden & abfragbar",
+    benefitSummaries: "Sofortige Zusammenfassungen und Clips auf Abruf",
+    benefitPrimitive: "Ein erstklassiges Agent-Native-Primitive",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Lokalisiert)",
@@ -1410,6 +1484,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
   clipsFinalRaw: {
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
+    selectAll: "Alle auswählen",
+    deselectAll: "Auswahl aufheben",
     move: "Verschieben",
     moveSelected: "{{count}} ausgewählte verschieben",
     current: "Aktuell",
@@ -1501,6 +1577,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
     connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
+    googleMayShowWarning: "Google-Zugriff prüfen",
+    googleNotVerifiedTitle: "App vor dem Verbinden überprüfen",
+    googleWarningBeforeAdvanced:
+      "Prüfe, ob App-Name und angeforderter Kalenderzugriff zu der vertrauenswürdigen Clips-Bereitstellung passen. Wenn Google vor einer nicht verifizierten App warnt oder die Identität unbekannt aussieht, brich ab und wende dich an die Workspace-Administration.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Lokalisiert)",
     getDesktopApp: "Get desktop app (Lokalisiert)",

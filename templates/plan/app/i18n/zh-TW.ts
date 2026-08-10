@@ -151,6 +151,7 @@ const messages = {
       artboardCanvas: "Plan 畫板畫布",
       zoomIn: "放大",
       zoomOut: "縮小",
+      zoomHint: "按住 ⌘/Ctrl 並捲動以縮放",
       markupSaveFailed: "無法儲存標注。請重試。",
     },
     document: {
@@ -284,6 +285,7 @@ const messages = {
       advanced: "先進的",
       agentMissing: "連線代理以執行 - 新增 API 金鑰或使用 Builder。",
       assessment: {
+        design: "自動偵測到高擬真要求；代理將建立精緻的品牌化介面。",
         ui: "自動偵測 UI 狀態或流程；代理將制定線框優先計畫。",
         visual: "汽車將要求代理提供豐富的技術計畫，包括圖表和實施細節。",
       },
@@ -304,6 +306,10 @@ const messages = {
         ui: {
           description: "UI 流程 - 線框和狀態",
           label: "使用者介面流程",
+        },
+        design: {
+          description: "高擬真設計 - 精緻的品牌化介面",
+          label: "高擬真設計",
         },
         visual: {
           description: "一般視覺 - 圖表和註解",

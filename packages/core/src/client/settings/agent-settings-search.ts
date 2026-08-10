@@ -42,7 +42,6 @@ export const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
 ]);
 
 export const ALL_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
   "llm",
   "app-models",
   "limits",
@@ -72,16 +71,15 @@ export const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "a2a",
 ];
 
-export const CONNECTION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "secrets",
+export const INTEGRATION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "integrations",
+  "secrets",
   "email",
   "browser",
   "usage",
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
   "demo-mode",
   "hosting",
   "database",
@@ -95,7 +93,8 @@ const SETTINGS_SECTION_SEARCH_META: Record<
 > = {
   account: {
     label: "Account",
-    keywords: "profile photo avatar identity signed in email name",
+    keywords:
+      "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock",
   },
   llm: {
     label: "LLM",
@@ -123,7 +122,7 @@ const SETTINGS_SECTION_SEARCH_META: Record<
     keywords: "triggers scheduled events cron jobs",
   },
   secrets: {
-    label: "API Keys & Connections",
+    label: "API keys",
     keywords: "secrets credentials tokens api keys environment variables",
   },
   hosting: {
@@ -194,16 +193,17 @@ export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
   return [
     {
       id: "agent",
-      label: "Manage agent",
+      label: "Agent",
       keywords:
         "agent workspace manage agent model llm limits voice automations",
       searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
     },
     {
-      id: "connections",
-      label: "Connections",
-      keywords: "connections secrets integrations email browser usage",
-      searchEntries: buildSectionSearchEntries(CONNECTION_SETTINGS_SECTIONS),
+      id: "integrations",
+      label: "Integrations",
+      keywords:
+        "integrations agent integrations connections secrets email browser usage tools",
+      searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
     },
     {
       id: "organization",

@@ -246,7 +246,7 @@ pnpm dev
 
 Clips 是一个带有本机记录器的较大模板（它附带了用于本地捕获的桌面伴侣）。上传录音之前需要执行三个设置步骤：
 
-1. **视频存储（必需）。** 通过入门向导连接存储后端。最简单的路径是Builder.io（测试期间免费，一键式）。对于自托管存储，请设置 `S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` 以及可选的 `S3_REGION` 和 `S3_PUBLIC_BASE_URL`。 Cloudflare R2 和 DigitalOcean Spaces 使用带有 `R2_*` 前缀的相同环境变量。
+1. **视频存储（必需）。** 通过入门向导连接存储后端。最简单的路径是Builder.io（free tier includes video storage and AI credits，一键式）。对于自托管存储，请设置 `S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` 以及可选的 `S3_REGION` 和 `S3_PUBLIC_BASE_URL`。 Cloudflare R2 和 DigitalOcean Spaces 使用带有 `R2_*` 前缀的相同环境变量。
 2. **Google Calendar（可选）。** 要同步即将召开的会议，请从“设置”连接 Google Calendar 帐户。 dev中的OAuth回调URL是`http://localhost:8094/_agent-native/google/callback`。在 [Google Cloud Console](https://console.cloud.google.com/) 中设置 Google OAuth 客户端，并启用 Gmail 和 Google Calendar API。
 3. **屏幕捕获权限。** 在 macOS 上，在系统设置 → 隐私和安全 → 屏幕录制中向浏览器（或桌面配套应用程序）授予屏幕录制权限。浏览器记录可以保存经过编辑的控制台并从记录器页面获取/XHR 诊断信息。 Chrome 扩展程序列表可用后，启用 `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`，以便用户可以选择活动选项卡浏览器日志的扩展程序或桌面应用程序以获得最流畅的本机捕获路径。
 4. **Slack 预览（可选）。** 使用 `links:read`、`links:write` 和 `links.embed:write` 创建 Slack 应用程序；订阅`link_shared`；在 **App Unfurl Domains** 下添加您的 Clips 共享域；将请求URL设置为`https://your-clips.example.com/api/slack/unfurl`；并添加 OAuth 重定向 URL `https://your-clips.example.com/api/slack/oauth/callback`。配置 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和 `SLACK_SIGNING_SECRET`，然后从剪辑设置连接工作区。
@@ -268,7 +268,7 @@ Clips 是一个带有本机记录器的较大模板（它附带了用于本地�
 
 2. **配置生产状态。**设置一个持久化的`DATABASE_URL`，正常
    来自 [Deployment](/docs/deployment) 的生产授权/秘密变量，以及
-   视频存储提供商。 Builder.io Connect是最简单的存储路径；对于
+   视频存储提供商。 Builder.io Connect（free tier includes video storage and AI credits）是最简单的存储路径；对于
    自托管存储，使用 `S3_*` 或 `R2_*` 变量进行 S3 兼容
    桶。
 
@@ -299,7 +299,7 @@ Clips 是一个带有本机记录器的较大模板（它附带了用于本地�
    不同的扩展名列表。
 
 6. **连接可选集成。** Google Calendar 为“会议”选项卡提供支持，
-   `GEMINI_API_KEY` 或 Builder.io Connect 支持转录清理和标题，
+   `GEMINI_API_KEY` 或 Builder.io Connect（free tier includes AI credits）支持转录清理和标题，
    `GROQ_API_KEY` 可以提供语音转文本回退，而 Slack OAuth
    “设置”中的连接可以展开可玩的 Slack。
 

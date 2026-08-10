@@ -15,6 +15,8 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
+import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
+import { signInJourneyInlineScript } from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -66,6 +68,21 @@ function withAppBasePath(path: string): string {
 
 const AGENT_NATIVE_TERMS_URL = "https://www.agent-native.com/terms";
 const AGENT_NATIVE_PRIVACY_URL = "https://www.agent-native.com/privacy";
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  if (
+    process.env.NODE_ENV !== "development" &&
+    process.env.NODE_ENV !== "test"
+  ) {
+    return false;
+  }
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
 
 const EN_AUTH_COPY = {
   languageLabel: "Language",
@@ -91,9 +108,17 @@ const EN_AUTH_COPY = {
   email: "Email",
   password: "Password",
   confirmPassword: "Confirm password",
-  passwordMinPlaceholder: "At least 8 characters",
+  passwordMinPlaceholder: `At least ${PASSWORD_MIN_LENGTH} characters`,
   confirmPasswordPlaceholder: "Confirm password",
   enterPasswordPlaceholder: "Enter password",
+  magicLinkTitle: "Welcome",
+  magicLinkSubtitle: "Create an account or sign in",
+  sendMagicLink: "Continue",
+  magicLinkSent: "Check your email",
+  magicLinkSentCopy: "We sent a secure sign-in link to",
+  magicLinkFailed: "Could not send sign-in link.",
+  usePasswordInstead: "Use a password instead",
+  backToMagicLink: "Use a sign-in link instead",
   signupProgress: "Signup progress",
   progressAccount: "Account",
   progressVerify: "Verify",
@@ -112,6 +137,12 @@ const EN_AUTH_COPY = {
   backToSignIn: "Back to sign in",
   localNotePrefix: "Your account is stored in this app's own DB",
   localNoteSuffix: ", not a third-party service.",
+  localDevButton: "Continue as local dev",
+  localDevDescription: "Only works in local development on this computer.",
+  localDevHelp: "Learn about local development sign-in",
+  localDevSigningIn: "Signing in locally…",
+  localDevFailed: "Local development sign-in is unavailable.",
+  localDevFullOptions: "Show full sign in options",
   runLocally: "Run Locally",
   runLocallySentence: "Run locally",
   openSource: "100% free and open source",
@@ -186,9 +217,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "电子邮箱",
     password: "密码",
     confirmPassword: "确认密码",
-    passwordMinPlaceholder: "至少 8 个字符",
+    passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 个字符`,
     confirmPasswordPlaceholder: "确认密码",
     enterPasswordPlaceholder: "输入密码",
+    magicLinkTitle: "欢迎",
+    magicLinkSubtitle: "创建账户或登录",
+    sendMagicLink: "继续",
+    magicLinkSent: "检查你的邮箱",
+    magicLinkSentCopy: "我们已向以下邮箱发送安全登录链接：",
+    magicLinkFailed: "无法发送登录链接。",
+    usePasswordInstead: "改用密码",
+    backToMagicLink: "改用登录链接",
     signupProgress: "注册进度",
     progressAccount: "账户",
     progressVerify: "验证",
@@ -206,6 +245,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "返回登录",
     localNotePrefix: "你的账户存储在此应用自己的数据库中",
     localNoteSuffix: "，而不是第三方服务。",
+    localDevButton: "以本地开发身份继续",
+    localDevDescription: "仅在此计算机的本地开发环境中有效。",
+    localDevHelp: "了解本地开发登录",
+    localDevSigningIn: "正在本地登录…",
+    localDevFailed: "本地开发登录不可用。",
+    localDevFullOptions: "显示完整登录选项",
     runLocally: "本地运行",
     runLocallySentence: "本地运行",
     openSource: "100% 免费且开源",
@@ -275,9 +320,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "電子郵件",
     password: "密碼",
     confirmPassword: "確認密碼",
-    passwordMinPlaceholder: "至少 8 個字元",
+    passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 個字元`,
     confirmPasswordPlaceholder: "確認密碼",
     enterPasswordPlaceholder: "輸入密碼",
+    magicLinkTitle: "歡迎",
+    magicLinkSubtitle: "建立帳戶或登入",
+    sendMagicLink: "繼續",
+    magicLinkSent: "檢查你的電子郵件",
+    magicLinkSentCopy: "我們已向以下電子郵件寄送安全登入連結：",
+    magicLinkFailed: "無法寄送登入連結。",
+    usePasswordInstead: "改用密碼",
+    backToMagicLink: "改用登入連結",
     signupProgress: "註冊進度",
     progressAccount: "帳號",
     progressVerify: "驗證",
@@ -295,6 +348,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "返回登入",
     localNotePrefix: "你的帳號儲存在此應用程式自己的資料庫中",
     localNoteSuffix: "，而不是第三方服務。",
+    localDevButton: "以本機開發身分繼續",
+    localDevDescription: "僅在這台電腦的本機開發環境中有效。",
+    localDevHelp: "了解本機開發登入",
+    localDevSigningIn: "正在本機登入…",
+    localDevFailed: "本機開發登入無法使用。",
+    localDevFullOptions: "顯示完整登入選項",
     runLocally: "在本機執行",
     runLocallySentence: "在本機執行",
     openSource: "100% 免費且開源",
@@ -365,9 +424,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "Email",
     password: "Contraseña",
     confirmPassword: "Confirmar contraseña",
-    passwordMinPlaceholder: "Al menos 8 caracteres",
+    passwordMinPlaceholder: `Al menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar contraseña",
     enterPasswordPlaceholder: "Introduce la contraseña",
+    magicLinkTitle: "Bienvenido",
+    magicLinkSubtitle: "Crea una cuenta o inicia sesión",
+    sendMagicLink: "Continuar",
+    magicLinkSent: "Revisa tu email",
+    magicLinkSentCopy: "Enviamos un enlace seguro a",
+    magicLinkFailed: "No se pudo enviar el enlace de inicio de sesión.",
+    usePasswordInstead: "Usar una contraseña",
+    backToMagicLink: "Usar un enlace de inicio de sesión",
     signupProgress: "Progreso de registro",
     progressAccount: "Cuenta",
     progressVerify: "Verificar",
@@ -387,6 +454,13 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Tu cuenta se almacena en la propia base de datos de esta app",
     localNoteSuffix: ", no en un servicio de terceros.",
+    localDevButton: "Continuar como desarrollador local",
+    localDevDescription: "Solo funciona en el desarrollo local de este equipo.",
+    localDevHelp: "Más información sobre el inicio de sesión local",
+    localDevSigningIn: "Iniciando sesión localmente…",
+    localDevFailed:
+      "El inicio de sesión de desarrollo local no está disponible.",
+    localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
     runLocally: "Ejecutar localmente",
     runLocallySentence: "Ejecutar localmente",
     openSource: "100% gratis y de código abierto",
@@ -462,9 +536,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "E-mail",
     password: "Mot de passe",
     confirmPassword: "Confirmer le mot de passe",
-    passwordMinPlaceholder: "Au moins 8 caractères",
+    passwordMinPlaceholder: `Au moins ${PASSWORD_MIN_LENGTH} caractères`,
     confirmPasswordPlaceholder: "Confirmer le mot de passe",
     enterPasswordPlaceholder: "Saisir le mot de passe",
+    magicLinkTitle: "Bienvenue",
+    magicLinkSubtitle: "Créez un compte ou connectez-vous",
+    sendMagicLink: "Continuer",
+    magicLinkSent: "Vérifiez votre e-mail",
+    magicLinkSentCopy: "Nous avons envoyé un lien sécurisé à",
+    magicLinkFailed: "Impossible d'envoyer le lien de connexion.",
+    usePasswordInstead: "Utiliser un mot de passe",
+    backToMagicLink: "Utiliser un lien de connexion",
     signupProgress: "Progression de l'inscription",
     progressAccount: "Compte",
     progressVerify: "Vérifier",
@@ -484,6 +566,13 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Votre compte est stocké dans la base de données propre à cette app",
     localNoteSuffix: ", pas dans un service tiers.",
+    localDevButton: "Continuer comme développeur local",
+    localDevDescription:
+      "Fonctionne uniquement en développement local sur cet ordinateur.",
+    localDevHelp: "En savoir plus sur la connexion locale",
+    localDevSigningIn: "Connexion locale…",
+    localDevFailed: "La connexion de développement local est indisponible.",
+    localDevFullOptions: "Afficher toutes les options de connexion",
     runLocally: "Exécuter localement",
     runLocallySentence: "Exécuter localement",
     openSource: "100 % gratuit et open source",
@@ -560,9 +649,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "E-Mail",
     password: "Passwort",
     confirmPassword: "Passwort bestätigen",
-    passwordMinPlaceholder: "Mindestens 8 Zeichen",
+    passwordMinPlaceholder: `Mindestens ${PASSWORD_MIN_LENGTH} Zeichen`,
     confirmPasswordPlaceholder: "Passwort bestätigen",
     enterPasswordPlaceholder: "Passwort eingeben",
+    magicLinkTitle: "Willkommen",
+    magicLinkSubtitle: "Konto erstellen oder anmelden",
+    sendMagicLink: "Weiter",
+    magicLinkSent: "Prüfe deine E-Mail",
+    magicLinkSentCopy: "Wir haben einen sicheren Anmeldelink gesendet an",
+    magicLinkFailed: "Anmeldelink konnte nicht gesendet werden.",
+    usePasswordInstead: "Stattdessen Passwort verwenden",
+    backToMagicLink: "Stattdessen Anmeldelink verwenden",
     signupProgress: "Registrierungsfortschritt",
     progressAccount: "Konto",
     progressVerify: "Prüfen",
@@ -582,6 +679,13 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Dein Konto wird in der eigenen Datenbank dieser App gespeichert",
     localNoteSuffix: ", nicht bei einem Drittanbieter.",
+    localDevButton: "Als lokale Entwicklung fortfahren",
+    localDevDescription:
+      "Funktioniert nur in der lokalen Entwicklung auf diesem Computer.",
+    localDevHelp: "Mehr über die lokale Anmeldung erfahren",
+    localDevSigningIn: "Lokale Anmeldung…",
+    localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
+    localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
     runLocally: "Lokal ausführen",
     runLocallySentence: "Lokal ausführen",
     openSource: "100 % kostenlos und Open Source",
@@ -658,9 +762,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "メール",
     password: "パスワード",
     confirmPassword: "パスワードを確認",
-    passwordMinPlaceholder: "8 文字以上",
+    passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} 文字以上`,
     confirmPasswordPlaceholder: "パスワードを確認",
     enterPasswordPlaceholder: "パスワードを入力",
+    magicLinkTitle: "ようこそ",
+    magicLinkSubtitle: "アカウントを作成するかサインインしてください",
+    sendMagicLink: "続行",
+    magicLinkSent: "メールを確認してください",
+    magicLinkSentCopy: "安全なサインインリンクを送信しました：",
+    magicLinkFailed: "サインインリンクを送信できませんでした。",
+    usePasswordInstead: "パスワードを使用する",
+    backToMagicLink: "サインインリンクを使用する",
     signupProgress: "登録の進行状況",
     progressAccount: "アカウント",
     progressVerify: "確認",
@@ -679,6 +791,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "サインインに戻る",
     localNotePrefix: "アカウントはこのアプリ自身の DB に保存されます",
     localNoteSuffix: "。サードパーティサービスには保存されません。",
+    localDevButton: "ローカル開発として続行",
+    localDevDescription: "このコンピューターのローカル開発でのみ利用できます。",
+    localDevHelp: "ローカル開発サインインについて詳しく見る",
+    localDevSigningIn: "ローカルでサインイン中…",
+    localDevFailed: "ローカル開発のサインインは利用できません。",
+    localDevFullOptions: "完全なサインイン オプションを表示",
     runLocally: "ローカルで実行",
     runLocallySentence: "ローカルで実行",
     openSource: "100% 無料でオープンソース",
@@ -755,9 +873,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "이메일",
     password: "비밀번호",
     confirmPassword: "비밀번호 확인",
-    passwordMinPlaceholder: "8자 이상",
+    passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH}자 이상`,
     confirmPasswordPlaceholder: "비밀번호 확인",
     enterPasswordPlaceholder: "비밀번호 입력",
+    magicLinkTitle: "환영합니다",
+    magicLinkSubtitle: "계정을 만들거나 로그인하세요",
+    sendMagicLink: "계속",
+    magicLinkSent: "이메일을 확인하세요",
+    magicLinkSentCopy: "안전한 로그인 링크를 보냈습니다:",
+    magicLinkFailed: "로그인 링크를 보낼 수 없습니다.",
+    usePasswordInstead: "비밀번호 사용",
+    backToMagicLink: "로그인 링크 사용",
     signupProgress: "가입 진행 상황",
     progressAccount: "계정",
     progressVerify: "확인",
@@ -776,6 +902,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "로그인으로 돌아가기",
     localNotePrefix: "계정은 이 앱의 자체 DB에 저장됩니다",
     localNoteSuffix: ", 타사 서비스가 아닙니다.",
+    localDevButton: "로컬 개발자로 계속",
+    localDevDescription: "이 컴퓨터의 로컬 개발 환경에서만 작동합니다.",
+    localDevHelp: "로컬 개발 로그인 자세히 보기",
+    localDevSigningIn: "로컬로 로그인하는 중…",
+    localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
+    localDevFullOptions: "전체 로그인 옵션 보기",
     runLocally: "로컬에서 실행",
     runLocallySentence: "로컬에서 실행",
     openSource: "100% 무료 오픈 소스",
@@ -847,9 +979,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "Email",
     password: "Senha",
     confirmPassword: "Confirmar senha",
-    passwordMinPlaceholder: "Pelo menos 8 caracteres",
+    passwordMinPlaceholder: `Pelo menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar senha",
     enterPasswordPlaceholder: "Digite a senha",
+    magicLinkTitle: "Bem-vindo",
+    magicLinkSubtitle: "Crie uma conta ou entre",
+    sendMagicLink: "Continuar",
+    magicLinkSent: "Confira seu email",
+    magicLinkSentCopy: "Enviamos um link seguro para",
+    magicLinkFailed: "Não foi possível enviar o link de acesso.",
+    usePasswordInstead: "Usar uma senha",
+    backToMagicLink: "Usar um link de acesso",
     signupProgress: "Progresso do cadastro",
     progressAccount: "Conta",
     progressVerify: "Verificar",
@@ -869,6 +1009,13 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNotePrefix:
       "Sua conta fica armazenada no banco de dados próprio deste app",
     localNoteSuffix: ", não em um serviço de terceiros.",
+    localDevButton: "Continuar como desenvolvedor local",
+    localDevDescription:
+      "Funciona apenas no desenvolvimento local deste computador.",
+    localDevHelp: "Saiba mais sobre o login de desenvolvimento local",
+    localDevSigningIn: "Entrando localmente…",
+    localDevFailed: "O login de desenvolvimento local não está disponível.",
+    localDevFullOptions: "Mostrar todas as opções de login",
     runLocally: "Executar localmente",
     runLocallySentence: "Executar localmente",
     openSource: "100% grátis e open source",
@@ -943,9 +1090,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "ईमेल",
     password: "पासवर्ड",
     confirmPassword: "पासवर्ड की पुष्टि करें",
-    passwordMinPlaceholder: "कम से कम 8 अक्षर",
+    passwordMinPlaceholder: `कम से कम ${PASSWORD_MIN_LENGTH} अक्षर`,
     confirmPasswordPlaceholder: "पासवर्ड की पुष्टि करें",
     enterPasswordPlaceholder: "पासवर्ड दर्ज करें",
+    magicLinkTitle: "स्वागत है",
+    magicLinkSubtitle: "खाता बनाएं या साइन इन करें",
+    sendMagicLink: "जारी रखें",
+    magicLinkSent: "अपना ईमेल देखें",
+    magicLinkSentCopy: "हमने सुरक्षित साइन-इन लिंक यहां भेजा है:",
+    magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
+    usePasswordInstead: "पासवर्ड का उपयोग करें",
+    backToMagicLink: "साइन-इन लिंक का उपयोग करें",
     signupProgress: "साइनअप प्रगति",
     progressAccount: "खाता",
     progressVerify: "सत्यापित करें",
@@ -964,6 +1119,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "साइन इन पर वापस जाएं",
     localNotePrefix: "आपका खाता इस ऐप के अपने DB में संग्रहीत है",
     localNoteSuffix: ", किसी third-party सेवा में नहीं।",
+    localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
+    localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
+    localDevHelp: "स्थानीय विकास साइन-इन के बारे में जानें",
+    localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
+    localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
+    localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
     runLocally: "लोकल चलाएं",
     runLocallySentence: "लोकल चलाएं",
     openSource: "100% मुफ्त और open source",
@@ -1035,9 +1196,17 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "البريد الإلكتروني",
     password: "كلمة المرور",
     confirmPassword: "تأكيد كلمة المرور",
-    passwordMinPlaceholder: "8 أحرف على الأقل",
+    passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} أحرف على الأقل`,
     confirmPasswordPlaceholder: "تأكيد كلمة المرور",
     enterPasswordPlaceholder: "أدخل كلمة المرور",
+    magicLinkTitle: "مرحبًا",
+    magicLinkSubtitle: "أنشئ حسابًا أو سجّل الدخول",
+    sendMagicLink: "متابعة",
+    magicLinkSent: "تحقق من بريدك الإلكتروني",
+    magicLinkSentCopy: "أرسلنا رابط تسجيل دخول آمنًا إلى",
+    magicLinkFailed: "تعذر إرسال رابط تسجيل الدخول.",
+    usePasswordInstead: "استخدام كلمة مرور بدلًا من ذلك",
+    backToMagicLink: "استخدام رابط تسجيل الدخول بدلًا من ذلك",
     signupProgress: "تقدم التسجيل",
     progressAccount: "الحساب",
     progressVerify: "التحقق",
@@ -1056,6 +1225,12 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     backToSignIn: "العودة إلى تسجيل الدخول",
     localNotePrefix: "يتم تخزين حسابك في قاعدة بيانات هذا التطبيق",
     localNoteSuffix: "، وليس في خدمة خارجية.",
+    localDevButton: "المتابعة كمطور محلي",
+    localDevDescription: "يعمل فقط أثناء التطوير المحلي على هذا الكمبيوتر.",
+    localDevHelp: "تعرف على تسجيل دخول التطوير المحلي",
+    localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
+    localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
+    localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
     runLocally: "تشغيل محليًا",
     runLocallySentence: "تشغيل محليًا",
     openSource: "مجاني ومفتوح المصدر 100%",
@@ -1271,6 +1446,10 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /** Authentication surface to render. Defaults to the existing password flow. */
+  authMode?: "magic-link" | "password";
+  /** Render the quiet, centered auth surface used when the app has an initial prompt. */
+  initialPrompt?: boolean;
   /**
    * Product marketing content shown alongside the sign-in form.
    * When provided, the page uses a split layout: marketing on the left,
@@ -1319,6 +1498,9 @@ export interface OnboardingHtmlOptions {
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
+  const authMode = opts.authMode ?? "password";
+  const magicLinkMode = authMode === "magic-link";
+  const simplifiedAuth = opts.initialPrompt === true;
   // In a Google-only app, Google is the sole sign-in method, so always render
   // a working button — never gate it on env vars detected at render time. The
   // login page is a public, CDN-cacheable shell served to everyone (per-user
@@ -1333,6 +1515,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
+  const builderPreviewLocalDevEnabled = isBuilderPreviewLocalDevEnabled();
   const localeInitScript = getLocaleInitScript();
 
   const marketing: AuthMarketingContent | undefined =
@@ -1341,7 +1524,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestHost: opts.requestHost,
       requestPath: opts.requestPath,
     });
-  const hasMarketing = !!marketing;
+  const hasMarketing = !!marketing && !simplifiedAuth;
   const marketingSlug = resolveBuiltInMarketingSlug(marketing);
   const defaultMarketingCopy: Partial<AuthMarketingLocalization> | undefined =
     marketing
@@ -1442,6 +1625,13 @@ ${localeMenuItemsHtml}
   const signupLegalNoteHtml = signupLegalNotice
     ? `      <p class="legal-note">${localizedValue(signupLegalNotice.prefix, "legalPrefix")} <a href="${esc(signupLegalNotice.termsUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.termsLabel, "legalTerms")}</a> ${localizedValue(signupLegalNotice.connector, "legalConnector")} <a href="${esc(signupLegalNotice.privacyUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.privacyLabel, "legalPrivacy")}</a>${localizedValue(signupLegalNotice.suffix, "legalSuffix")}</p>`
     : "";
+  const magicLinkSuccessHtml = magicLinkMode
+    ? `    <div class="magic-link-success" id="magic-link-success" aria-live="polite" hidden>
+      <p class="magic-link-success-copy"><span${i18nAttr("magicLinkSentCopy")}>${esc(t("magicLinkSentCopy"))}</span> <strong id="magic-link-success-email"></strong>.</p>
+      <button type="button" class="link-button magic-link-back" id="magic-link-back"${i18nAttr("back")}>${esc(t("back"))}</button>
+    </div>
+`
+    : "";
   const signupLocalModeNoteHtml = signupLocalModeNote
     ? `      <div class="signup-local-mode-note" id="signup-local-mode-note" data-command="${esc(signupLocalModeNote.command)}">
         <p>${esc(signupLocalModeNote.text)}</p>
@@ -1505,11 +1695,24 @@ ${googleNoticeRunLocalPanelHtml}
   </div>`
       : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
+  const localDevHtml = `
+  <div class="local-dev-signin" id="local-dev-signin" hidden>
+    <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
+    <p class="local-dev-description" id="local-dev-description">
+      <span${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</span>
+      <a class="local-dev-help" id="local-dev-help" href="https://www.agent-native.com/docs/authentication#local-development-sign-in" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
+    </p>
+    <button type="button" class="local-dev-full-options" id="local-dev-full-options" hidden${i18nAttr("localDevFullOptions")}>${esc(t("localDevFullOptions"))}</button>
+    <p class="msg error" id="local-dev-msg" role="status" aria-live="polite"></p>
+  </div>`;
+  const identitySsoMagicLinkSelector = identitySsoHtml
+    ? "  .card.magic-link-complete #identity-sso-btn,\n"
+    : "";
   const identitySsoScript = identitySsoHtml
     ? `
     function __anIdentitySsoUrl() {
       var params = new URLSearchParams();
-      params.set('return', __anGetReturnPath());
+      params.set('return', __anResumeHref());
       return __anPath('/_agent-native/identity/login') + '?' + params.toString();
     }
     function __anStartIdentitySso(event) {
@@ -2059,6 +2262,7 @@ ${
     background: rgba(255,255,255,0.06);
     border-radius: 8px;
   }
+  .tabs[hidden] { display: none; }
   .tab {
     flex: 1;
     padding: 0.5rem 0.75rem;
@@ -2125,12 +2329,77 @@ ${
     cursor: pointer;
   }
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
-  .legal-note {
-    margin-top: 0.625rem;
-    color: #666;
+  .local-dev-signin {
+    margin: 1.25rem 0 0.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  }
+  .btn-local-dev {
+    margin-top: 0.25rem;
+  }
+  .btn-local-dev:disabled { opacity: 0.5; cursor: wait; }
+  .local-dev-description {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    margin: 0.5rem 0 0;
+    color: color-mix(in srgb, currentColor 50%, transparent);
     font-size: 0.6875rem;
     line-height: 1.45;
     text-align: center;
+  }
+  .local-dev-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: -0.375rem;
+    color: inherit;
+    text-decoration: none;
+  }
+  .local-dev-help-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.625rem;
+    height: 0.625rem;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 0.4375rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .local-dev-help:hover { color: currentColor; }
+  .local-dev-help:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+  .local-dev-full-options {
+    display: block;
+    margin: 0.75rem auto 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: color-mix(in srgb, currentColor 62%, transparent);
+    font-size: 0.75rem;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .local-dev-full-options:hover { color: currentColor; }
+  .local-dev-full-options[hidden] { display: none; }
+  .full-auth-options { margin-top: 1rem; }
+  .full-auth-options[hidden] { display: none; }
+  .legal-note {
+    margin-top: 0.375rem;
+    margin-bottom: 0.875rem;
+    color: #666;
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    text-align: start;
   }
   .legal-note a {
     color: #777;
@@ -2269,8 +2538,45 @@ ${
     text-decoration: underline;
     text-underline-offset: 2px;
   }
+  .auth-mode-link { text-decoration: none; }
   .link-button:hover { color: #bbb; }
   .link-button:disabled { cursor: wait; opacity: 0.5; }
+  .magic-link-submit { display: none; }
+  .magic-link-submit.is-visible { display: block; }
+  .magic-link-success { display: none; }
+  .magic-link-success.is-visible { display: block; }
+  .magic-link-success-copy {
+    margin: 0;
+    color: rgba(255,255,255,0.62); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .magic-link-success-copy strong {
+    color: inherit;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .magic-link-back {
+    margin-top: 1.5rem;
+    text-decoration: none;
+  }
+  .btn-google.magic-link-secondary {
+    background: transparent;
+    color: inherit;
+    border: 1px solid rgba(255,255,255,0.16); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  }
+  .btn-google.magic-link-secondary:hover {
+    background: rgba(255,255,255,0.05); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  }
+  .card.magic-link-complete .subtitle,
+  .card.magic-link-complete #google-signin,
+${identitySsoMagicLinkSelector}
+  .card.magic-link-complete #auth-divider,
+  .card.magic-link-complete #auth-tabs,
+  .card.magic-link-complete #upgrade-note,
+  .card.magic-link-complete .form {
+    display: none;
+  }
   .divider {
     display: flex;
     align-items: center;
@@ -2468,9 +2774,13 @@ ${
   .local-note a { color: #888; text-decoration: none; }
   .local-note a:hover { color: #bbb; }
 ${marketingStyles}
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  body.simplified-auth { background: #141414; }
+  body.simplified-auth .card { border-color: transparent; box-shadow: none; }
+  body.simplified-auth .local-note { display: none !important; }
 </style>
 </head>
-<body${hasMarketing ? ' class="has-marketing"' : ""}>
+<body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
 ${localePickerHtml}
 ${marketingPanelHtml}
 <div class="card">
@@ -2483,6 +2793,8 @@ ${marketingPanelHtml}
     ${i18nDataAttr("data-upgrade-copy", "upgradeCopy").trim()}
   ></p>
 ${identitySsoHtml}
+${localDevHtml}
+<div id="full-auth-options" class="full-auth-options">
 ${
   renderGoogleButton
     ? `
@@ -2502,7 +2814,7 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `  <div class="tabs">
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
@@ -2511,9 +2823,9 @@ ${
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
       <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
-    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="8" />
+    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
-    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="8" />
+    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
       <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
 ${signupLegalNoteHtml}
 ${signupLocalModeNoteHtml}
@@ -2549,6 +2861,7 @@ ${signupLocalModeNoteHtml}
     <p style="margin-top:0.75rem;font-size:0.75rem;text-align:right">
       <a href="#" id="forgot-link" style="color:#888;text-decoration:underline;text-underline-offset:2px"${i18nAttr("forgotPassword")}>${esc(t("forgotPassword"))}</a>
     </p>
+    ${magicLinkMode ? `<p style="margin-top:0.5rem;font-size:0.75rem;text-align:center"><a href="#" id="back-to-magic-link" class="link-button"${i18nAttr("backToMagicLink")}>${esc(t("backToMagicLink"))}</a></p>` : ""}
   </form>
 
   <form id="forgot-form" class="form">
@@ -2561,6 +2874,7 @@ ${signupLocalModeNoteHtml}
     </p>
   </form>`
 }
+</div>
 </div>
 <p class="local-note" id="local-note">
   <span${i18nAttr("localNotePrefix")}>${esc(t("localNotePrefix"))}</span> (<strong>${getConnectionLabel()}</strong>)<span${i18nAttr("localNoteSuffix")}>${esc(t("localNoteSuffix"))}</span>
@@ -2576,6 +2890,18 @@ ${signupLocalModeNoteHtml}
     function __anPath(path) {
       return __anBasePath() + path;
     }
+${signInJourneyInlineScript()}
+    var __anJourney = __anCreateSignInJourney(__anBasePath());
+    /**
+     * Where this document sends the visitor once a session exists. One
+     * function, one answer — the page used to have two ("__anGetReturnPath"
+     * and "__anGetSignedInReturnPath") that disagreed about whether the
+     * sign-in page itself was an acceptable destination, which is how
+     * verification emails ended up linking back to a login form.
+     */
+    function __anResumeHref() {
+      return __anJourney.journeyForLocation(window.location).resumeHref;
+    }
     var __AN_AUTH_DEFAULT_LOCALE = ${JSON.stringify(DEFAULT_LOCALE)};
     var __AN_AUTH_SUPPORTED_LOCALES = ${JSON.stringify(SUPPORTED_LOCALES)};
     var __AN_AUTH_LOCALE_STORAGE_KEY = ${JSON.stringify(LOCALE_STORAGE_KEY)};
@@ -2588,6 +2914,7 @@ ${signupLocalModeNoteHtml}
     var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(AUTH_MARKETING_LOCALE_COPY)};
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
+    var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
     var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
     function __anAuthLocaleIsSupported(value) {
       return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
@@ -2656,6 +2983,8 @@ ${signupLocalModeNoteHtml}
       if (view === 'forgot') return { heading: 'resetPasswordTitle', subtitle: 'resetPasswordSubtitle' };
       if (view === 'verification') return { heading: 'checkEmailTitle', subtitle: 'finishAccountSubtitle' };
       if (view === 'googleOnly') return { heading: 'signInTitle', subtitle: 'googleOnlySubtitle' };
+      if (view === 'magicLinkSent') return { heading: 'magicLinkSent', subtitle: 'magicLinkSentCopy' };
+      if (view === 'magicLink') return { heading: 'magicLinkTitle', subtitle: 'magicLinkSubtitle' };
       return { heading: 'welcomeTitle', subtitle: 'createAccountSubtitle' };
     }
     function __anRefreshAuthViewCopy() {
@@ -2763,6 +3092,7 @@ ${signupLocalModeNoteHtml}
     var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
     var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = ${JSON.stringify(workspaceGatewayReturnOrigin)};
     var __AN_GOOGLE_AUTH_MODE = ${JSON.stringify(googleAuthMode)};
+    var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = ${JSON.stringify(builderPreviewLocalDevEnabled)};
     function __anConfiguredOAuthOrigin() {
       if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
       try {
@@ -2867,57 +3197,8 @@ ${signupLocalModeNoteHtml}
       __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
       __anRedirectToSignedInApp(ret);
     }
-    function __anHasControlCharacter(value) {
-      for (var i = 0; i < value.length; i++) {
-        if (value.charCodeAt(i) < 32) return true;
-      }
-      return false;
-    }
-    function __anNormalizeReturnPath(raw) {
-      var value = typeof raw === 'string' ? raw : '';
-      if (!value || __anHasControlCharacter(value)) return '';
-      if (value.charAt(0) === '\\\\') return '';
-      if (value.charAt(0) === '/' && (value.charAt(1) === '/' || value.charAt(1) === '\\\\')) return '';
-      try {
-        var url = new URL(value, window.location.origin);
-        if (url.origin !== window.location.origin) return '';
-        return url.pathname + url.search + url.hash;
-      } catch(e) {
-        return '';
-      }
-    }
-    function __anCurrentReturnPath() {
-      return window.location.pathname + window.location.search + window.location.hash;
-    }
-    function __anGetReturnPath() {
-      try {
-        var inner = new URLSearchParams(window.location.search).get('return');
-        var normalized = __anNormalizeReturnPath(inner);
-        if (normalized) return normalized;
-      } catch(e) {}
-      return __anCurrentReturnPath();
-    }
-    function __anMountedPathname(pathname) {
-      var base = __anBasePath();
-      if (base && pathname.indexOf(base + '/') === 0) return pathname.slice(base.length);
-      if (base && pathname === base) return '/';
-      return pathname || '/';
-    }
-    function __anIsAuthEntryPath(pathname) {
-      var p = __anMountedPathname(pathname);
-      return p === '/login' || p === '/signup' || p === '/_agent-native/sign-in';
-    }
-    function __anGetSignedInReturnPath() {
-      try {
-        var inner = new URLSearchParams(window.location.search).get('return');
-        var normalized = __anNormalizeReturnPath(inner);
-        if (normalized) return normalized;
-      } catch(e) {}
-      if (__anIsAuthEntryPath(window.location.pathname)) return __anPath('/');
-      return __anCurrentReturnPath();
-    }
     function __anRedirectToSignedInApp(ret) {
-      window.location.replace(ret || __anGetSignedInReturnPath());
+      window.location.replace(ret || __anResumeHref());
     }
     function __anMaybeRedirectSignedIn(ret) {
       return fetch(__anPath('/_agent-native/auth/session'), {
@@ -2937,12 +3218,96 @@ ${signupLocalModeNoteHtml}
         return false;
       });
     }
+    function __anIsLoopbackHostname() {
+      var hostname = (window.location.hostname || '').toLowerCase();
+      return hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1' || hostname.indexOf('127.') === 0;
+    }
+    function __anIsBuilderPreviewHost() {
+      var hostname = (window.location.hostname || '').toLowerCase();
+      return hostname.endsWith('.builderio.xyz') || hostname.endsWith('.builderio.dev') || hostname.endsWith('.builder.codes') || hostname.endsWith('.builder.my');
+    }
+    function __anCanUseLocalDevSignin() {
+      return __anIsLoopbackHostname() || (__AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED && __anIsBuilderPreviewHost());
+    }
+    function __anShouldStartWithLocalDev() {
+      if (!__anCanUseLocalDevSignin()) return false;
+      var params = new URLSearchParams(window.location.search);
+      var explicitTab = params.get('tab');
+      var verifiedRedirect = typeof __anIsVerifiedRedirectSuccess === 'function' && __anIsVerifiedRedirectSuccess();
+      return explicitTab !== 'login' && explicitTab !== 'signup' && !verifiedRedirect;
+    }
+    function __anSetFullAuthOptionsVisible(visible) {
+      var options = document.getElementById('full-auth-options');
+      var toggle = document.getElementById('local-dev-full-options');
+      if (!options) return;
+      if (visible) {
+        options.removeAttribute('hidden');
+        if (toggle) toggle.setAttribute('hidden', '');
+      } else {
+        options.setAttribute('hidden', '');
+        if (toggle) toggle.removeAttribute('hidden');
+      }
+    }
+    (function __anPrepareLocalDevButton() {
+      var container = document.getElementById('local-dev-signin');
+      var button = document.getElementById('local-dev-btn');
+      var fullOptionsButton = document.getElementById('local-dev-full-options');
+      var message = document.getElementById('local-dev-msg');
+      if (!container || !button || !__anCanUseLocalDevSignin()) return;
+      container.hidden = false;
+      var startWithLocalDev = __anShouldStartWithLocalDev();
+      __anSetFullAuthOptionsVisible(!startWithLocalDev);
+      if (startWithLocalDev) button.focus();
+      if (fullOptionsButton) fullOptionsButton.addEventListener('click', function() {
+        __anSetFullAuthOptionsVisible(true);
+        var firstInput = document.querySelector('#full-auth-options input, #full-auth-options button, #full-auth-options a');
+        if (firstInput) firstInput.focus();
+      });
+      button.addEventListener('click', function() {
+        button.disabled = true;
+        button.textContent = __anT('localDevSigningIn');
+        fetch(__anPath('/_agent-native/auth/local-dev'), {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' },
+        }).then(function(response) {
+          if (!response.ok) throw new Error('local-dev-auth-failed');
+        }).then(function() {
+          __anRedirectToSignedInApp(__anResumeHref());
+        }).catch(function() {
+          button.disabled = false;
+          button.textContent = __anT('localDevButton');
+          __anSetFullAuthOptionsVisible(true);
+          if (message) {
+            message.textContent = __anT('localDevFailed');
+            message.classList.add('show');
+          }
+        });
+      });
+    })();
 ${identitySsoScript}
 	    (function __anRedirectIfAlreadySignedIn() {
 	      __anMaybeRedirectSignedIn();
 	    })();
 	    function __anSafeAttributionValue(value) {
 	      return typeof value === 'string' ? value.trim().slice(0, 120) : '';
+	    }
+	    function __anGenerateAnalyticsAnonymousId() {
+	      try {
+	        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+	      } catch(e) {}
+	      return Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+	    }
+	    function __anSyncAnalyticsAnonymousId() {
+	      try {
+	        var anonymousId = '';
+	        try { anonymousId = localStorage.getItem('agent-native.anonymous_id') || ''; } catch(e) {}
+	        if (!/^[A-Za-z0-9_-]{1,128}$/.test(anonymousId)) {
+	          anonymousId = __anGenerateAnalyticsAnonymousId();
+	          try { localStorage.setItem('agent-native.anonymous_id', anonymousId); } catch(e) {}
+	        }
+	        document.cookie = 'an_aid=' + encodeURIComponent(anonymousId) + '; path=/; max-age=2592000; SameSite=Lax';
+	      } catch(e) {}
 	    }
 	    function __anFirstTouchCookiePresent() {
 	      try {
@@ -2982,7 +3347,7 @@ ${identitySsoScript}
 	          var value = __anSafeAttributionValue(params.get(key));
 	          if (value) ft[key] = value;
 	        });
-	        var returnPath = __anNormalizeReturnPath(params.get('return'));
+	        var returnPath = __anJourney.normalizeAppPath(params.get('return'));
 	        var landingPath = __anSafeAttributionValue(returnPath || window.location.pathname || '');
 	        if (landingPath) ft.landing_path = landingPath;
 	        var referrer = __anExternalReferrerHost(document.referrer || '');
@@ -2993,6 +3358,7 @@ ${identitySsoScript}
 	        __anWriteFirstTouchCookie(json);
 	      } catch(e) {}
 	    }
+	    __anSyncAnalyticsAnonymousId();
 	    __anCaptureSignupAttribution();
 	    var __anBuilderPreviewSeen = false;
     function __anRememberBuilderPreview() {
@@ -3124,7 +3490,7 @@ ${identitySsoScript}
       // in-flight exchange can still finish and navigate without a flicker.
       if (!__anGoogleSignInInFlight) return;
       setTimeout(function() {
-        __anMaybeRedirectSignedIn(__anGetSignedInReturnPath()).then(function(redirected) {
+        __anMaybeRedirectSignedIn(__anResumeHref()).then(function(redirected) {
           if (redirected) return;
           if (!__anGoogleSignInInFlight) return;
           var btn = document.getElementById('google-btn');
@@ -3282,12 +3648,85 @@ ${
 	    var RESEND_VERIFICATION_COOLDOWN_SECONDS = 60;
 	    var resendVerificationCooldownUntil = 0;
 	    var resendVerificationCooldownTimer = null;
-	    function setActiveTab(name, opts) {
+	    var PENDING_SIGNUP_EMAIL_STORAGE_KEY = 'an.onboarding.pendingSignupEmail';
+	    // The verification link can open in a new tab, so in-memory pending state
+	    // cannot be the only source of the account email. Keep only the address,
+	    // never the password, for the manual-login fallback.
+	    function pendingSignupEmailStorageKey() {
+	      return PENDING_SIGNUP_EMAIL_STORAGE_KEY + ':' + (__anBasePath() || '/');
+	    }
+	    function rememberPendingSignupEmail(email) {
+	      try {
+	        if (email) localStorage.setItem(pendingSignupEmailStorageKey(), email);
+	        else localStorage.removeItem(pendingSignupEmailStorageKey());
+	      // coercion-ok: localStorage is optional; the in-memory and form fallbacks remain available.
+	      } catch (e) {}
+	    }
+	    function readRememberedPendingSignupEmail() {
+	      try {
+	        var email = localStorage.getItem(pendingSignupEmailStorageKey()) || '';
+	        return __anIsValidAuthEmail(email) ? __anNormalizeAuthEmail(email) : '';
+	      // coercion-ok: localStorage is optional; callers fall back to the in-memory or form value.
+	      } catch (e) {
+	        return '';
+	      }
+	    }
+	    function clearRememberedPendingSignupEmail() {
+	      rememberPendingSignupEmail('');
+	    }
+    function hideMagicLinkSuccess() {
+      var card = document.querySelector('.card');
+      if (card) card.classList.remove('magic-link-complete');
+      var success = document.getElementById('magic-link-success');
+      if (success) {
+        success.classList.remove('is-visible');
+        success.setAttribute('hidden', '');
+      }
+    }
+    function showMagicLinkSuccess(email) {
+      var card = document.querySelector('.card');
+      if (card) card.classList.add('magic-link-complete');
+      var success = document.getElementById('magic-link-success');
+      var successEmail = document.getElementById('magic-link-success-email');
+      if (successEmail && typeof email === 'string') successEmail.textContent = email;
+      if (success) {
+        success.removeAttribute('hidden');
+        success.classList.add('is-visible');
+      }
+      forms.forEach(function(x) { x.classList.remove('active'); });
+      var authTabs = document.getElementById('auth-tabs');
+      if (authTabs) authTabs.hidden = true;
+      __anSetAuthView('magicLinkSent');
+    }
+    function showMagicLinkForm() {
+      var form = document.getElementById('magic-link-form');
+      if (!form) return;
+      hideMagicLinkSuccess();
+      forms.forEach(function(x) { x.classList.remove('active'); });
+      form.classList.add('active');
+      var authTabs = document.getElementById('auth-tabs');
+      if (authTabs) authTabs.hidden = true;
+      updateMagicLinkSubmitState();
+      __anSetAuthView('magicLink');
+    }
+    function updateMagicLinkSubmitState() {
+      var emailInput = document.getElementById('m-email');
+      var button = document.getElementById('magic-link-submit');
+      if (!emailInput || !button) return;
+      var isValid = __anIsValidAuthEmail(emailInput.value);
+      button.classList.toggle('is-visible', isValid);
+      button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
+      var googleButton = document.getElementById('google-btn');
+      if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
+    }
+    function setActiveTab(name, opts) {
 	      if (name !== 'signup' && name !== 'login') return;
 	      var form = document.getElementById(name + '-form');
 	      if (!form) return;
       var card = document.querySelector('.card');
       if (card) card.classList.remove('verifying');
+      var authTabs = document.getElementById('auth-tabs');
+      if (authTabs) authTabs.hidden = false;
       tabs.forEach(function(x) { x.classList.remove('active'); });
       forms.forEach(function(x) { x.classList.remove('active'); });
     var btn = document.querySelector('.tab[data-tab="' + name + '"]');
@@ -3301,6 +3740,7 @@ ${
     function showVerificationStep(email, password) {
       pendingSignupEmail = email || '';
       pendingSignupPassword = password || '';
+      rememberPendingSignupEmail(pendingSignupEmail);
       tabs.forEach(function(x) { x.classList.remove('active'); });
       forms.forEach(function(x) { x.classList.remove('active'); });
       var card = document.querySelector('.card');
@@ -3331,7 +3771,7 @@ ${
     function getPendingSignupEmail() {
       var signupEmail = document.getElementById('s-email');
       var loginEmail = document.getElementById('l-email');
-      return (pendingSignupEmail || (signupEmail && signupEmail.value) || (loginEmail && loginEmail.value) || '').trim();
+      return (pendingSignupEmail || readRememberedPendingSignupEmail() || (signupEmail && signupEmail.value) || (loginEmail && loginEmail.value) || '').trim();
     }
     function getPendingSignupPassword() {
       var signupPassword = document.getElementById('s-pass');
@@ -3384,10 +3824,14 @@ ${
         body: JSON.stringify({ email: email, password: password }),
       });
       if (res.ok) {
+        clearRememberedPendingSignupEmail();
         __anRedirectToSignedInApp();
         return { ok: true };
       }
-      var data = await res.json().catch(function() { return {}; });
+      var data = await res.json().catch(function(error) {
+        console.warn('[auth] Could not parse sign-in response', error);
+        return null;
+      });
       var error = (data && (data.error || data.message)) || __anT('finishSignInFailed');
       return {
         ok: false,
@@ -3416,6 +3860,7 @@ ${
         });
         var data = await res.json().catch(function() { return {}; });
         if (res.ok && data && data.email && !data.error) {
+          clearRememberedPendingSignupEmail();
           __anRedirectToSignedInApp();
           return;
         }
@@ -3482,7 +3927,7 @@ ${
 	    async function resendVerificationEmail() {
 	      var btn = document.getElementById('resend-verification');
 	      var msg = document.getElementById('verify-msg');
-	      var email = pendingSignupEmail || document.getElementById('s-email').value;
+	      var email = getPendingSignupEmail();
 	      if (!email) return;
 	      if (resendVerificationCooldownUntil > Date.now()) {
 	        updateResendVerificationCooldown();
@@ -3498,7 +3943,7 @@ ${
         var res = await fetch(__anPath('/_agent-native/auth/ba/send-verification-email'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, callbackURL: __anGetReturnPath() }),
+          body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
         });
         if (res.ok) {
 	          if (msg) {
@@ -3529,7 +3974,7 @@ ${
       }
     }
     (function initActiveTab() {
-    var initial = 'signup';
+    var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';
     try {
       var params = new URLSearchParams(location.search);
       var qp = params.get('tab');
@@ -3548,9 +3993,13 @@ ${
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
     } catch (e) {}
-    setActiveTab(initial, { persist: false });
+    if (initial === 'magicLink') showMagicLinkForm();
+    else setActiveTab(initial, { persist: false });
 	      try {
 	        if (__anIsVerifiedRedirectSuccess()) {
+	          var rememberedEmail = readRememberedPendingSignupEmail();
+	          var loginEmail = document.getElementById('l-email');
+	          if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail;
 	          var msg = document.getElementById('l-msg');
           if (msg) {
             msg.textContent = __anT('emailVerifiedFinishing');
@@ -3564,6 +4013,77 @@ ${
   tabs.forEach(function(t) { t.addEventListener('click', function() {
     setActiveTab(t.dataset.tab, { persist: true });
   }); });
+
+  var usePasswordLink = document.getElementById('use-password-link');
+  if (usePasswordLink) usePasswordLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    setActiveTab('login', { persist: false });
+    var magicEmail = document.getElementById('m-email');
+    var loginEmail = document.getElementById('l-email');
+    if (magicEmail && loginEmail && magicEmail.value) loginEmail.value = magicEmail.value;
+  });
+  var backToMagicLink = document.getElementById('back-to-magic-link');
+  if (backToMagicLink) backToMagicLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    showMagicLinkForm();
+  });
+  var magicLinkBack = document.getElementById('magic-link-back');
+  if (magicLinkBack) magicLinkBack.addEventListener('click', function(e) {
+    e.preventDefault();
+    var magicLinkEmailInput = document.getElementById('m-email');
+    if (magicLinkEmailInput) magicLinkEmailInput.value = '';
+    showMagicLinkForm();
+    if (magicLinkEmailInput) magicLinkEmailInput.focus();
+  });
+
+  var magicLinkForm = document.getElementById('magic-link-form');
+  var magicLinkEmail = document.getElementById('m-email');
+  if (magicLinkEmail) {
+    magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState);
+    magicLinkEmail.addEventListener('change', updateMagicLinkSubmitState);
+    updateMagicLinkSubmitState();
+  }
+  if (magicLinkForm) magicLinkForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = magicLinkForm.querySelector('button[type="submit"]');
+    var msg = document.getElementById('m-msg');
+    var emailInput = document.getElementById('m-email');
+    var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+    msg.classList.remove('show', 'error', 'success');
+    if (!__anIsValidAuthEmail(email)) {
+      __anShowEmailValidationError(emailInput, msg);
+      return;
+    }
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = __anT('sending');
+    try {
+      var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
+      });
+      var data = await res.json().catch(function(error) {
+        console.warn('[auth] Could not parse magic-link response', error);
+        return null;
+      });
+      if (res.ok) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        showMagicLinkSuccess(email);
+        return;
+      }
+      msg.textContent = (data && (data.error || data.message)) || __anT('magicLinkFailed');
+      msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    } catch (err) {
+      msg.textContent = __anT('networkErrorDashRetry');
+      msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
 
   document.getElementById('signup-form').addEventListener('submit', async function(e) {
     e.preventDefault();
@@ -3596,7 +4116,7 @@ ${
           body: JSON.stringify({
             email: email,
             password: pass,
-            callbackURL: __anGetReturnPath(),
+            callbackURL: __anResumeHref(),
           }),
         });
       var data = await res.json().catch(function() { return {}; });
@@ -3609,6 +4129,7 @@ ${
           body: JSON.stringify({ email: email, password: pass }),
         });
         if (loginRes.ok) {
+          clearRememberedPendingSignupEmail();
           msg.textContent = __anT('accountCreatedSigningIn');
           msg.classList.add('show', 'success');
           __anRedirectToSignedInApp();
@@ -3648,6 +4169,7 @@ ${
     var backToSignup = document.getElementById('back-to-signup');
     if (backToSignup) backToSignup.addEventListener('click', function(e) {
       e.preventDefault();
+      clearRememberedPendingSignupEmail();
       setActiveTab('signup', { persist: true });
       var email = document.getElementById('s-email');
       setTimeout(function() { if (email) email.focus(); }, 0);
@@ -3742,6 +4264,7 @@ ${
         }),
       });
       if (res.ok) {
+        clearRememberedPendingSignupEmail();
         __anRedirectToSignedInApp();
         return;
       }
@@ -3772,7 +4295,7 @@ ${
     async function __anStartGoogleSignIn() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
-    var ret = __anGetReturnPath();
+    var ret = __anResumeHref();
     btn.disabled = true;
     __anGoogleSignInInFlight = true;
     __anBindGoogleRecover();
@@ -3967,9 +4490,9 @@ export function getResetPasswordHtml(): string {
   <p class="subtitle">Set a new password for your account.</p>
   <form id="reset-form">
     <label for="p1">New password</label>
-    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least 8 characters" required minlength="8" />
+    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" />
     <label for="p2">Confirm password</label>
-    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="8" />
+    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" />
     <button type="submit">Save new password</button>
     <p class="msg" id="msg"></p>
   </form>

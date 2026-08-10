@@ -41,7 +41,14 @@ describe("tracking providers", () => {
       await freshTrackingModules();
 
     registerBuiltinProviders();
-    track("qa.event", { app: "qa", signed_in: true }, { userId: "u1" });
+    track(
+      "qa.event",
+      { app: "qa", signed_in: true },
+      {
+        userId: "u1",
+        anonymousId: "anon_1",
+      },
+    );
     await flushTracking();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -53,7 +60,44 @@ describe("tracking providers", () => {
       event: "qa.event",
       properties: { app: "qa", signed_in: true },
       userId: "u1",
+      anonymousId: "anon_1",
     });
+  });
+
+  it("maps the browser session onto each provider's own session field", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    vi.stubEnv("MIXPANEL_TOKEN", "mp_test");
+    vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "project_created",
+      { template: "blank" },
+      { userId: "u1", sessionId: "session-1" },
+    );
+    await flushTracking();
+
+    const byUrl = new Map<string, any>(
+      fetchMock.mock.calls.map(([url, init]: [string, any]) => [
+        url,
+        JSON.parse(init.body),
+      ]),
+    );
+    expect(
+      byUrl.get("https://us.i.posthog.com/capture/").properties,
+    ).toMatchObject({ $session_id: "session-1" });
+    expect(
+      byUrl.get("https://api.mixpanel.com/track")[0].properties,
+    ).toMatchObject({ session_id: "session-1" });
+    expect(
+      byUrl.get("https://api2.amplitude.com/2/httpapi").events[0]
+        .event_properties,
+    ).toMatchObject({ session_id: "session-1" });
   });
 
   it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
@@ -83,6 +127,33 @@ describe("tracking providers", () => {
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("flushes PostHog, Mixpanel, Amplitude, and webhook events immediately in serverless runtimes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("MIXPANEL_TOKEN", "mp_test");
+    vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+    vi.stubEnv("TRACKING_WEBHOOK_URL", "https://hooks.example.test/track");
+    vi.stubEnv("NETLIFY", "true");
+    const { registerBuiltinProviders, track } = await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("http.response", { status_code: 500 });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+    const calledUrls = fetchMock.mock.calls.map((call) => call[0]).sort();
+    expect(calledUrls).toEqual(
+      [
+        "https://api.mixpanel.com/track",
+        "https://api2.amplitude.com/2/httpapi",
+        "https://hooks.example.test/track",
+        "https://us.i.posthog.com/capture/",
+      ].sort(),
+    );
   });
 
   it("sends PostHog AI observability events to the AI event endpoint", async () => {
@@ -120,6 +191,78 @@ describe("tracking providers", () => {
         $ai_output_tokens: 20,
       },
     });
+  });
+
+  it("reshapes tracked exceptions into PostHog's $exception_list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "$exception",
+      {
+        exceptionType: "TypeError",
+        exceptionMessage: "boom",
+        exceptionStack: "TypeError: boom\n    at run (/app/src/a.ts:3:5)",
+        handled: false,
+        level: "error",
+        app: "content",
+      },
+      { userId: "u1", sessionId: "session-1" },
+    );
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://us.i.posthog.com/i/v0/e/");
+    const body = JSON.parse(init.body);
+    expect(body.event).toBe("$exception");
+    expect(body.properties.distinct_id).toBe("u1");
+    expect(body.properties.app).toBe("content");
+    expect(body.properties.$exception_level).toBe("error");
+    // The reshaped exception path is a separate branch from /capture/ — a
+    // server error still has to join the visit that triggered it.
+    expect(body.properties.$session_id).toBe("session-1");
+    expect(body.properties.$exception_list[0]).toMatchObject({
+      type: "TypeError",
+      value: "boom",
+      mechanism: { handled: false },
+      stacktrace: {
+        type: "raw",
+        frames: [
+          {
+            platform: "custom",
+            lang: "javascript",
+            function: "run",
+            filename: "/app/src/a.ts",
+            lineno: 3,
+            colno: 5,
+          },
+        ],
+      },
+    });
+    expect(body.properties).not.toHaveProperty("exceptionType");
+  });
+
+  it("keeps non-exception-shaped $exception events on /capture/", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("$exception", { unrelated: true }, { userId: "u1" });
+    await flushTracking();
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://us.i.posthog.com/capture/",
+    );
   });
 
   it("waits for queued provider sends when flushing", async () => {

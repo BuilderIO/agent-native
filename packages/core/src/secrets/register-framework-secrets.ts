@@ -49,6 +49,14 @@ export function registerFrameworkSecrets(): void {
         "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/oauth/oauth-quickstart-guide",
     },
     {
+      id: "salesforce",
+      credentialPrefix: "SALESFORCE",
+      oauthProvider: "salesforce",
+      label: "Salesforce",
+      docsUrl:
+        "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_understanding_web_server_oauth_flow.htm",
+    },
+    {
       id: "jira",
       credentialPrefix: "JIRA",
       oauthProvider: "jira",
@@ -129,6 +137,22 @@ export function registerFrameworkSecrets(): void {
               error: `OpenAI rejected the key (HTTP ${response.status}).`,
             };
       },
+    });
+  }
+
+  // PostHog — product analytics, error tracking, and LLM analytics. One key
+  // arms all three; `POSTHOG_ERROR_TRACKING=false` opts out of exceptions
+  // while keeping analytics.
+  if (!getRequiredSecret("POSTHOG_API_KEY")) {
+    registerRequiredSecret({
+      key: "POSTHOG_API_KEY",
+      label: "PostHog project API key",
+      description:
+        "Sends product analytics, server exceptions, and LLM traces to PostHog. Set POSTHOG_HOST for self-hosted or EU projects.",
+      docsUrl: "https://posthog.com/docs/getting-started/install",
+      scope: "workspace",
+      kind: "api-key",
+      required: false,
     });
   }
 

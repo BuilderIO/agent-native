@@ -30,23 +30,25 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkit turns those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="How the three layers fit" summary={"Core is the framework foundation. Toolkit is optional reusable infrastructure and UI. Templates are optional apps built on Core, often using Toolkit."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
-    actions, SQL, auth, app state, access checks, realtime transport
+    <span class="diagram-pill accent">Core</span><br />
+    framework runtime: actions, SQL, auth, app state, access checks, live sync
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
     <span class="diagram-pill accent">Toolkit</span><br />
-    collaboration, sharing, setup, review, history, observability
+    optional reusable pieces: collaboration, sharing, setup, review, history,
+    observability
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
-    domain schema, routes, actions, branding, specialized workflows
+    <span class="diagram-pill accent">Templates</span><br />
+    optional apps: domain schema, routes, actions, branding, specialized
+    workflows
   </div>
 </div>
 ```
@@ -70,6 +72,11 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
+Core is the framework. Toolkit is an optional shelf of reusable pieces for the
+framework. Templates are optional apps built on Core; they can use Toolkit and
+can be forked and used as complete starting points. An app can also use Core
+directly without adopting Toolkit or a template.
+
 ## Catalog {#catalog}
 
 | Area                       | Start here                                                      | What it covers                                                                  |
@@ -90,7 +97,7 @@ being rebuilt in slightly different ways every time.
 | [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                                            |
 | [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place.                      |
 | [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                                       |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                                       |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect (free tier available).                 |
 | [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                                       |
 | [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                                                   |
 | [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                                               |
@@ -100,17 +107,35 @@ being rebuilt in slightly different ways every time.
 
 ## Package maturity and ownership {#package-maturity-and-ownership}
 
-- The rich editor is **Toolkit-owned**. Existing Core editor imports remain thin
-  compatibility re-exports during migration.
+- The rich editor is **Toolkit-owned**. The old `@agent-native/core/client`
+  and `@agent-native/core/client/editor` import paths are deprecated
+  tombstones, not compatibility re-exports — see
+  [Editors & Canvases](/docs/toolkit-editors-canvases) for the migration path.
 - Design is a **template pattern** with reusable `design-tweaks`; it is not a
   full drop-in editor or canvas package.
 - Blocks remain **Core-owned** in this phase.
 - The Context X-Ray engine remains **Core-owned**; its reusable presentation is
   Toolkit-owned.
-- Scheduling, Creative Context, and Pinpoint are **Toolkit capability modules,
-  installed on demand**. They remain separate npm packages so each domain can
-  keep an independent lifecycle manifest, dependency graph, and release cadence.
-- Dispatch remains a **separate product**, not a Toolkit capability module.
+- Scheduling, Creative Context, and Pinpoint are Toolkit capability modules
+  installed on demand; Dispatch is a separate product, not one of them — see
+  [Toolkit Capability Modules](/docs/toolkit-capability-packages#package-maturity-and-ownership)
+  for package maturity and ownership.
+
+## Dashboard kit {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` is an ejectable, presentation-only unit for
+metric and stats cards, data tables, date-range controls, panel ordering and
+layout, and generic chart rendering. It receives rows and callbacks from an
+app-owned adapter: it never fetches data, resolves credentials, or owns a
+dashboard's state.
+
+Use `agent-native eject inspect toolkit/dashboard` before applying
+`toolkit/dashboard` to an app. Keep durable dashboards in that app with
+`@agent-native/core/dashboard-storage`: instantiate its access-scoped schema
+and store per app, not in a cross-app dashboard table. Panel data flows through
+a `PanelSourceResolver`; the built-in `program` source runs an app-owned data
+program and is the canonical no-provider default. Provider resolvers belong in
+the app that owns their connection and query policy.
 
 ## Implementation Boundary {#implementation-boundary}
 

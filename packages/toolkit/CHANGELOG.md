@@ -1,5 +1,235 @@
 # @agent-native/toolkit
 
+## 0.13.7
+
+### Patch Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+## 0.13.6
+
+### Patch Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+## 0.13.5
+
+### Patch Changes
+
+- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
+
+## 0.13.4
+
+### Patch Changes
+
+- da40677: Fix realtime voice tool calls failing with "Invalid or expired realtime voice capability" on serverless deploys. The capability minted by `/_agent-native/realtime-voice/session` lived in a per-process `Map`, so under `NITRO_PRESET=netlify` a tool call that landed on a different instance than the SDP request was rejected — the agent would report that it could not read the current selection and ask the user to reopen the editor. The capability is now an HMAC-signed token carrying the caller's identity, browser tab, and allowed tool names, so any instance can verify it.
+
+  Two behavior changes follow from that. The grant no longer slides on use — it cannot be extended server-side — so its TTL is now an absolute 75 minutes, covering the provider's maximum session length. And when a `tool-search` widens the manifest, the tool response carries a re-issued capability that the client adopts; without it, calls to the newly discovered tools would 404.
+
+  Fix dictation stopping instantly with no error anywhere. `SpeechRecognition` always fires `end` after `error`, and `useVoiceDictation`'s `end` handler returned the composer to idle — erasing the message `onerror` had just set. Every speech failure was therefore invisible in both the UI and the console. `end` no longer overwrites a reported error.
+
+  Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
+
+  The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
+
+## 0.13.3
+
+### Patch Changes
+
+- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
+
+## 0.13.2
+
+### Patch Changes
+
+- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
+- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
+
+## 0.13.1
+
+### Patch Changes
+
+- c71d383: Include the shared creative-context and toolkit updates in the next package release.
+
+## 0.13.0
+
+### Minor Changes
+
+- 106af0e: Add dense horizontal variants to the design-tweak controls. `VisualColorPicker`
+  gains a `swatch` variant that drops the value text and caret, an optional
+  `glyph` rendered over the current color, and an app tooltip naming the property
+  it paints. `VisualScrubInput` gains a `steppers` option that replaces the
+  drag-scrub label with minus/plus buttons.
+
+## 0.12.2
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
+## 0.12.1
+
+### Patch Changes
+
+- 89e5910: Memoize the composer runtime adapters context value so consumer effects stop
+  re-running on every provider render. The voice input preference was re-read from
+  app state, and the sidebar-state listener re-subscribed, once per render.
+
+## 0.12.0
+
+### Minor Changes
+
+- c0e7d64: Add reusable canvas drawing, text annotation, and pinned agent-comment controls.
+- c0e7d64: Add a reusable canvas interaction controller for text activation, shortcuts, moving, resizing, duplication, and gesture lifecycle.
+
+## 0.11.2
+
+### Patch Changes
+
+- cc35067: Fix `VisualInspectorPanel` clipping its own scroll area instead of scrolling. The panel body was capped by a viewport-derived `max-height`, so when a host laid the panel out shorter than the viewport — for example a style dock sharing vertical space with an expanded notes panel — overflowing content was hidden by the panel's `overflow-hidden` with no way to reach it. The body now flexes within the panel's actual height and keeps the cap as an upper bound.
+
+## 0.11.1
+
+### Patch Changes
+
+- 901769d: Keep the chat history panel layout balanced.
+- 901769d: Remove the translate control slot from the shared sidebar footer actions.
+
+## 0.11.0
+
+### Minor Changes
+
+- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
+  creation, label SQL-backed extensions as sandboxed custom blocks, and let
+  editors promote them into app code through a server-verified Builder handoff.
+
+## 0.10.12
+
+### Patch Changes
+
+- 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
+
+## 0.10.11
+
+### Patch Changes
+
+- 0aada94: Allow the new chat control to fill the available history rail space.
+- 0aada94: Show relative cost per model in the composer's model picker. Each row now
+  carries a quiet `$`/`$$`/`$$$` suffix so a user can tell an entry model from a
+  flagship one before selecting it, rather than discovering the difference in
+  their bill. The tier reuses the token list the picker already sorts by
+  (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
+  — it is not a cross-provider price claim. Models outside that list render with
+  no label at all; a guessed tier would read as fact.
+
+## 0.10.10
+
+### Patch Changes
+
+- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
+
+## 0.10.9
+
+### Patch Changes
+
+- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
+
+## 0.10.8
+
+### Patch Changes
+
+- 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
+
+## 0.10.7
+
+### Patch Changes
+
+- 52cce19: Stop the agent composer from locking into a silently dead state. An
+  engine-readiness check that timed out or failed is now kept distinct from a
+  confirmed "no provider configured": it leaves the composer usable instead of
+  disabling it, and retries on a backoff instead of latching until reload. The
+  2.5s client budget that a single warm-server status probe routinely lost is
+  now a 15s abort ceiling rather than a deadline the probes race. A composer is
+  only ever disabled when the "Connect AI" affordance renders alongside it.
+
+## 0.10.6
+
+### Patch Changes
+
+- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
+
+## 0.10.5
+
+### Patch Changes
+
+- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
+- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
+- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
+
+## 0.10.4
+
+### Patch Changes
+
+- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
+  inside blocks created through the shared slash-command menu.
+
+## 0.10.3
+
+### Patch Changes
+
+- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
+
+## 0.10.2
+
+### Patch Changes
+
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+
+## 0.10.1
+
+### Patch Changes
+
+- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
+- c15d20f: Expand design-system conformance coverage for uncontrolled tooltip and menu
+  opening, and align the example adapters with those default-open semantics.
+- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
+
+## 0.10.0
+
+### Minor Changes
+
+- f0da2e0: Add the styling-runtime-agnostic custom design system contract, safe component adapters, semantic theme tokens, and build-time theme CSS generation. New scaffolded apps now include the explicit design-system module, ToolkitProvider seam, and toolkit dependency so custom adapters can be registered from the first render.
+
+### Patch Changes
+
+- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add complete MUI and Ant Design Chat examples that exercise the public conformance contract, and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
+- f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
+- f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
+- f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.
+- f0da2e0: Route the Builder connection card and chat history rail through semantic design-system components while preserving their default presentation and shared controller paths.
+
+## 0.9.1
+
+### Patch Changes
+
+- 03a043e: Make realtime voice the clear primary microphone action, remember the selected input mode, improve speech waveform responsiveness, and show a shine while the voice agent is working.
+- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
+
+## 0.9.0
+
+### Minor Changes
+
+- 0341a7d: Add an ejectable dashboard presentation kit with cards, tables, date ranges, chart state rendering, and layout helpers.
+
+## 0.8.3
+
+### Patch Changes
+
+- 5c78d2d: Fix cramped calendar day grid under Tailwind v4 and make the date picker responsive: smaller cell size on mobile, 20% smaller on desktop, and a viewport-bounded popover width.
+
 ## 0.8.2
 
 ### Patch Changes

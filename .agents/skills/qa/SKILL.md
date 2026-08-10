@@ -1,9 +1,10 @@
 ---
 name: qa
 description: >-
-  Autonomous QA testing across template apps using Playwright. Use when testing
-  apps end-to-end, finding and fixing bugs, or running a QA sweep. Invoke as
-  /qa with optional --apps and --focus args.
+  Autonomous multi-app QA sweep that drives template apps with Playwright MCP.
+  Use only when the user explicitly runs /qa or asks for an end-to-end QA sweep.
+  Do not load it for ordinary feature work, single-page checks, or one-off bug
+  fixes.
 user-invocable: true
 scope: dev
 metadata:
@@ -13,6 +14,8 @@ metadata:
 # QA Testing
 
 Autonomous QA testing that spins up template apps, tests them with Playwright in parallel, fixes issues, retests, and reports findings. Only alerts the user when blocked.
+
+This is an explicitly requested sweep, not a default verification step. Do not run any part of it — dev servers, browser automation, tester agents — as follow-up to a normal code change.
 
 ## Usage
 

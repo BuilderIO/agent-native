@@ -12,6 +12,7 @@ const extensionRow = {
   createdAt: "2026-05-06T00:00:00.000Z",
   updatedAt: "2026-05-06T00:00:00.000Z",
   hiddenAt: null,
+  archivedAt: null,
   hiddenBy: null,
   ownerEmail: "thomas@example.com",
   orgId: "org-1",
@@ -264,6 +265,60 @@ describe("extensions/actions", () => {
         expect(forced.extension.content).toContain("Zoom");
       },
     );
+  });
+
+  it("requires targeted reads for large extension bodies", async () => {
+    const content =
+      `<div>${"x".repeat(100_000)}` +
+      "function tabMonthlyTableRows(activeTab) { return activeTab; }" +
+      `${"y".repeat(100_000)}</div>`;
+    const getExtension = vi.fn(async () => ({
+      ...extensionRow,
+      content,
+    }));
+
+    mockExtensionModules({
+      store: {
+        getExtension,
+        getHiddenExtensionIdsForCurrentUser: vi.fn(
+          async () => new Set<string>(),
+        ),
+      },
+      resolveAccessRole: "editor",
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+
+    const compact = (await actions["get-extension"].run({
+      id: "ext-zoom",
+    })) as any;
+    expect(compact.extension).not.toHaveProperty("content");
+    expect(compact.extension.contentOmitted).toMatchObject({
+      reason: "large-content-requires-targeted-read",
+      contentLength: content.length,
+      inlineContentLimit: 60_000,
+    });
+
+    const targeted = (await actions["get-extension"].run({
+      id: "ext-zoom",
+      contentQuery: "tabMonthlyTableRows",
+      contentContextChars: 500,
+    })) as any;
+    expect(targeted.extension).not.toHaveProperty("content");
+    expect(targeted.extension.contentMatches.matches).toHaveLength(1);
+    expect(targeted.extension.contentMatches.matches[0].excerpt).toContain(
+      "function tabMonthlyTableRows",
+    );
+    expect(
+      targeted.extension.contentMatches.matches[0].excerpt.length,
+    ).toBeLessThanOrEqual(1_020);
+
+    const full = (await actions["get-extension"].run({
+      id: "ext-zoom",
+      forceContent: true,
+    })) as any;
+    expect(full.extension.content).toBe(content);
   });
 
   it("omits extension history version bodies by default", async () => {
@@ -631,9 +686,116 @@ describe("extensions/actions", () => {
     });
     expect(updateExtensionContent).not.toHaveBeenCalled();
     expect(updateExtension).not.toHaveBeenCalled();
-    expect(
-      actions["update-extension"].tool.parameters.properties.visibility,
-    ).toMatchObject({ enum: ["private", "org"] });
+  });
+
+  it("advertises a compact required update contract without optional placeholders", async () => {
+    mockExtensionModules();
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const parameters =
+      createExtensionActionEntries()["update-extension"].tool.parameters;
+
+    expect(parameters.required).toEqual(["id", "operation", "payloadJson"]);
+    expect(parameters.additionalProperties).toBe(false);
+    expect(Object.keys(parameters.properties)).toEqual([
+      "id",
+      "operation",
+      "payloadJson",
+    ]);
+  });
+
+  it("applies compact JSON edit payloads without gateway-filled optionals", async () => {
+    const updateExtensionContent = vi.fn(async () => extensionRow);
+    mockExtensionModules({ store: { updateExtensionContent } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const edits = [{ op: "replace", find: "Zoom", replace: "Meet" }];
+    await actions["update-extension"].run({
+      id: "ext-zoom",
+      operation: "edit",
+      payloadJson: JSON.stringify({ edits, format: true }),
+    });
+
+    expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
+      content: undefined,
+      allowFullReplacement: false,
+      patches: undefined,
+      edits,
+      format: true,
+    });
+  });
+
+  it("rejects compact no-op payloads without touching extension metadata", async () => {
+    const updateExtension = vi.fn();
+    const updateExtensionContent = vi.fn();
+    mockExtensionModules({
+      store: { updateExtension, updateExtensionContent },
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = await actions["update-extension"].run({
+      id: "ext-zoom",
+      operation: "edit",
+      payloadJson: JSON.stringify({ edits: [], format: false }),
+    });
+
+    expect(result).toContain("requires at least one valid patch/edit");
+    expect(updateExtension).not.toHaveBeenCalled();
+    expect(updateExtensionContent).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "private"])(
+    "does not treat legacy gateway-filled visibility=%j placeholders as extension changes",
+    async (visibility) => {
+      const updateExtension = vi.fn();
+      const updateExtensionContent = vi.fn();
+      mockExtensionModules({
+        store: { updateExtension, updateExtensionContent },
+      });
+
+      const { createExtensionActionEntries } = await import("./actions.js");
+      const actions = createExtensionActionEntries();
+      const result = await actions["update-extension"].run({
+        id: "ext-zoom",
+        name: "",
+        description: "",
+        content: "",
+        contentFromAttachment: "",
+        contentFromWorkspaceFile: "",
+        allowFullReplacement: false,
+        patches: [{}],
+        edits: [{}],
+        format: false,
+        icon: "",
+        visibility,
+      });
+
+      expect(result).toContain("received no actual changes");
+      expect(updateExtension).not.toHaveBeenCalled();
+      expect(updateExtensionContent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a blank legacy extension name instead of persisting it", async () => {
+    const updateExtension = vi.fn();
+    const updateExtensionContent = vi.fn();
+    mockExtensionModules({
+      store: { updateExtension, updateExtensionContent },
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = await actions["update-extension"].run({
+      id: "ext-zoom",
+      name: "",
+      icon: "",
+    });
+
+    expect(result).toContain("name must be a non-empty string");
+    expect(updateExtension).not.toHaveBeenCalled();
+    expect(updateExtensionContent).not.toHaveBeenCalled();
   });
 
   it("accepts native edit arrays and reports malformed JSON without throwing", async () => {

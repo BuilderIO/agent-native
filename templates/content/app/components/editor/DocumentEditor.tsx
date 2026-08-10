@@ -62,8 +62,10 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
   patchDocumentCaches,
+  documentQueryFilter,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -80,11 +82,13 @@ import {
   canWriteLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
+import { isDatabaseChoicePending } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
+  newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
@@ -107,6 +111,8 @@ const TAB_ID = generateTabId();
 
 interface DocumentEditorProps {
   documentId: string;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
@@ -141,6 +147,28 @@ export function titleMatchConfirmsSave(args: {
     args.pendingTitle === args.localTitle &&
     args.localTitle !== args.lastSavedTitle
   );
+}
+
+export function refreshUnchangedContentSaveWatermark(args: {
+  serverContent: string;
+  serverUpdatedAt: string | null;
+  lastSaved: ContentSaveWatermark;
+}): ContentSaveWatermark {
+  if (
+    args.serverContent !== args.lastSaved.content ||
+    !args.serverUpdatedAt ||
+    (args.lastSaved.updatedAt &&
+      args.serverUpdatedAt <= args.lastSaved.updatedAt)
+  ) {
+    return args.lastSaved;
+  }
+
+  // documents.updatedAt versions the whole row, not just the body. If the
+  // fetched body still byte-matches our saved baseline, a newer timestamp can
+  // only describe a title/icon/metadata update. Advance the content CAS base so
+  // a local rich-text tail is not silently preflight-dropped. A concurrent body
+  // edit still differs here and remains protected by the server CAS.
+  return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
 }
 
 function adoptConfirmedSaveWatermarks({
@@ -216,8 +244,21 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
  * only mount once we know the doc exists. Otherwise an invalid id triggers
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
-export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: queriedDocument, isError } = useDocument(documentId);
+export function DocumentEditor({
+  documentId,
+  databaseId,
+  databaseDocumentId,
+}: DocumentEditorProps) {
+  const documentQuery = useDocument(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
+  const {
+    data: queriedDocument,
+    isError,
+    isFetchedAfterMount,
+    isFetching,
+  } = documentQuery;
   const navigate = useNavigate();
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
@@ -228,16 +269,44 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
-  if (!document) {
+  // A database/list snapshot can optimistically seed the document cache with a
+  // body that predates the latest collaborative save. Mounting ProseMirror from
+  // that snapshot lets reconcile briefly insert the stale tail beside the
+  // already-current Y.Doc. Wait only for this mount's first dedicated
+  // get-document response; later poll/SSE refetches remain live and reconcile
+  // without replacing the editor.
+  if (
+    !document ||
+    shouldAwaitAuthoritativeDocument({ isFetching, isFetchedAfterMount })
+  ) {
     return <DocumentEditorSkeleton />;
   }
 
-  return <DocumentEditorBody documentId={documentId} document={document} />;
+  return (
+    <DocumentEditorBody
+      documentId={documentId}
+      document={document}
+      databaseId={databaseId}
+      databaseDocumentId={databaseDocumentId}
+    />
+  );
+}
+
+export function shouldAwaitAuthoritativeDocument({
+  isFetching,
+  isFetchedAfterMount,
+}: {
+  isFetching: boolean;
+  isFetchedAfterMount: boolean;
+}) {
+  return isFetching && !isFetchedAfterMount;
 }
 
 interface DocumentEditorBodyProps {
   documentId: string;
   document: Document;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
 }
 
 type PendingDocumentSave = {
@@ -259,6 +328,23 @@ type DocumentSaveOptions = {
 type DocumentSaveResult = {
   contentPersisted: boolean;
 };
+
+export function enqueueDocumentSave<T>(
+  queueRef: MutableRefObject<Promise<void>>,
+  save: () => Promise<T>,
+): Promise<T> {
+  // Content CAS assumes each local save starts from the result of the previous
+  // local save. Debounced typing and structural "save now" operations can
+  // otherwise overlap with the same baseUpdatedAt: the shorter request wins,
+  // and the later, fuller document is rejected as a conflict. Keep the safety
+  // guard and serialize this editor's writes instead of weakening CAS.
+  const queued = queueRef.current.then(save, save);
+  queueRef.current = queued.then(
+    () => undefined,
+    () => undefined,
+  );
+  return queued;
+}
 
 function useMinViewportWidth(minWidth: number) {
   const [matches, setMatches] = useState(false);
@@ -364,6 +450,7 @@ export function documentEditorBreadcrumbNavigationItems(
     | "title"
     | "icon"
     | "position"
+    | "database"
     | "databaseMembership"
     | "source"
   >[], // i18n-ignore type expression
@@ -376,6 +463,9 @@ export function documentEditorBreadcrumbNavigationItems(
     workspacesTitle: string;
   },
 ): ToolbarBreadcrumbItem[] {
+  const peerDocuments = documents.filter(
+    (item) => !item.database?.systemRole && item.source?.kind !== "folder",
+  );
   const documentById = new Map(documents.map((item) => [item.id, item]));
   const workspaceDocumentIds = new Set(
     spaces.map((space) => space.filesDocumentId),
@@ -399,9 +489,8 @@ export function documentEditorBreadcrumbNavigationItems(
     if (!current) return item;
     const membershipDocumentId =
       current.databaseMembership?.databaseDocumentId ?? null;
-    const siblings = documents
+    const siblings = peerDocuments
       .filter((candidate) => {
-        if (candidate.source?.kind === "folder") return false;
         if (candidate.parentId !== current.parentId) return false;
         if (current.parentId) return true;
         return (
@@ -442,7 +531,12 @@ export function documentEditorBreadcrumbNavigationItems(
   return navigationItems;
 }
 
-function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
+function DocumentEditorBody({
+  documentId,
+  document,
+  databaseId,
+  databaseDocumentId,
+}: DocumentEditorBodyProps) {
   const t = useT();
   const updateDocument = useUpdateDocument();
   const createDatabase = useCreateContentDatabase(documentId);
@@ -450,7 +544,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const deleteDocument = useDeleteDocument();
   const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
-    document.databaseMembership?.databaseDocumentId ?? documentId,
+    document.bodyHydration?.databaseDocumentId ?? documentId,
   );
   const canEdit = document.canEdit ?? true;
   const canEditRef = useRef(canEdit);
@@ -541,6 +635,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
+  const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
@@ -561,6 +656,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     document.updatedAt ?? null,
   );
   documentUpdatedAtRef.current = document.updatedAt ?? null;
+  const documentContentRef = useRef(document.content);
+  documentContentRef.current = document.content;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
       toast.error(t("empty.genericError"), {
@@ -572,24 +669,30 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
 
   useEffect(() => {
-    const membership = document.databaseMembership;
-    const hydration = membership?.bodyHydration;
+    const hydrationContext = document.bodyHydration;
+    const hydration = hydrationContext?.hydration;
     if (
-      !membership?.sourceId ||
+      !canEdit ||
+      !hydrationContext?.sourceId ||
       !hydration ||
       (hydration.status !== "pending" && hydration.status !== "error")
     ) {
       return;
     }
-    const promotionKey = `${membership.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
+    const promotionKey = `${hydrationContext.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
     if (promotedBuilderBodyRef.current === promotionKey) return;
     promotedBuilderBodyRef.current = promotionKey;
     processBuilderBodies.mutate({
-      sourceId: membership.sourceId,
+      sourceId: hydrationContext.sourceId,
       documentId,
       limit: 1,
     });
-  }, [document.databaseMembership, documentId, processBuilderBodies.mutate]);
+  }, [
+    canEdit,
+    document.bodyHydration,
+    documentId,
+    processBuilderBodies.mutate,
+  ]);
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -643,21 +746,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     : undefined;
 
-  // Live collaboration for everyone who can open the doc — editors and viewers
-  // alike. Viewers join the shared Y.Doc read-only: they see live keystrokes,
-  // cursors, and presence (Google-Docs style) instead of a lagging SQL snapshot.
-  // The server enforces the split — collab READ routes (state / awareness GET /
-  // users) require viewer access, WRITE routes (update) require editor — so a
-  // viewer's client can subscribe but never push. The editor stays non-editable
-  // for viewers (see `editable={canEdit}` below), and VisualEditor additionally
-  // neutralizes every local Y.Doc mutation for viewers (no seed, no reconcile
-  // apply) so a read-only client can never originate a rejected `/update` POST.
-  // Local-file documents are still excluded (they have no SQL-backed collab doc).
+  // All SQL-backed readers subscribe for presence. Only editors bind the body
+  // to Yjs; viewers render canonical SQL so missing collab state cannot hide it.
   const collabEnabled = !isLocalFileDocument;
   const {
     ydoc,
     awareness,
-    isLoading: collabLoading,
     isSynced: collabSynced,
     activeUsers,
     agentActive,
@@ -669,7 +763,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   });
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const editorCanEdit =
-    canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
+    canEdit && !bodyHydrationPending && (isLocalFileDocument || collabSynced);
+  // Bind an editor's stable Y.Doc on its first mount, even while the initial
+  // state is loading. Editability and the reconcile hook share the exact
+  // `collabSynced` boundary; "not loading" can precede persisted Y.Doc
+  // projection and briefly expose duplicated blocks. Keeping the Y.Doc binding
+  // stable avoids a snapshot -> collab remount while the read-only editor waits.
+  const collabEditorEnabled = collabEnabled && canEdit && !bodyHydrationPending;
   canEditRef.current = editorCanEdit;
 
   // Viewers intentionally join awareness so they receive live cursors, but
@@ -887,9 +987,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           description:
             error instanceof Error ? error.message : t("empty.genericError"),
         });
-        queryClient.setQueryData(
-          ["action", "get-document", { id: documentId }],
-          fileFirstDocument,
+        queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+          mergeDocumentIntoDocumentCache(old, fileFirstDocument),
         );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -899,6 +998,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     },
     [document, documentId, queryClient, updateDocument],
   );
+  // The document query can refresh its object identity without changing the
+  // flush request itself. Keep the latest save function behind a ref so those
+  // routine refreshes do not restart the one-shot flush reader and flood the
+  // browser with duplicate application-state requests.
+  const persistDocumentUpdatesRef = useRef(persistDocumentUpdates);
+  persistDocumentUpdatesRef.current = persistDocumentUpdates;
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -906,6 +1011,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
+        serverContent: documentContentRef.current,
+        serverUpdatedAt: documentUpdatedAtRef.current,
+        lastSaved: lastSavedContentRef.current,
+      });
       // Never clobber a newer server version (e.g. an agent edit we haven't
       // reconciled into the editor yet) with the editor's current — possibly
       // stale — content. Guard per-field using the field's own watermark.
@@ -995,6 +1105,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       queryClient,
     ],
   );
+  const queueDocumentSave = useCallback(
+    (title: string, content: string, options: DocumentSaveOptions = {}) =>
+      enqueueDocumentSave(documentSaveQueueRef, () =>
+        saveDocumentImmediately(title, content, options),
+      ),
+    [saveDocumentImmediately],
+  );
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
       if (!pending.canEditWhenQueued) return;
@@ -1013,7 +1130,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       const pending: PendingDocumentSave = {
         title,
         content,
-        save: saveDocumentImmediately,
+        save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
@@ -1026,7 +1143,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [flushPendingDocumentSave, saveDocumentImmediately],
+    [flushPendingDocumentSave, queueDocumentSave],
   );
 
   useEffect(() => {
@@ -1215,7 +1332,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             try {
               if (Object.keys(updates).length > 0) {
-                const saved = await persistDocumentUpdates(updates);
+                const saved = await persistDocumentUpdatesRef.current(updates);
                 if (isDocumentUpdateConflict(saved)) {
                   // Do not acknowledge a CAS loss as a successful flush. The
                   // requester must stop instead of pushing/replacing stale SQL.
@@ -1289,7 +1406,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     flushRequestKey,
     flushRequestWake,
     isLocalFileDocument,
-    persistDocumentUpdates,
     t,
   ]);
 
@@ -1323,13 +1439,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      const result = await saveDocumentImmediately(
-        localTitleRef.current,
-        newContent,
-      );
+      const result = await queueDocumentSave(localTitleRef.current, newContent);
       return result.contentPersisted;
     },
-    [editorCanEdit, saveDocumentImmediately],
+    [editorCanEdit, queueDocumentSave],
   );
 
   // Comments state — pending comment from text selection
@@ -1370,6 +1483,24 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     setSelectedThreadId(null);
     setHoveredThreadId(null);
   }, []);
+
+  const activateCommentThread = useCallback((threadId: string) => {
+    setPendingComment(null);
+    setHoveredThreadId(null);
+    setSelectedThreadId(threadId);
+    setUtilityPanel("comments");
+  }, []);
+
+  const handleUtilityPanelChange = useCallback(
+    (nextPanel: DocumentUtilityPanel) => {
+      setUtilityPanel(nextPanel);
+      if (nextPanel !== "comments") {
+        setPendingComment(null);
+        clearCommentFocus();
+      }
+    },
+    [clearCommentFocus],
+  );
 
   useEffect(() => {
     setPendingComment(null);
@@ -1511,14 +1642,20 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       scrollContainerRef={scrollContainerRef}
       activeThreadId={activeThreadId}
       selectedThreadId={selectedThreadId}
+      onActivateThread={activateCommentThread}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      alignToAnchors={hasUtilityRailSpace}
       forceVisible
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const databaseChoicePending = isDatabaseChoicePending(
+    document,
+    createDatabase.isPending,
+  );
   const showNewDocumentTypeChooser =
     canEdit &&
     !isLocalFileDocument &&
@@ -1561,7 +1698,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             type="button"
             className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("editor.toolbar.closeUtilityPanel")}
-            onClick={() => setUtilityPanel(null)}
+            onClick={() => handleUtilityPanelChange(null)}
           >
             <IconX size={16} />
           </button>
@@ -1570,6 +1707,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       {utilityPanel === "info" ? (
         <DocumentInfoPanel
           document={document}
+          databaseId={databaseId}
+          databaseDocumentId={databaseDocumentId}
           canEdit={editorCanEdit}
           onSaveDescription={(description) =>
             persistDocumentUpdates({ description })
@@ -1589,7 +1728,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       <div
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root
-        onPointerDownCapture={(event) => {
+        onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
           if (
             target?.closest("[data-comments-sidebar], [data-comment-thread]")
@@ -1621,7 +1760,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             onDelete={handleDeleteDocument}
             utilityPanel={utilityPanel}
-            onUtilityPanelChange={setUtilityPanel}
+            onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={editorCanEdit && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
           />
@@ -1761,9 +1900,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       if (bodyHydrationPending) {
                         return (
                           <BuilderBodySyncingNotice
-                            title={t("editor.builderBodySyncing")}
+                            title={t(
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncing"
+                                : "editor.pageBodySyncing",
+                            )}
                             description={t(
-                              "editor.builderBodySyncingDescription",
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncingDescription"
+                                : "editor.pageBodySyncingDescription",
                             )}
                           />
                         );
@@ -1779,9 +1924,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                               type="button"
                               variant="outline"
                               className="justify-start gap-2"
-                              disabled={
-                                !editorCanEdit || createDatabase.isPending
-                              }
+                              disabled={newDocumentPageChoiceIsDisabled({
+                                canEdit,
+                                bodyHydrationPending,
+                                databaseCreationPending:
+                                  createDatabase.isPending,
+                              })}
                               onClick={handleChoosePage}
                             >
                               <IconFileText />
@@ -1791,12 +1939,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                               type="button"
                               variant="outline"
                               className="justify-start gap-2"
-                              disabled={
-                                !editorCanEdit || createDatabase.isPending
-                              }
+                              disabled={!editorCanEdit || databaseChoicePending}
                               onClick={() => void handleChooseDatabase()}
                             >
-                              {createDatabase.isPending ? (
+                              {databaseChoicePending ? (
                                 <IconLoader2 className="animate-spin" />
                               ) : (
                                 <IconDatabase />
@@ -1814,7 +1960,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       // fields.
                       const primaryEditor = (
                         <VisualEditor
-                          key={`${documentId}:${editorCanEdit && !isLocalFileDocument ? "live" : "snapshot"}`}
+                          key={`${documentId}:${collabEditorEnabled && ydoc ? "live-ready" : canEdit && !isLocalFileDocument ? "live-pending" : `snapshot:${document.updatedAt}`}`}
                           documentId={documentId}
                           content={
                             isLocalFileDocument
@@ -1828,13 +1974,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           }
                           onChange={handleContentChange}
                           onSaveContent={handleContentSaveNow}
-                          // Bind the shared Y.Doc/awareness for viewers too — the
-                          // editor is non-editable for them and VisualEditor blocks
-                          // any local Y.Doc mutation, so they get live edits +
-                          // cursors without ever writing. Excludes local-file docs.
-                          ydoc={collabEnabled ? ydoc : null}
-                          collabSynced={collabEnabled ? collabSynced : true}
-                          awareness={collabEnabled ? awareness : null}
+                          ydoc={collabEditorEnabled ? ydoc : null}
+                          collabSynced={
+                            collabEditorEnabled ? collabSynced : true
+                          }
+                          awareness={collabEditorEnabled ? awareness : null}
                           user={currentUser}
                           editable={editorCanEdit}
                           localFileMode={isLocalFileDocument}
@@ -1851,7 +1995,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           pendingHighlight={pendingComment?.range ?? null}
                           onActivateThread={
                             editorCanEdit && !isLocalFileDocument
-                              ? setSelectedThreadId
+                              ? activateCommentThread
                               : undefined
                           }
                           onJoinTitle={joinFirstBodyBlockToTitle}
@@ -1867,6 +2011,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         return (
                           <DocumentBlockFields
                             documentId={documentId}
+                            databaseId={
+                              databaseId ??
+                              document.databaseMembership.databaseId
+                            }
+                            databaseDocumentId={
+                              databaseDocumentId ??
+                              document.databaseMembership.databaseDocumentId
+                            }
                             canEdit={editorCanEdit}
                             primaryEditor={primaryEditor}
                           />
@@ -1877,7 +2029,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     })()}
                     {!bodyHydrationPending &&
                     !isLocalFileDocument &&
-                    collabLoading ? (
+                    canEdit &&
+                    !collabSynced ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                         role="status"
@@ -1904,20 +2057,21 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             open={utilityPanel !== null}
             onOpenChange={(open) => {
               if (!open) {
-                setUtilityPanel(null);
-                setPendingComment(null);
+                handleUtilityPanelChange(null);
               }
             }}
           >
             <SheetContent
               side="right"
-              className="w-[85vw] max-w-sm p-0"
+              className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"
               aria-describedby={undefined}
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>{utilityPanelTitle}</SheetTitle>
               </SheetHeader>
-              {utilityPanelContent}
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                {utilityPanelContent}
+              </div>
             </SheetContent>
           </Sheet>
         ) : null}

@@ -84,6 +84,8 @@ function processEnv(name: string): string | undefined {
  * the live per-request value via `getRequestRunContext()`.
  */
 export interface RequestRunContext {
+  /** Request-scoped serverless continuation hook, when the runtime provides one. */
+  waitUntil?: (promise: Promise<unknown>) => void;
   /** Origin of the current request (used by the builder-browser tool). */
   requestOrigin?: string;
   /** Stable browser tab id for tab-scoped app-state reads/writes. */
@@ -96,10 +98,18 @@ export interface RequestRunContext {
   } | null;
   /** Resolved owner email (set by prepareRun). */
   owner?: string;
-  /** Owner's active Anthropic API key (set by prepareRun). */
+  /** Owner's API key for this run's engine (set by prepareRun). */
   userApiKey?: string;
+  /**
+   * Env var `userApiKey` was issued for. Anything that hands the key to a
+   * fixed provider must check this first — the owner's active engine is not
+   * always Anthropic, and an unchecked key reaches the wrong endpoint.
+   */
+  userApiKeyEnvVar?: string;
   /** Thread ID for the current run (set by onRunStart). */
   threadId?: string;
+  /** Run ID for the current run (set by onRunStart). */
+  runId?: string;
   /** System prompt actually sent to the model for this run. */
   systemPrompt?: string;
   /** Engine instance for this run (set by onEngineResolved). */
@@ -131,7 +141,19 @@ export interface RequestContext {
   userEmail?: string;
   userName?: string;
   orgId?: string;
+  /**
+   * Narrow authorization capability verified from an embed session. This is
+   * deliberately separate from user identity: capability-only sessions must
+   * not satisfy account-backed auth or inherit the ticket owner's privileges.
+   */
+  authCapability?: string;
   timezone?: string;
+  /**
+   * The caller's browser analytics session id, when the request came from a
+   * page. Emitted as PostHog's `$session_id` so agent traces join to session
+   * replay; never used for authorization.
+   */
+  browserSessionId?: string;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind
@@ -146,6 +168,18 @@ export interface RequestContext {
    * fallback. Optional — absent on paths that don't populate it.
    */
   requestOrigin?: string;
+  /**
+   * True when the request's real socket peer is loopback, captured by the
+   * action-route handler while the h3 event is still in scope (nothing below
+   * that layer can see the event). Derived from `getRequestIP()` WITHOUT
+   * `x-forwarded-for`, so a remote client cannot set it via headers.
+   *
+   * A local-dev gate only. A tunnel or reverse proxy that reaches the dev
+   * server over loopback also presents as loopback, so this is necessary but
+   * not sufficient on its own — pair it with something that scopes the blast
+   * radius (a resource that is itself local-only, NODE_ENV, etc.).
+   */
+  isLoopbackRequest?: boolean;
   /**
    * True when this request is being processed by an integration-platform
    * webhook (Slack, Telegram, etc.) where the function timeout is the
@@ -194,10 +228,12 @@ export interface RequestContext {
 
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
 const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
+const BOUNDARY_KEY = "__agentNativeRequestBoundaryInstalled" as const;
 type RequestContextObserver = (ctx: RequestContext) => void;
 type GlobalWithRequestContext = typeof globalThis & {
   [GLOBAL_KEY]?: AsyncLocalStorageLike<RequestContext>;
   [OBSERVERS_KEY]?: RequestContextObserver[];
+  [BOUNDARY_KEY]?: boolean;
 };
 const globalRef = globalThis as GlobalWithRequestContext;
 if (!globalRef[GLOBAL_KEY]) {
@@ -279,6 +315,56 @@ export function hasRequestContext(): boolean {
 }
 
 /**
+ * Record that the framework's request-boundary middleware is installed in this
+ * process, so every inbound HTTP request runs inside a `RequestContext`.
+ *
+ * Once that is true, a request-scoped identity read that finds no store can no
+ * longer be an HTTP caller — which is what makes the ambient-identity warning
+ * in `getRequestUserEmail()` specific enough to be worth emitting.
+ */
+export function markRequestBoundaryInstalled(): void {
+  globalRef[BOUNDARY_KEY] = true;
+}
+
+export function hasRequestBoundary(): boolean {
+  return globalRef[BOUNDARY_KEY] === true;
+}
+
+/**
+ * The ambient, process-wide identity configured for this deployment
+ * (`AGENT_USER_EMAIL`). Legitimate callers are the ones with no request behind
+ * them at all: CLI invocations, cron/scheduled jobs, seed and QA scripts.
+ *
+ * TRAP: this is not the caller's identity, and a request handler that reads it
+ * authorizes whoever the deploy env names rather than whoever signed in — it
+ * fails open toward more privilege. Request handlers read
+ * `getRequestUserEmail()` and fail closed when it returns undefined.
+ */
+export function getAmbientUserEmail(): string | undefined {
+  return processEnv("AGENT_USER_EMAIL");
+}
+
+/** Ambient process-wide org (`AGENT_ORG_ID`). Same trap as `getAmbientUserEmail()`. */
+export function getAmbientOrgId(): string | undefined {
+  return processEnv("AGENT_ORG_ID");
+}
+
+const warnedAmbientIdentities = new Set<string>();
+
+function warnAmbientIdentitySatisfiedRead(email: string): void {
+  if (!hasRequestBoundary()) return;
+  if (warnedAmbientIdentities.has(email)) return;
+  warnedAmbientIdentities.add(email);
+  console.warn(
+    `[agent-native] getRequestUserEmail() found no request context and answered with the ambient ` +
+      `AGENT_USER_EMAIL identity (${email}). This process serves HTTP requests, so a request-scoped ` +
+      `read reaching the ambient identity is a bug: it authorizes the deploy env, not the signed-in ` +
+      `user. Wrap the caller in runWithRequestContext({ userEmail }), or call getAmbientUserEmail() ` +
+      `explicitly if the process identity really is what you mean.`,
+  );
+}
+
+/**
  * Get the current request's user email.
  *
  * - If a request context exists (HTTP/A2A path), returns its `userEmail` —
@@ -287,7 +373,9 @@ export function hasRequestContext(): boolean {
  *   would leak into an unauthenticated A2A/API call (e.g. unsigned or API-key
  *   modes where `runWithRequestContext({ userEmail: undefined })` is used).
  * - Only when there is NO request context (CLI scripts) do we fall back to
- *   `process.env.AGENT_USER_EMAIL`.
+ *   `process.env.AGENT_USER_EMAIL`. In a process that serves HTTP requests the
+ *   framework installs a request boundary so that case cannot be a request;
+ *   if it happens anyway we warn loudly rather than answer silently.
  */
 export function getRequestUserEmail(): string | undefined {
   const store = als.getStore();
@@ -295,7 +383,9 @@ export function getRequestUserEmail(): string | undefined {
     if (store.userEmail) markAuthContextAccess(store);
     return store.userEmail;
   }
-  return processEnv("AGENT_USER_EMAIL");
+  const ambient = processEnv("AGENT_USER_EMAIL");
+  if (ambient) warnAmbientIdentitySatisfiedRead(ambient);
+  return ambient;
 }
 
 /**
@@ -330,9 +420,26 @@ export function getRequestOrgId(): string | undefined {
   return processEnv("AGENT_ORG_ID");
 }
 
+/** Return the verified capability for this request, without implying identity. */
+export function getRequestAuthCapability(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.authCapability) markAuthContextAccess(store);
+  return store.authCapability;
+}
+
+/**
+ * Whether the current request came from a loopback socket peer. Fails closed:
+ * outside a request store (CLI, background job, agent run) there is no peer to
+ * vouch for, so this is `false` rather than inheriting an ambient default.
+ */
+export function getRequestIsLoopback(): boolean {
+  return als.getStore()?.isLoopbackRequest === true;
+}
+
 function markAuthContextAccess(ctx: RequestContext | undefined) {
   if (!ctx) return;
-  if (ctx.userEmail || ctx.userName || ctx.orgId) {
+  if (ctx.userEmail || ctx.userName || ctx.orgId || ctx.authCapability) {
     ctx.authContextAccessed = true;
   }
 }

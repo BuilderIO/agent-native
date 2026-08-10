@@ -25,7 +25,7 @@ function TerminalCommand({ command }: { command: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="group mx-auto mt-8 flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
+      className="group mx-auto mt-8 flex items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
       <span className="text-[var(--fg-secondary)]">$</span>
       <span className="terminal-command-text min-w-0 flex-1 text-[var(--fg)]">
@@ -420,9 +420,9 @@ function BatteriesIncludedCloud({
             {t("home.batteries.body")}
           </p>
           <Link
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             to={localizedPath("/docs/agent-native-toolkit")}
-            className="inline-flex items-center gap-2 rounded-full border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
+            className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
             onClick={() =>
               trackEvent("click cta", {
                 label: "browse_toolkits",
@@ -465,7 +465,7 @@ function ActionSurfaceSection({
   return (
     <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-[400px]">
           <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
             {t("home.actionSurface.title")}
           </h2>
@@ -474,9 +474,9 @@ function ActionSurfaceSection({
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <Link
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs/getting-started")}
-              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
+              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
               onClick={() =>
                 trackEvent("click cta", {
                   label: "build_action",
@@ -498,116 +498,20 @@ function ActionSurfaceSection({
 }
 
 function ComparisonSection() {
-  const t = useT();
-
   return (
-    <section className="border-t border-[var(--docs-border)] px-6 py-20">
+    <section className="relative z-10 px-6 pb-20">
       <div className="mx-auto max-w-[1200px]">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            {t("home.comparison.titleLine1")}
-          </h2>
-          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            <span className="font-semibold text-[var(--docs-accent)]">
-              {t("home.comparison.titleAccent")}
-            </span>
-          </p>
-        </div>
-
-        <div className="approaches-table-outer">
-          <div className="approaches-table-wrapper">
-            <div className="approaches-table-scroll">
-              <table className="approaches-table">
-                <thead>
-                  <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                    <th className="approaches-th approaches-col-dim"></th>
-                    <th className="approaches-th approaches-col-muted">
-                      {t("home.comparison.columns.saas")}
-                    </th>
-                    <th className="approaches-th approaches-col-muted">
-                      {t("home.comparison.columns.agents")}
-                    </th>
-                    <th className="approaches-th approaches-col-muted">
-                      {t("home.comparison.columns.internal")}
-                    </th>
-                    <th className="approaches-th">
-                      {t("home.comparison.columns.native")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-[var(--docs-border)]">
-                    <td className="approaches-td approaches-td--dim">
-                      {t("home.comparison.rows.ui")}
-                    </td>
-                    <td className="approaches-td approaches-td--good">
-                      {t("home.comparison.cells.polishedButRigid")}
-                    </td>
-                    <td className="approaches-td approaches-td--bad">
-                      {t("home.comparison.cells.none")}
-                    </td>
-                    <td className="approaches-td approaches-td--warn">
-                      {t("home.comparison.cells.mixedQuality")}
-                    </td>
-                    <td className="approaches-td approaches-td--good">
-                      {t("home.comparison.cells.fullUi")}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[var(--docs-border)]">
-                    <td className="approaches-td approaches-td--dim">
-                      {t("home.comparison.rows.ai")}
-                    </td>
-                    <td className="approaches-td approaches-td--bad">
-                      {t("home.comparison.cells.boltedOn")}
-                    </td>
-                    <td className="approaches-td approaches-td--good">
-                      {t("home.comparison.cells.powerful")}
-                    </td>
-                    <td className="approaches-td approaches-td--warn">
-                      {t("home.comparison.cells.shallowlyConnected")}
-                    </td>
-                    <td className="approaches-td approaches-td--good">
-                      {t("home.comparison.cells.agentFirst")}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[var(--docs-border)]">
-                    <td className="approaches-td approaches-td--dim">
-                      {t("home.comparison.rows.customization")}
-                    </td>
-                    <td className="approaches-td approaches-td--bad">
-                      {t("home.comparison.cells.cant")}
-                    </td>
-                    <td className="approaches-td approaches-td--warn">
-                      {t("home.comparison.cells.instructionsAndSkills")}
-                    </td>
-                    <td className="approaches-td approaches-td--warn">
-                      {t("home.comparison.cells.fullHighMaintenance")}
-                    </td>
-                    <td className="approaches-td approaches-td--good">
-                      {t("home.comparison.cells.agentModifies")}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="approaches-td approaches-td--dim">
-                      {t("home.comparison.rows.ownership")}
-                    </td>
-                    <td className="approaches-td approaches-td--bad">
-                      {t("home.comparison.cells.rented")}
-                    </td>
-                    <td className="approaches-td approaches-td--warn">
-                      {t("home.comparison.cells.somewhatYours")}
-                    </td>
-                    <td className="approaches-td approaches-td--good">
-                      {t("home.comparison.cells.youOwnCode")}
-                    </td>
-                    <td className="approaches-td approaches-td--good">
-                      {t("home.comparison.cells.youOwnCode")}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+        <div className="mx-auto max-w-[900px]">
+          <video
+            className="homepage-comparison-video"
+            src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+            poster="https://cdn.builder.io/api/v1/image/assets%2Fc5b47d20f6a943e485717e5895739988%2F3d99ddf85c9040e38cb7c989fa4a7735"
+            autoPlay
+            controls
+            muted
+            playsInline
+            preload="auto"
+          />
         </div>
       </div>
     </section>
@@ -653,7 +557,7 @@ function AppsSection({
 
       <div className="mt-10 text-center">
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={localizedPath("/apps")}
           className="primary-button"
           onClick={() =>
@@ -694,102 +598,90 @@ export default defineAction({
   schema: z.object({
     name: z.string().default("world"),
   }),
-  http: { method: "GET" },
-  readOnly: true,
   run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
 });`;
 
   return (
     <>
       <main className="docs-home-page">
-        {/* Hero */}
-        <section
-          className="hero-section relative mx-auto flex min-h-[85vh] max-w-[1200px] items-center justify-center px-6"
-          style={{ clipPath: "inset(-100vh -100vw 0 -100vw)" }}
-        >
-          <div
-            className="pointer-events-none absolute bottom-0"
-            style={{
-              left: "50%",
-              transform: "translateX(-50%)",
-              width: "100vw",
-              top: "-65px",
-            }}
-          >
+        <div className="relative isolate">
+          <div className="pointer-events-none absolute inset-0 z-0">
             <Seascape className="opacity-30 dark:opacity-70" />
           </div>
-          <div
-            className="pointer-events-none absolute inset-0 z-[5]"
-            style={{
-              background:
-                "radial-gradient(ellipse at center, var(--bg) 0%, transparent 70%)",
-              opacity: 0.5,
-            }}
-          />
-          <div className="relative z-10 hero-content">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
-              <span className="inline-block h-2 w-2 rounded-full bg-[var(--docs-accent)]" />
-              {t("home.hero.badge")}
-            </div>
 
-            <h1 className="mx-auto max-w-3xl">
-              {t("home.hero.titleLine1")} <br className="hidden md:inline" />
-              <span className="hero-gradient-text">
-                {t("home.hero.titleAccent")}
-              </span>
-            </h1>
+          {/* Hero */}
+          <section
+            className="hero-section relative z-10 mx-auto flex min-h-[80vh] max-w-[1200px] items-center justify-center px-6"
+            style={{ clipPath: "inset(-100vh -100vw 0 -100vw)" }}
+          >
+            <div
+              className="pointer-events-none absolute inset-0 z-[5]"
+              style={{
+                background:
+                  "radial-gradient(ellipse at center, var(--bg) 0%, transparent 70%)",
+                opacity: 0.5,
+              }}
+            />
+            <div className="relative z-10 hero-content">
+              <h1 className="mx-auto max-w-3xl">
+                {t("home.hero.titleLine1")} <br className="hidden md:inline" />
+                <span className="hero-gradient-text">
+                  {t("home.hero.titleAccent")}
+                </span>
+              </h1>
 
-            <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-              {t("home.hero.body")}
-            </p>
+              <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
+                {t("home.hero.body")}
+              </p>
 
-            <div className="flex flex-wrap items-center justify-center gap-4">
-              <Link
-                data-an-prefetch="render"
-                to={localizedPath("/apps")}
-                className="primary-button"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "try_app",
-                    location: "hero",
-                  })
-                }
-              >
-                {t("home.hero.primaryCta")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              <div className="flex flex-wrap items-center justify-center gap-4">
+                <Link
+                  data-an-prefetch="viewport"
+                  to={localizedPath("/apps")}
+                  className="primary-button"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "try_app",
+                      location: "hero",
+                    })
+                  }
                 >
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
-              </Link>
-              <Link
-                data-an-prefetch="render"
-                to={localizedPath("/docs")}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "read_the_docs",
-                    location: "hero",
-                  })
-                }
-              >
-                {t("home.hero.secondaryCta")}
-              </Link>
+                  {t("home.hero.primaryCta")}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </Link>
+                <Link
+                  data-an-prefetch="viewport"
+                  to={localizedPath("/docs")}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "read_the_docs",
+                      location: "hero",
+                    })
+                  }
+                >
+                  {t("home.hero.secondaryCta")}
+                </Link>
+              </div>
+
+              <TerminalCommand command={chatCommand} />
             </div>
+          </section>
 
-            <TerminalCommand command={chatCommand} />
-          </div>
-        </section>
-
-        <ComparisonSection />
+          <ComparisonSection />
+        </div>
 
         <AppsSection localizedPath={localizedPath} />
 
@@ -811,7 +703,7 @@ export default defineAction({
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
-                data-an-prefetch="render"
+                data-an-prefetch="viewport"
                 to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
@@ -837,9 +729,9 @@ export default defineAction({
                 </svg>
               </Link>
               <Link
-                data-an-prefetch="render"
+                data-an-prefetch="viewport"
                 to={localizedPath("/docs")}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
                     label: "read_the_docs",

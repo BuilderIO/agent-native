@@ -21,6 +21,7 @@ import {
   OPENAI_BASE_URL_ENV_VAR,
   PROVIDER_ENV_META,
 } from "../agent/engine/provider-env-vars.js";
+import type { AgentEngineEntry } from "../agent/engine/registry.js";
 import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
@@ -45,10 +46,14 @@ import {
   putComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
+  getStateMany,
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
-import { getDbExec } from "../db/client.js";
+import {
+  getDbExec,
+  isProductionServerlessFunctionRuntime,
+} from "../db/client.js";
 import {
   getDatabaseRuntimeFingerprint,
   getRuntimeDebugFingerprint,
@@ -86,8 +91,8 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
   EMPTY_SPECULATION_RULES,
+  resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
@@ -97,11 +102,14 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { getRuntimeConfigReport } from "../shared/runtime-config.js";
+import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { readBrowserSessionIdHeader } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
@@ -127,6 +135,8 @@ import {
   resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
+  resolveBuilderPreviewRelayParentOrigin,
+  resolveBuilderPreviewRelayTargetOrigin,
   resolveSafePreviewUrl,
   runBuilderAgent,
   signBuilderCallbackState,
@@ -140,7 +150,7 @@ import {
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
-import { captureError } from "./capture-error.js";
+import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -148,16 +158,24 @@ import {
 import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
+import { probeDbPressure, type DbPressure } from "./db-pressure.js";
+import {
+  resolveDeployEnvironment,
+  resolveServerRelease,
+} from "./deploy-environment.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
+import { shouldReportError } from "./error-noise-filter.js";
 import {
   getH3App,
   awaitBootstrap,
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -170,13 +188,19 @@ import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
-import { runWithRequestContext } from "./request-context.js";
+import { createRealtimeTokenHandler } from "./realtime-token.js";
+import {
+  getRequestContext,
+  hasRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
@@ -198,6 +222,206 @@ export function normalizeAgentEngineStatusModel(
 ): string {
   if (!entry) return model ?? DEFAULT_MODEL;
   return normalizeModelForEngine(entry, model ?? entry.defaultModel);
+}
+
+type AgentEngineStatusEntry = {
+  name: string;
+  defaultModel: string;
+  supportedModels: readonly string[];
+  requiredEnvVars: readonly string[];
+};
+
+export interface AgentEngineStatusResult {
+  configured: boolean;
+  engine?: string;
+  model?: string;
+  source?: "settings" | "env" | "app_secrets";
+  envVar?: string;
+  openAiBaseUrlConfigured?: boolean;
+}
+
+export interface AgentEngineStatusDeps<
+  E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
+> {
+  readStoredEngine: () => Promise<{ engine?: string; model?: string } | null>;
+  readOpenAiBaseUrlConfigured: () => boolean | Promise<boolean>;
+  isStoredEngineUsable: (
+    stored: unknown,
+    entry: E,
+  ) => boolean | Promise<boolean>;
+  detectFromUserSecrets: () => Promise<E | null>;
+  detectFromEnv: () => E | null | Promise<E | null>;
+  lookupEntry?: (engine: string) => E | undefined;
+}
+
+/**
+ * Resolve "does this request have a usable AI provider" for one identity.
+ *
+ * Every call site pays for these lookups on a user-visible path (the agent
+ * composer blocks on the status probe), so the two identity-independent reads
+ * start together and the expensive `app_secrets` sweep only runs when the
+ * cheaper sources have not already answered.
+ */
+export async function resolveAgentEngineStatus<
+  E extends AgentEngineStatusEntry,
+>(deps: AgentEngineStatusDeps<E>): Promise<AgentEngineStatusResult> {
+  const lookupEntry = (deps.lookupEntry ?? getAgentEngineEntry) as (
+    engine: string,
+  ) => E | undefined;
+  const [stored, openAiBaseUrlConfigured] = await Promise.all([
+    deps.readStoredEngine(),
+    deps.readOpenAiBaseUrlConfigured(),
+  ]);
+
+  if (isAgentEngineSettingConfigured(stored)) {
+    const engine = (stored as { engine: string }).engine;
+    const entry = lookupEntry(engine);
+    return {
+      configured: true,
+      engine,
+      model: normalizeAgentEngineStatusModel(entry, stored?.model),
+      source: "settings",
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  const envEntry = process.env.AGENT_ENGINE
+    ? lookupEntry(process.env.AGENT_ENGINE)
+    : undefined;
+  if (envEntry) {
+    if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
+      return { configured: false, openAiBaseUrlConfigured };
+    return {
+      configured: true,
+      engine: envEntry.name,
+      model: envEntry.defaultModel ?? DEFAULT_MODEL,
+      source: "env",
+      envVar: "AGENT_ENGINE",
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  // Stored provider selections win over an existing Builder connection, so
+  // this is checked before the app_secrets sweep — and the sweep is skipped
+  // entirely when it answers.
+  if (stored && typeof stored.engine === "string") {
+    const entry = lookupEntry(stored.engine);
+    if (entry && (await deps.isStoredEngineUsable(stored, entry))) {
+      return {
+        configured: true,
+        engine: stored.engine,
+        model: normalizeAgentEngineStatusModel(entry, stored.model),
+        source: "env",
+        envVar: entry.requiredEnvVars[0],
+        openAiBaseUrlConfigured,
+      };
+    }
+  }
+
+  // Per-user app_secrets — a user who connected Builder (or pasted their own
+  // provider key) may not have any deploy-level env vars set.
+  const detectedFromUser = await deps.detectFromUserSecrets();
+  if (detectedFromUser) {
+    return {
+      configured: true,
+      engine: detectedFromUser.name,
+      model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
+      source: "app_secrets",
+      envVar: detectedFromUser.requiredEnvVars[0],
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  const detected = await deps.detectFromEnv();
+  if (detected) {
+    return {
+      configured: true,
+      engine: detected.name,
+      model: detected.defaultModel ?? DEFAULT_MODEL,
+      source: "env",
+      envVar: detected.requiredEnvVars[0],
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  return { configured: false, openAiBaseUrlConfigured };
+}
+
+const _agentEngineStatusInFlight = new Map<
+  string,
+  Promise<AgentEngineStatusResult>
+>();
+
+/**
+ * Share one in-flight status resolution between concurrent probes of the same
+ * identity. Several client surfaces probe this route on mount and the client
+ * retries after its own timeout; without this each probe re-ran the whole
+ * credential sweep. The entry is dropped as soon as the lookup settles, so a
+ * joiner never sees an answer older than one lookup — no TTL, nothing to
+ * invalidate when a provider is added or removed. The key carries the identity
+ * that decides the answer, so no tenant can read another's result.
+ */
+export function shareAgentEngineStatusLookup(
+  identityKey: string,
+  compute: () => Promise<AgentEngineStatusResult>,
+): Promise<AgentEngineStatusResult> {
+  const existing = _agentEngineStatusInFlight.get(identityKey);
+  if (existing) return existing;
+  const started = compute().finally(() => {
+    _agentEngineStatusInFlight.delete(identityKey);
+  });
+  _agentEngineStatusInFlight.set(identityKey, started);
+  return started;
+}
+
+export function agentEngineStatusIdentityKey(
+  userEmail: string | undefined,
+  orgId: string | undefined,
+): string {
+  return `${userEmail ?? ""}\u0000${orgId ?? ""}`;
+}
+
+function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
+  return {
+    readStoredEngine: async () =>
+      (await getSetting("agent-engine")) as {
+        engine?: string;
+        model?: string;
+      } | null,
+    readOpenAiBaseUrlConfigured: async () => {
+      try {
+        if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
+      } catch {
+        /* fall through to deployment env when allowed */
+      }
+      return (
+        canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR) &&
+        !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+      );
+    },
+    isStoredEngineUsable: isStoredEngineUsableForRequest,
+    detectFromUserSecrets: detectEngineFromUserSecrets,
+    detectFromEnv: detectEngineFromEnv,
+  };
+}
+
+/**
+ * Resolve the identity the status answer depends on. Both lookups memoize per
+ * request inside their own helpers, so repeating them here stays cheap.
+ */
+async function resolveAgentEngineStatusIdentity(
+  event: H3Event,
+): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
+  const session = await getSession(event).catch(() => null);
+  const userEmail = session?.email;
+  if (!userEmail) return { userEmail: undefined, orgId: undefined };
+  try {
+    const orgCtx = await getOrgContext(event);
+    return { userEmail, orgId: orgCtx.orgId ?? undefined };
+  } catch {
+    /* org module not present in this template */
+    return { userEmail, orgId: undefined };
+  }
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -234,6 +458,13 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
 }
 
 /** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
+/**
+ * Deliberately generous: a genuinely cold Neon compute can take seconds to
+ * accept its first connection, and reporting a slow-but-working database as
+ * timed out would flap. This is a ceiling on hanging, not a latency budget.
+ */
+const DB_HEALTH_PROBE_DEADLINE_MS = 5_000;
+
 export interface DbHealthProbeResult {
   /** The serverless function is live and served the request. */
   ok: true;
@@ -241,6 +472,14 @@ export interface DbHealthProbeResult {
   ready: boolean;
   /** A trivial `SELECT 1` reached the database (false = no DB or unreachable). */
   db: boolean;
+  /**
+   * The probe hit its deadline instead of answering. Reported SEPARATELY from
+   * `db: false`, because "the database said no" and "the database never
+   * replied" are different failures and folding them together is exactly the
+   * coercion this repo bans — a monitor cannot tell an app with no database
+   * from one whose database is hanging.
+   */
+  dbTimedOut?: boolean;
   /** Round-trip time of the probe in milliseconds. */
   ms: number;
   /** Redacted database routing details useful for deploy/runtime checks. */
@@ -255,6 +494,11 @@ export interface DbHealthProbeResult {
   };
   /** Optional metadata-only schema compatibility check. */
   schema?: DatabaseSchemaHealthResult;
+  /**
+   * Optional `pg_stat_activity` pressure counters. Present only when asked for,
+   * and shaped so "could not measure" cannot be read as "nothing wrong".
+   */
+  pressure?: DbPressure;
 }
 
 /**
@@ -269,17 +513,38 @@ export interface DbHealthProbeResult {
  */
 export async function runDbHealthProbe(
   exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
-  options: { schema?: boolean } = {},
+  options: { schema?: boolean; pressure?: boolean } = {},
 ): Promise<DbHealthProbeResult> {
   const startedAt = Date.now();
   let db = false;
+  let trivialQueryMs: number | undefined;
   let schema: DatabaseSchemaHealthResult | undefined;
   const dbExec = exec();
+  let dbTimedOut = false;
   try {
-    await dbExec.execute("SELECT 1");
-    db = true;
-  } catch {
+    // An UNBOUNDED await here is what took the docs site down: the health route
+    // hung for 20-40s until the CDN returned 502, the keep-warm cron failed
+    // every minute, and the function stayed permanently cold — a ~10x penalty
+    // on every cache miss. This function's own contract says "Always
+    // resolves"; without a deadline it did not.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("db probe deadline")),
+        DB_HEALTH_PROBE_DEADLINE_MS,
+      );
+    });
+    try {
+      const trivialQueryStartedAt = Date.now();
+      await Promise.race([dbExec.execute("SELECT 1"), deadline]);
+      db = true;
+      trivialQueryMs = Date.now() - trivialQueryStartedAt;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  } catch (err) {
     // Live even when the DB is unreachable or the app has no database.
+    dbTimedOut = (err as Error)?.message === "db probe deadline";
   }
   if (db && options.schema) {
     schema = await runDatabaseSchemaHealthCheck({
@@ -287,10 +552,19 @@ export async function runDbHealthProbe(
     });
   }
   const database = getDatabaseRuntimeFingerprint();
+  // Measured on the connection `SELECT 1` just warmed, so the number reflects
+  // the database's own load rather than a serverless cold start.
+  let pressure: DbPressure | undefined;
+  if (options.pressure) {
+    pressure = db
+      ? await probeDbPressure(dbExec, database.dialect, { trivialQueryMs })
+      : { measured: false, reason: "database unreachable" };
+  }
   return {
     ok: true,
     ready: db && (!schema || schema.ok),
     db,
+    ...(dbTimedOut ? { dbTimedOut: true } : {}),
     ms: Date.now() - startedAt,
     database: {
       configured: database.configured,
@@ -302,6 +576,7 @@ export async function runDbHealthProbe(
       netlifyDatabaseUrlConfigured: database.netlifyDatabaseUrlConfigured,
     },
     ...(schema ? { schema } : {}),
+    ...(pressure ? { pressure } : {}),
   };
 }
 const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
@@ -646,54 +921,17 @@ async function detectUsageEngineName(
   userEmail: string | undefined,
 ): Promise<string | null> {
   try {
-    const stored = (await getSetting("agent-engine")) as {
-      engine?: string;
-    } | null;
-    if (isAgentEngineSettingConfigured(stored)) {
-      return (stored as { engine: string }).engine;
-    }
-    let orgId: string | undefined;
-    if (userEmail) {
-      try {
-        const orgCtx = await getOrgContext(event);
-        orgId = orgCtx.orgId ?? undefined;
-      } catch {
-        /* org module not present in this template */
-      }
-    }
-    const envEntry = process.env.AGENT_ENGINE
-      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+    const orgId = userEmail
+      ? (await resolveAgentEngineStatusIdentity(event)).orgId
       : undefined;
-    if (envEntry) {
-      return (await runWithRequestContext({ userEmail, orgId }, () =>
-        isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry),
-      ))
-        ? envEntry.name
-        : null;
-    }
-
-    const detectedFromUser = await runWithRequestContext(
-      { userEmail, orgId },
-      () => detectEngineFromUserSecrets(),
+    const status = await runWithRequestContext({ userEmail, orgId }, () =>
+      resolveAgentEngineStatus({
+        ...requestAgentEngineStatusDeps(),
+        // Tracking only needs the engine name; skip the base-URL secret read.
+        readOpenAiBaseUrlConfigured: () => false,
+      }),
     );
-    if (stored && typeof stored.engine === "string") {
-      const entry = getAgentEngineEntry(stored.engine);
-      if (
-        entry &&
-        (await runWithRequestContext({ userEmail, orgId }, () =>
-          isStoredEngineUsableForRequest(stored, entry),
-        ))
-      ) {
-        return stored.engine;
-      }
-    }
-    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
-    if (detectedFromUser) return detectedFromUser.name;
-
-    return await runWithRequestContext(
-      { userEmail, orgId },
-      () => detectEngineFromEnv()?.name ?? null,
-    );
+    return status.engine ?? null;
   } catch {
     return null;
   }
@@ -1022,6 +1260,13 @@ function redactValues(text: string, values: Array<string | null | undefined>) {
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
+  /**
+   * Allow authenticated extension creation through
+   * POST /_agent-native/extensions (and the legacy /tools alias).
+   * Existing extension runtime, read, edit, and deep-link routes stay mounted
+   * when this is false. Default: false.
+   */
+  extensionTools?: boolean;
   /** Route path for the SSE endpoint. Default: "/_agent-native/events" */
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
@@ -1098,6 +1343,16 @@ export async function readLegacyCoreRouteInitSettings(
 }
 
 /**
+ * Production release jobs own schema setup. Request functions must not spend
+ * their cold-start budget on legacy cleanup or best-effort table warmups.
+ */
+export function shouldRunCoreRouteBootDatabaseWork(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return !isProductionServerlessFunctionRuntime(env);
+}
+
+/**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
  * All routes are mounted under `/_agent-native/` to avoid collisions
@@ -1106,10 +1361,11 @@ export async function readLegacyCoreRouteInitSettings(
  * Routes:
  *   GET    /_agent-native/poll                          — polling endpoint for change detection
  *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
- *   GET    /_agent-native/ping                          — health check
+ *   GET    /_agent-native/ping                          — health check; add ?configuration=1 for redacted deploy diagnostics
  *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
+ *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -1119,6 +1375,53 @@ export async function readLegacyCoreRouteInitSettings(
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
+/**
+ * Route every Nitro route error through the provider-agnostic `captureError()`
+ * registry, filtered by the shared noise rules.
+ *
+ * This lives here rather than in `sentry-plugin.ts` because that plugin bails
+ * out when no `SENTRY_DSN` is configured — wiring the hook there meant an app
+ * running PostHog (or any other backend) with no Sentry project reported no
+ * route errors at all, while still looking configured.
+ */
+function wireRouteErrorCapture(nitroApp: any): void {
+  nitroApp.hooks?.hook?.(
+    "error",
+    (error: unknown, ctx?: { event?: H3Event }) => {
+      try {
+        const event = ctx?.event;
+        const route = (() => {
+          try {
+            return event?.url?.pathname;
+            // coercion-ok: a missing route tag must not suppress the error
+          } catch {
+            return undefined;
+          }
+        })();
+        const userAgent = (() => {
+          try {
+            return event ? getHeader(event, "user-agent") : undefined;
+            // coercion-ok: a missing UA tag must not suppress the error
+          } catch {
+            return undefined;
+          }
+        })();
+
+        if (!shouldReportError(error, { tags: { route } })) return;
+
+        captureError(error, {
+          route,
+          method: event ? getMethod(event) : undefined,
+          userAgent,
+        });
+        // coercion-ok: rethrowing here would replace the app's real error
+      } catch {
+        // Error reporting must never escape into Nitro's error path.
+      }
+    },
+  );
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1136,10 +1439,38 @@ export function createCoreRoutesPlugin(
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
     });
     try {
+      const P = FRAMEWORK_ROUTE_PREFIX;
+
+      // This response is a side-effect-free static contract used by the SSR
+      // shell. Mount it before optional default-plugin/bootstrap work so a
+      // browser's automatic rules fetch cannot inherit the cold-start wait.
+      getH3App(nitroApp).use(
+        `${P}/speculation-rules.json`,
+        defineEventHandler((event) => {
+          // `createH3SSRHandler` points the Speculation-Rules response header
+          // here to prevent Cloudflare Speed Brain from injecting its own
+          // edge prefetch rules. Keep this route public and side-effect free:
+          // browsers may request it while parsing any SSR HTML document.
+          setResponseHeader(
+            event,
+            "content-type",
+            "application/speculationrules+json; charset=utf-8",
+          );
+          for (const [name, value] of Object.entries(
+            resolveSsrCacheHeaders(),
+          )) {
+            setResponseHeader(event, name, value);
+          }
+          return EMPTY_SPECULATION_RULES;
+        }),
+      );
+
       await awaitBootstrap(nitroApp);
 
-      const { persistedEnvVars, builderDisconnected } =
-        await readLegacyCoreRouteInitSettings();
+      const runBootDatabaseWork = shouldRunCoreRouteBootDatabaseWork();
+      const { persistedEnvVars, builderDisconnected } = runBootDatabaseWork
+        ? await readLegacyCoreRouteInitSettings()
+        : { persistedEnvVars: null, builderDisconnected: null };
 
       // Legacy cleanup: key saves now go to scoped app_secrets rows. Do not
       // rehydrate the old deployment-global `persisted-env-vars` row into
@@ -1196,6 +1527,29 @@ export function createCoreRoutesPlugin(
       // already registered the same key win.
       registerFrameworkSecrets();
       registerBuiltinProviders();
+      // Named for the destination it actually reaches: every configured
+      // tracking provider (PostHog, Mixpanel, Amplitude, Agent Native
+      // Analytics, webhook), not just one of them.
+      registerErrorCaptureProvider("tracking", (error, context) => {
+        // Attribute to the in-flight request's user so server exceptions and
+        // that same person's browser events share one `distinct_id`.
+        const requestContext = hasRequestContext()
+          ? getRequestContext()
+          : undefined;
+        captureException(error, {
+          ...context,
+          handled: false,
+          runtime: "node",
+          source: "server",
+          release: resolveServerRelease(),
+          environment: resolveDeployEnvironment(),
+          ...(requestContext?.userEmail
+            ? { userId: requestContext.userEmail }
+            : {}),
+          ...(requestContext?.orgId ? { orgId: requestContext.orgId } : {}),
+        });
+      });
+      wireRouteErrorCapture(nitroApp);
       registerBuiltinNotificationChannels();
 
       try {
@@ -1203,7 +1557,7 @@ export function createCoreRoutesPlugin(
           await import("../observability/routes.js");
         const { ensureObservabilityTables } =
           await import("../observability/store.js");
-        ensureObservabilityTables().catch(() => {});
+        if (runBootDatabaseWork) ensureObservabilityTables().catch(() => {});
         getH3App(nitroApp).use(
           `${FRAMEWORK_ROUTE_PREFIX}/observability`,
           createObservabilityHandler(),
@@ -1220,19 +1574,20 @@ export function createCoreRoutesPlugin(
         const { ensureAuditTables } = await import("../audit/store.js");
         const { startAuditCleanupJob } =
           await import("../audit/cleanup-job.js");
-        ensureAuditTables().catch(() => {});
-        startAuditCleanupJob();
+        if (runBootDatabaseWork) {
+          ensureAuditTables().catch(() => {});
+          startAuditCleanupJob();
+        }
       } catch {
         // Audit module not available — skip
       }
-
-      const P = FRAMEWORK_ROUTE_PREFIX;
 
       for (const provider of [
         "figma",
         "google_drive",
         "github",
         "hubspot",
+        "salesforce",
         "jira",
         "sentry",
         "notion",
@@ -1391,6 +1746,73 @@ export function createCoreRoutesPlugin(
       // middleware any plugin's route can possibly land behind, regardless of
       // plugin init ordering.
 
+      // Peer reachability + auth probe for the settings UI. Deliberately
+      // separate from `${P}/agents` (discovery) — this route makes live
+      // network calls to the peer, so it is session-gated and answers one
+      // peer (`?url=`) or every registered peer (no query) via `discoverAgents`.
+      //
+      // MUST be mounted BEFORE `${P}/agents` below: h3's `.use()` matches by
+      // path prefix, and that handler always returns a value (never calls
+      // `next()`), so it would swallow `/agents/probe` requests before they
+      // ever reached this route if registered second (same hazard as the A2A
+      // `_process-task` route vs. its `/a2a` catch-all — see a2a/server.ts).
+      getH3App(nitroApp).use(
+        `${P}/agents/probe`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const session = await getSession(event).catch(() => null);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+
+          return runWithRequestContext(
+            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            async () => {
+              const { probePeerAgent, probeAllPeerAgents } =
+                await import("./agent-peer-probe.js");
+              const query = getRequestURL(event).searchParams;
+              const urlParam = query.get("url");
+
+              if (urlParam === null) {
+                const selfAppId = query.get("selfAppId") ?? undefined;
+                const { discoverAgents } = await import("./agent-discovery.js");
+                const agents = await discoverAgents(selfAppId);
+                const results = await probeAllPeerAgents(agents);
+                return { results };
+              }
+
+              if (!urlParam.trim()) {
+                setResponseStatus(event, 400);
+                return { error: "url is required" };
+              }
+
+              const result = await probePeerAgent({
+                id: "probe",
+                name: urlParam,
+                description: "",
+                url: urlParam,
+                color: "",
+              });
+
+              // Reachability and auth are independent, but a malformed/SSRF-blocked
+              // URL is a caller input error, not a peer that failed to answer — the
+              // one case where the probe's "unreachable" result is reclassified into
+              // a 400 instead of a 200 with `reachable: false`.
+              if (result.error?.startsWith("SSRF blocked:")) {
+                setResponseStatus(event, 400);
+                return { url: urlParam, error: result.error };
+              }
+
+              return result;
+            },
+          );
+        }),
+      );
+
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
       // the chat route namespace.
@@ -1413,6 +1835,14 @@ export function createCoreRoutesPlugin(
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
 
+      // Realtime subscribe-token mint (hosted gateway path)
+      getH3App(nitroApp).use(
+        `${P}/realtime-token`,
+        createRealtimeTokenHandler(),
+      );
+      // Sharee visibility check for the hosted gateway
+      getH3App(nitroApp).use(`${P}/can-see`, createGatewayAccessCheckHandler());
+
       // SSE
       if (!options.disableSSE) {
         for (const route of resolveFrameworkSseRoutes(options.sseRoute)) {
@@ -1424,9 +1854,31 @@ export function createCoreRoutesPlugin(
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
-          defineEventHandler(() => ({
-            message: process.env.PING_MESSAGE ?? "pong",
-          })),
+          defineEventHandler((event) => {
+            const message = process.env.PING_MESSAGE ?? "pong";
+            const configuration =
+              event.url?.searchParams.get("configuration") === "1" ||
+              event.url?.searchParams.get("configuration") === "true";
+            if (!configuration) return { message };
+
+            // Custom required keys must come from server-side app configuration;
+            // never let an anonymous caller turn this into an env-name oracle.
+            const requirements = {
+              ...(event.url?.searchParams.get("auth") === "0"
+                ? { authEnabled: false }
+                : {}),
+              ...(event.url?.searchParams.get("database") === "0"
+                ? { databaseRequired: false }
+                : {}),
+            };
+            return {
+              message,
+              configuration: getRuntimeConfigReport(process.env, requirements, {
+                phase: "runtime",
+                appName: process.env.APP_NAME,
+              }),
+            };
+          }),
         );
       }
 
@@ -1507,6 +1959,7 @@ export function createCoreRoutesPlugin(
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
       (() => {
+        if (shouldDisableInProcessSweeps()) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
@@ -1545,7 +1998,19 @@ export function createCoreRoutesPlugin(
               event.url?.searchParams.get("strict") === "1" ||
               event.url?.searchParams.get("strict") === "true" ||
               process.env.AGENT_NATIVE_HEALTH_STRICT_SCHEMA === "true";
-            const result = await runDbHealthProbe(getDbExec, { schema });
+            // Off by default: the one-minute warm cron does not need it, and
+            // an extra `pg_stat_activity` read every minute per app is waste.
+            // Pressure deliberately does NOT change `ready` or the status
+            // code — a pressured database is still serving, and an uptime
+            // monitor that pages on it would learn to ignore this route. The
+            // fleet audit reads the counters and decides.
+            const pressure =
+              event.url?.searchParams.get("pressure") === "1" ||
+              event.url?.searchParams.get("pressure") === "true";
+            const result = await runDbHealthProbe(getDbExec, {
+              schema,
+              pressure,
+            });
             if (strict && !result.ready) setResponseStatus(event, 503);
             return result;
           }),
@@ -1578,27 +2043,6 @@ export function createCoreRoutesPlugin(
             runtime: getRuntimeDebugFingerprint(),
             schema,
           };
-        }),
-      );
-
-      getH3App(nitroApp).use(
-        `${P}/speculation-rules.json`,
-        defineEventHandler((event) => {
-          // `createH3SSRHandler` points the Speculation-Rules response header
-          // here to prevent Cloudflare Speed Brain from injecting its own
-          // edge prefetch rules. Keep this route public and side-effect free:
-          // browsers may request it while parsing any SSR HTML document.
-          setResponseHeader(
-            event,
-            "content-type",
-            "application/speculationrules+json; charset=utf-8",
-          );
-          for (const [name, value] of Object.entries(
-            DEFAULT_SSR_CACHE_HEADERS,
-          )) {
-            setResponseHeader(event, name, value);
-          }
-          return EMPTY_SPECULATION_RULES;
         }),
       );
 
@@ -2041,7 +2485,8 @@ export function createCoreRoutesPlugin(
             try {
               relay = signBuilderPreviewRelayState({
                 ownerEmail,
-                targetOrigin: previewOrigin,
+                targetOrigin:
+                  resolveBuilderPreviewRelayTargetOrigin(previewOrigin),
                 basePath: getAppBasePath(),
               });
             } catch (err) {
@@ -2344,7 +2789,7 @@ export function createCoreRoutesPlugin(
               timestamp: getHeader(event, BUILDER_RELAY_TIMESTAMP_HEADER),
               flowId: getHeader(event, BUILDER_RELAY_FLOW_HEADER),
               signature: getHeader(event, BUILDER_RELAY_SIGNATURE_HEADER),
-              requestOrigin: getFrameworkRouteRequestUrl(event).origin,
+              requestOrigin: getBuilderBrowserOriginForEvent(event),
               requestBasePath: getAppBasePath(),
             },
             {
@@ -2414,6 +2859,13 @@ export function createCoreRoutesPlugin(
               );
             }
 
+            const relayOpenerOrigin =
+              requestUrl.searchParams.get(BUILDER_OPENER_PARAM);
+            const relayParentOrigin = resolveBuilderPreviewRelayParentOrigin({
+              openerOrigin: relayOpenerOrigin,
+              targetOrigin: relayPayload.targetOrigin,
+            });
+
             const privateKey = requestUrl.searchParams.get("p-key");
             const publicKey = requestUrl.searchParams.get("api-key");
             if (!privateKey || !publicKey) {
@@ -2425,7 +2877,7 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder didn't return credentials. Restart the connect flow from settings.",
-                { parentOrigin: relayPayload.targetOrigin },
+                { parentOrigin: relayParentOrigin },
               );
             }
 
@@ -2481,7 +2933,7 @@ export function createCoreRoutesPlugin(
                 "text/html; charset=utf-8",
               );
               return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayPayload.targetOrigin,
+                parentOrigin: relayParentOrigin,
               });
             }
 
@@ -2491,8 +2943,8 @@ export function createCoreRoutesPlugin(
               "text/html; charset=utf-8",
             );
             return createBuilderBrowserCallbackPage(
-              `${relayPayload.targetOrigin}${relayPayload.basePath || "/"}`,
-              { parentOrigin: relayPayload.targetOrigin },
+              `${relayParentOrigin}${relayPayload.basePath || "/"}`,
+              { parentOrigin: relayParentOrigin },
             );
           }
 
@@ -2978,7 +3430,7 @@ export function createCoreRoutesPlugin(
                 setResponseStatus(event, 400);
                 return {
                   error:
-                    "Builder not connected. Connect Builder in Setup to use background agent.",
+                    "Builder not connected. Connect Builder (free tier available) in Setup to use background agent.",
                 };
               }
               const body = (await readBody(event)) as {
@@ -3054,10 +3506,17 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
+            // One context for the whole sweep so the per-request secret memo is
+            // shared, and one batched read per scope to fill it. Without this
+            // every key pays its own four-scope waterfall.
+            const requestContext = { userEmail, orgId };
+            await runWithRequestContext(requestContext, () =>
+              prefetchSecrets(allowedEnvKeyNames),
+            );
             return Promise.all(
               envKeys.map(async (cfg) => {
                 const configured = await runWithRequestContext(
-                  { userEmail, orgId },
+                  requestContext,
                   () => resolveSecret(cfg.key).then(Boolean),
                 );
                 return {
@@ -3128,141 +3587,27 @@ export function createCoreRoutesPlugin(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
-            const session = await getSession(event).catch(() => null);
-            const userEmail = session?.email;
-            let orgId: string | undefined;
-            if (userEmail) {
-              try {
-                const orgCtx = await getOrgContext(event);
-                orgId = orgCtx.orgId ?? undefined;
-              } catch {
-                /* org module not present in this template */
-              }
-            }
-            const openAiBaseUrlConfigured = await runWithRequestContext(
-              { userEmail, orgId },
-              async () => {
-                try {
-                  if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
-                } catch {
-                  /* fall through to deployment env when allowed */
-                }
-                return (
-                  canUseDeployCredentialFallbackForRequest(
-                    OPENAI_BASE_URL_ENV_VAR,
-                  ) && !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
-                );
-              },
-            );
-            const stored = (await getSetting("agent-engine")) as {
-              engine?: string;
-              model?: string;
-            } | null;
-            if (isAgentEngineSettingConfigured(stored)) {
-              const engine = (stored as { engine: string }).engine;
-              const entry = getAgentEngineEntry(engine);
-              const model = normalizeAgentEngineStatusModel(
-                entry,
-                stored?.model,
-              );
-              return {
-                configured: true,
-                engine,
-                model,
-                source: "settings" as const,
-                openAiBaseUrlConfigured,
-              };
-            }
-            const envEntry = process.env.AGENT_ENGINE
-              ? getAgentEngineEntry(process.env.AGENT_ENGINE)
-              : undefined;
-            if (envEntry) {
-              const envUsable = await runWithRequestContext(
-                { userEmail, orgId },
-                () =>
-                  isStoredEngineUsableForRequest(
-                    { engine: envEntry.name },
-                    envEntry,
+            const { userEmail, orgId } =
+              await resolveAgentEngineStatusIdentity(event);
+            return await shareAgentEngineStatusLookup(
+              agentEngineStatusIdentityKey(userEmail, orgId),
+              () =>
+                Promise.resolve(
+                  runWithRequestContext({ userEmail, orgId }, () =>
+                    resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
                   ),
-              );
-              if (!envUsable) {
-                return { configured: false, openAiBaseUrlConfigured };
-              }
-              return {
-                configured: true,
-                engine: envEntry.name,
-                model: envEntry.defaultModel ?? DEFAULT_MODEL,
-                source: "env" as const,
-                envVar: "AGENT_ENGINE",
-                openAiBaseUrlConfigured,
-              };
-            }
-            // Per-user app_secrets — a user who connected Builder (or pasted
-            // their own provider key) may not have any deploy-level env vars
-            // set. Stored provider selections are checked first so saving a
-            // BYOK engine can override an existing Builder connection.
-            const detectedFromUser = await runWithRequestContext(
-              { userEmail, orgId },
-              () => detectEngineFromUserSecrets(),
+                ),
             );
-            if (stored && typeof stored.engine === "string") {
-              const entry = getAgentEngineEntry(stored.engine);
-              if (
-                entry &&
-                (await runWithRequestContext({ userEmail, orgId }, () =>
-                  isStoredEngineUsableForRequest(stored, entry),
-                ))
-              ) {
-                const model = normalizeAgentEngineStatusModel(
-                  entry,
-                  stored.model,
-                );
-                return {
-                  configured: true,
-                  engine: stored.engine,
-                  model,
-                  source: "env" as const,
-                  envVar: entry.requiredEnvVars[0],
-                  openAiBaseUrlConfigured,
-                };
-              }
-            }
-            if (detectedFromUser?.name === "builder") {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-            if (detectedFromUser) {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-            const detected = await runWithRequestContext(
-              { userEmail, orgId },
-              () => detectEngineFromEnv(),
-            );
-            if (detected) {
-              return {
-                configured: true,
-                engine: detected.name,
-                model: detected.defaultModel ?? DEFAULT_MODEL,
-                source: "env" as const,
-                envVar: detected.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-          } catch {}
-          return { configured: false };
+          } catch (err) {
+            // NOT `{ configured: false }`. A 200 saying "not configured" is an
+            // authoritative answer to the client, so a DB blip here renders as
+            // "connect an AI provider" and gates the composer. 503 is the only
+            // response the client can tell apart from a real answer — it maps
+            // to `unavailable`, which keeps the composer usable and retries.
+            console.error("[agent-engine/status] lookup failed", err);
+            setResponseStatus(event, 503);
+            return { error: "Could not read the agent engine configuration." };
+          }
         }),
       );
 
@@ -3320,6 +3665,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              sessionId: readBrowserSessionIdHeader(event),
             });
           } catch {
             // best-effort
@@ -3604,7 +3950,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 503);
           return {
             error:
-              "No file upload provider configured. Connect Builder.io in Settings → File uploads, or register a provider.",
+              "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider.",
           };
         }),
       );
@@ -3692,9 +4038,11 @@ export function createCoreRoutesPlugin(
           await import("../extensions/store.js");
         const { createExtensionsHandler } =
           await import("../extensions/routes.js");
-        ensureExtensionsTables().catch(() => {});
+        if (runBootDatabaseWork) ensureExtensionsTables().catch(() => {});
         registerExtensionsShareable();
-        const extensionsHandler = createExtensionsHandler();
+        const extensionsHandler = createExtensionsHandler({
+          extensionTools: options.extensionTools,
+        });
         getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
         // Legacy alias — the previous public API was /_agent-native/tools/*.
         // Mounted in addition to /extensions/* so any deployed iframes mid-flight
@@ -3706,7 +4054,7 @@ export function createCoreRoutesPlugin(
           await import("../extensions/slots/store.js");
         const { createSlotsHandler } =
           await import("../extensions/slots/routes.js");
-        ensureSlotTables().catch(() => {});
+        if (runBootDatabaseWork) ensureSlotTables().catch(() => {});
         getH3App(nitroApp).use(`${P}/slots`, createSlotsHandler());
       } catch {
         // Extensions module not available — skip
@@ -3716,7 +4064,7 @@ export function createCoreRoutesPlugin(
       try {
         const { ensureDataProgramTables, registerDataProgramsShareable } =
           await import("../data-programs/store.js");
-        ensureDataProgramTables().catch(() => {});
+        if (runBootDatabaseWork) ensureDataProgramTables().catch(() => {});
         registerDataProgramsShareable();
       } catch {
         // Data programs module not available — skip
@@ -4089,7 +4437,14 @@ export function createCoreRoutesPlugin(
               (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
               "";
             // Skip — compose handler above already handled it
-            if (key === "compose" || key === "") return;
+            if (key === "compose") return;
+            // Collection root: `GET ?keys=a,b,c` batches many single-key reads
+            // into one request (and one identity resolution) — the chat rail
+            // alone reads ~6 keys on every mount.
+            if (key === "") {
+              if (getMethod(event) === "GET") return getStateMany(event);
+              return;
+            }
             if (event.context) {
               event.context.params = { ...event.context.params, key };
             }
@@ -4104,8 +4459,13 @@ export function createCoreRoutesPlugin(
       }
       resolveInit();
     } catch (error) {
+      // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,
+      // which cannot catch an async rejection, so rethrowing here surfaces as
+      // an unhandledRejection: Node exits, the serverless container dies, and
+      // every in-flight request on it returns a bare 502. `rejectInit` already
+      // routes this failure to the readiness gate, which answers the affected
+      // paths with a retryable 503 instead.
       rejectInit(error);
-      throw error;
     }
   };
 }

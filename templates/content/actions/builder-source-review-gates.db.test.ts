@@ -7,6 +7,10 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  BUILDER_CMS_BODY_CONTENT_KEY,
+} from "./_builder-cms-source-adapter";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -16,9 +20,11 @@ const TEST_DB_PATH = join(
 const OWNER = "owner@example.com";
 
 const heavySnapshotReads = vi.hoisted(() => ({
+  review: 0,
   target: 0,
   allSources: 0,
   omitTargetRows: false,
+  reviewDocumentScopes: [] as Array<string[] | null>,
   documentScopes: [] as Array<string[] | null>,
 }));
 vi.mock("./_database-source-utils.js", async (importOriginal) => {
@@ -26,6 +32,22 @@ vi.mock("./_database-source-utils.js", async (importOriginal) => {
     await importOriginal<typeof import("./_database-source-utils.js")>();
   return {
     ...original,
+    getContentDatabaseSourceSnapshotForReview: async (
+      ...args: Parameters<
+        typeof original.getContentDatabaseSourceSnapshotForReview
+      >
+    ) => {
+      heavySnapshotReads.review += 1;
+      heavySnapshotReads.reviewDocumentScopes.push(
+        args[2] ? [...args[2]] : null,
+      );
+      const snapshot = await original.getContentDatabaseSourceSnapshotForReview(
+        ...args,
+      );
+      return snapshot && heavySnapshotReads.omitTargetRows
+        ? { ...snapshot, rows: [] }
+        : snapshot;
+    },
     getContentDatabaseSourceSnapshotForWrite: async (
       ...args: Parameters<
         typeof original.getContentDatabaseSourceSnapshotForWrite
@@ -55,6 +77,8 @@ let prepareReview: typeof import("./prepare-builder-source-review.js").default;
 let previewReview: typeof import("./preview-builder-source-review.js").default;
 let prepareExecution: typeof import("./prepare-builder-source-execution.js").default;
 let validateExecution: typeof import("./validate-builder-source-execution.js").default;
+let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
+let builderReviewSourceValueTextProjection: typeof import("./_database-source-utils.js").builderReviewSourceValueTextProjection;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -69,6 +93,10 @@ beforeAll(async () => {
     .default;
   validateExecution = (await import("./validate-builder-source-execution.js"))
     .default;
+  realExecutionDeps = (await import("./execute-builder-source-execution.js"))
+    .realExecutionDeps;
+  ({ builderReviewSourceValueTextProjection } =
+    await import("./_database-source-utils.js"));
 }, 60000);
 
 afterAll(() => {
@@ -224,6 +252,120 @@ async function seedBuilderSource(args: {
 }
 
 describe("Builder source review execution gates", () => {
+  it("reads dotted Builder body keys on SQLite", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    await getDb()
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "stored-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Stored readable body",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+
+    const [projected] = await getDb()
+      .select({
+        documentId: schema.contentDatabaseSourceRows.documentId,
+        sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+        sourceQualifiedId: schema.contentDatabaseSourceRows.sourceQualifiedId,
+        provenance: schema.contentDatabaseSourceRows.provenance,
+        currentHash: builderReviewSourceValueTextProjection(
+          BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+        ),
+        currentContent: builderReviewSourceValueTextProjection(
+          BUILDER_CMS_BODY_CONTENT_KEY,
+        ),
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+
+    expect(projected).toMatchObject({
+      currentHash: "stored-hash",
+      currentContent: "Stored readable body",
+    });
+  });
+
+  it("discovers body-only review candidates without returning unchanged article bodies", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    const db = getDb();
+    const now = "2026-07-25T12:00:00.000Z";
+    const unchangedDocumentId = `unchanged_${counter}`;
+    const unchangedItemId = `unchanged_item_${counter}`;
+
+    await db
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(schema.contentDatabaseSourceChangeSets.sourceId, seeded.sourceId),
+      );
+    await db
+      .update(schema.documents)
+      .set({ content: "Locally changed body", updatedAt: now })
+      .where(eq(schema.documents.id, seeded.rowDocumentId));
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.title": "Old title",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "changed-baseline-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Remote baseline body",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+    await db.insert(schema.documents).values({
+      id: unchangedDocumentId,
+      ownerEmail: OWNER,
+      title: "Unchanged article",
+      content: "Same body",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: unchangedItemId,
+      ownerEmail: OWNER,
+      databaseId: seeded.databaseId,
+      documentId: unchangedDocumentId,
+      position: 1,
+      bodyHydrationStatus: "hydrated",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: `unchanged_row_${counter}`,
+      ownerEmail: OWNER,
+      sourceId: seeded.sourceId,
+      databaseItemId: unchangedItemId,
+      documentId: unchangedDocumentId,
+      sourceRowId: `unchanged_entry_${counter}`,
+      sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/unchanged_entry_${counter}`,
+      sourceDisplayKey: "Unchanged article",
+      provenance: "Builder CMS read adapter",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Unchanged article",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "unchanged-baseline-hash",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Same body",
+      }),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await asOwner(() =>
+      previewReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        scope: "all",
+      }),
+    );
+
+    expect(response.review?.rows.map((row) => row.documentId)).toEqual([
+      seeded.rowDocumentId,
+    ]);
+  });
+
   it("restores authoritative Builder targets in selected read-only previews", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
@@ -255,6 +397,7 @@ describe("Builder source review execution gates", () => {
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
     });
     heavySnapshotReads.documentScopes = [];
+    heavySnapshotReads.reviewDocumentScopes = [];
     heavySnapshotReads.omitTargetRows = true;
     try {
       const response = await asOwner(() =>
@@ -287,13 +430,32 @@ describe("Builder source review execution gates", () => {
         documentId: expect.stringMatching(/^doc_row_/),
       });
       expect(JSON.parse(execution.payloadJson).request.method).toBe("PATCH");
-      expect(heavySnapshotReads.documentScopes).toEqual([
+      expect(heavySnapshotReads.reviewDocumentScopes).toEqual([
         [seeded.rowDocumentId],
+      ]);
+      expect(heavySnapshotReads.documentScopes).toEqual([
         [seeded.rowDocumentId],
       ]);
     } finally {
       heavySnapshotReads.omitTargetRows = false;
     }
+  });
+
+  it("scopes live execution snapshots to the prepared change-set document", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    heavySnapshotReads.documentScopes = [];
+
+    const deps = realExecutionDeps(seeded.sourceId, seeded.changeSetId);
+    const database = await deps.resolveDatabase({
+      documentId: seeded.databaseDocumentId,
+    });
+    expect(database).not.toBeNull();
+
+    await deps.getSourceSnapshot(database!);
+
+    expect(heavySnapshotReads.documentScopes).toEqual([[seeded.rowDocumentId]]);
   });
 
   it("refreshes a previously approved body only from a provably unsent blocked dry run", async () => {
@@ -473,7 +635,7 @@ describe("Builder source review execution gates", () => {
     expect(response.review.rows[0]?.bodyChange).toEqual(staleBody);
   });
 
-  it("builds the persisted gate from the exact approved selection with two heavy snapshots", async () => {
+  it("builds the persisted gate from the exact approved selection with bounded review snapshots", async () => {
     const bodyChange = {
       summary: "Body changed",
       currentExcerpt: "Old",
@@ -494,6 +656,7 @@ describe("Builder source review execution gates", () => {
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
       bodyChange,
     });
+    heavySnapshotReads.review = 0;
     heavySnapshotReads.target = 0;
     heavySnapshotReads.allSources = 0;
 
@@ -523,7 +686,11 @@ describe("Builder source review execution gates", () => {
     const persistedBody = JSON.parse(persistedChangeSet.bodyChangeJson);
     const executionPayload = JSON.parse(execution.payloadJson);
 
-    expect(heavySnapshotReads).toMatchObject({ target: 2, allSources: 1 });
+    expect(heavySnapshotReads).toMatchObject({
+      review: 1,
+      target: 1,
+      allSources: 0,
+    });
     expect(persistedChangeSet.state).toBe("approved");
     expect(response.review.rows[0]?.fieldChanges).toEqual(persistedFields);
     expect(response.review.rows[0]?.bodyChange).toEqual(persistedBody);

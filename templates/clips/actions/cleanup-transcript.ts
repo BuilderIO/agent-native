@@ -1,5 +1,5 @@
 /**
- * Shared Gemini cleanup pass for raw native transcripts.
+ * Shared text-model cleanup pass for raw native transcripts.
  *
  * This action is the ONE narrow exception to the "all AI through agent chat"
  * rule (see CLAUDE.md rule 1 + 2). It is a media-pipeline path — input is a
@@ -13,11 +13,9 @@
  *   - Meetings finalize (task='summary' → summary + bullets + action items)
  *
  * Provider routing:
- *   1. Builder.io Connect credentials → Builder engine with model
- *      `gemini-3-1-flash-lite` (matches existing convention in
- *      `transcribe-voice.ts`).
+ *   1. Builder.io Connect credentials → Builder engine with GPT-5.6 Luna.
  *   2. Fallback: user GEMINI_API_KEY direct to Google's generativelanguage
- *      API.
+ *      API with Gemini Flash-Lite.
  *   3. Otherwise → throw FeatureNotConfiguredError.
  *
  * Usage:
@@ -44,11 +42,10 @@ import {
   noteBuilderCreditsExhausted,
 } from "./lib/builder-credits-state.js";
 
-// Builder gateway maps this to Gemini 3.1 Flash-Lite (see transcribe-voice.ts:52).
-const BUILDER_MODEL = "gemini-3-1-flash-lite";
+const BUILDER_MODEL = "gpt-5-6-luna";
 
-// BYOK direct-Google fallback — keep on a stable public model id; Builder's
-// managed provider handles the 3.1 preview.
+// BYOK direct-Google fallback keeps an explicit public model id; Builder's
+// managed path can use its own model catalog.
 const GEMINI_BYOK_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_BYOK_MODEL}:generateContent`;
 
@@ -71,7 +68,7 @@ const CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS = [
   "Relevant Clips AGENTS.md rules:",
   "- User-facing language calls a recording a Clip.",
   "- Generated titles should be concise, specific, and human-editable.",
-  "- Native Web Speech/macOS Speech text is the source transcript; Gemini only cleans or titles it.",
+  "- Native Web Speech/macOS Speech text is the source transcript; the text model only cleans or titles it.",
   "- Cleanup preserves the speaker's meaning and voice, fixes recognition errors, and must not invent facts.",
 ].join("\n");
 
@@ -95,7 +92,7 @@ export interface CleanupResult {
 
 export default defineAction({
   description:
-    "Run a Gemini 3.1 Flash-Lite cleanup pass on a raw transcript. task='cleanup' returns a cleaned transcript; task='title' returns a short title; task='summary' returns a markdown summary plus structured bullets and action items. This is a server-side media-pipeline path — it does NOT delegate to the agent chat.",
+    "Run a low-cost text-model cleanup pass on a raw transcript, preferring GPT-5.6 Luna through Builder when available and falling back to Gemini BYOK. task='cleanup' returns a cleaned transcript; task='title' returns a short title; task='summary' returns a markdown summary plus structured bullets and action items. This is a server-side media-pipeline path — it does NOT delegate to the agent chat.",
   schema: z.object({
     transcript: z.string().min(1).describe("Raw transcript text to process"),
     task: z
@@ -275,7 +272,7 @@ function buildCleanupConfigurationError({
   builderFailureMessage: string | null;
 }): FeatureNotConfiguredError {
   let message =
-    "Transcript cleanup needs Builder.io Connect or a fallback AI key.";
+    "Transcript cleanup needs Builder.io Connect (free tier available) or a fallback AI key.";
 
   if (builderConfigured && builderReturnedEmpty) {
     message =
@@ -288,7 +285,7 @@ function buildCleanupConfigurationError({
     message = `Builder.io is connected, but the cleanup/title service failed: ${detail}`;
   } else if (builderPartiallyConfigured) {
     message =
-      "Builder.io Connect is incomplete. Reconnect Builder.io in Settings or add a fallback AI key.";
+      "Builder.io Connect is incomplete. Reconnect Builder.io (free tier available) in Settings or add a fallback AI key.";
   }
 
   return new FeatureNotConfiguredError({
@@ -489,6 +486,11 @@ function buildPrompt({
     "dueDate"?: string              // ISO date if explicitly mentioned
   }>
 }
+Rules for summaryMd:
+- Write it the way the person who made this recording would describe it themselves — plain, direct, and about the subject matter.
+- Never narrate the recording from the outside. Do not write "the speaker", "the presenter", "the narrator", "the author", "the team", "the video", "this recording", "this clip", "this meeting", "the discussion covered", or any equivalent framing.
+- Lead with the topic, decisions, and specifics. Name a person only when who said or owns something actually matters.
+- No praise, no meta commentary about the transcript, no "overall" wrap-up sentence.
 Rules for action items:
 - Attribute each action item to a specific attendee whenever the transcript makes the owner clear (e.g. "I'll send the deck", "Alice will follow up").
 - The "assigneeEmail" MUST be one of the attendee emails listed in the <context> block above — do not invent emails or use display names.

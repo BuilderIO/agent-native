@@ -2,7 +2,44 @@
 
 import { describe, expect, it } from "vitest";
 
-import { buildPromptComposerSubmission } from "./PromptComposer.js";
+import {
+  buildPromptComposerSubmission,
+  shouldGateComposerForMissingEngine,
+} from "./PromptComposer.js";
+
+describe("shouldGateComposerForMissingEngine", () => {
+  it("never disables the composer while the status check is unresolved", () => {
+    for (const state of ["unknown", "unavailable"]) {
+      expect(
+        shouldGateComposerForMissingEngine({ state, hasSetupComponent: true }),
+      ).toBe(false);
+    }
+  });
+
+  it("gates only when a connect affordance can be rendered", () => {
+    expect(
+      shouldGateComposerForMissingEngine({
+        state: "missing",
+        hasSetupComponent: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldGateComposerForMissingEngine({
+        state: "missing",
+        hasSetupComponent: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves the composer usable once an engine is configured", () => {
+    expect(
+      shouldGateComposerForMissingEngine({
+        state: "configured",
+        hasSetupComponent: true,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("buildPromptComposerSubmission", () => {
   it("passes images through files only — never inlines base64 into prompt text", async () => {

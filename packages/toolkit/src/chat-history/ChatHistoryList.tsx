@@ -349,6 +349,11 @@ function ChatHistoryRow({
         isRenaming && "an-chat-history-row--renaming",
         item.disabled && "an-chat-history-row--disabled",
       )}
+      onContextMenu={(event) => {
+        if (!hasMenu) return;
+        event.preventDefault();
+        setMenuOpen(true);
+      }}
     >
       {isRenaming ? (
         <div className="an-chat-history-row__rename">

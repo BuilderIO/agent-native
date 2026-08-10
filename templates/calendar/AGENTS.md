@@ -4,8 +4,16 @@ Calendar is an agent-native scheduling app. The agent manages events,
 availability, booking links, connected calendars, visual preferences, and sharing
 through actions and SQL-backed application state.
 
+## Skills
+
 Detailed event, availability, booking, storage, and UI rules live in
-`.agents/skills/`.
+`.agents/skills/`. Read the relevant skill before deeper work:
+
+- `event-management` for create/update/delete event flows, `list-events` result
+  formats and source coverage, and working locations.
+- `availability-booking` for free/busy, booking links, and scheduling.
+- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
+  and `shadcn-ui` for framework work.
 
 Before building common workspace or agent UI, read `agent-native-toolkit` to
 inventory existing public kits and installed package seams. Use
@@ -36,68 +44,24 @@ ladder.
   version matters, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request` against the real provider API instead of weakening the
   answer around a narrow action.
-- For relationship-history searches, prefer raw Google Calendar API calls via
-  `provider-api-request` so the agent controls `calendarId`, `timeMin`,
-  `timeMax`, `q`, `maxResults`, and pagination. For large scans, stage results
-  with `stageAs` and analyze them with `query-staged-dataset`.
+- For relationship-history searches, use `provider-api-request`; stage large
+  scans with `stageAs` and analyze them with `query-staged-dataset`.
 - For Google Calendar, distinguish an empty calendar from missing auth,
   reauth-needed, or fetch failures.
-- `list-events` remains the UI-compatible event list by default. External MCP
-  callers receive its compact, paginated version 1 inventory envelope
-  unless they explicitly request `format: "legacy"`; use `format: "inventory"`
-  for that same coverage-aware result from other callers. Preserve its
-  account coverage, `sourceCoverage`, and `coverageComplete` fields: Google
-  account, ICS feed, overlay, and local-booking sources are independent, and a
-  partial source failure is not an empty calendar. Pass `accountEmails` only
-  for connected accounts; the action validates the whole requested set before
-  provider work.
-- Google Calendar working locations are status events (`eventType:
-"workingLocation"`). Sync and display them as working locations, keep them
-  transparent/non-blocking, and preserve `workingLocationProperties` instead of
-  treating the summary as a generic all-day event title.
-- When updating one visible occurrence in a recurring working-location series,
-  pass that occurrence's event `id` with `scope: "single"` by default. Use the
-  series scope only when the user explicitly chooses all days.
-- Google Calendar API v3 exposes working locations through Events. The current
-  Settings API and Calendar v3 discovery document do not expose working-hours
-  settings, so do not promise working-hours UI or overlays unless a real
-  provider data path has been verified first.
-- Use framework sharing actions for calendars/events/booking resources when
-  applicable.
-- Booking-link sharing controls who can manage the link. Public booking access
-  is still controlled by the `/book/{username}/{slug}` URL and `isActive`.
-- `create-booking-link` and `update-booking-link` accept `hosts` for required
-  co-hosts besides the owner, e.g. `hosts: ["brent@example.com"]`. Group links
-  only offer times when the owner and all co-hosts are free, then invite
-  co-hosts to the created Google Calendar event. A co-host who is also in the
-  owner's calendar overlay ("subscribed peer") list additionally gets a hard
-  filter against their own saved working-hours schedule and time zone, not
-  just free/busy; co-hosts outside the overlay list keep free/busy-only
-  behavior. The public booking page can reveal each eligible host's time zone
-  in a multi-time-zone grid.
+- `list-events` returns the UI-compatible list by default and the compact
+  inventory envelope to MCP callers. Preserve its account coverage,
+  `sourceCoverage`, and `coverageComplete` fields — a partial source failure is
+  not an empty calendar. See `event-management` for the formats and the
+  `accountEmails` rules.
+- Treat Google Calendar working locations and full-day out-of-office events as
+  native status events; see `event-management` for their action contracts.
+- Use framework sharing actions for calendar, event, and booking resources;
+  see `availability-booking` for booking-link controls, co-hosts, and the
+  overlay-based working-hours/time-zone hard filtering for subscribed peers.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
-- Event detail (panel and popover) exposes `calendar.event-detail.bottom` as an
-  `ExtensionSlot`. Extensions render as widgets there with `slotContext`
-  (eventId, title, start/end, timezones, location, attendees, accountEmail).
-  For inline adornments next to each guest email (e.g. local times), prefer the
-  first-party attendee timezone UI / `set-attendee-timezone` settings, or a
-  source edit — do not claim the slot can inject per-row UI.
-- Use `get-attendee-timezones` / `set-attendee-timezone` to read or save
-  per-guest IANA timezone overrides (`attendee-timezones` user setting). The UI
-  shows each guest's local event-start time when a timezone is known (self from
-  the browser zone; others from `attendee.timeZone` or the override map, with
-  the event zone as a fallback for the organizer).
-- Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
-  visible RSVP comment on a declined or tentative response; pass an empty note to
-  clear an existing RSVP comment.
-- When adding guests to an existing event, prefer `update-event` with
-  `addAttendees` so existing RSVP notes/statuses are preserved. Use
-  `scope: "all"` only when the user wants a recurring-event guest change applied
-  to the whole series.
-- Pass `optional: true` on an attendee object to mark someone optional when
-  creating, drafting, or adding guests. To change optional/required after the
-  fact, replace the full `attendees` list with `optional` set on that guest.
+- Event detail extensions, attendee adornments, RSVP scope, and multi-account
+  updates are documented in `event-management`; follow that skill before edits.
 
 ## Application State
 
@@ -109,13 +73,6 @@ ladder.
 - Preserve `accountEmail` on every Google event write. When more than one
   Google account is connected, pass the chosen account to `create-event`, and
   pass the event's returned `accountEmail` to `update-event`, `delete-event`,
-  and `rsvp-event`. These actions target that account's primary calendar.
-
-## Skills
-
-Read the relevant skill before deeper work:
-
-- `event-management` for create/update/delete event flows.
-- `availability-booking` for free/busy, booking links, and scheduling.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
+  and `rsvp-event`. These actions target that account's primary calendar. For a
+  move, pass the original account as `accountEmail` and the destination as
+  `targetAccountEmail` to `update-event`.

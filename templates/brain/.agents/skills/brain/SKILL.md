@@ -10,19 +10,33 @@ Use Brain actions rather than raw SQL.
 1. Call `get-brain-settings` before answering, searching broadly, or distilling when current settings are not already in context. Apply the returned guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, redaction, and distillation instructions.
 2. Import raw material with `import-capture` (generic) or `import-transcript`
    (meeting-shaped: participants, `sourceUrl`, tags). Both default
-   `enqueueDistillation: true` and auto-create a `manual` source when
-   `sourceId` is omitted — don't call `create-source` first just to import one
-   ad hoc capture.
-3. Call `enqueue-distillation` when a capture needs distillation. Re-running it
-   for a capture that's already queued/processing refreshes the handoff
-   instructions instead of creating a duplicate queue row.
+   `enqueueDistillation: true`, immediately create or reuse a queue item, and
+   auto-create a `manual` source when `sourceId` is omitted — don't call
+   `create-source` first just to import one ad hoc capture.
+3. Call `enqueue-distillation` when an existing capture needs an explicit
+   queue/retry handoff. Re-running it for a capture that's already
+   queued/processing refreshes the handoff instructions instead of creating a
+   duplicate queue row.
 4. Before writing knowledge, call `get-capture` and copy short exact quotes.
    Quotes and offsets always reference the persisted safe capture, never an
    upstream raw payload. `get-capture` redacts `title`/`content`/`metadata` by
    default; `includeRawContent: true` only reveals allowed, source-accessible
    capture content and never bypasses a sensitivity disposition.
-5. Call `write-knowledge` with `evidence` entries whose `quote` fields are exact capture substrings — `validateEvidence` throws otherwise.
-6. If `write-knowledge` returns `mode: "proposal"`, leave it in review unless the user asks to approve. See AGENTS.md for the exact tier/confidence conditions that trigger a proposal.
+5. Call `write-knowledge` with `evidence` entries whose `quote` fields are exact
+   capture substrings. `write-knowledge` calls `validateEvidence`, which throws
+   if `evidence[].quote` is not found verbatim in the referenced capture's
+   content. Copy the quote from `get-capture` output — do not paraphrase, trim
+   mid-sentence in a way that changes the substring, or reconstruct it from
+   memory.
+6. If `write-knowledge` returns `mode: "proposal"`, leave it in review unless the
+   user explicitly asks to approve it now. See **Publish Tiers And Proposal
+   Gating** below for the exact tier/confidence conditions that trigger a
+   proposal.
+7. `review-proposal` and `approve-proposal`/`reject-proposal` overlap:
+   `review-proposal` is the general one (`decision`: `approve` | `reject` |
+   `needs_changes`); `approve-proposal` and `reject-proposal` are narrower
+   single-purpose actions with the same underlying effect. Any of them is
+   correct; don't call more than one for the same proposal.
 
 ## Privacy, Quarantine, And Safe Captures
 
@@ -78,6 +92,11 @@ company-relevant content retained from this capture." — treat that string as
 
 ## Search: Scoped Hybrid Retrieval
 
+For every company-specific factual question, call `ask-brain` before answering.
+Use only its cited evidence. A result with no citations means the fact is
+unverified or unavailable, not that the agent may fill the gap from general
+model knowledge.
+
 - `search-knowledge` — scoped retrieval over **distilled knowledge only**. Use
   for "what does Brain officially know about X."
 - `search-everything` — broader pass across knowledge, raw captures, and
@@ -94,13 +113,84 @@ company-relevant content retained from this capture." — treat that string as
 Follow `sourcePolicy` for how much of `search-everything`'s output an answer
 may lean on: `strict` means reviewed knowledge only, `balanced` means raw
 captures are labeled fallback context only when knowledge is thin, and
-`exploratory` means raw captures and sources can always be labeled leads. See
-AGENTS.md for the exact `rawCaptureFallback` behavior table.
+`exploratory` means raw captures and sources can always be labeled leads. The
+exact `rawCaptureFallback` behavior table is below.
 
 For "ask across everything" requests, follow the `ask-across-everything` skill:
 search Brain first, inspect `federatedCoverage`, delegate live/app-owned data
 requests with `call-agent`, and never claim Brain searched sibling app databases
 directly.
+
+## Retrieval Policy Is Configurable — Read It, Don't Assume
+
+`sourcePolicy` (in Brain settings) changes what `ask-brain` and
+`search-everything` are allowed to answer from, and it is enforced in code,
+not just documented:
+
+| `sourcePolicy` | `rawCaptureFallback` | Behavior |
+| --- | --- | --- |
+| `strict` | `never-answer` | Reviewed knowledge only. If knowledge is missing/thin, say so — never fall back to raw captures as answer support. |
+| `balanced` (default) | `thin-results` | Prefer reviewed knowledge; fall back to raw captures only when knowledge is missing or combined summary+body text is under ~260 chars, and label them as raw capture matches. |
+| `exploratory` | `allowed-leads` | Always include accessible raw captures/sources alongside knowledge, clearly labeled as unreviewed leads. |
+
+`requireCitations` (default true) additionally blocks `ask-brain` from
+returning an answer with no usable citation — it returns a policy-explanation
+message instead of a bare summary when that happens.
+
+Each source may also carry an `answerPolicy`, configured through the
+`create-source` / `update-source` `policy` argument. `ask-brain` excludes stale
+or answer-ineligible results, prevents review-required raw captures from
+supporting answers, ranks `blessed` before `standard` before `untrusted`, and
+then ranks by `authority`. It returns the evaluated policy alongside citations
+so external apps can explain why a result was preferred or excluded. Sources
+without this policy retain the compatible `standard`, eligible, authority-50
+behavior.
+
+## Publish Tiers And Proposal Gating
+
+`write-knowledge` writes at a `publishTier`: `private` (draft, private
+visibility), `team`, or `company` (published, org visibility) — default comes
+from `settings.defaultPublishTier`. A `company`-tier write becomes a
+**proposal** (`mode: "proposal"`, held for human review) when any cited source
+has `answerPolicy.reviewRequired: true`. Otherwise the workspace approval
+behavior applies when ALL of:
+
+- `proposalMode !== "never"`, and
+- `tier === "company"`, and
+- `settings.requireApprovalForCompanyKnowledge` is true, and
+- it is NOT a high-confidence auto-publish (`confidence >= 90` AND it's a new
+  record, no `knowledgeId` AND nothing was redacted).
+
+Setting `proposalMode: "always"` forces a proposal regardless of tier/settings;
+`proposalMode: "never"` only works when the caller also has bypass access
+(e.g. `approve-proposal`/`review-proposal` set it internally). If
+`write-knowledge` returns `mode: "proposal"`, leave it in review unless the
+user explicitly asks to approve it now.
+
+## Action Reference
+
+AGENTS.md carries a one-line action index; these are the fuller purposes.
+
+| Action | Purpose |
+| --- | --- |
+| `get-brain-settings` | Identity, tone, `sourcePolicy`, citation, and distillation settings — read first. |
+| `search-everything` | Broad search across knowledge + captures + sources, plus `federatedCoverage`. |
+| `search-knowledge` | SQL text search over distilled knowledge only. |
+| `ask-brain` | Cited-answer endpoint: reviewed knowledge, capped raw-capture fallback, citations, `federatedCoverage`. |
+| `get-knowledge` / `list-knowledge` | Read one or list distilled knowledge records. |
+| `get-capture` / `list-captures` | Read one or list raw captures (redacted by default; `includeRawContent` for exact quotes). |
+| `import-capture` / `import-transcript` | Ingest a generic capture or meeting transcript, auto-create a `manual` source when needed, and queue distillation by default. |
+| `enqueue-distillation` / `mark-capture-distilled` | Queue a capture for distillation; close out the queue row when done. |
+| `write-knowledge` | Write/update durable knowledge; may return a pending proposal — see Publish Tiers above. |
+| `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Human-review workflow for gated writes. |
+| `set-knowledge-canonical` | Mirror/unmirror approved knowledge into `context/company-brain/...` workspace resources. |
+| `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle across the six providers. |
+| `sync-source` / `sync-due-sources` | Run one connector now, or sweep all due sources. |
+| `get-brain-health` | Setup/source health, sync freshness, queue and proposal counts, next steps. |
+| `list-connection-providers` | Per-provider workspace-connection readiness and credential health. |
+| `test-slack-connection` / `run-slack-pilot` | Slack credential/channel validation and bounded first-sync report. |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw provider HTTP calls beyond the source actions. |
+| `run-demo-eval` / `run-retrieval-eval` / `seed-demo-data` | Demo corpus and offline eval checks (see `brain-runbook`). |
 
 ## Related Skills
 

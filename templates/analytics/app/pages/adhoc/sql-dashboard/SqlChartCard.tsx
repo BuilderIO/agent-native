@@ -1,9 +1,10 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
   IconDotsVertical,
-  IconExternalLink,
   IconMaximize,
   IconPencil,
   IconRefresh,
@@ -11,10 +12,12 @@ import {
   IconCode,
   IconDownload,
   IconMessageCircle,
+  IconBrandGoogle,
+  IconArrowUpRight,
 } from "@tabler/icons-react";
-import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
@@ -38,16 +41,17 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
+import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
@@ -64,10 +68,13 @@ interface SqlChartCardProps {
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
   eagerLoad?: boolean;
+  reportScreenshot?: boolean;
   isDragSource?: boolean;
   selectedForChat?: boolean;
   onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
   extensionContext?: Record<string, unknown> | null;
+  dashboardId?: string;
+  filters?: Record<string, string>;
 }
 
 const PanelDragHandle = memo(function PanelDragHandle({
@@ -120,18 +127,26 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
   eagerLoad = false,
+  reportScreenshot = false,
   isDragSource = false,
   selectedForChat = false,
   onSelectForChat,
   extensionContext,
+  dashboardId,
+  filters,
 }: SqlChartCardProps) {
   const t = useT();
   const queryClient = useQueryClient();
+  const exportToGoogleSheets = useActionMutation(
+    "export-dashboard-panel-to-google-sheet",
+  );
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [openConfirmAfterMenuClose, setOpenConfirmAfterMenuClose] =
+    useState(false);
   const [expanded, setExpanded] = useState(false);
   const [extRefreshKey, setExtRefreshKey] = useState(0);
-  const navigate = useNavigate();
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
     eagerLoad ||
@@ -149,17 +164,6 @@ export function SqlChartCard({
       ] as const,
     [panel.id, panel.source, panel.sql, resolvedSql],
   );
-  const chartFetchCount = useIsFetching({ queryKey: chartQueryKey });
-  const chartHasCachedData =
-    queryClient.getQueryData(chartQueryKey) !== undefined;
-  const isChartRefreshing = chartHasCachedData && chartFetchCount > 0;
-  const extensionId =
-    panel.chartType === "extension"
-      ? ((panel.config as Record<string, unknown> | undefined)?.extensionId as
-          | string
-          | undefined)
-      : undefined;
-
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
   }, []);
@@ -174,6 +178,62 @@ export function SqlChartCard({
       queryKey: chartQueryKey,
     });
   }, [chartQueryKey, queryClient]);
+
+  const handleExportToGoogleSheets = useCallback(async () => {
+    if (!dashboardId || panel.chartType !== "table") return;
+
+    try {
+      const result = (await exportToGoogleSheets.mutateAsync({
+        dashboardId,
+        panelId: panel.id,
+        filters: filters ?? {},
+      })) as { spreadsheetUrl?: string };
+      if (result.spreadsheetUrl) {
+        toast.success(t("sqlDashboard.googleSheetsExported"), {
+          action: {
+            label: t("sqlDashboard.openGoogleSheet"),
+            onClick: () => {
+              window.open(
+                result.spreadsheetUrl,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            },
+          },
+        });
+      } else {
+        toast.success(t("sqlDashboard.googleSheetsExported"));
+      }
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.googleSheetsExportFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }, [dashboardId, exportToGoogleSheets, filters, panel, t]);
+
+  const handlePromoteCustomBlock = useCallback(() => {
+    const extensionId = panel.config?.extensionId;
+    if (!dashboardId || !extensionId) return;
+    const dashboardName =
+      typeof extensionContext?.dashboardName === "string"
+        ? extensionContext.dashboardName
+        : undefined;
+    sendToAgentChat(
+      buildCustomBlockPromotionRequest(
+        {
+          dashboardId,
+          dashboardName,
+          panelId: panel.id,
+          panelTitle: panel.title,
+          extensionId,
+          nativeGapReason: panel.config?.customBlock?.nativeGapReason,
+        },
+        t("sqlDashboard.promoteCustomBlockMessage", { title: panel.title }),
+      ),
+    );
+  }, [dashboardId, extensionContext, panel, t]);
 
   const handleCardClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -230,6 +290,20 @@ export function SqlChartCard({
     setExportCsv(null);
   }, [panel.id]);
 
+  useEffect(() => {
+    if (menuOpen || !openConfirmAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenConfirmAfterMenuClose(false);
+      setConfirmOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen, openConfirmAfterMenuClose]);
+
+  const requestDeleteConfirmation = useCallback(() => {
+    setOpenConfirmAfterMenuClose(true);
+    setMenuOpen(false);
+  }, []);
+
   // Section panels render as a flush header row (no card chrome, full width)
   // so they read as dividers between groups of panels rather than as another
   // tile in the grid.
@@ -241,11 +315,11 @@ export function SqlChartCard({
         data-dragging={isDragSource ? "true" : undefined}
         className="dashboard-section-card group relative mt-2 first:mt-0"
       >
-        <div className="flex items-center gap-2 border-b border-border pb-2">
+        <div className="flex items-center gap-2 pb-2">
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
           {editable ? (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-              <DropdownMenu>
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
@@ -270,9 +344,9 @@ export function SqlChartCard({
                   )}
                   {onEdit && <DropdownMenuSeparator />}
                   <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setConfirmOpen(true);
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      requestDeleteConfirmation();
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
@@ -327,7 +401,7 @@ export function SqlChartCard({
 
   // Extension panels render their sandboxed iframe full-bleed with no card chrome
   // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen, refresh, open embedded extension); editable
+  // actions (full screen and refresh); editable
   // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     return (
@@ -337,8 +411,10 @@ export function SqlChartCard({
         style={isDragSource ? { zIndex: 50 } : undefined}
         data-dragging={isDragSource ? "true" : undefined}
         data-chat-selected={selectedForChat ? "true" : undefined}
+        data-dashboard-report-panel-id={panel.id}
+        data-dashboard-report-panel-title={panel.title}
         className={cn(
-          "dashboard-extension-card group relative h-full rounded-lg border border-transparent transition-colors",
+          "dashboard-extension-card group relative h-full rounded-lg transition-colors",
           selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
         )}
       >
@@ -348,11 +424,12 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            reportScreenshot={reportScreenshot}
             extensionContext={extensionContext}
           />
         )}
         <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -367,6 +444,19 @@ export function SqlChartCard({
               <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel className="font-normal">
+                <span className="block text-xs font-medium text-foreground">
+                  {t("sqlDashboard.customBlock")}
+                </span>
+                <span className="block text-[10px] leading-tight text-muted-foreground">
+                  {t(
+                    panel.config?.customBlock?.authoredBy === "agent"
+                      ? "sqlDashboard.customBlockAgentProvenance"
+                      : "sqlDashboard.customBlockProvenance",
+                  )}
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() =>
                   onSelectForChat?.({ openSidebar: true, focus: true })
@@ -380,27 +470,20 @@ export function SqlChartCard({
                 <IconMaximize className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.fullScreen")}
               </DropdownMenuItem>
-              {extensionId ? (
-                <DropdownMenuItem
-                  onSelect={() =>
-                    navigate(
-                      `/extensions/${extensionId}/${encodeURIComponent(
-                        (panel.title ?? "extension")
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-"),
-                      )}`,
-                    )
-                  }
-                >
-                  <IconExternalLink className="h-4 w-4 mr-2" />
-                  Open embedded extension {/* i18n-ignore */}
-                </DropdownMenuItem>
-              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setExtRefreshKey((k) => k + 1)}>
                 <IconRefresh className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.refresh")}
               </DropdownMenuItem>
+              {editable && panel.config?.extensionId ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={handlePromoteCustomBlock}>
+                    <IconArrowUpRight className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.promoteToAppCode")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               {editable ? (
                 <>
                   <DropdownMenuSeparator />
@@ -411,9 +494,9 @@ export function SqlChartCard({
                     </DropdownMenuItem>
                   ) : null}
                   <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setConfirmOpen(true);
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      requestDeleteConfirmation();
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
@@ -444,6 +527,7 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  reportScreenshot={reportScreenshot}
                   extensionContext={extensionContext}
                 />
               </ChartFillHeight>
@@ -492,6 +576,8 @@ export function SqlChartCard({
       style={isDragSource ? { zIndex: 50 } : undefined}
       data-dragging={isDragSource ? "true" : undefined}
       data-chat-selected={selectedForChat ? "true" : undefined}
+      data-dashboard-report-panel-id={panel.id}
+      data-dashboard-report-panel-title={panel.title}
       className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
       <Card
@@ -504,26 +590,7 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          <div
-            className={`flex items-center gap-1 transition-opacity ${
-              isChartRefreshing
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-            }`}
-          >
-            {isChartRefreshing ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex size-6 items-center justify-center rounded text-muted-foreground">
-                    <Spinner
-                      className="size-3.5"
-                      aria-label={t("sqlDashboard.refreshing")}
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{t("sqlDashboard.refreshing")}</TooltipContent>
-              </Tooltip>
-            ) : null}
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {editable && onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}
@@ -540,7 +607,7 @@ export function SqlChartCard({
               </ViewSqlPopover>
             ) : null}
             {showPanelMenu ? (
-              <DropdownMenu>
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
@@ -582,6 +649,17 @@ export function SqlChartCard({
                       {t("sqlDashboard.downloadCsv")}
                     </DropdownMenuItem>
                   )}
+                  {panel.chartType === "table" && dashboardId ? (
+                    <DropdownMenuItem
+                      disabled={exportToGoogleSheets.isPending}
+                      onSelect={() => void handleExportToGoogleSheets()}
+                    >
+                      <IconBrandGoogle className="h-4 w-4 mr-2" />
+                      {exportToGoogleSheets.isPending
+                        ? t("sqlDashboard.exportingToGoogleSheets")
+                        : t("sqlDashboard.exportToGoogleSheets")}
+                    </DropdownMenuItem>
+                  ) : null}
                   {editable && panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
@@ -598,9 +676,9 @@ export function SqlChartCard({
                   </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        setConfirmOpen(true);
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        requestDeleteConfirmation();
                       }}
                     >
                       <IconTrash className="h-4 w-4 mr-2" />
@@ -625,6 +703,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            reportScreenshot={reportScreenshot}
             onExportCsvChange={handleExportCsvChange}
             extensionContext={extensionContext}
           />
@@ -642,6 +721,7 @@ export function SqlChartCard({
                 panel={panel}
                 resolvedSql={resolvedSql}
                 loadData
+                reportScreenshot={reportScreenshot}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>

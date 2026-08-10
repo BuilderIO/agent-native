@@ -27,6 +27,9 @@ describe("database preview sheet layout", () => {
         'return !!target.closest("[data-database-preview-portal]")',
       );
       expect(source).toContain('data-database-preview-portal=""');
+      expect(source).toContain(
+        "<DropdownMenu\n                modal={false}\n                open={actionsMenuOpen}",
+      );
     },
   );
 

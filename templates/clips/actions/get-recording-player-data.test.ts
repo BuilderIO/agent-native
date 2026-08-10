@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { MockForbiddenError } = vi.hoisted(() => {
   class MockForbiddenError extends Error {}
@@ -8,6 +8,7 @@ const { MockForbiddenError } = vi.hoisted(() => {
 const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
+const mockIsAgentRecordingCaller = vi.hoisted(() => vi.fn());
 const mockShareLimit = vi.hoisted(() => vi.fn(async () => []));
 const mockShareQuery = vi.hoisted(() => {
   const query = {
@@ -19,14 +20,29 @@ const mockShareQuery = vi.hoisted(() => {
   query.where.mockReturnValue(query);
   return query;
 });
+// Unselected `db.select()` means the run reached the player payload queries.
+// It throws unless a test opts in by installing a builder, which keeps the
+// access-gate tests honest about never getting that far.
+const mockPlayerQuery = vi.hoisted(() => ({
+  build: null as null | (() => unknown),
+}));
 const mockDb = vi.hoisted(() => ({
   select: vi.fn((selection?: unknown) => {
     if (!selection) {
-      throw new Error("player data query reached before share verification");
+      if (!mockPlayerQuery.build) {
+        throw new Error("player data query reached before share verification");
+      }
+      return mockPlayerQuery.build();
     }
     return mockShareQuery;
   }),
 }));
+const mockCountRecordingViews = vi.hoisted(() =>
+  vi.fn(async (_recordingId: string) => 0),
+);
+const mockResolvePlayerVideoUrl = vi.hoisted(() =>
+  vi.fn(() => "/api/video/rec-1"),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -34,7 +50,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: vi.fn(),
+  readAppState: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -68,6 +84,11 @@ vi.mock("../server/db/index.js", () => ({
       principalId: "recordingShares.principalId",
       resourceId: "recordingShares.resourceId",
     },
+    recordingViewers: {
+      id: "recordingViewers.id",
+      recordingId: "recordingViewers.recordingId",
+      viewerEmail: "recordingViewers.viewerEmail",
+    },
     recordingTranscripts: { recordingId: "recordingTranscripts.recordingId" },
     recordingComments: {
       recordingId: "recordingComments.recordingId",
@@ -94,8 +115,14 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("../server/lib/agent-recording-access.js", () => ({
+  isAgentRecordingCaller: (...args: unknown[]) =>
+    mockIsAgentRecordingCaller(...args),
+}));
+
 vi.mock("../server/lib/player-video-url.js", () => ({
-  resolvePlayerVideoUrl: vi.fn(),
+  resolvePlayerVideoUrl: (...args: unknown[]) =>
+    mockResolvePlayerVideoUrl(...args),
 }));
 
 vi.mock("../server/lib/media-verification-state.js", () => ({
@@ -104,6 +131,8 @@ vi.mock("../server/lib/media-verification-state.js", () => ({
 
 vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
+  countRecordingViews: (recordingId: string) =>
+    mockCountRecordingViews(recordingId),
 }));
 
 vi.mock("../shared/browser-diagnostics.js", () => ({
@@ -134,6 +163,9 @@ describe("get-recording-player-data direct public access", () => {
     vi.clearAllMocks();
     mockGetRequestUserEmail.mockReturnValue("viewer@example.com");
     mockGetRequestOrgId.mockReturnValue("org-1");
+    mockIsAgentRecordingCaller.mockImplementation(
+      (caller: string | undefined) => caller === "tool",
+    );
     mockShareLimit.mockResolvedValue([]);
   });
 
@@ -160,4 +192,94 @@ describe("get-recording-player-data direct public access", () => {
       expect(mockShareLimit).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("keeps password-protected public recordings on the share flow for agents", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        visibility: "public",
+        password: "protected",
+        expiresAt: null,
+      },
+    });
+
+    await expect(
+      action.run({ recordingId: "rec-1" }, { caller: "tool" } as never),
+    ).rejects.toThrow(
+      "Open this recording from its share link instead of the direct recording URL",
+    );
+  });
+});
+
+function emptyPlayerQuery() {
+  const query: Record<string, unknown> = {};
+  query.from = () => query;
+  query.where = () => query;
+  query.orderBy = async () => [];
+  query.limit = async () => [];
+  return query;
+}
+
+describe("get-recording-player-data view count", () => {
+  beforeEach(() => {
+    mockPlayerQuery.build = emptyPlayerQuery;
+    mockCountRecordingViews.mockClear();
+    mockCountRecordingViews.mockResolvedValue(0);
+    mockResolvePlayerVideoUrl.mockClear();
+    mockShareLimit.mockResolvedValue([]);
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
+      },
+    });
+  });
+
+  afterEach(() => {
+    mockPlayerQuery.build = null;
+  });
+
+  it("returns the counted-view total for the recording", async () => {
+    mockCountRecordingViews.mockResolvedValue(9);
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.viewCount).toBe(9);
+    // Going through the shared helper is what keeps this number identical to
+    // list-recordings.viewCount and get-recording-insights.views.
+    expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
+  });
+
+  it("reports zero views without failing the player payload", async () => {
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.viewCount).toBe(0);
+    expect(result.recording.id).toBe("rec-1");
+  });
+
+  it("keeps owner media behind the same-origin video proxy", async () => {
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(mockResolvePlayerVideoUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-1",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+      }),
+      {
+        addPasswordToken: false,
+        proxyRemoteMedia: true,
+      },
+    );
+    expect(result.recording.videoUrl).toBe("/api/video/rec-1");
+    expect(result.recording.videoSizeBytes).toBe(1234);
+  });
 });

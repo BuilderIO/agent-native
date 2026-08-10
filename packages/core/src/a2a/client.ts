@@ -1,6 +1,52 @@
+import { randomUUID } from "node:crypto";
+
 import * as jose from "jose";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+
+/**
+ * A workspace serves every app from one gateway on loopback, so sibling A2A
+ * targets are private addresses by construction and the SSRF guard cannot tell
+ * them apart from an attack. Trust only origins this deployment configured for
+ * itself — never a value that arrived on a request.
+ */
+function workspacePrivateOrigins(): string[] {
+  const origins = [
+    process.env.WORKSPACE_GATEWAY_URL,
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    // Escape hatch for contexts that never receive the gateway manifest (the
+    // action CLI, one-off scripts). Comma-separated origins.
+    ...(process.env.AGENT_NATIVE_A2A_ALLOWED_ORIGINS ?? "").split(","),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => !!value);
+
+  // The gateway also hands each child the sibling manifest, and siblings are
+  // reached on their own loopback ports rather than through the gateway.
+  const raw = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      const apps = Array.isArray(parsed?.apps)
+        ? parsed.apps
+        : Array.isArray(parsed)
+          ? parsed
+          : [];
+      for (const app of apps) {
+        const url = app?.url ?? app?.origin ?? app?.baseUrl;
+        if (typeof url === "string" && url) origins.push(url);
+        const port = app?.port;
+        if (typeof port === "number" && Number.isFinite(port)) {
+          origins.push(`http://127.0.0.1:${port}`);
+        }
+      }
+    } catch {
+      // A malformed manifest must not disable the SSRF guard.
+    }
+  }
+  return origins;
+}
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import type {
   A2AApprovedAction,
@@ -13,6 +59,12 @@ import type {
   Message,
   Task,
 } from "./types.js";
+
+const DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_A2A_DISCOVERY_TIMEOUT_MS = 3_000;
+const MAX_A2A_RPC_ATTEMPTS = 3;
+const A2A_RPC_RETRY_BASE_MS = 100;
+export const MAX_A2A_CALLER_RESPONSE_CHARS = 32_768;
 
 export class A2ATaskTimeoutError extends Error {
   readonly taskId: string;
@@ -31,6 +83,54 @@ export class A2ATaskTimeoutError extends Error {
     this.lastState = lastState;
     this.timeoutMs = timeoutMs;
   }
+}
+
+export type A2ATerminalTaskErrorState =
+  | "failed"
+  | "canceled"
+  | "input-required"
+  | "completed";
+
+/**
+ * Preserves a receiver's terminal protocol state across the text-oriented
+ * callAgent convenience boundary. Callers can distinguish a real answer from
+ * failure, cancellation, approval/input, and an invalid empty completion
+ * without parsing English prose.
+ */
+export class A2ATaskTerminalError extends Error {
+  readonly taskId: string;
+  readonly state: A2ATerminalTaskErrorState;
+  readonly responseText: string;
+  readonly errorCode: string;
+  readonly task: Task;
+
+  constructor(
+    task: Task,
+    state: A2ATerminalTaskErrorState,
+    responseText: string,
+    errorCode = `a2a_task_${state.replace(/-/g, "_")}`,
+  ) {
+    const detail = responseText.trim()
+      ? `: ${boundA2ACallerResponseText(responseText).trim()}`
+      : "";
+    super(`A2A task ${task.id} ended ${state}${detail}`);
+    this.name = "A2ATaskTerminalError";
+    this.taskId = task.id;
+    this.state = state;
+    this.responseText = boundA2ACallerResponseText(responseText);
+    this.errorCode = errorCode;
+    this.task = task;
+  }
+}
+
+/** Keep both the answer lead and artifact/source tail within caller context. */
+export function boundA2ACallerResponseText(value: string): string {
+  if (value.length <= MAX_A2A_CALLER_RESPONSE_CHARS) return value;
+  const marker =
+    "\n\n...[A2A response compacted at the caller boundary; use the receiving app or returned artifact links for full details]...\n\n";
+  const tailChars = 8_192;
+  const headChars = MAX_A2A_CALLER_RESPONSE_CHARS - tailChars - marker.length;
+  return value.slice(0, headChars) + marker + value.slice(-tailChars);
 }
 
 /**
@@ -136,7 +236,7 @@ export class A2AClient {
         const res = await ssrfSafeFetch(
           endpoint,
           { method: "OPTIONS" },
-          { maxRedirects: 3 },
+          { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
         );
         if (res.status !== 404 && res.status !== 405) {
           this.endpointCandidates = [endpoint];
@@ -171,6 +271,7 @@ export class A2AClient {
   private async rpc(
     method: string,
     params: Record<string, unknown>,
+    options?: { requestTimeoutMs?: number; deadlineMs?: number },
   ): Promise<JsonRpcResponse> {
     const body: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -179,57 +280,141 @@ export class A2AClient {
       params,
     };
 
-    await this.ensureEndpointCandidates();
+    const discoveryTimeoutMs = resolveA2ADiscoveryTimeoutMs(
+      options?.requestTimeoutMs ?? this.requestTimeoutMs,
+      options?.deadlineMs,
+    );
+    await this.ensureEndpointCandidates(discoveryTimeoutMs);
     let lastError: Error | null = null;
 
     for (const url of this.endpointCandidates) {
       for (let i = 0; i < this.apiKeyAttempts.length; i++) {
-        console.log(`[A2A Client] POST ${url} method=${method}`);
-        const startTime = Date.now();
-        const res = await this.postJson(url, body, this.apiKeyAttempts[i]);
-        console.log(
-          `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
-        );
+        const maxAttempts = isRetrySafeA2ARpc(
+          method,
+          params,
+          this.apiKeyAttempts[i],
+        )
+          ? MAX_A2A_RPC_ATTEMPTS
+          : 1;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const requestTimeoutMs = resolveA2ARequestTimeoutMs(
+            options?.requestTimeoutMs ?? this.requestTimeoutMs,
+            options?.deadlineMs,
+          );
+          if (requestTimeoutMs !== undefined && requestTimeoutMs <= 0) {
+            throw new Error("A2A request deadline exceeded");
+          }
+          console.log(
+            `[A2A Client] POST ${url} method=${method} attempt=${attempt}/${maxAttempts}`,
+          );
+          const startTime = Date.now();
+          let res: Response;
+          try {
+            res = await this.postJson(
+              url,
+              body,
+              this.apiKeyAttempts[i],
+              requestTimeoutMs,
+            );
+          } catch (error) {
+            lastError =
+              error instanceof Error ? error : new Error(String(error));
+            if (attempt < maxAttempts) {
+              await waitForA2ARetry(
+                attempt,
+                null,
+                remainingA2ADeadlineMs(options?.deadlineMs),
+              );
+              continue;
+            }
+            break;
+          }
+          console.log(
+            `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
+          );
 
-        if (res.ok) {
+          if (res.ok) {
+            const text = await res.text();
+            if (
+              i < this.apiKeyAttempts.length - 1 &&
+              isA2AAuthRejectionResponse(res.status, text)
+            ) {
+              lastError = new Error(
+                `A2A request failed (${res.status}): ${text}`,
+              );
+              break;
+            }
+            try {
+              const parsed = JSON.parse(text) as JsonRpcResponse;
+              this.endpointCandidates = [url];
+              this.markApiKeySucceeded(this.apiKeyAttempts[i]);
+              return parsed;
+            } catch (error) {
+              lastError = new Error(
+                `A2A response was not valid JSON: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              );
+              if (attempt < maxAttempts) {
+                await waitForA2ARetry(
+                  attempt,
+                  null,
+                  remainingA2ADeadlineMs(options?.deadlineMs),
+                );
+                continue;
+              }
+              break;
+            }
+          }
+
           const text = await res.text();
+          lastError = new Error(`A2A request failed (${res.status}): ${text}`);
           if (
             i < this.apiKeyAttempts.length - 1 &&
             isA2AAuthRejectionResponse(res.status, text)
           ) {
-            lastError = new Error(
-              `A2A request failed (${res.status}): ${text}`,
+            break;
+          }
+          if (isRetryableA2AStatus(res.status) && attempt < maxAttempts) {
+            await waitForA2ARetry(
+              attempt,
+              res.headers.get("retry-after"),
+              remainingA2ADeadlineMs(options?.deadlineMs),
             );
             continue;
           }
-          this.endpointCandidates = [url];
-          this.markApiKeySucceeded(this.apiKeyAttempts[i]);
-          return JSON.parse(text) as JsonRpcResponse;
+          if (!shouldTryNextEndpoint(res.status)) {
+            throw lastError;
+          }
+          break;
         }
-
-        const text = await res.text();
-        lastError = new Error(`A2A request failed (${res.status}): ${text}`);
-        if (
-          i < this.apiKeyAttempts.length - 1 &&
-          isA2AAuthRejectionResponse(res.status, text)
-        ) {
-          continue;
-        }
-        if (!shouldTryNextEndpoint(res.status)) {
-          throw lastError;
-        }
-        break;
       }
     }
 
     throw lastError ?? new Error("No A2A endpoint candidates available");
   }
 
-  async getAgentCard(): Promise<AgentCard> {
+  async getAgentCard(options?: {
+    timeoutMs?: number;
+    /**
+     * Identity token for the card fetch. The anonymous card can only advertise
+     * publicly-safe actions, which is a disjoint set from what `actions/invoke`
+     * runs — so a sibling that discovers anonymously is told there is nothing
+     * callable. Pass a token to see the invocable set.
+     */
+    token?: string;
+  }): Promise<AgentCard> {
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
-      {},
-      { maxRedirects: 3 },
+      {
+        ...(options?.timeoutMs
+          ? { signal: AbortSignal.timeout(options.timeoutMs) }
+          : {}),
+        ...(options?.token
+          ? { headers: { Authorization: `Bearer ${options.token}` } }
+          : {}),
+      },
+      { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
@@ -244,6 +429,10 @@ export class A2AClient {
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
+      /** Per-request transport cap, bounded by deadlineMs when both exist. */
+      requestTimeoutMs?: number;
+      /** Absolute end-to-end deadline shared with async polling. */
+      deadlineMs?: number;
       /**
        * If true, ask the server to return the task immediately in `working`
        * state and process the handler in the background. The caller should
@@ -255,16 +444,25 @@ export class A2AClient {
       async?: boolean;
     },
   ): Promise<Task> {
-    const response = await this.rpc("message/send", {
-      message,
-      contextId: opts?.contextId,
-      metadata: opts?.metadata,
-      ...(opts?.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : {}),
-      ...(opts?.approvedActions?.length
-        ? { approvedActions: opts.approvedActions }
-        : {}),
-      ...(opts?.async ? { async: true } : {}),
-    });
+    const response = await this.rpc(
+      "message/send",
+      {
+        message,
+        contextId: opts?.contextId,
+        metadata: opts?.metadata,
+        ...(opts?.idempotencyKey
+          ? { idempotencyKey: opts.idempotencyKey }
+          : {}),
+        ...(opts?.approvedActions?.length
+          ? { approvedActions: opts.approvedActions }
+          : {}),
+        ...(opts?.async ? { async: true } : {}),
+      },
+      {
+        requestTimeoutMs: opts?.requestTimeoutMs,
+        deadlineMs: opts?.deadlineMs,
+      },
+    );
 
     if (response.error) {
       throw new Error(
@@ -278,8 +476,18 @@ export class A2AClient {
   /**
    * Poll for a task by id. Used in async mode after `send({ async: true })`.
    */
-  async getTask(taskId: string): Promise<Task> {
-    const response = await this.rpc("tasks/get", { id: taskId });
+  async getTask(
+    taskId: string,
+    opts?: { requestTimeoutMs?: number; deadlineMs?: number },
+  ): Promise<Task> {
+    const response = await this.rpc(
+      "tasks/get",
+      { id: taskId },
+      {
+        requestTimeoutMs: opts?.requestTimeoutMs,
+        deadlineMs: opts?.deadlineMs,
+      },
+    );
     if (response.error) {
       throw new Error(
         `A2A error (${response.error.code}): ${response.error.message}`,
@@ -328,14 +536,23 @@ export class A2AClient {
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
-      /** Total time to wait for completion. Default 5 min. */
+      /** Time to wait after submission for completion. Default 5 min. */
       timeoutMs?: number;
+      /**
+       * Optional separate budget for agent-card discovery and the initial
+       * async message submission. When omitted, timeoutMs remains the shared
+       * end-to-end deadline for backwards compatibility.
+       */
+      submissionTimeoutMs?: number;
       /** Poll interval. Default 2s. */
       pollIntervalMs?: number;
       /** Called with each polled task — useful for surfacing progress. */
       onUpdate?: (task: Task) => void;
     },
   ): Promise<Task> {
+    const timeoutMs = opts?.timeoutMs ?? 5 * 60_000;
+    const submissionDeadlineMs =
+      Date.now() + (opts?.submissionTimeoutMs ?? timeoutMs);
     const submitted = await this.send(message, {
       contextId: opts?.contextId,
       metadata: opts?.metadata,
@@ -344,9 +561,21 @@ export class A2AClient {
         ? { approvedActions: opts.approvedActions }
         : {}),
       async: true,
+      requestTimeoutMs: Math.min(
+        this.requestTimeoutMs ?? DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS,
+        Math.max(1, submissionDeadlineMs - Date.now()),
+      ),
+      deadlineMs: submissionDeadlineMs,
     });
 
-    return this.pollTask(submitted, opts);
+    const pollingDeadlineMs = opts?.submissionTimeoutMs
+      ? Date.now() + timeoutMs
+      : submissionDeadlineMs;
+    return this.pollTask(submitted, {
+      ...opts,
+      timeoutMs,
+      deadlineMs: pollingDeadlineMs,
+    });
   }
 
   /**
@@ -365,9 +594,17 @@ export class A2AClient {
       onUpdate?: (task: Task) => void;
     },
   ): Promise<Task> {
-    const current = await this.getTask(taskId);
-    opts?.onUpdate?.(current);
-    return this.pollTask(current, opts);
+    const timeoutMs = opts?.timeoutMs ?? 5 * 60_000;
+    const deadlineMs = Date.now() + timeoutMs;
+    const current = await this.getTask(taskId, {
+      requestTimeoutMs: Math.min(
+        this.requestTimeoutMs ?? DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS,
+        Math.max(1, deadlineMs - Date.now()),
+      ),
+      deadlineMs,
+    });
+    safelyNotifyA2AUpdate(opts?.onUpdate, current);
+    return this.pollTask(current, { ...opts, timeoutMs, deadlineMs });
   }
 
   private async pollTask(
@@ -376,6 +613,7 @@ export class A2AClient {
       timeoutMs?: number;
       pollIntervalMs?: number;
       onUpdate?: (task: Task) => void;
+      deadlineMs?: number;
     },
   ): Promise<Task> {
     const terminalStates = new Set([
@@ -388,17 +626,29 @@ export class A2AClient {
 
     const timeoutMs = opts?.timeoutMs ?? 5 * 60_000;
     const pollMs = opts?.pollIntervalMs ?? 2_000;
-    const deadline = Date.now() + timeoutMs;
+    const deadline = opts?.deadlineMs ?? Date.now() + timeoutMs;
 
     let current = submitted;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, pollMs));
+      const sleepMs = Math.min(pollMs, Math.max(0, deadline - Date.now()));
+      await new Promise((r) => setTimeout(r, sleepMs));
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
       try {
-        current = await this.getTask(submitted.id);
-        opts?.onUpdate?.(current);
-      } catch {
-        // Transient fetch failure — keep polling until the deadline.
-        continue;
+        current = await this.getTask(submitted.id, {
+          requestTimeoutMs: Math.min(
+            this.requestTimeoutMs ?? DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS,
+            remainingMs,
+          ),
+          deadlineMs: deadline,
+        });
+        safelyNotifyA2AUpdate(opts?.onUpdate, current);
+      } catch (error) {
+        // Retry only transport/gateway interruptions. Authentication,
+        // task-not-found, invalid params, and other protocol failures are
+        // permanent for this poll and must surface immediately.
+        if (isRetryableA2APollError(error)) continue;
+        throw error;
       }
       if (terminalStates.has(current.status.state)) return current;
     }
@@ -480,7 +730,7 @@ export class A2AClient {
     }
   }
 
-  private async ensureEndpointCandidates(): Promise<void> {
+  private async ensureEndpointCandidates(timeoutMs?: number): Promise<void> {
     if (this.endpointResolved) return;
     this.endpointResolved = true;
 
@@ -488,7 +738,7 @@ export class A2AClient {
     addDefaultEndpointCandidates(candidates, this.baseUrl);
 
     try {
-      const card = await this.getAgentCard();
+      const card = await this.getAgentCard({ timeoutMs });
       const cardUrl = normalizeUrl(card.url, this.baseUrl);
       if (cardUrl) {
         const explicitEndpoint = splitExplicitA2AEndpoint(cardUrl);
@@ -509,13 +759,12 @@ export class A2AClient {
     url: string,
     body: JsonRpcRequest,
     apiKey = this.apiKey,
+    requestTimeoutMs = this.requestTimeoutMs,
   ): Promise<Response> {
-    const controller = this.requestTimeoutMs
-      ? new AbortController()
-      : undefined;
+    const controller = requestTimeoutMs ? new AbortController() : undefined;
     const timer =
-      controller && this.requestTimeoutMs
-        ? setTimeout(() => controller.abort(), this.requestTimeoutMs)
+      controller && requestTimeoutMs
+        ? setTimeout(() => controller.abort(), requestTimeoutMs)
         : undefined;
     try {
       return await ssrfSafeFetch(
@@ -526,7 +775,7 @@ export class A2AClient {
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
       );
     } finally {
       if (timer) clearTimeout(timer);
@@ -587,6 +836,137 @@ function shouldTryNextEndpoint(status: number): boolean {
   return status === 404 || status === 405;
 }
 
+function isRetrySafeA2ARpc(
+  method: string,
+  params: Record<string, unknown>,
+  apiKey: string | undefined,
+): boolean {
+  if (method === "message/send") {
+    return (
+      params.async === true &&
+      typeof params.idempotencyKey === "string" &&
+      params.idempotencyKey.trim().length > 0 &&
+      hasJwtSubject(apiKey)
+    );
+  }
+  return method === "tasks/get" || method === "actions/invoke";
+}
+
+function isRetryableA2AStatus(status: number): boolean {
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
+async function waitForA2ARetry(
+  attempt: number,
+  retryAfter: string | null = null,
+  maxWaitMs?: number,
+): Promise<void> {
+  const retryAfterSeconds = retryAfter ? Number(retryAfter) : NaN;
+  const retryAfterMs = Number.isFinite(retryAfterSeconds)
+    ? Math.max(0, Math.min(2_000, retryAfterSeconds * 1_000))
+    : 0;
+  const backoffMs = Math.max(
+    retryAfterMs,
+    Math.min(1_000, A2A_RPC_RETRY_BASE_MS * 2 ** (attempt - 1)),
+  );
+  const boundedWaitMs =
+    maxWaitMs === undefined ? backoffMs : Math.min(backoffMs, maxWaitMs);
+  if (boundedWaitMs <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, boundedWaitMs));
+}
+
+function remainingA2ADeadlineMs(
+  deadlineMs: number | undefined,
+): number | undefined {
+  return deadlineMs === undefined
+    ? undefined
+    : Math.max(0, deadlineMs - Date.now());
+}
+
+function resolveA2ARequestTimeoutMs(
+  configuredMs: number | undefined,
+  deadlineMs: number | undefined,
+): number | undefined {
+  const remainingMs = remainingA2ADeadlineMs(deadlineMs);
+  if (remainingMs === undefined) return configuredMs;
+  return configuredMs === undefined
+    ? remainingMs
+    : Math.min(configuredMs, remainingMs);
+}
+
+/**
+ * Agent-card discovery is only a hint because first-party endpoints have
+ * conventional paths. Preserve most of a bounded call's deadline for the
+ * actual message instead of letting a cold or unavailable card consume it.
+ */
+function resolveA2ADiscoveryTimeoutMs(
+  configuredMs: number | undefined,
+  deadlineMs: number | undefined,
+): number {
+  const transportBudgetMs = resolveA2ARequestTimeoutMs(
+    configuredMs,
+    deadlineMs,
+  );
+  const remainingMs = remainingA2ADeadlineMs(deadlineMs);
+  const deadlineShareMs =
+    remainingMs === undefined
+      ? DEFAULT_A2A_DISCOVERY_TIMEOUT_MS
+      : Math.max(1, Math.floor(remainingMs / 4));
+  return Math.min(
+    DEFAULT_A2A_DISCOVERY_TIMEOUT_MS,
+    transportBudgetMs ?? DEFAULT_A2A_DISCOVERY_TIMEOUT_MS,
+    deadlineShareMs,
+  );
+}
+
+function hasJwtSubject(apiKey: string | undefined): boolean {
+  if (!apiKey) return false;
+  const segments = apiKey.split(".");
+  if (segments.length !== 3) return false;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(segments[1], "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    return typeof payload.sub === "string" && payload.sub.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function isRetryableA2APollError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (isA2AAuthRejection(error)) return false;
+  if (
+    /A2A error \(-32\d+\)|A2A request failed \((?:400|403|404|405|409|422)\)/i.test(
+      message,
+    )
+  ) {
+    return false;
+  }
+  return /(?:A2A request failed \((?:408|425|429|5\d\d)\)|fetch failed|network|socket|ECONN|ETIMEDOUT|timeout|deadline|aborted|invalid JSON)/i.test(
+    message,
+  );
+}
+
+function safelyNotifyA2AUpdate(
+  callback: ((task: Task) => void) | undefined,
+  task: Task,
+): void {
+  try {
+    callback?.(task);
+  } catch {
+    // Presentation/progress callbacks cannot alter task polling.
+  }
+}
+
 function unique(values: string[]): string[] {
   return Array.from(new Set(values));
 }
@@ -625,6 +1005,10 @@ export async function callAgent(
   text: string,
   opts?: {
     apiKey?: string;
+    /** Additional bearer tokens to try in order after apiKey during rotation. */
+    apiKeyFallbacks?: string[];
+    /** Additional transport metadata. Receivers must not use it as identity. */
+    metadata?: Record<string, unknown>;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
@@ -647,6 +1031,8 @@ export async function callAgent(
     async?: boolean;
     /** Total time to wait for the polled task (default 5 min). */
     timeoutMs?: number;
+    /** Separate budget for discovery and initial async submission. */
+    submissionTimeoutMs?: number;
     /**
      * Existing async task to keep polling. When set, no new message is sent.
      * This prevents a caller-side timeout from duplicating downstream work.
@@ -672,7 +1058,7 @@ export async function callAgent(
     onUpdate?: (task: Task) => void;
   },
 ): Promise<string> {
-  const metadata: Record<string, unknown> = {};
+  const metadata: Record<string, unknown> = { ...opts?.metadata };
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
   if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;
@@ -685,6 +1071,11 @@ export async function callAgent(
   // detached promises that get killed on Netlify/Vercel. Callers that
   // explicitly want a single-shot blocking POST can pass `async: false`.
   const useAsync = opts?.async ?? true;
+  // A stable per-call key makes retrying a submission safe even when this
+  // invocation has no durable parent turn id. If the receiver committed the
+  // task but the response was lost, the retry reuses the task.
+  const effectiveIdempotencyKey =
+    opts?.idempotencyKey ?? (opts?.taskId ? undefined : `auto:${randomUUID()}`);
   const message: Message = {
     role: "user",
     parts: [{ type: "text", text }],
@@ -712,11 +1103,12 @@ export async function callAgent(
           : await client.sendAndWait(message, {
               contextId: opts?.contextId,
               metadata,
-              idempotencyKey: opts?.idempotencyKey,
+              idempotencyKey: effectiveIdempotencyKey,
               ...(opts?.approvedActions?.length
                 ? { approvedActions: opts.approvedActions }
                 : {}),
               timeoutMs: opts?.timeoutMs,
+              submissionTimeoutMs: opts?.submissionTimeoutMs,
               pollIntervalMs: opts?.pollIntervalMs,
               onUpdate: opts?.onUpdate,
             });
@@ -727,30 +1119,67 @@ export async function callAgent(
         task = await client.send(message, {
           contextId: opts?.contextId,
           metadata,
-          idempotencyKey: opts?.idempotencyKey,
+          idempotencyKey: effectiveIdempotencyKey,
           ...(opts?.approvedActions?.length
             ? { approvedActions: opts.approvedActions }
             : {}),
         });
       }
 
-      // Extract text from the response
+      // Preserve the receiver's typed terminal state. Failed, canceled, and
+      // input-required tasks are not successful text answers, even when the
+      // receiver attached a friendly explanatory message.
       const responseMessage = task.status.message;
-      if (responseMessage) {
-        const textParts = responseMessage.parts
-          .filter((p): p is { type: "text"; text: string } => p.type === "text")
-          .map((p) => p.text);
-        return textParts.join("\n");
+      const responseText = responseMessage
+        ? extractMessageText(responseMessage)
+        : "";
+      const state = task.status.state;
+      if (
+        state === "failed" ||
+        state === "canceled" ||
+        state === "input-required"
+      ) {
+        throw new A2ATaskTerminalError(task, state, responseText);
       }
-
-      return "";
+      if (state !== "completed") {
+        throw new A2ATaskTerminalError(
+          task,
+          "failed",
+          responseText || `Unexpected terminal state: ${state}`,
+          "a2a_invalid_terminal_state",
+        );
+      }
+      if (responseText.trim()) {
+        if (responseText.length > MAX_A2A_CALLER_RESPONSE_CHARS) {
+          throw new A2ATaskTerminalError(
+            task,
+            "completed",
+            responseText,
+            "a2a_response_too_large",
+          );
+        }
+        return responseText;
+      }
+      const artifactSummary = verifiedArtifactSummary(task);
+      if (artifactSummary) return artifactSummary;
+      throw new A2ATaskTerminalError(
+        task,
+        "completed",
+        "Agent completed without a response or verified artifact.",
+        "empty_agent_response",
+      );
     } catch (err) {
       if (
         opts?.returnRecoverableArtifactsOnTimeout !== false &&
         err instanceof A2ATaskTimeoutError
       ) {
         const recoverableText = extractRecoverableArtifactText(err.lastTask);
-        if (recoverableText) return recoverableText;
+        if (
+          recoverableText &&
+          recoverableText.length <= MAX_A2A_CALLER_RESPONSE_CHARS
+        ) {
+          return recoverableText;
+        }
       }
       if (i < apiKeyAttempts.length - 1 && isA2AAuthRejection(err)) {
         lastAuthError = err;
@@ -807,6 +1236,7 @@ export async function callAction(
 async function buildA2AApiKeyAttempts(
   opts?: {
     apiKey?: string;
+    apiKeyFallbacks?: string[];
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
@@ -820,6 +1250,7 @@ async function buildA2AApiKeyAttempts(
   };
 
   add(opts?.apiKey);
+  for (const fallback of opts?.apiKeyFallbacks ?? []) add(fallback);
 
   if (opts?.userEmail && (opts.orgSecret || process.env.A2A_SECRET)) {
     if (process.env.A2A_SECRET?.trim()) {
@@ -855,7 +1286,16 @@ async function buildA2AApiKeyAttempts(
 
 function normalizeA2AAudience(url: string): string {
   const explicit = splitExplicitA2AEndpoint(url.replace(/\/$/, ""));
-  return (explicit?.baseUrl ?? url).replace(/\/$/, "");
+  const base = (explicit?.baseUrl ?? url).replace(/\/$/, "");
+  // Receivers derive their expected audience from APP_URL, which carries no
+  // app path. In a workspace every app is mounted under one gateway origin, so
+  // signing the path-qualified URL yields an audience the receiver can never
+  // match. The origin is the identifier both sides agree on.
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base;
+  }
 }
 
 function isA2AAuthRejection(err: unknown): boolean {
@@ -873,8 +1313,65 @@ function extractRecoverableArtifactText(task: Task): string {
 }
 
 function extractMessageText(message: Message): string {
-  return message.parts
+  return (Array.isArray(message.parts) ? message.parts : [])
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
     .join("\n");
+}
+
+function verifiedArtifactSummary(task: Task): string {
+  const artifacts = Array.isArray(task.artifacts) ? task.artifacts : [];
+  if (artifacts.length === 0) return "";
+  const summaries = artifacts
+    .map((artifact, artifactIndex) => {
+      const parts = Array.isArray(artifact?.parts) ? artifact.parts : [];
+      const usableParts = parts
+        .map((part) => summarizeVerifiedArtifactPart(part))
+        .filter((value): value is string => !!value)
+        .slice(0, 5);
+      if (usableParts.length === 0) return null;
+      const fallbackFileName = parts.find(
+        (part) => part.type === "file" && part.file.name?.trim(),
+      );
+      const label =
+        artifact?.name?.trim() ||
+        (fallbackFileName?.type === "file"
+          ? fallbackFileName.file.name?.trim()
+          : "") ||
+        `Artifact ${artifactIndex + 1}`;
+      return `- ${label}\n${usableParts.map((part) => `  - ${part}`).join("\n")}`;
+    })
+    .filter((value): value is string => !!value)
+    .slice(0, 20);
+  if (summaries.length === 0) return "";
+  return boundA2ACallerResponseText(
+    `The agent completed with ${summaries.length} verified artifact(s):\n` +
+      summaries.join("\n"),
+  );
+}
+
+function summarizeVerifiedArtifactPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as Record<string, unknown>;
+  if (candidate.type === "text" && typeof candidate.text === "string") {
+    const text = candidate.text.trim();
+    return text ? boundA2ACallerResponseText(text).slice(0, 2_000) : null;
+  }
+  if (candidate.type === "file") {
+    const file = candidate.file as Record<string, unknown> | undefined;
+    if (!file) return null;
+    const uri = typeof file.uri === "string" ? file.uri.trim() : "";
+    const name = typeof file.name === "string" ? file.name.trim() : "";
+    const bytes = typeof file.bytes === "string" ? file.bytes : "";
+    if (uri) return name ? `${name}: ${uri}` : uri;
+    if (bytes) return name ? `${name} (inline file)` : "Inline file artifact";
+    return null;
+  }
+  if (candidate.type === "data") {
+    const data = candidate.data;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+    const serialized = JSON.stringify(data);
+    return serialized !== "{}" ? serialized.slice(0, 2_000) : null;
+  }
+  return null;
 }

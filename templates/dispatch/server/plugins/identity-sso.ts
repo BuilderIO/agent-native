@@ -15,13 +15,12 @@
  *      important control on this endpoint.
  *
  *   3. We resolve the EXISTING Dispatch Better Auth session (`getSession`).
- *      - Not logged in -> 302 to the framework's existing sign-in
- *        entrypoint `/_agent-native/sign-in?return=<this authorize URL>`.
- *        The framework serves Dispatch's normal login form, and on success
- *        its post-login reload re-hits `/_agent-native/sign-in`, which 302s
- *        back to `return` (validated same-origin by the framework's
- *        `safeReturnPath`). That re-enters THIS handler authenticated. No
- *        new login UI; we reuse Dispatch's exact existing auth flow.
+ *      - Not logged in -> 302 to the sign-in href minted by the framework's
+ *        `signInJourney`, carrying this authorize path as an opaque
+ *        continuation. The framework serves Dispatch's normal login form,
+ *        and on success resumes the continuation, re-entering THIS handler
+ *        authenticated. No new login UI; we reuse Dispatch's exact
+ *        existing auth flow.
  *      - Logged in  -> mint + redirect (step 4).
  *
  *   4. Mint a SHORT-LIVED signed identity JWT using the EXISTING A2A signer
@@ -73,6 +72,7 @@ import {
   getH3App,
   getSession,
 } from "@agent-native/core/server";
+import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getMethod } from "h3";
 import type { H3Event } from "h3";
 
@@ -157,18 +157,29 @@ const authorizeHandler = defineEventHandler(
     const session = await getSession(event).catch(() => null);
 
     if (!session?.email) {
-      // Logged out: bounce through the framework's existing sign-in
-      // entrypoint, preserving the FULL authorize URL as the return target
-      // so we re-enter here authenticated. `safeReturnPath` (framework
-      // side) validates `return` is same-origin, so this cannot be turned
-      // into an open redirect.
+      // Logged out: bounce through the framework's one sign-in journey,
+      // preserving the FULL authorize path as the continuation so we
+      // re-enter here authenticated.
       const queryStart = rawUrl.indexOf("?");
       const authorizePathWithQuery =
         AUTHORIZE_PATH + (queryStart >= 0 ? rawUrl.slice(queryStart) : "");
-      const loc =
-        "/_agent-native/sign-in?return=" +
-        encodeURIComponent(authorizePathWithQuery);
-      return redirect(loc);
+      // No basePath: this route is registered at the bare, unprefixed path
+      // (see the getH3App().use below), so base-path containment would
+      // reject its own authorize URL on a base-path deploy. The pathname is
+      // a compile-time constant; only the query is request-derived, and
+      // signInJourney validates that.
+      const { signInHref } = signInJourney({ at: authorizePathWithQuery });
+      if (!signInHref) {
+        return jsonResponse(
+          {
+            error: "invalid_authorize_target",
+            error_description:
+              "The authorize URL is not a valid sign-in continuation.",
+          },
+          400,
+        );
+      }
+      return redirect(signInHref);
     }
 
     // ---- Mint the short-lived identity token ----------------------------

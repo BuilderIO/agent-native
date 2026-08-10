@@ -4,20 +4,20 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconBrain,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
-  IconPlus,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
@@ -39,12 +39,9 @@ const navItems = [
     href: "/",
     view: "chat",
   },
-  {
-    icon: IconBrain,
-    labelKey: "settings.agentTitle",
-    href: "/agent",
-    view: "agent",
-  },
+];
+
+const bottomNavItems = [
   {
     icon: IconSettings,
     labelKey: "navigation.settings",
@@ -104,6 +101,12 @@ function persistedActiveThreadId() {
   }
 }
 
+function persistActiveThreadId(threadId: string) {
+  try {
+    localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
+  } catch {}
+}
+
 function threadIdFromPath(pathname: string) {
   const match = pathname.match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -119,7 +122,7 @@ function chatThreadPath(threadId: string) {
   return `/chat/${encodeURIComponent(threadId)}`;
 }
 
-function ChatThreadsSection() {
+function ChatThreadsSection({ open }: { open: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const t = useT();
@@ -142,7 +145,7 @@ function ChatThreadsSection() {
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
         .sort(compareThreads)
-        .slice(0, 12),
+        .slice(0, 15),
     [threads],
   );
   const displayedActiveThreadId =
@@ -184,6 +187,7 @@ function ChatThreadsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
+    persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
       options?.isNew ? "/" : chatThreadPath(threadId),
@@ -222,30 +226,22 @@ function ChatThreadsSection() {
   }
 
   return (
-    <div className="mt-2 border-s border-sidebar-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          {t("chat.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("chat.newChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("chat.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4">
+        <ChatHistoryRail
           items={chatItems}
           activeId={displayedActiveThreadId}
           onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
           renameMaxLength={160}
           onTogglePin={(threadId) => {
             const thread = visibleThreads.find((item) => item.id === threadId);
@@ -263,10 +259,9 @@ function ChatThreadsSection() {
             unpin: t("chat.unpinChat"),
             delete: t("chat.archiveChat"),
           }}
-          variant="rail"
           className="min-w-0"
         />
-      )}
+      </div>
     </div>
   );
 }
@@ -288,14 +283,14 @@ export function Sidebar({
     cn(
       "flex items-center text-sm transition-colors",
       collapsed
-        ? "relative h-10 w-full justify-center rounded-none border-s-2 px-0"
+        ? "relative h-10 w-full justify-center rounded-none px-0"
         : "h-9 rounded-md gap-3 px-3",
       isActive
         ? collapsed
-          ? "border-s-sidebar-accent-foreground/80 bg-sidebar-accent text-sidebar-accent-foreground"
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "bg-sidebar-accent text-sidebar-accent-foreground"
         : collapsed
-          ? "border-s-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
+          ? "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
   const collapseButton = collapsible ? (
@@ -324,6 +319,28 @@ export function Sidebar({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
 
   return (
     <aside
@@ -341,23 +358,50 @@ export function Sidebar({
       >
         <Link
           to="/"
+          onClick={(event) => {
+            if (
+              !collapsible ||
+              !onCollapsedChange ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              event.button !== 0
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onCollapsedChange(!collapsed);
+          }}
           className={cn(
             "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
             collapsed ? "size-7 justify-center" : "flex-1 gap-3",
           )}
-          aria-label={collapsed ? APP_TITLE : undefined}
+          aria-label={
+            collapsible && onCollapsedChange
+              ? collapsed
+                ? t("navigation.expandSidebar")
+                : t("navigation.collapseSidebar")
+              : collapsed
+                ? APP_TITLE
+                : undefined
+          }
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
+            width={28}
+            height={16}
+            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
+            width={28}
+            height={16}
+            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
@@ -418,8 +462,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "chat" && isChatRoute ? (
-                  <ChatThreadsSection />
+                {!collapsed && item.view === "chat" ? (
+                  <ChatThreadsSection open={isChatRoute} />
                 ) : null}
               </div>
             );
@@ -428,11 +472,38 @@ export function Sidebar({
       </nav>
 
       <div className={cn("mt-auto shrink-0", collapsed && "py-2")}>
-        {!collapsed ? (
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
-        ) : null}
+        <nav
+          className={cn(
+            "grid",
+            collapsed ? "gap-0 px-1 py-1" : "gap-1 px-2 py-1",
+          )}
+        >
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname.startsWith(item.href);
+            const link = (
+              <Link
+                to={item.href}
+                className={navClass({ isActive })}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className={collapsed ? "sr-only" : "truncate"}>
+                  {t(item.labelKey)}
+                </span>
+              </Link>
+            );
+            return collapsed ? (
+              <Tooltip key={item.href}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <div key={item.href}>{link}</div>
+            );
+          })}
+        </nav>
 
         <div className={cn(collapsed ? "px-1 py-1" : "px-3 py-2")}>
           <OrgSwitcher
@@ -445,29 +516,12 @@ export function Sidebar({
           />
         </div>
 
-        <div
-          className={cn(
-            collapsed ? "flex justify-center px-1 py-1" : "px-3 py-2",
-          )}
-        >
-          <FeedbackButton
-            variant={collapsed ? "icon" : "sidebar"}
-            side="right"
-            align={collapsed ? "center" : "end"}
-          />
-        </div>
-
-        {collapseButton ? (
-          <div
-            className={cn(
-              collapsed
-                ? "flex justify-center px-1 py-1"
-                : "flex justify-end px-3 py-2",
-            )}
-          >
-            {collapseButton}
-          </div>
-        ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );

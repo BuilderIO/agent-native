@@ -1,5 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { marked, type RendererThis, type Tokens } from "marked";
+import {
+  marked,
+  type MarkedExtension,
+  type RendererThis,
+  type Tokens,
+} from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
@@ -17,8 +22,9 @@ interface ImageDimensions {
   height: number;
 }
 
-const DEFAULT_CODE_MAX_LINES = 30;
+const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
+const MAX_RENDERED_MARKDOWN_CACHE_ENTRIES = 64;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/analytics.png": { width: 1400, height: 710 },
@@ -266,6 +272,30 @@ function imageDimensionsForHref(href: string): ImageDimensions | undefined {
   return DOCS_IMAGE_DIMENSIONS[decodeHtmlEntities(href).trim()];
 }
 
+/**
+ * Marked tokenizer extension: `[[Ctrl+K]]` → `<kbd>Ctrl+K</kbd>`
+ * Lets authors write keyboard shortcuts inline without raw HTML.
+ */
+const kbdExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: "kbd",
+      level: "inline",
+      start: (src: string) => src.indexOf("[["),
+      tokenizer(src: string) {
+        const match = /^\[\[([^\]]+?)\]\]/.exec(src);
+        if (!match) return;
+        return { type: "kbd", raw: match[0], text: match[1] };
+      },
+      renderer(token: Tokens.Generic) {
+        return `<kbd class="docs-kbd">${escapeHtml(token.text as string)}</kbd>`;
+      },
+    },
+  ],
+};
+
+marked.use(kbdExtension);
+
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
 function createRenderer() {
   const renderer = new marked.Renderer();
@@ -356,9 +386,24 @@ function createRenderer() {
   return renderer;
 }
 
+const renderedMarkdownCache = new Map<string, string>();
+
 export function renderMarkdownToHtml(markdown: string): string {
+  const cached = renderedMarkdownCache.get(markdown);
+  if (cached !== undefined) {
+    renderedMarkdownCache.delete(markdown);
+    renderedMarkdownCache.set(markdown, cached);
+    return cached;
+  }
+
   const renderer = createRenderer();
-  return marked(markdown, { renderer, async: false }) as string;
+  const html = marked(markdown, { renderer, async: false }) as string;
+  if (renderedMarkdownCache.size >= MAX_RENDERED_MARKDOWN_CACHE_ENTRIES) {
+    const oldest = renderedMarkdownCache.keys().next().value;
+    if (oldest !== undefined) renderedMarkdownCache.delete(oldest);
+  }
+  renderedMarkdownCache.set(markdown, html);
+  return html;
 }
 
 export function resolveRenderedMarkdownHtml(

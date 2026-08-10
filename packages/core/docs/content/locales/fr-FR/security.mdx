@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # Nécessite également org_id
 | Jetons OAuth (Google, GitHub)                          | Magasin `oauth_tokens` via `saveOAuthTokens()`            |
 | Jetons de session                                      | Automatique (une meilleure authentification gère cela)    |
 
-Les informations d'identification par utilisateur/par organisation et le coffre-fort sont chiffrés au repos avec AES-256-GCM, saisis par `SECRETS_ENCRYPTION_KEY` (en revenant à `BETTER_AUTH_SECRET`) ; la production refuse de démarrer sans un. Pour chiffrer toutes les lignes d'informations d'identification en texte brut préexistantes, exécutez `pnpm action db-migrate-encrypt-credentials` (idempotent, non destructif).
+Les informations d’identification par utilisateur/organisation et le coffre sont chiffrés au repos avec AES-256-GCM. Le coffre partagé de l’espace de travail préfère `WORKSPACE_SECRETS_ENCRYPTION_KEY`, puis les candidats hérités dérivés de `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` et `BETTER_AUTH_SECRET` ; pendant une rotation, `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` garde les anciennes lignes lisibles jusqu’à leur migration. Pour chiffrer les lignes en clair existantes, exécutez `pnpm action db-migrate-encrypt-credentials` (idempotent, non destructif).
 
 Ne stockez jamais de secrets dans `settings`, `application_state`, le code source ou les réponses aux actions. Utilisez les identifiants/coffre-fort API ci-dessus : ils gèrent à la fois le chiffrement et la portée par utilisateur.
 
@@ -365,7 +365,7 @@ Il s'agissait auparavant d'une position « avertir et accepter » : définiss
 - [ ] `BETTER_AUTH_SECRET` défini sur une chaîne aléatoire de plus de 32 caractères (`openssl rand -hex 32`), sauf s'il s'agit d'un déploiement d'espace de travail hébergé le dérivant de `A2A_SECRET`
 - [ ] `OAUTH_STATE_SECRET` défini sur une chaîne aléatoire distincte de plus de 32 caractères (ne pas réutiliser `BETTER_AUTH_SECRET`) — voir [OAuth State Signing](#oauth-state)
 - [ ] `A2A_SECRET` défini sur chaque application qui appelle ou reçoit du trafic A2A — voir [A2A Identity Verification](#a2a-identity)
-- [ ] Ensemble `SECRETS_ENCRYPTION_KEY` (ou comptez sur la solution de repli `BETTER_AUTH_SECRET`) — voir [Secrets Management](#secrets)
+- [ ] `WORKSPACE_SECRETS_ENCRYPTION_KEY` défini de façon cohérente pour les coffres multi-apps partagés ; le chiffrement local conserve les replis `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET` — voir [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` n'est **pas** défini en production (ou défini uniquement lors des déploiements d'aperçu QA)
 
 ### Secrets Webhook (définissez ceux des intégrations que vous utilisez)

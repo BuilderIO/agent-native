@@ -17,6 +17,7 @@ import { memo, useState, useMemo } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getFullDayOutOfOfficeDateRange } from "@/lib/out-of-office";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +116,29 @@ export const MonthView = memo(function MonthView({
   const eventsByDay = useMemo(() => {
     const map = new Map<string, DayOccurrence[]>();
     for (const e of events) {
+      const fullDayOutOfOfficeRange = getFullDayOutOfOfficeDateRange(e);
+      if (fullDayOutOfOfficeRange) {
+        for (const day of days) {
+          const key = format(day, "yyyy-MM-dd");
+          if (
+            key < fullDayOutOfOfficeRange.startDate ||
+            key >= fullDayOutOfOfficeRange.endDateExclusive
+          ) {
+            continue;
+          }
+          const occurrence: DayOccurrence = {
+            event: e,
+            isStart: key === fullDayOutOfOfficeRange.startDate,
+            continuesNext:
+              format(addDays(day, 1), "yyyy-MM-dd") <
+              fullDayOutOfOfficeRange.endDateExclusive,
+          };
+          const list = map.get(key);
+          if (list) list.push(occurrence);
+          else map.set(key, [occurrence]);
+        }
+        continue;
+      }
       const evStart = parseISO(e.start);
       const evEnd = e.end ? parseISO(e.end) : addDays(evStart, 1);
       for (const day of days) {

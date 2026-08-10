@@ -1,8 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import {
-  compareAndSetAppState,
+  compareAndSetManyAppState,
   readAppState,
-  writeAppState,
+  type AppStateCompareAndSetOperation,
 } from "@agent-native/core/application-state";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -68,6 +68,7 @@ const variantSchema = z.object({
 });
 
 const pendingRepromptSchema = z.object({
+  status: z.literal("pending").optional(),
   repromptId: z.string().min(1),
   designId: z.string().min(1),
   fileId: z.string().min(1),
@@ -241,21 +242,18 @@ export default defineAction({
       file.id,
       repromptId,
     );
-    await writeAppState(
-      proposalKey,
-      proposal as unknown as Record<string, unknown>,
-    );
-    const currentPending = await readAppState(pendingKey);
-    if (currentPending?.repromptId !== repromptId) {
-      await compareAndSetAppState(
-        proposalKey,
-        proposal as unknown as Record<string, unknown>,
-        null,
-      );
-      throw new Error(
-        "This regeneration was superseded by a newer request before its candidates were published.",
-      );
-    }
+    const publishOperations: AppStateCompareAndSetOperation[] = [
+      {
+        key: pendingKey,
+        expectedValue: pending as unknown as Record<string, unknown>,
+        nextValue: pending as unknown as Record<string, unknown>,
+      },
+      {
+        key: proposalKey,
+        expectedValue: null,
+        nextValue: proposal as unknown as Record<string, unknown>,
+      },
+    ];
     if (pending.priorProposalId && pending.priorRepromptId) {
       const priorProposalKey = designRepromptProposalStateKey(
         file.designId,
@@ -264,8 +262,18 @@ export default defineAction({
       );
       const priorProposal = await readAppState(priorProposalKey);
       if (priorProposal?.proposalId === pending.priorProposalId) {
-        await compareAndSetAppState(priorProposalKey, priorProposal, null);
+        publishOperations.push({
+          key: priorProposalKey,
+          expectedValue: priorProposal,
+          nextValue: null,
+        });
       }
+    }
+    const published = await compareAndSetManyAppState(publishOperations);
+    if (!published) {
+      throw new Error(
+        "This regeneration was superseded by a newer request before its candidates were published.",
+      );
     }
 
     const bridgeMessages: NodeHtmlPreviewBridgeMessage[] = [

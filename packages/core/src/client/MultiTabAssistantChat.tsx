@@ -23,6 +23,7 @@ import {
   parseSubmitChatMessage,
   removeAgentChatContextItem,
   reportAgentChatSubmitResult,
+  reportAgentChatSubmitTarget,
   setAgentChatContextItem,
   type AgentChatContextItem,
 } from "./agent-chat.js";
@@ -42,6 +43,10 @@ import {
   type ChatHistorySection,
 } from "./chat/ChatHistoryList.js";
 import {
+  fetchBuilderStatus,
+  fetchEnvironmentStatus,
+} from "./client-status-requests.js";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
@@ -53,15 +58,16 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
-import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
+import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
 import {
   useChatThreads,
   type ChatThreadScope,
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
+import { usePollLoop } from "./use-poll-loop.js";
 import { cn } from "./utils.js";
 
 interface ModelSelection {
@@ -88,6 +94,8 @@ interface PendingSend {
 interface PendingDelivery {
   threadId: string | null;
   send: PendingSend;
+  /** Applied to whichever thread this send lands on; a queued send outlives the handler that parsed it. */
+  modelOverride?: ModelSelection;
 }
 
 /** The single path that hands a queued send to a mounted chat ref. */
@@ -139,6 +147,13 @@ function writeStoredModelSelection(key: string, selection: ModelSelection) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(selection));
+    queueMicrotask(() => {
+      window.dispatchEvent(
+        new CustomEvent(CHAT_MODEL_SELECTION_CHANGED_EVENT, {
+          detail: { key },
+        }),
+      );
+    });
   } catch {}
 }
 
@@ -147,28 +162,28 @@ function resolveModelSelection(
   groups: EngineModelGroup[],
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
-  if (groups.length === 0) {
-    return {
-      model: selection.model,
-      effort: resolveReasoningEffortSelection(
-        selection.model,
-        selection.effort,
-      ),
-    };
-  }
-  const preferredGroup = groups.find(
-    (group) =>
-      group.engine === selection.engine &&
-      group.models.includes(selection.model),
-  );
-  const fallbackGroup = groups.find((group) =>
-    group.models.includes(selection.model),
-  );
-  if (groups.length > 0 && !preferredGroup && !fallbackGroup) {
-    return undefined;
-  }
+  // Engine precedence turns on whether the catalog OFFERS the supplied engine,
+  // not on whether that engine advertises this model:
+  //   offered      → honor it. A gateway's advertised list is its built-in
+  //                  catalog, not what the endpoint serves, and one model id
+  //                  sits under several groups (claude-sonnet-5 under both
+  //                  anthropic and builder) — so a model-only match would
+  //                  reroute the turn to a different provider and bill it there.
+  //   not offered  → heal to a group that serves the model. A selection left
+  //                  on `builder` after disconnecting it must still run on the
+  //                  user's own key; the same model through another configured
+  //                  provider is the point of bring-your-own-key.
+  // `builder` is in the catalog exactly when Builder is connected, so this is a
+  // real availability signal rather than a guess.
+  const suppliedEngine = selection.engine?.trim()
+    ? selection.engine
+    : undefined;
   const engine =
-    preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
+    (groups.some((group) => group.engine === suppliedEngine)
+      ? suppliedEngine
+      : undefined) ??
+    groups.find((group) => group.models.includes(selection.model))?.engine ??
+    suppliedEngine;
   if (!engine && groups.length > 0) return undefined;
 
   const effort = resolveReasoningEffortSelection(
@@ -548,6 +563,7 @@ function chatTabStatusFromAgentTeamStatus(
 }
 
 const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
+const DEFAULT_AGENT_TEAM_POLL_MS = 3000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
 const hasOwn = Object.prototype.hasOwnProperty;
@@ -703,7 +719,7 @@ export type MultiTabAssistantChatProps = Omit<
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
   renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
-  /** Optional overlay actions renderer for the active tab */
+  /** Optional page-level top-bar actions renderer for the active tab. */
   renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
@@ -723,6 +739,8 @@ export type MultiTabAssistantChatProps = Omit<
   scope?: ChatThreadScope | null;
   /** @deprecated Scope context is now rendered in the composer. */
   showScopeBadge?: boolean;
+  /** Cadence for hydrating agent-team sub-agent tab status. Default: 3000. */
+  agentTeamPollMs?: number;
 };
 
 export function MultiTabAssistantChat({
@@ -736,6 +754,7 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
+  agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -879,7 +898,7 @@ export function MultiTabAssistantChat({
     isNewThread,
     pinThread,
     renameThread,
-  } = useChatThreads(apiUrl, storageKey, null, {
+  } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
     routeThreadId: threadUrlSyncEnabled
       ? urlThreadId
@@ -955,6 +974,43 @@ export function MultiTabAssistantChat({
   const bumpModelSelectionVersion = useCallback(() => {
     setModelSelectionVersion((version) => version + 1);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncPersistedSelection = (event?: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }> | undefined)
+        ?.detail;
+      if (detail?.key && detail.key !== modelSelectionKey) return;
+
+      const next = readStoredModelSelection(modelSelectionKey);
+      if (!next) return;
+
+      const activeThreadId = activeThreadIdRef.current;
+      if (activeThreadId) {
+        threadModelRef.current.set(activeThreadId, next);
+      }
+      setPersistedModelSelection(next);
+      bumpModelSelectionVersion();
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === modelSelectionKey) syncPersistedSelection();
+    };
+
+    window.addEventListener(
+      CHAT_MODEL_SELECTION_CHANGED_EVENT,
+      syncPersistedSelection,
+    );
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(
+        CHAT_MODEL_SELECTION_CHANGED_EVENT,
+        syncPersistedSelection,
+      );
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [bumpModelSelectionVersion, modelSelectionKey]);
+
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
 
   const setContextInTab = useCallback(
@@ -1068,19 +1124,28 @@ export function MultiTabAssistantChat({
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
       ),
-      fetch(agentNativePath("/_agent-native/env-status"))
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
+      fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
+      fetchBuilderStatus<{ configured?: boolean }>(),
     ])
-      .then(([enginesData, envKeys, builderStatus]) => {
-        if (!enginesData?.engines) return;
+      .then(([enginesData, envResult, builderResult]) => {
+        if (!enginesData?.engines) {
+          // Leaves `availableModels` empty for the session, so an override with
+          // no engine of its own has nothing to resolve against.
+          console.warn(
+            "[agent-chat] no engine list; model overrides cannot be catalog-resolved",
+          );
+          return;
+        }
+        if (
+          envResult.state !== "available" ||
+          builderResult.state !== "available"
+        ) {
+          return;
+        }
+        const envKeys = envResult.value;
+        const builderStatus = builderResult.value;
         const configuredKeys = new Set(
-          (envKeys as Array<{ key: string; configured: boolean }>)
-            .filter((k) => k.configured)
-            .map((k) => k.key),
+          envKeys.filter((k) => k.configured).map((k) => k.key),
         );
         const builderConnected = builderStatus?.configured === true;
         const currentEngineName: string | undefined =
@@ -1340,14 +1405,11 @@ export function MultiTabAssistantChat({
     }
   }, [isLoading, openTabIds, activeThreadId, createThread, writeThreadUrl]);
 
-  useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
-
-    async function hydrateAgentTeamTabs() {
+  usePollLoop(
+    async (signal) => {
+      const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
       try {
-        const res = await fetch(runsUrl);
+        const res = await fetch(runsUrl, { signal });
         if (res.ok) {
           const data = (await res.json()) as { runs?: AgentTeamRunSummary[] };
           const infos = Array.isArray(data.runs)
@@ -1433,19 +1495,10 @@ export function MultiTabAssistantChat({
         }
       } catch {
         // Best effort: task cards and manual history still work if this poll fails.
-      } finally {
-        if (!stopped) {
-          timer = setTimeout(hydrateAgentTeamTabs, 3000);
-        }
       }
-    }
-
-    hydrateAgentTeamTabs();
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [apiUrl, refreshThreads]);
+    },
+    { intervalMs: agentTeamPollMs, pauseWhenHidden: true },
+  );
 
   // Focus the composer when switching tabs
   useEffect(() => {
@@ -1554,8 +1607,10 @@ export function MultiTabAssistantChat({
         context,
         openSidebar,
         model,
+        engine,
         effort,
         newTab,
+        reuseEmptyTab,
         background,
         submit,
         images,
@@ -1594,37 +1649,67 @@ export function MultiTabAssistantChat({
         ...(submitMessageId ? { submitMessageId } : {}),
       };
 
+      // Resolved once, up front, and carried with the send until a thread
+      // exists to key it by. Applying it only when `model` matched
+      // `availableModels` dropped every override that arrived before the
+      // engines fetch resolved — and the cold-start replay below runs at mount,
+      // when that list is always still empty.
+      let modelOverride: ModelSelection | undefined;
+      if (model) {
+        const catalogEngine = availableModels.find((g) =>
+          g.models.includes(model),
+        )?.engine;
+        const overrideEngine = engine ?? catalogEngine;
+        if (!overrideEngine && availableModels.length > 0) {
+          console.warn(
+            `[agent-chat] model override "${model}" is in no engine group and carries no engine; the server will substitute its default`,
+          );
+        }
+        modelOverride = {
+          model,
+          ...(overrideEngine ? { engine: overrideEngine } : {}),
+          effort: resolveReasoningEffortSelection(
+            model,
+            isReasoningEffort(effort) ? effort : undefined,
+          ),
+        };
+      }
+
       const sendToTab = (threadId: string) => {
         if (isAgentChatSubmitCancelled(submitMessageId)) return;
-        // If a model override was specified, apply it only if we recognize it
-        if (model) {
-          const matchedGroup = availableModels.find((g) =>
-            g.models.includes(model),
-          );
-          if (matchedGroup) {
-            const selectedEffort = resolveReasoningEffortSelection(
-              model,
-              isReasoningEffort(effort) ? effort : undefined,
-            );
-            threadModelRef.current.set(threadId, {
-              model,
-              engine: matchedGroup.engine,
-              effort: selectedEffort,
-            });
-            bumpModelSelectionVersion();
-          }
+        reportAgentChatSubmitTarget(submitMessageId, threadId);
+        if (modelOverride) {
+          threadModelRef.current.set(threadId, modelOverride);
+          bumpModelSelectionVersion();
         }
 
         const ref = chatRefs.current.get(threadId);
         if (ref) {
           deliverPendingSend(ref, send);
         } else {
-          pendingDeliveries.current.push({ threadId, send });
+          pendingDeliveries.current.push({ threadId, send, modelOverride });
         }
       };
 
       if (newTab) {
         const previousTabId = activeThreadIdRef.current;
+        const previousChat = previousTabId
+          ? chatRefs.current.get(previousTabId)
+          : undefined;
+        // A blank active chat is already an isolated destination. Reuse it for
+        // foreground creation requests so the action does not leave a ghost tab.
+        if (
+          reuseEmptyTab &&
+          !background &&
+          previousTabId &&
+          previousChat &&
+          (newThreadIds.current.has(previousTabId) ||
+            isNewThread(previousTabId)) &&
+          previousChat.exportThreadSnapshot() === null
+        ) {
+          sendToTab(previousTabId);
+          return;
+        }
         createThread(requestedTabId)
           .then((newId) => {
             if (isAgentChatSubmitCancelled(submitMessageId)) return;
@@ -1665,7 +1750,11 @@ export function MultiTabAssistantChat({
         } else {
           // Cold start: no thread yet. Queue for the first active thread (the
           // bootstrap effect creates it) rather than racing a second create.
-          pendingDeliveries.current.push({ threadId: null, send });
+          pendingDeliveries.current.push({
+            threadId: null,
+            send,
+            modelOverride,
+          });
         }
       }
     };
@@ -1676,6 +1765,7 @@ export function MultiTabAssistantChat({
     bumpModelSelectionVersion,
     clearContextInTab,
     createThread,
+    isNewThread,
     postMessageSubmissionsDisabled,
     props.execMode,
     removeContextInTab,
@@ -1718,16 +1808,22 @@ export function MultiTabAssistantChat({
       if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
       const threadId = delivery.threadId ?? active ?? null;
       const ref = threadId ? chatRefs.current.get(threadId) : null;
+      if (threadId && delivery.modelOverride) {
+        threadModelRef.current.set(threadId, delivery.modelOverride);
+        bumpModelSelectionVersion();
+      }
       if (threadId && ref) {
         const { send } = delivery;
         setTimeout(() => deliverPendingSend(ref, send), 50);
       } else {
         // Not ready — keep it, pinning the resolved threadId once known.
-        remaining.push(threadId ? { threadId, send: delivery.send } : delivery);
+        remaining.push(
+          threadId ? { ...delivery, threadId, send: delivery.send } : delivery,
+        );
       }
     }
     pendingDeliveries.current = remaining;
-  }, [openTabIds, activeThreadId]);
+  }, [openTabIds, activeThreadId, bumpModelSelectionVersion]);
 
   // Listen for chatRunning completion events
   useEffect(() => {
@@ -2442,7 +2538,11 @@ export function MultiTabAssistantChat({
 
       {/* Chat content with optional overlay */}
       <div
-        className="relative flex-1 flex flex-col min-h-0"
+        className={cn(
+          "relative flex-1 flex flex-col min-h-0",
+          renderOverlay && "pt-14",
+        )}
+        data-agent-page-chat-topbar={renderOverlay ? "" : undefined}
         data-agent-page-chat-scrolled={
           renderOverlay && pageOverlayScrolled ? "" : undefined
         }
@@ -2494,11 +2594,6 @@ export function MultiTabAssistantChat({
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
-                <KeepTabOpenNotice
-                  threadId={tabId}
-                  enabled={tabId === activeThreadId}
-                  apiUrl={apiUrl}
-                />
                 <RunStuckBanner
                   threadId={tabId}
                   enabled={tabId === activeThreadId}
@@ -2507,6 +2602,9 @@ export function MultiTabAssistantChat({
                   autoRetryOwnerId={browserTabId}
                   hasInFlightWork={() =>
                     chatRefs.current.get(tabId)?.hasInFlightWork() ?? false
+                  }
+                  isAwaitingResponse={() =>
+                    chatRefs.current.get(tabId)?.isRunning() ?? false
                   }
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
@@ -2534,6 +2632,7 @@ export function MultiTabAssistantChat({
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)
                   }
+                  isThreadStateLoading={isLoading}
                   onMessageCountChange={(count) =>
                     setMessageCounts((prev) =>
                       prev[tabId] === count

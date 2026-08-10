@@ -27,6 +27,7 @@ function space(
     role: "owner",
     catalogItemId: "catalog_item_1",
     catalogDocumentId: "catalog_document_1",
+    catalogPosition: 0,
     ...overrides,
   };
 }

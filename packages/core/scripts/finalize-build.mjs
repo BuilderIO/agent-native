@@ -35,6 +35,27 @@ function pruneSpecArtifacts(dir) {
   }
 }
 
+// The published package excludes dist/**/*.map to keep installs small. Remove
+// the compiler trailers too, or Vite spends startup time trying to read maps
+// that the package intentionally does not ship.
+function stripSourceMapComments(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      stripSourceMapComments(full);
+      continue;
+    }
+    if (!/\.(?:[cm]?js|d\.ts)$/.test(entry.name)) continue;
+
+    const source = readFileSync(full, "utf8");
+    const stripped = source.replace(
+      /\r?\n\/\/# sourceMappingURL=[^\r\n]*\r?\n?$/u,
+      "\n",
+    );
+    if (stripped !== source) writeFileSync(full, stripped);
+  }
+}
+
 function collectSourceStems(dir, root = dir, stems = new Set()) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -85,6 +106,7 @@ function pruneStaleCompiledArtifacts(sourceDir, compiledDir) {
 
 if (existsSync("dist")) {
   pruneSpecArtifacts("dist");
+  stripSourceMapComments("dist");
   for (const entry of ["editor", "composer", "rich-markdown-editor"]) {
     pruneStaleCompiledArtifacts(
       join("src", "client", entry),

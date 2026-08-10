@@ -19,6 +19,7 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   builderReferenceIdSourceValueKey,
   resolveDatabaseForSourceMutation,
@@ -340,11 +341,6 @@ export default defineAction({
         ? { ...field, model: reference.model }
         : field;
     });
-    const enrichedMetadataJson = JSON.stringify({
-      ...parseMetadata(source.metadataJson),
-      builderModelFields: enrichedModelFields,
-    });
-
     await db.transaction(async (tx) => {
       const currentFields = await tx
         .select()
@@ -357,6 +353,12 @@ export default defineAction({
         .select()
         .from(schema.contentDatabaseSourceRows)
         .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+      await lockDatabaseMemberships(
+        tx,
+        currentSourceRows
+          .map((row) => row.databaseItemId)
+          .filter((itemId) => itemId.length > 0),
+      );
       const [maxPosition] = await tx
         .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
         .from(schema.documentPropertyDefinitions)
@@ -539,10 +541,48 @@ export default defineAction({
           );
         }
       }
-      await tx
-        .update(schema.contentDatabaseSources)
-        .set({ metadataJson: enrichedMetadataJson, updatedAt: now })
-        .where(eq(schema.contentDatabaseSources.id, source.id));
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const [currentSource] = await tx
+          .select({
+            metadataJson: schema.contentDatabaseSources.metadataJson,
+          })
+          .from(schema.contentDatabaseSources)
+          .where(eq(schema.contentDatabaseSources.id, source.id))
+          .limit(1);
+        if (!currentSource) throw new Error("Builder source not found.");
+        const currentModelFields =
+          parseMetadata(currentSource.metadataJson).builderModelFields ?? [];
+        if (
+          JSON.stringify(currentModelFields) !== JSON.stringify(modelFields)
+        ) {
+          throw new Error(
+            "Builder model fields changed while required fields were being materialized. No fields were added.",
+          );
+        }
+        const nextMetadataJson = JSON.stringify({
+          ...parseMetadata(currentSource.metadataJson),
+          builderModelFields: enrichedModelFields,
+        });
+        const updated = await tx
+          .update(schema.contentDatabaseSources)
+          .set({ metadataJson: nextMetadataJson, updatedAt: now })
+          .where(
+            and(
+              eq(schema.contentDatabaseSources.id, source.id),
+              currentSource.metadataJson === null
+                ? isNull(schema.contentDatabaseSources.metadataJson)
+                : eq(
+                    schema.contentDatabaseSources.metadataJson,
+                    currentSource.metadataJson,
+                  ),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseSources.id });
+        if (updated.length > 0) return;
+      }
+      throw new Error(
+        "Builder source metadata changed repeatedly while materializing required fields. No fields were added.",
+      );
     });
 
     return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });

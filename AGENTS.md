@@ -7,6 +7,9 @@ read the relevant skill before changing that area.
 
 ## Always-On Rules
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the existing checks — not a codebase survey, unrequested tests, or
+  browser automation. Save deep exploration for ambiguous or cross-cutting work.
 - Stay on the current git branch. Never create, switch, delete, reset, rebase,
   stash, or otherwise move branches unless the user explicitly asks for that exact
   branch operation in the current task.
@@ -21,16 +24,31 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
-- Write few code comments. Only comment a constraint the code cannot show, such
-  as a non-obvious trap a future change would otherwise reintroduce. Never
-  comment what the next line does, why a change is correct, or where it came
-  from. Keep a comment that earns its place to a line or two; prefer clearer
-  names and smaller functions over prose.
+- Never use `pnpm patch` or `pnpm patch-commit`, add
+  `pnpm.patchedDependencies`, or commit dependency patch artifacts under
+  `patches/`. Upgrade the dependency or fix app-owned code instead. The
+  `pnpm guards` check enforces this boundary.
+- A `catch`, default, or coercion that returns a value callers cannot
+  distinguish from success is a bug, not a guard. "Absent" and "unreadable" must
+  be different values; a truncated run is not a completed one; a dropped payload
+  is not an empty one. Six weeks of repeat user reports traced back to this one
+  habit — each layer coerced a failure into a clean value, so every layer above
+  it reported something confidently wrong and nobody, including us, could see
+  it. Prefer a loud, typed failure over a plausible-looking normal state.
+- Before adding a condition to a function that already stacks several special
+  cases, stop: that shape is how the same bug ships twice. Fix the boundary that
+  made the special case necessary, and delete the ones it subsumes.
+- Write code that reads like the surrounding code: match its comment density,
+  naming, and idiom. When you do comment, comment a constraint the code cannot
+  show — a non-obvious trap a future change would otherwise reintroduce — not
+  what the next line does, why your change is correct, or where it came from.
 - When changing docs under `packages/core/docs/content`, update the matching
   localized docs under `packages/core/docs/content/locales/*` when the source
   meaning changes. If translations cannot be updated in the same change, call
   out the specific locales that need follow-up; reviewers should flag docs
   changes that only update one language.
+- Docs-only commits start with `docs: ` in the present tense, e.g.
+  `docs: fix broken link in provider API guide`, not `docs: fixed broken link`.
 
 ## Final Status Block
 
@@ -49,12 +67,47 @@ when the requested coding/work unit is finished on the current branch, even if
 routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a manual
 step is still pending. Use `🔴` only when blocked on user input.
 
+## Checks
+
+Rules here are carried by skills, not by blocking your tools. Two exceptions
+exist, and both are narrow on purpose.
+
+**Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
+Code, and a human equally): `no-pnpm-patches`, `no-secret-literals`,
+`additive-migrations`, `no-silent-coercion`, `no-raw-colors`, alongside the
+existing 37. The last two
+check only lines this branch added, so the pre-existing backlog stays a separate
+cleanup. Each has a documented opt-out pragma, and every opt-out is a decision a
+reviewer should see.
+
+**One hook** (`scripts/hooks/file-lease.mjs`): denies a write when another live
+session holds the file, or when it changed on disk under you. It exists because
+this is the only rule you cannot follow by reading instructions — no amount of
+guidance tells you that a peer session is mid-edit in the same file right now.
+Re-read and build on their change; never force past it. Read
+`concurrent-agents` before working in a shared checkout.
+
+Everything else is guidance, because guidance is what actually worked: unasked
+branch creation went to zero within days of `new-branch` gaining its activation
+guard, and a tool-level block there would only have blocked the correct
+post-merge workflow. When a rule keeps getting broken, the first move is to find
+the situation where the agent is tempted and write the positive workflow for it
+— not to add a wall.
+
+Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
+contract.
+
 ## Architecture Contract
 
 - Data lives in SQL via Drizzle by default. Explicit Local File Mode artifacts
   declared through `agent-native.json` may use repo files as the source of truth,
   but app state, auth, settings, and hosted/collaborative mode still use SQL.
   Keep schemas provider-agnostic.
+- Keep app and template database code dialect-agnostic. Never call adapter-only
+  methods such as libSQL/SQLite `run()`, `all()`, or `get()`, or PostgreSQL-only
+  client APIs. Use Drizzle's shared query builder for normal reads and writes
+  and `getDbExec().execute()` for reviewed portable raw SQL; keep dialect
+  branching inside core database helpers.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
   shared action surface through `useActionQuery` / `useActionMutation`.
@@ -65,7 +118,12 @@ step is still pending. Use `🔴` only when blocked on user input.
 - Before adding any custom API or Nitro route for app data, inspect existing
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
-  actions.
+  actions. If you are about to write a handler under `server/routes/api/`, or
+  middleware to guard one, stop and write an action instead. The only
+  exceptions are uploads, streaming, inbound webhooks, OAuth callbacks, public
+  unauthenticated URLs, and non-JSON responses. Existing template `/api/*` CRUD
+  is a grandfathered baseline being migrated, not a pattern to copy;
+  `guard:no-action-twin-routes` fails on new ones.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
@@ -91,6 +149,13 @@ step is still pending. Use `🔴` only when blocked on user input.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
 - Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Never do heavy work at serverless cold start. Module load and plugin init run
+  on every cold Lambda, so migrations, backfills, aggregation, index builds,
+  provider handshakes, and warmup probes placed there multiply across every
+  function and show up as sitewide slowness or an outage, not as a slow startup.
+  Do that work in a `recurring-jobs` task, an automation, or lazily behind the
+  first request that needs it. Read `performance` before adding anything to a
+  startup path.
 - The agent can modify app code; design UI and data flows with that in mind.
 
 Every feature must touch the four areas when applicable: UI, actions, skills or
@@ -137,6 +202,28 @@ instructions, and application state.
 - Do not copy provider tokens into apps when a workspace integration grant can be
   used. Vault/secrets own secret values; apps own app-specific readers and
   interpretation.
+- A credential key gets exactly one resolver, and every runtime path goes
+  through it. Grep the key name before reading it; if a `resolveXConfig` or
+  connector already exists, call it rather than reading `process.env` again
+  elsewhere. A second env-only path does not leak — it splits the app in two,
+  so the settings UI reports the integration as configured while the feature
+  fails claiming the env var is unset, and the error names the wrong cause.
+  Shared helpers take the caller's email as a parameter; only entrypoints
+  decide identity. Run `npx agent-native doctor --only no-env-credentials` from
+  the app directory before finishing a credential change. See the `secrets`
+  skill.
+- `resolveCredential` searches exactly one organization, so it cannot read a
+  shared key for a caller with no org (cron, CLI) or one synced under a
+  different org. Swapping `process.env` for it looks like a fix and changes
+  nothing; the doctor guard does not catch this form. For workspace-wide keys
+  use a resolver that also sweeps the caller's memberships and a designated
+  vault org. See the `secrets` skill.
+- Never create an organization, repoint a user's `active-org-id`, or migrate a
+  roster/identity list into a new org on your own initiative. Vault credentials
+  are per-organization, so a second org orphans every key synced under the first
+  and surfaces as a missing-key error elsewhere. One org per workspace is the
+  intended pattern: add members to the existing org, and stop and get an explicit
+  yes before doing otherwise. See the `authentication` skill.
 - Use the `security`, `storing-data`, `sharing`, `portability`, and
   `integration-webhooks` skills for implementation details.
 
@@ -161,8 +248,15 @@ instructions, and application state.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.
-- Keep template UX clean and progressively disclosed. Do not solve feedback by
-  adding always-visible controls unless that is clearly the main workflow.
+- Page and section data loads use layout-matching `Skeleton` geometry, preferably
+  the shared toolkit/design-system primitive. Never show a generic "Loading..."
+  label for content; reserve `Spinner` for brief mutations, uploads, and
+  progress actions.
+- For any user-facing UI change, including screenshot feedback, copy or density
+  cleanup, settings, and control placement, read `frontend-design`. Keep the
+  default surface high-information and low-chrome: make the current task, state,
+  and next decision clear; defer secondary detail contextually; and do not add
+  persistent controls or explanatory copy without a specific user need.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
   `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
   details.
@@ -193,66 +287,21 @@ call `appAction` for app actions/data, `dbQuery`, `dbExec`, `appFetch` for
 allowed framework endpoints, and `extensionFetch` for external APIs from the
 iframe bridge. Use the `extensions` skill for the full rules.
 
-## Project Map
+## Skills
 
-```txt
-app/                 React frontend
-actions/             App operations exposed to agent and frontend
-server/              Nitro API, plugins, DB, framework routes
-packages/core/       Framework runtime
-packages/dispatch/   Dispatch package
-packages/scheduling/ Scheduling package
-templates/*/         Template apps
-.agents/skills/      Detailed implementation guidance
-```
+`.agents/skills/` holds the deep guidance, one directory per skill, each with a
+`description` naming when to read it. Read the matching skill before changing
+that area — most encode a decision the surrounding code cannot show. Prefer
+searching the skill directory over guessing from nearby code.
 
-## Skill Index
+A few are entry points rather than area guides:
 
-Read the relevant skill before making changes in that area:
-
-- `adding-a-feature` for the four-area checklist.
-- `feature-flags` for default-off production rollouts, shared evaluation,
-  operator targeting, and removing stale flags after rollout.
-- `context-xray` for inspecting and managing the live agent context window.
-- `actions` for action definitions and invocation.
-- `data-programs` for stored, cached data-source scripts bound to app panels.
-- `storing-data`, `portability`, `security`, `sharing` for data work.
-- `audit-log` for the automatic action-level audit trail (who changed what,
-  when, agent vs human) and the scoped `list-audit-events` read surface.
-- `performance` for keeping lists, reads, and page loads fast — column
-  projection, indexing hot-path queries, and avoiding round-trip waterfalls.
-- `reliable-mutations` for writing data so it persists under the hosted run
-  budget — one atomic call, never loop many small writes, verify and report
-  proof-of-done, fail loud on cutoff.
-- `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
-- `native-navigation` for link-first internal navigation that preserves
-  Cmd/Ctrl-click, middle-click, keyboard, and accessibility behavior.
-- `client-methods` for browser/client APIs that must use named helpers instead
-  of raw REST calls.
-- `delegate-to-agent` for LLM/agent delegation.
-- `agent-native-toolkit` for deciding whether settings, app chrome,
-  collaboration, sharing, navigation, organization, comments, or history belong
-  in reusable framework/toolkit primitives.
-- `customizing-agent-native` before configuring, composing, or ejecting an
-  installed Toolkit/Core feature into app-owned source.
-- `composable-mini-apps` for many one-job headless apps that discover siblings
-  and compose through `invoke` / `call-agent`.
-- `visual-answer` for code/product questions answered as visual Plan artifacts.
-- `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
-  Cursor, or Mastra.
-- `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
-  collaboration workflow, subscription metering, checkpoints, and recovery.
-- `self-modifying-code` for source edits by the agent.
-- `upgrade-agent-native` for bringing an older app/workspace to current
-  `@agent-native/*` packages without patching core/dispatch.
-- `upgrade-agent-native` for bringing an older app/workspace to current
-  `@agent-native/*` packages without patching core/dispatch.
-- `server-plugins` for `/_agent-native/*` routes and plugins.
-- `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
-- `automations`, `recurring-jobs`, `integration-webhooks` for background work.
-- `frontend-design`, `shadcn-ui` for interface work.
-- `changelog` for the per-app user-facing "What's new" CHANGELOG workflow.
-- `extensions` for sandboxed mini-apps.
-- `generative-ui` for transient or persisted sandboxed inline chat UI.
-- `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
-  `external-agents`, and template-specific skills as needed.
+- `content-product-development` — read before planning, implementing,
+  reviewing, testing, or documenting Content behavior or shared framework
+  behavior that changes Content's product contract.
+- `adding-a-feature` — the four-area checklist every feature must satisfy.
+- `writing-agent-instructions` — read before editing any `AGENTS.md`,
+  `SKILL.md`, or tool/action description, including this file.
+- `verifying-changes` — read before reporting a fix, feature, or deploy as
+  done. Exercising the path that was broken is the step most often skipped,
+  and skipping it is why the same bug gets reported twice.

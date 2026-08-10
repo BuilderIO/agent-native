@@ -74,6 +74,23 @@ const messages = {
       suggestionGrantKey: "Conceda minha chave OpenAI para este aplicativo",
     },
     pages: {
+      browserChatUnavailableTitle: "Sessão de chat do navegador indisponível",
+      browserChatUnavailableDescription:
+        "Reconecte pela extensão Agent-Native.",
+      browserChatPlaceholder: "Pergunte sobre esta página…",
+      browserChatAttachedPlaceholder: "Pergunte sobre {{page}}…",
+      browserConnectTitle: "Conectar chat do navegador",
+      browserConnectDescription:
+        "Permita que a extensão Agent-Native do Chrome abra esta sessão do Dispatch. A conexão usa um ticket único e de curta duração.",
+      browserConnectInvalid:
+        "Esta solicitação de conexão é inválida. Recomece pela extensão.",
+      browserConnectConnected:
+        "Chat do navegador conectado. Você pode fechar esta aba.",
+      browserConnectConnecting: "Conectando…",
+      browserConnectButton: "Conectar",
+      browserConnectOpenFromExtension:
+        "Abra esta página pela extensão Agent-Native do Chrome.",
+      browserConnectFailed: "A extensão do navegador não se conectou.",
       appsDescription:
         "Abra aplicativos de espaço de trabalho e inicie a criação de novos aplicativos em Dispatch.",
       appsDescriptionWithWorkspace:
@@ -92,19 +109,19 @@ const messages = {
       curatedTemplates: "Modelos selecionados",
       curatedTemplatesDescription:
         "Comece com uma estrutura de app revisada e personalize-a.",
-      remix: "Remixar",
-      remixTemplate: "Remixar {{name}}",
+      remix: "Criar a partir do modelo",
+      remixTemplate: "Criar app {{name}}",
       remixAppIdLabel: "Novo ID do app",
-      remixStarted: "Remix de {{name}} iniciado",
+      remixStarted: "Criação de {{name}} iniciada",
       viewLiveApp: "Ver app ao vivo",
       alreadyInWorkspace: "Já está no workspace",
       remixAppIdDescription:
         "Escolha um ID seguro para URL para o novo app do workspace.",
       integrationSetup: "Configuração da integração",
       source: "Origem",
-      remixing: "Remixando…",
-      remixSuccess: "Remix do modelo iniciado.",
-      remixError: "Não foi possível remixar este modelo",
+      remixing: "Criando app…",
+      remixSuccess: "Criação do app a partir do modelo iniciada.",
+      remixError: "Não foi possível criar um app a partir deste modelo",
       appIdRequired: "O ID do app é obrigatório.",
       hide: "Ocultar",
       show: "Show",
@@ -217,6 +234,8 @@ const messages = {
     newTerminal: "Novo terminal",
     panelOptions: "Opções do painel do agente",
     collapseSidebar: "Recolher barra lateral",
+    widenChat: "Ampliar o chat para 75%",
+    returnChatToLayout: "Retornar o chat ao layout",
     hideChats: "Ocultar bate-papos",
     allChats: "Todos os bate-papos",
     settings: "Configurações",
@@ -324,7 +343,7 @@ const messages = {
     codeChangeBadge: "Mudança de código",
     connectBuilderTitle: "Conectar Builder.io",
     connectBuilderDescription:
-      "Connect Builder para permitir alterações de código baseadas em nuvem deste aplicativo.",
+      "Connect Builder (nível gratuito disponível) para permitir alterações de código baseadas em nuvem deste aplicativo.",
     setupRequired: "Configuração necessária",
     branchCreated: "Filial criada",
     close: "Fechar",
@@ -353,24 +372,34 @@ const messages = {
     hideEveryone: "Esconda-se de todos",
     localFileDescription:
       "This extension is backed by {{entryPath}}. Edit or remove it from the workspace.",
-    deleteQuestion: "Delete {{name}}?",
+    deleteQuestion: "Arquivar {{name}}?",
     removeQuestion: "Remove {{name}}?",
     hideForYouDescription:
       "Isso o oculta da sua lista de extensões sem excluí-lo para mais ninguém.",
     removeEverywhereDescription:
-      "Isso o remove em todos os lugares em que é compartilhado.",
+      "Isso o arquiva em todos os lugares em que é compartilhado.",
     cancel: "Cancelar",
     remove: "Remover",
     removing: "Removendo...",
-    delete: "Excluir",
-    deleting: "Excluindo...",
+    delete: "Arquivar",
+    deleting: "Arquivando...",
     openFullView: "Abrir visualização completa",
     removeFromWidgetArea: "Remover desta área de widget",
-    deleteExtensionEllipsis: "Excluir extensão...",
+    customBlockSandboxed: "Bloco personalizado · isolado",
+    sandboxedCustomBlock: "Bloco SQL personalizado e isolado",
+    sandboxedCustomBlockCreatedBy:
+      "Bloco SQL personalizado e isolado criado por {{email}}",
+    promoteToAppCode: "Promover para código do aplicativo",
+    historyShowsSourceVersions: "O histórico mostra versões do código",
+    createdByHistoryShowsSourceVersions:
+      "Criado por {{email}}. O histórico mostra versões do código.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Criado por {{email}} · O histórico mostra versões do código",
+    deleteExtensionEllipsis: "Arquivar extensão...",
     removeFromMyListEllipsis: "Remover da minha lista...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
     deleteEverywhereConfirmation:
-      "Isso remove a extensão de todos os lugares, para todas as pessoas com quem ela é compartilhada.",
+      "Isso arquiva a extensão em todos os lugares, para todas as pessoas com quem ela é compartilhada.",
     addWidget: "Adicionar widget",
     loading: "Carregando...",
     noWidgetsAvailable: "Ainda não há widgets disponíveis para este slot.",
@@ -451,6 +480,10 @@ const messages = {
     noMembers: "Ainda não há membros.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "Paginação da lista de membros",
+    previousMemberPage: "Ir para a página anterior de membros",
+    nextMemberPage: "Ir para a próxima página de membros",
+    memberPageStatus: "Página {{page}} de {{totalPages}}",
     memberCount_many: "{{count}} members",
     youAreRole: "You are {{role}}",
     changeRole: "Mudar função",
@@ -459,6 +492,14 @@ const messages = {
     remove: "Remover",
     save: "Salvar",
     loading: "Carregando...",
+    dangerZone: "Zona de perigo",
+    deleteOrg: "Excluir organização",
+    deleteOrgDescription:
+      "Exclui permanentemente esta organização, seus membros e seus convites pendentes. Os dados pertencentes à organização ficarão inacessíveis. Essa ação não pode ser desfeita.",
+    deleteOrgConfirmPrompt: "Digite {{name}} para confirmar.",
+    deleteOrgConfirmPlaceholder: "Nome da organização",
+    deleteOrgConfirmCta: "Excluir organização",
+    deleteOrgPending: "Excluindo...",
   },
   integrations: {
     webhookUrl: "URL do webhook",
@@ -472,7 +513,7 @@ const messages = {
     back: "Voltar",
     agentEngineRequired: "Mecanismo de agente necessário",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (nível gratuito disponível) or an LLM key before {{platform}} can answer.",
     openLlm: "Abra LLM",
     setup: "Setup",
     shareDocumentsWith: "Compartilhe documentos com",

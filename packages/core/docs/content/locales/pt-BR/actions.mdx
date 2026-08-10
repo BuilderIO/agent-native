@@ -91,7 +91,7 @@ arquivo lateral incorporado ou como tela inteira do aplicativo, consulte [Agent 
 
 Se o UI e o agente precisarem fazer algo, tome uma ação, não uma ação personalizada
 rota. Para saber quando um protocolo em forma de rota _é_ a chamada certa, consulte [Preferir Actions
-Para operações de aplicativos](/docs/server#actions-first).
+Para operações de aplicativos](/docs/server-overview#actions-first).
 
 ## Comece com uma ação {#hello-action}
 
@@ -253,7 +253,7 @@ POST por padrao; `http: { method: "GET" }` torna a chamada GET. Os hooks React e
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — padrão `POST`. `GET` actions são marcados automaticamente como `readOnly`, portanto, chamadas bem-sucedidas não acionam uma atualização de pesquisa UI.
 - **`http: { path: "..." }`** — substitui o URL montado em `/_agent-native/actions/`. O padrão é o nome do arquivo. **As substituições de caminho alteram o URL apenas para chamadores HTTP diretos** — `useActionQuery`, `useActionMutation` e `callAction` sempre chamam `/_agent-native/actions/<name>` independentemente dessa substituição, portanto, substituir o caminho torna esses ganchos 404. Use substituições de caminho apenas para chamadores HTTP externos. Observe também que os segmentos de rota `:param` no caminho de substituição **não** são analisados em argumentos `run()` — apenas parâmetros de string de consulta e campos de corpo JSON são.
 - **`http: false`** — desative totalmente o endpoint HTTP. Somente agente + CLI.
-- **`readOnly: true`** — ignora explicitamente a atualização da enquete, mesmo para POST actions que não sofre mutação.
+- **`readOnly: true`** — ignora explicitamente a atualização da enquete, mesmo para POST actions que não sofre mutação. **Não** é controle de acesso: não restringe quem pode chamar a action e não afeta `useActionQuery`, `useActionMutation` nem qualquer hook de cliente. Seus únicos efeitos são suprimir o evento de atualização após a chamada e excluir a action da auditoria de escrita. Para ocultar uma action do modelo use `agentTool: false`; para restringir quem chama use as opções de auth/acesso acima.
 - **`parallelSafe: true`** — permite que uma ação mutante seja executada simultaneamente com outras chamadas de ferramenta do mesmo turno. Defina isso apenas quando a ação for internamente segura em termos de simultaneidade e independente de ordem; serialização actions mutante por padrão.
 
 ### Mantenha a superfície de ação pequena {#small-surface}
@@ -378,12 +378,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

@@ -227,7 +227,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
   const hasAccounts = (googleStatus.data?.accounts?.length ?? 0) > 0;
-  const isSettingsPage = location.pathname === "/settings";
+  const isSettingsPage =
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
   const isCalendarPage = location.pathname === "/";
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
@@ -386,13 +388,13 @@ export function AppLayout({ children }: AppLayoutProps) {
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
               collapsed={!isMobile && sidebarCollapsed}
-              onCollapsedChange={setSidebarCollapsed}
+              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
             />
             <AgentSidebar
               position="right"
               defaultOpen={false}
               emptyStateText={t("agentSidebar.emptyState")}
-              agentPageHref="/agent"
+              agentPageHref="/settings/agent"
               suggestions={[
                 t("agentSidebar.suggestions.today"),
                 t("agentSidebar.suggestions.findSlot"),

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * FIX 3 (durable-background incident, 2026-07-12): when a background chat-
@@ -85,7 +85,15 @@ const {
   markTurnAborted,
   reapIfStale,
   reapAllStaleRuns,
+  BACKGROUND_PROCESSING_RUN_STALE_MS,
+  __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
+
+// The sweeps' shared `status='running'` probe caches a negative answer for
+// seconds; tests insert their rows in milliseconds, so clear it per test.
+beforeEach(() => {
+  __resetNoRunningRunsProbeForTests();
+});
 
 let seq = 0;
 function ids(): { runId: string; thread: string; turn: string } {
@@ -103,6 +111,18 @@ function setStaleLiveness(runId: string, atMs: number): void {
       `UPDATE agent_runs SET heartbeat_at = ?, last_progress_at = ? WHERE id = ?`,
     )
     .run(atMs, atMs, runId);
+}
+
+// Simulates a run that started long enough ago to be reap-eligible, made a
+// token of real progress a few seconds in, then went completely silent for
+// the rest of its life — the "deterministic early hang" signature behind
+// the STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT circuit breaker.
+function setDeadOnArrival(runId: string, startedAtMs: number): void {
+  sqlite
+    .prepare(
+      `UPDATE agent_runs SET started_at = ?, heartbeat_at = ?, last_progress_at = ? WHERE id = ?`,
+    )
+    .run(startedAtMs, startedAtMs + 5_000, startedAtMs + 5_000, runId);
 }
 
 function readRow(runId: string):
@@ -159,6 +179,22 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(readRow(runId)?.status).toBe("aborted");
   });
 
+  it("escalates Stop on one chunk to every run of the same turn", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    const successor = `${runId}-chunk2`;
+    await insertRun(successor, thread, turn, { dispatchMode: "background" });
+
+    const { abortTurnDurably } = await import("./run-manager.js");
+    await abortTurnDurably(runId);
+
+    // Without the turn marker the successor claims itself and the turn keeps
+    // looping — the "Stop didn't stop it" report.
+    expect(await isTurnAborted(thread, turn)).toBe(true);
+    expect(readRow(successor)?.status).toBe("aborted");
+  });
+
   it("creates exactly one unclaimed recovery successor for a dead claimed background worker, and does not stack a second on a re-reap", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
@@ -205,6 +241,45 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(rowsForTurn(turn)).toHaveLength(2);
   });
 
+  it("stops recovering after 3 consecutive stale_run reaps that made near-zero progress (deterministic dead-on-arrival loop)", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    const payload = JSON.stringify({ message: "doomed request" });
+    const longAgo = Date.now() - STALE_PAST_MS;
+
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: payload,
+    });
+    await claimBackgroundRun(runId);
+    setDeadOnArrival(runId, longAgo);
+    expect(await reapIfStale(runId)).toBe(true);
+
+    let siblings = rowsForTurn(turn);
+    expect(siblings).toHaveLength(2); // original + 1st successor (recovered)
+    let successorId = siblings.find((r) => r.id !== runId)!.id;
+
+    await claimBackgroundRun(successorId);
+    setDeadOnArrival(successorId, longAgo);
+    expect(await reapIfStale(successorId)).toBe(true);
+
+    siblings = rowsForTurn(turn);
+    expect(siblings).toHaveLength(3); // + 2nd successor (recovered) — 2 in a row isn't enough to trip the breaker
+    const thirdRunId = siblings.find(
+      (r) => r.id !== runId && r.id !== successorId,
+    )!.id;
+
+    await claimBackgroundRun(thirdRunId);
+    setDeadOnArrival(thirdRunId, longAgo);
+    expect(await reapIfStale(thirdRunId)).toBe(true);
+
+    // The 3rd consecutive dead-on-arrival stale_run reap trips the breaker —
+    // no 4th successor, and the decline is diagnosable.
+    expect(readRow(thirdRunId)?.diag_stage).toContain("declined");
+    expect(readRow(thirdRunId)?.diag_stage).toContain("repeated_no_progress");
+    expect(rowsForTurn(turn)).toHaveLength(3);
+  });
+
   it("does NOT create a successor once the per-turn run budget is exhausted", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
@@ -236,8 +311,8 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
   it("does NOT create a successor when the dying run has no dispatch_payload to carry over", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    // No dispatchPayload — e.g. a row whose payload was already cleared, or
-    // one that predates this fix.
+    // No dispatchPayload — an in-process background automation, which was never
+    // HTTP-dispatched and so has no request body to rehydrate.
     await insertRun(runId, thread, turn, { dispatchMode: "background" });
     await claimBackgroundRun(runId);
     setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
@@ -245,8 +320,42 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const reaped = await reapIfStale(runId);
     expect(reaped).toBe(true);
     expect(readRow(runId)?.status).toBe("errored");
-    expect(readRow(runId)?.diag_stage).toContain("payload_missing");
+    // Named for what it is. "payload_missing" read as data loss in production
+    // forensics for the one case where nothing was ever lost.
+    expect(readRow(runId)?.diag_stage).toContain("not_redispatchable");
     expect(rowsForTurn(turn)).toHaveLength(1); // no successor inserted
+  });
+
+  it("gives a claimed run with no redispatch path the wider background stale window", async () => {
+    currentClient = makeRawClient(true);
+    // A payload-less claimed run is an in-process automation: reaping it at the
+    // 45s post-claim window kills a job that is still working and that nothing
+    // can recover. It must survive to the 90s background window instead.
+    const noPayload = ids();
+    await insertRun(noPayload.runId, noPayload.thread, noPayload.turn, {
+      dispatchMode: "background",
+    });
+    await claimBackgroundRun(noPayload.runId);
+    setStaleLiveness(
+      noPayload.runId,
+      Date.now() - (BACKGROUND_PROCESSING_RUN_STALE_MS + 5_000),
+    );
+    expect(await reapIfStale(noPayload.runId)).toBe(false);
+    expect(readRow(noPayload.runId)?.status).toBe("running");
+
+    // A genuine HTTP worker (payload present) keeps the tight window, because
+    // for it an early reap does buy a durable successor.
+    const withPayload = ids();
+    await insertRun(withPayload.runId, withPayload.thread, withPayload.turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ threadId: withPayload.thread }),
+    });
+    await claimBackgroundRun(withPayload.runId);
+    setStaleLiveness(
+      withPayload.runId,
+      Date.now() - (BACKGROUND_PROCESSING_RUN_STALE_MS + 5_000),
+    );
+    expect(await reapIfStale(withPayload.runId)).toBe(true);
   });
 
   it("does NOT create a successor when a newer run already exists for the same turn", async () => {

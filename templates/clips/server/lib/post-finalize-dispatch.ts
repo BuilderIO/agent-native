@@ -7,7 +7,12 @@ import {
   signScopedAgentAccessToken,
 } from "@agent-native/core/server";
 
-export type PostFinalizeJobKind = "media-ready" | "seekable" | "transcript";
+export type PostFinalizeJobKind =
+  | "media-ready"
+  | "seekable"
+  | "transcript"
+  | "brain-export"
+  | "loom-import";
 
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 
@@ -73,6 +78,12 @@ export async function dispatchPostFinalizeJob(args: {
         }
       : {}),
   });
+  console.log("[post-finalize] dispatching", {
+    recordingId: args.recordingId,
+    kind: args.kind,
+    workerUrl,
+    usesDurableBackground,
+  });
   const post = (url: string) =>
     fetch(url, {
       method: "POST",
@@ -84,7 +95,14 @@ export async function dispatchPostFinalizeJob(args: {
       usesDurableBackground && !initialResponse.ok
         ? await post(resolveWorkerUrl(processorRoute))
         : initialResponse;
-    if (response.ok) return;
+    if (response.ok) {
+      console.log("[post-finalize] dispatch accepted", {
+        recordingId: args.recordingId,
+        kind: args.kind,
+        status: response.status,
+      });
+      return;
+    }
     const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
     throw new Error(
       `Post-finalize ${args.kind} worker returned HTTP ${response.status}${

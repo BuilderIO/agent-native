@@ -50,11 +50,24 @@ import {
   readAgentsBundleFromFs,
   generateDevelopmentSkillsPromptBlock,
 } from "../server/agents-bundle.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getAmbientOrgId,
+  getAmbientUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
+import {
+  codexMcpConfigArgs,
+  mergeCodeAgentMcpConfig,
+  restrictCodeAgentMcpConfig,
+} from "./code-agent-mcp-config.js";
 import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   addCodeAgentCommandToAllowlist,
@@ -77,6 +90,8 @@ export interface ExecuteCodeAgentRunOptions {
   reasoningEffort?: ReasoningEffort;
   attachments?: AgentPromptAttachment[];
   stdout?: NodeJS.WritableStream;
+  /** Keep tool output in transcript events when the caller has a structured UI. */
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }
 
@@ -91,6 +106,7 @@ interface PendingCodeAgentApproval {
 
 interface CodeAgentApprovalExecutionOptions {
   stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }
 
@@ -130,6 +146,9 @@ export async function executeCodeAgentRun(
 ): Promise<CodeAgentRunRecord | null> {
   const existing = getCodeAgentRunRecord(options.runId);
   if (!existing) return null;
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
 
   const prompt = options.prompt ?? latestUserPrompt(existing.id);
   const rawAttachments =
@@ -206,6 +225,7 @@ export async function executeCodeAgentRun(
       model: options.model ?? metadataString(existing, "model"),
       permissionMode: existing.permissionMode ?? "full-auto",
       stdout: options.stdout,
+      streamToolOutputToStdout,
       signal: options.signal,
     });
   }
@@ -215,7 +235,9 @@ export async function executeCodeAgentRun(
   if (!engine) {
     const message =
       "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, another supported provider key, or run `codex login` to use Codex CLI.";
-    options.stdout?.write(`${message}\n`);
+    if (streamToolOutputToStdout) {
+      options.stdout?.write(`${message}\n`);
+    }
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
@@ -264,8 +286,11 @@ export async function executeCodeAgentRun(
       pendingToolMeta.set(toolName, meta);
     },
     (chunk) => {
-      // Stream incremental bash output to stdout for the terminal smoother
-      options.stdout?.write(chunk);
+      // Structured desktop transcripts render tool output separately from
+      // assistant text. Keep the legacy terminal stream opt-in for them.
+      if (streamToolOutputToStdout) {
+        options.stdout?.write(chunk);
+      }
     },
     toolProfile,
   );
@@ -423,7 +448,9 @@ export async function executeCodeAgentRun(
     }
     await outputSmoother.flush();
     if (assistantText.trim()) {
-      options.stdout?.write("\n");
+      if (streamToolOutputToStdout) {
+        options.stdout?.write("\n");
+      }
       appendCodeAgentTranscriptEvent({
         runId: existing.id,
         kind: "system",
@@ -439,7 +466,9 @@ export async function executeCodeAgentRun(
     const approvalPending = getPendingApproval(existing.id);
     if (approvalPending) {
       const message = `Agent-Native Code run paused for approval: ${approvalPending.reason}`;
-      options.stdout?.write(`\n${message}\n`);
+      if (streamToolOutputToStdout) {
+        options.stdout?.write(`\n${message}\n`);
+      }
       appendCodeAgentTranscriptEvent({
         runId: existing.id,
         kind: "status",
@@ -523,7 +552,9 @@ export async function executeCodeAgentRun(
   } catch (err) {
     await outputSmoother.flush().catch(() => undefined);
     const message = err instanceof Error ? err.message : String(err);
-    options.stdout?.write(`\nAgent-Native Code run failed: ${message}\n`);
+    if (streamToolOutputToStdout) {
+      options.stdout?.write(`\nAgent-Native Code run failed: ${message}\n`);
+    }
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
@@ -571,6 +602,7 @@ async function executeCodexCliRun(options: {
   model?: string;
   permissionMode: CodeAgentPermissionMode;
   stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }): Promise<CodeAgentRunRecord | null> {
   const cwd = options.run.cwd || process.cwd();
@@ -579,20 +611,35 @@ async function executeCodexCliRun(options: {
   );
   const outputPath = path.join(outputDir, "last-message.txt");
   const model = normalizeCodexCliModel(options.model);
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   const args = [
+    ...codexMcpConfigArgs(),
     "--ask-for-approval",
     "never",
-    "exec",
+    "--sandbox",
+    codexSandboxForPermissionMode(options.permissionMode),
     "--cd",
     cwd,
+    "exec",
     "--color",
     "never",
     "--skip-git-repo-check",
-    "--sandbox",
-    codexSandboxForPermissionMode(options.permissionMode),
+    "--ignore-user-config",
     "--output-last-message",
     outputPath,
   ];
+  if (additionalSkillsRoot && fs.existsSync(additionalSkillsRoot)) {
+    args.splice(
+      args.indexOf("--output-last-message"),
+      0,
+      "--add-dir",
+      additionalSkillsRoot,
+    );
+  }
   if (model) args.push("--model", model);
   args.push("-");
 
@@ -613,6 +660,7 @@ async function executeCodexCliRun(options: {
       cwd,
       prompt: buildCodexCliPrompt(options.run, options.prompt),
       stdout: options.stdout,
+      streamToolOutputToStdout,
       signal: options.signal,
     });
 
@@ -625,7 +673,9 @@ async function executeCodexCliRun(options: {
       const summary = interrupted
         ? "Codex CLI run paused."
         : `Codex CLI run failed: ${message}`;
-      options.stdout?.write(`\n${summary}\n`);
+      if (streamToolOutputToStdout) {
+        options.stdout?.write(`\n${summary}\n`);
+      }
       appendCodeAgentTranscriptEvent({
         runId: options.run.id,
         kind: "status",
@@ -710,6 +760,7 @@ async function executeCodexCliRun(options: {
           ),
         appendUserEvent: false,
         stdout: options.stdout,
+        streamToolOutputToStdout: options.streamToolOutputToStdout,
         signal: options.signal,
       });
     }
@@ -751,6 +802,7 @@ function runCodexCliProcess(options: {
   cwd: string;
   prompt: string;
   stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
   signal?: AbortSignal;
 }): Promise<CodexCliProcessResult> {
   return new Promise((resolve) => {
@@ -780,7 +832,9 @@ function runCodexCliProcess(options: {
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString();
       stdout += text;
-      options.stdout?.write(text);
+      if (options.streamToolOutputToStdout ?? true) {
+        options.stdout?.write(text);
+      }
     });
     child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
@@ -814,9 +868,16 @@ function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     mode === "Plan"
       ? "Inspect and explain only. Do not edit files or run mutating commands."
       : "Edit and verify as needed. Do not create, switch, reset, rebase, or stash git branches.";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
+    ...(additionalSkillsRoot
+      ? [
+          `Additional installed Agent Plugin skills are available under ${additionalSkillsRoot}. Read any relevant SKILL.md files before acting.`,
+        ]
+      : []),
     `Run mode: ${mode} (${permissionMode}). ${modeInstruction}`,
     "",
     "# User request",
@@ -893,15 +954,22 @@ export async function executePendingCodeAgentApproval(
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
   const approval = getPendingApproval(runId);
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   if (!approval) {
-    options.stdout?.write("No pending approval was found for this run.\n");
+    if (streamToolOutputToStdout) {
+      options.stdout?.write("No pending approval was found for this run.\n");
+    }
     return record;
   }
 
   const permission = classifyCodeAgentCommandPermission(approval.command);
   if (permission.kind === "forbidden") {
     const message = `Approval cannot run forbidden command: ${permission.reason}`;
-    options.stdout?.write(`${message}\n`);
+    if (streamToolOutputToStdout) {
+      options.stdout?.write(`${message}\n`);
+    }
     appendCodeAgentTranscriptEvent({
       runId,
       kind: "status",
@@ -947,7 +1015,9 @@ export async function executePendingCodeAgentApproval(
       .join("\n\n"),
     MAX_TOOL_OUTPUT_CHARS,
   );
-  options.stdout?.write(`${summary}\n`);
+  if (streamToolOutputToStdout) {
+    options.stdout?.write(`${summary}\n`);
+  }
   appendCodeAgentTranscriptEvent({
     runId,
     kind: "status",
@@ -983,6 +1053,7 @@ export async function executePendingCodeAgentApproval(
   });
   return executeExistingCodeAgentRun(runId, {
     stdout: options.stdout,
+    streamToolOutputToStdout,
     signal: options.signal,
   });
 }
@@ -999,13 +1070,20 @@ export async function executeDenyCodeAgentApproval(
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
   const approval = getPendingApproval(runId);
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   if (!approval) {
-    options.stdout?.write("No pending approval was found for this run.\n");
+    if (streamToolOutputToStdout) {
+      options.stdout?.write("No pending approval was found for this run.\n");
+    }
     return record;
   }
 
   const message = `User denied command: ${approval.command} (${approval.reason})`;
-  options.stdout?.write(`${message}\n`);
+  if (streamToolOutputToStdout) {
+    options.stdout?.write(`${message}\n`);
+  }
   appendCodeAgentTranscriptEvent({
     runId,
     kind: "status",
@@ -1038,6 +1116,7 @@ export async function executeDenyCodeAgentApproval(
   });
   return executeExistingCodeAgentRun(runId, {
     stdout: options.stdout,
+    streamToolOutputToStdout,
     signal: options.signal,
   });
 }
@@ -1120,9 +1199,17 @@ async function startCodeAgentMcpManager(
     });
     return null;
   });
-  if (!config || Object.keys(config.servers ?? {}).length === 0) return null;
+  const effectiveConfig = restrictCodeAgentMcpConfig(
+    mergeCodeAgentMcpConfig(config),
+  );
+  if (
+    !effectiveConfig ||
+    Object.keys(effectiveConfig.servers ?? {}).length === 0
+  ) {
+    return null;
+  }
 
-  const manager = new McpClientManager(config);
+  const manager = new McpClientManager(effectiveConfig);
   await manager.start().catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentTranscriptEvent({
@@ -1157,8 +1244,8 @@ function runWithOptionalCodeAgentRequestContext<T>(
   const userEmail =
     metadataString(run, "ownerEmail") ??
     metadataString(run, "userEmail") ??
-    process.env.AGENT_USER_EMAIL;
-  const orgId = metadataString(run, "orgId") ?? process.env.AGENT_ORG_ID;
+    getAmbientUserEmail();
+  const orgId = metadataString(run, "orgId") ?? getAmbientOrgId();
   if (!userEmail && !orgId) return fn();
   return runWithRequestContext({ userEmail, orgId }, fn);
 }
@@ -1571,12 +1658,25 @@ export async function buildCodeAgentSystemPrompt(
   cwd: string,
   permissionMode: CodeAgentPermissionMode,
 ): Promise<string> {
-  const bundle = readAgentsBundleFromFs(cwd);
+  const appConfig = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext("serve", "development"),
+  );
+  const bundle = readAgentsBundleFromFs(cwd, null, {
+    instructions: appConfig.instructions,
+    additionalSkillDirs: (process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT ?? "")
+      .split(path.delimiter)
+      .map((value) => value.trim())
+      .filter(Boolean),
+  });
 
   // If the bundle has no AGENTS.md, try CLAUDE.md as a fallback — many repos
   // use that name for agent instructions (e.g. Claude Code projects).
-  let agentsMdContent = bundle.agentsMd;
-  if (!agentsMdContent.trim()) {
+  let agentsMdContent = bundle.developmentAgentsMd ?? bundle.agentsMd;
+  if (
+    !agentsMdContent.trim() &&
+    appConfig.instructions?.development === undefined
+  ) {
     try {
       const fs = await import("node:fs");
       const path = await import("node:path");
@@ -1667,7 +1767,8 @@ Current run mode: ${mode} mode (${permissionMode}).
 # Autonomy and verification
 
 - Stay with the work until the task is handled end to end within this turn whenever feasible. Don't stop at analysis or a proposal — implement the fix, and work through blockers yourself before handing them back. The exception is Plan mode, where you propose only.
-- Done means verified, not generated. After code changes (not docs-only), run the repo's checks before reporting success: \`pnpm run prep\` (format + typecheck + test + guards), or a focused subset like \`pnpm typecheck\` or a single package's tests for a small change. Fix all errors before you call it done.
+- Done means verified, not generated. Match the check to the change: use the narrowest relevant test, typecheck, formatter, or direct invocation for a localized edit; use \`pnpm run prep\` for shared or cross-cutting changes. Do not restart a dev server or run broad checks as a generic post-edit ritual. Fix failures before you call it done, and keep any repository-required guards or doctor checks that apply.
+- In an Agent-Native app or workspace, also run \`pnpm agent-native:doctor\` (or \`pnpm doctor\`) after source changes. Treat every finding as a fix-required security issue; do not disable a guard without a reviewer-readable reason.
 - Do not claim a change works, tests pass, or a build succeeds unless you actually ran it and saw the result. If you could not verify something, say exactly what is unverified and why.
 
 # Tools beyond the basics

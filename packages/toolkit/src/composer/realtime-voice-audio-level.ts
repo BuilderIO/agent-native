@@ -25,7 +25,8 @@ export function normalizeRealtimeVoiceRms(samples: Uint8Array): number {
     sumSquares += normalized * normalized;
   }
   const rms = Math.sqrt(sumSquares / samples.length);
-  return clampLevel(Math.max(0, rms - 0.012) * 3.2);
+  const activeLevel = clampLevel((rms - 0.012) / 0.18);
+  return Math.sqrt(activeLevel);
 }
 
 export function smoothRealtimeVoiceLevel(

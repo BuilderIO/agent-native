@@ -1,6 +1,7 @@
 import {
   IconArrowBackUp,
   IconChevronRight,
+  IconCode,
   IconDotsVertical,
   IconHistory,
   IconLoader2,
@@ -17,6 +18,7 @@ import { buildExtensionHtml } from "../../extensions/html-shell.js";
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 import { getThemeVars } from "../../extensions/theme.js";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
+import { normalizeDocumentTitle } from "../../shared/document-title.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
@@ -127,7 +129,13 @@ function readExtensionTitleSuffix(): string | null {
 }
 
 function extensionDocumentTitle(name: string, suffix: string | null): string {
-  return suffix ? `${name} \u2014 ${suffix}` : `${name} \u2014 Extensions`;
+  const safeName = normalizeDocumentTitle(name, "Untitled extension");
+  const safeSuffix = suffix
+    ? normalizeDocumentTitle(suffix, "Extensions")
+    : null;
+  return safeSuffix
+    ? `${safeName} \u2014 ${safeSuffix}`
+    : `${safeName} \u2014 Extensions`;
 }
 
 function extensionRole(value: unknown): ExtensionBridgeRole {
@@ -1176,6 +1184,20 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   <span className="truncate text-sm font-medium">
                     {extension.name}
                   </span>
+                  {!isLocalExtension && (
+                    <span
+                      className="shrink-0 text-[10px] font-medium text-muted-foreground/70"
+                      title={
+                        extension.ownerEmail
+                          ? t("extensions.sandboxedCustomBlockCreatedBy", {
+                              email: extension.ownerEmail,
+                            })
+                          : t("extensions.sandboxedCustomBlock")
+                      }
+                    >
+                      {t("extensions.customBlockSandboxed")}
+                    </span>
+                  )}
                   {extension.canEdit && !isLocalExtension && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1224,7 +1246,9 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             <ToolMoreMenu
               extensionId={extensionId}
               toolName={extension.name}
+              ownerEmail={extension.ownerEmail}
               canDelete={extension.canDelete}
+              canEdit={extension.canEdit}
               sourceMode={extension.source?.mode}
               onOpenChange={onPopoverOpenChange}
             />
@@ -1299,13 +1323,17 @@ interface SlotDeclaration {
 function ToolMoreMenu({
   extensionId,
   toolName,
+  ownerEmail,
   canDelete,
+  canEdit,
   sourceMode,
   onOpenChange,
 }: {
   extensionId: string;
   toolName: string;
+  ownerEmail?: string;
   canDelete?: boolean;
+  canEdit?: boolean;
   sourceMode?: "database" | "local-files";
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -1366,6 +1394,22 @@ function ToolMoreMenu({
     } catch {
       queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
     }
+  };
+
+  const promoteToAppCode = () => {
+    closeMenu();
+    sendToAgentChat({
+      message: `Promote "${toolName}" from a sandboxed custom block into reusable native app code. Preserve the existing custom block as-is until the code change is reviewed and deployed.`,
+      context: [
+        `The user intentionally selected "Promote to app code" for database-backed extension "${toolName}" (id: ${extensionId}).`,
+        "Call connect-builder with this extensionId and the visible user request as its prompt.",
+        "Do not copy extension HTML from the browser or ask the client to supply it. connect-builder resolves the authoritative SQL artifact and re-checks editor access server-side.",
+        "The promotion is non-destructive: do not update, archive, delete, or replace the existing extension.",
+      ].join("\n"),
+      submit: true,
+      openSidebar: true,
+      newTab: true,
+    });
   };
   const isLocalExtension = sourceMode === "local-files";
 
@@ -1454,6 +1498,36 @@ function ToolMoreMenu({
               </div>
             ) : (
               <div className="border-t border-border/40 p-1">
+                {canEdit && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={promoteToAppCode}
+                      className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[12px] text-foreground hover:bg-accent"
+                    >
+                      <IconCode className="h-3.5 w-3.5" />
+                      <span>{t("extensions.promoteToAppCode")}</span>
+                    </button>
+                    <p
+                      className="truncate px-2 pb-1.5 text-[10px] text-muted-foreground/70"
+                      title={
+                        ownerEmail
+                          ? t(
+                              "extensions.createdByHistoryShowsSourceVersions",
+                              { email: ownerEmail },
+                            )
+                          : t("extensions.historyShowsSourceVersions")
+                      }
+                    >
+                      {ownerEmail
+                        ? t(
+                            "extensions.createdByHistoryShowsSourceVersionsCompact",
+                            { email: ownerEmail },
+                          )
+                        : t("extensions.historyShowsSourceVersions")}
+                    </p>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(true)}
@@ -1463,7 +1537,7 @@ function ToolMoreMenu({
                   <span>
                     {canDelete === false
                       ? "Remove from my list..."
-                      : "Delete extension..."}
+                      : "Archive extension..."}
                   </span>
                 </button>
               </div>
@@ -1472,11 +1546,11 @@ function ToolMoreMenu({
         ) : (
           <div className="flex flex-col gap-2 p-3">
             <p className="text-[12px]">
-              {canDelete === false ? "Remove " : "Delete "}
+              {canDelete === false ? "Remove " : "Archive "}
               <span className="font-medium">{toolName}</span>?
               {canDelete === false
                 ? " This hides it from your Extensions list without deleting it for anyone else."
-                : " This removes the extension everywhere, for everyone it's shared with."}
+                : " This archives the extension everywhere, for everyone it's shared with."}
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -1491,7 +1565,7 @@ function ToolMoreMenu({
                 onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
-                {canDelete === false ? "Remove" : "Delete"}
+                {canDelete === false ? "Remove" : "Archive"}
               </button>
             </div>
           </div>
