@@ -269,6 +269,7 @@ export class DesktopIdentityBroker {
     const app = this.options.resolveApp(appId);
     if (
       !app ||
+      (this.options.isAvailable && !this.options.resolveApp("dispatch")) ||
       this.automaticSignInSuppressed ||
       this.unsupportedAppIds.has(appId) ||
       !isDesktopSignInNavigation(navigationUrl, app)
@@ -583,7 +584,12 @@ export class DesktopIdentityBroker {
     let authorityApp: DesktopIdentityApp | null = null;
     if (this.options.isAvailable) {
       authorityApp = this.options.resolveApp("dispatch");
-      if (!authorityApp) return false;
+      if (!authorityApp) {
+        this.unsupportedAppIds.add(app.id);
+        this.setStatus("idle");
+        this.options.reloadApp(app);
+        return false;
+      }
       let available = false;
       try {
         available = await this.options.isAvailable(
@@ -690,7 +696,24 @@ export class DesktopIdentityBroker {
           this.options.handleOAuthNavigation?.(url, identityWindow.webContents)
         ) {
           event.preventDefault();
+          return;
         }
+        let origin: string;
+        try {
+          origin = new URL(url).origin;
+        } catch {
+          event.preventDefault();
+          finish(false, "failed");
+          return;
+        }
+        if (
+          origin === app.origin ||
+          (authorityApp && origin === authorityApp.origin)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        finish(false, "failed");
       };
 
       identityWindow.webContents.on("will-navigate", inspectNavigation);

@@ -230,6 +230,62 @@ describe("Desktop identity navigation boundaries", () => {
 });
 
 describe("DesktopIdentityBroker", () => {
+  it("leaves ordinary sign-in alone when the Dispatch authority is unavailable", () => {
+    const app = appFixture();
+    const createWindow = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => (id === app.id ? app : null),
+      createWindow: createWindow as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    expect(
+      broker.handleSignedOutNavigation(
+        app.id,
+        `${app.origin}/_agent-native/sign-in`,
+      ),
+    ).toBe(false);
+    expect(createWindow).not.toHaveBeenCalled();
+  });
+
+  it("restores ordinary sign-in if Dispatch disappears before the ceremony", async () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const reloadApp = vi.fn();
+    let authorityReads = 0;
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveApp: (id) => {
+        if (id === app.id) return app;
+        if (id !== authority.id) return null;
+        authorityReads += 1;
+        return authorityReads === 1 ? authority : null;
+      },
+      createWindow: vi.fn() as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    expect(
+      broker.handleSignedOutNavigation(
+        app.id,
+        `${app.origin}/_agent-native/sign-in`,
+      ),
+    ).toBe(true);
+    await vi.waitFor(() => expect(reloadApp).toHaveBeenCalledWith(app));
+    expect(broker.getStatus()).toBe("idle");
+  });
+
   it("leaves ordinary per-app sign-in alone when rollout availability is off", async () => {
     const app = appFixture();
     const authority = authorityFixture();
@@ -423,6 +479,63 @@ describe("DesktopIdentityBroker", () => {
     await expect(broker.ensureAppSession(app.id)).resolves.toBe(false);
     expect(createWindow).not.toHaveBeenCalled();
     expect(reloadApp).toHaveBeenCalledWith(app);
+    expect(broker.getStatus()).toBe("failed");
+  });
+
+  it("closes the identity window on unhandled cross-origin navigation", async () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      isAvailable: vi.fn(async () => true),
+      resolveLoginRedirect: vi.fn(async () => authorizeUrl(authority, app)),
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow: () => identityWindow as never,
+      handleOAuthNavigation: vi.fn(() => false),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const ceremony = broker.ensureAppSession(app.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1];
+    const allowedPreventDefault = vi.fn();
+    navigationHandler(
+      { preventDefault: allowedPreventDefault },
+      authority.origin,
+    );
+    navigationHandler(
+      { preventDefault: allowedPreventDefault },
+      `${app.origin}/_agent-native/identity/callback`,
+    );
+    expect(allowedPreventDefault).not.toHaveBeenCalled();
+
+    const preventDefault = vi.fn();
+    navigationHandler(
+      { preventDefault },
+      "https://evil.example/looks-like-sign-in",
+    );
+
+    await expect(ceremony).resolves.toBe(false);
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(identityWindow.close).toHaveBeenCalledOnce();
     expect(broker.getStatus()).toBe("failed");
   });
 
