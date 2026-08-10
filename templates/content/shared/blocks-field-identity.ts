@@ -367,6 +367,20 @@ export function reconcileBlocksFieldIdentity(args: {
   const usedIds = new Set(args.previous.blocks.map((block) => block.id));
   const assignedNextIds = new Set<string>();
 
+  const previousLiveById = new Map(
+    previousLive.map((block, index) => [block.id, index]),
+  );
+  for (let nextIndex = 0; nextIndex < snapshots.length; nextIndex++) {
+    const explicitId = args.preferredIdsByPath?.[snapshots[nextIndex]!.path];
+    if (!explicitId) continue;
+    const previousIndex = previousLiveById.get(explicitId);
+    if (previousIndex === undefined || matchedPrevious.has(previousIndex)) {
+      continue;
+    }
+    matchedPrevious.add(previousIndex);
+    assigned.set(nextIndex, previousLive[previousIndex]!);
+  }
+
   const previousExact = uniqueIndexByKey(
     previousLive,
     (block) => `${block.kind}\0${block.contentHash}`,
@@ -486,8 +500,9 @@ export function reconcileBlocksFieldIdentity(args: {
   const recoveredIds = new Set<string>();
   const idByPath = new Map<string, string>();
   const nextBlocks = snapshots.map((snapshot, nextIndex) => {
+    const explicitId = args.preferredIdsByPath?.[snapshot.path];
     let previous = assigned.get(nextIndex);
-    if (!previous) {
+    if (!previous && !explicitId) {
       const recoveredIndex = recoverable.get(
         `${snapshot.kind}\0${snapshot.contentHash}`,
       );
@@ -496,7 +511,9 @@ export function reconcileBlocksFieldIdentity(args: {
         if (previous) recoveredIds.add(previous.id);
       }
     }
-    const explicitId = args.preferredIdsByPath?.[snapshot.path];
+    if (explicitId && usedIds.has(explicitId) && explicitId !== previous?.id) {
+      throw new Error(`Preferred Block ID is already reserved: ${explicitId}`);
+    }
     let id =
       explicitId ?? previous?.id ?? snapshot.preferredId ?? args.createId();
     while (

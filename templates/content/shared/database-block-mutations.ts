@@ -281,16 +281,22 @@ export function mutateBlocksFieldDocument(args: {
   }
 
   const markdown = docToNfm(doc);
+  const preferredIdsByPath = preferredIds(
+    doc,
+    idByNode,
+    requestedNode,
+    args.insertedBlockId,
+  );
+  const identityOrderChanged = collectNodeRefs(doc).some(
+    (ref, index) =>
+      preferredIdsByPath[ref.path] !== undefined &&
+      preferredIdsByPath[ref.path] !== args.identity.blocks[index]?.id,
+  );
   return {
     markdown,
-    preferredIdsByPath: preferredIds(
-      doc,
-      idByNode,
-      requestedNode,
-      args.insertedBlockId,
-    ),
+    preferredIdsByPath,
     requestedBlockId,
     deletedCandidateIds,
-    changed: markdown !== before,
+    changed: markdown !== before || identityOrderChanged,
   };
 }

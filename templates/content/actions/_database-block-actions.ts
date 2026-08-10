@@ -455,15 +455,24 @@ async function writeMarkdown(
   now: string,
 ) {
   if (loaded.storageTarget === "document_body") {
-    await db
+    const updated = await db
       .update(schema.documents)
       .set({ content: markdown, updatedAt: now })
       .where(
         and(
           eq(schema.documents.id, target.rowDocumentId),
+          eq(schema.documents.content, loaded.markdown),
           isNull(schema.documents.trashedAt),
         ),
+      )
+      .returning({ id: schema.documents.id });
+    if (updated.length === 0) {
+      contractError(
+        "FIELD_REVISION_CONFLICT",
+        "The Blocks field changed before the mutation could commit.",
+        { propertyId: target.propertyId },
       );
+    }
     return;
   }
   await db
@@ -522,11 +531,10 @@ async function readExistingReceipt(
       { idempotencyKey },
     );
   }
-  const verified = await verifyResult(parsed, db);
   return {
     receipt: {
-      ...verified.receipt,
-      idempotency: { ...verified.receipt.idempotency, result: "replayed" },
+      ...parsed.receipt,
+      idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
     },
   };
 }
@@ -782,5 +790,7 @@ export async function mutateDatabaseBlock(
       });
     },
   );
-  return verifyResult(result);
+  return result.receipt.idempotency.result === "replayed"
+    ? result
+    : verifyResult(result);
 }

@@ -269,13 +269,31 @@ describe("exact Content database block actions", () => {
       }),
     );
     expect(deleted.receipt.affected.deletedBlockIds).toContain(alpha!.id);
+    current = await asOwner(() =>
+      listBlocks.run({ target: state.target, limit: 100 }),
+    );
+    await asOwner(() =>
+      mutateBlock.run({
+        target: state.target,
+        expectedSchemaRevision: current.schemaRevision,
+        expectedRowRevision: current.rowRevision,
+        expectedFieldRevision: current.fieldRevision,
+        idempotencyKey: "insert-identical-to-tombstone",
+        operation: "insert",
+        block: { kind: "paragraph", nfm: "Alpha" },
+        position: { placement: "start" },
+      }),
+    );
+    current = await asOwner(() =>
+      listBlocks.run({ target: state.target, limit: 100 }),
+    );
     await expect(
       asOwner(() =>
         mutateBlock.run({
           target: state.target,
-          expectedSchemaRevision: deleted.receipt.schemaRevision,
-          expectedRowRevision: deleted.receipt.revisions.row.after,
-          expectedFieldRevision: deleted.receipt.revisions.field.after,
+          expectedSchemaRevision: current.schemaRevision,
+          expectedRowRevision: current.rowRevision,
+          expectedFieldRevision: current.fieldRevision,
           idempotencyKey: "restore-tombstone",
           operation: "upsert",
           blockId: alpha!.id,
@@ -284,6 +302,10 @@ describe("exact Content database block actions", () => {
         }),
       ),
     ).rejects.toMatchObject({ errorCode: "BLOCK_ID_TOMBSTONED" });
+
+    const lateReplay = await asOwner(() => mutateBlock.run(insertInput));
+    expect(lateReplay.receipt.receiptId).toBe(inserted.receipt.receiptId);
+    expect(lateReplay.receipt.idempotency.result).toBe("replayed");
   });
 
   it("rejects stale row, field, schema, target, access, and unsupported operations without clobbering", async () => {
@@ -434,5 +456,30 @@ describe("exact Content database block actions", () => {
         ),
       );
     expect(storedAdditional?.content).toBe("Notes A changed\nNotes B");
+  });
+
+  it("rejects a direct editor-body race without overwriting the newer body", async () => {
+    const state = await fixture("Before\nSibling");
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Editor won\nSibling" })
+      .where(eq(schema.documents.id, state.target.rowDocumentId));
+
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "editor-race"),
+          operation: "update",
+          blockId: state.listed.blocks[0]!.id,
+          block: { kind: "paragraph", nfm: "Agent write" },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "BLOCK_IDENTITY_STALE" });
+
+    const [stored] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, state.target.rowDocumentId));
+    expect(stored?.content).toBe("Editor won\nSibling");
   });
 });

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   BLOCKS_FIELD_OPERATION_CAPABILITIES,
+  exposeBlocksFieldIdentity,
   legacyBlocksFieldIdentity,
   materializeLegacyBlocksFieldIdentity,
   reconcileBlocksFieldIdentity,
@@ -257,25 +258,87 @@ describe("individual Blocks-field document mutations", () => {
   });
 
   it.each(fullyMutableKinds)(
-    "accepts canonical typed NFM for the live %s mutation contract",
+    "executes every declared individual operation for live %s blocks",
     (kind, markdown) => {
-      const before = identity(markdown);
+      const fieldMarkdown =
+        kind === "notionColumn"
+          ? "<columns>\n\t<column>\n\t\tFirst\n\t</column>\n\t<column>\n\t\tSecond\n\t</column>\n</columns>"
+          : `${markdown}\nTail`;
+      let stored = persisted(fieldMarkdown);
+      let before = exposeBlocksFieldIdentity(stored, fieldMarkdown);
       const block = before.blocks.find((candidate) => candidate.kind === kind);
       expect(
         block,
         `${kind} must be indexed by the identity contract`,
       ).toBeTruthy();
-      expect(() =>
-        mutateBlocksFieldDocument({
-          markdown,
-          identity: before,
-          mutation: {
-            operation: "update",
-            blockId: block!.id,
-            block: { kind, nfm: markdown },
-          },
-        }),
-      ).not.toThrow();
+
+      const insertedId = `inserted_${kind}`;
+      let generatedId = 0;
+      const createId = () => `generated_${kind}_${generatedId++}`;
+      const inserted = mutateBlocksFieldDocument({
+        markdown: fieldMarkdown,
+        identity: before,
+        mutation: {
+          operation: "insert",
+          block: { kind, nfm: markdown },
+          position: { placement: "after", anchorBlockId: block!.id },
+        },
+        insertedBlockId: insertedId,
+      });
+      expect(inserted.changed).toBe(true);
+      stored = reconcileBlocksFieldIdentity({
+        documentId: "document-1",
+        propertyId: "property-1",
+        previous: stored,
+        markdown: inserted.markdown,
+        preferredIdsByPath: inserted.preferredIdsByPath,
+        createId,
+      });
+      before = exposeBlocksFieldIdentity(stored, inserted.markdown);
+      expect(
+        before.blocks.some((candidate) => candidate.id === insertedId),
+      ).toBe(true);
+
+      for (const operation of ["update", "upsert"] as const) {
+        expect(() =>
+          mutateBlocksFieldDocument({
+            markdown: inserted.markdown,
+            identity: before,
+            mutation: {
+              operation,
+              blockId: insertedId,
+              block: { kind, nfm: markdown },
+            },
+          }),
+        ).not.toThrow();
+      }
+
+      const reordered = mutateBlocksFieldDocument({
+        markdown: inserted.markdown,
+        identity: before,
+        mutation: {
+          operation: "reorder",
+          blockId: insertedId,
+          position: { placement: "before", anchorBlockId: block!.id },
+        },
+      });
+      expect(reordered.changed).toBe(true);
+      stored = reconcileBlocksFieldIdentity({
+        documentId: "document-1",
+        propertyId: "property-1",
+        previous: stored,
+        markdown: reordered.markdown,
+        preferredIdsByPath: reordered.preferredIdsByPath,
+        createId,
+      });
+      before = exposeBlocksFieldIdentity(stored, reordered.markdown);
+      const deleted = mutateBlocksFieldDocument({
+        markdown: reordered.markdown,
+        identity: before,
+        mutation: { operation: "delete", blockId: insertedId },
+      });
+      expect(deleted.changed).toBe(true);
+      expect(deleted.deletedCandidateIds).toContain(insertedId);
     },
   );
 });
