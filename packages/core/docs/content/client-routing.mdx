@@ -1,0 +1,122 @@
+---
+title: "Routing"
+description: "File-based routing for agent-native apps with React Router v8: pages, dynamic params, and navigation."
+draft: true
+---
+
+# Routing
+
+Agent-native apps use **React Router v8** with file-based routing via `flatRoutes()` from `@react-router/fs-routes`. Every file in `app/routes/` becomes a URL. Templates use the dot-notation convention. Dots separate URL segments inside a single filename.
+
+This page covers client routes, the pages rendered in the browser from `app/routes/`. Server routes are a separate system: Nitro file routes under `server/routes/`, plus the framework's own `/_agent-native/*` endpoints. Those live on the [Routes](/docs/server-routes) page. The two don't share a directory, a naming convention, or a router, so a `server/routes/` file never becomes a page here and an `app/routes/` file never becomes a server endpoint.
+
+<Diagram id="doc-block-client-routing-1" title="File name → URL" summary="Each file in app/routes/ becomes a URL. Dots become slashes, and a $ segment becomes a dynamic param.">
+
+```html
+<div class="diagram-filemap">
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">_index.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard</span>
+  </div>
+  <div class="diagram-filemap-row">
+    <span class="diagram-node">dashboard_.$ticketId.tsx</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <span class="diagram-pill accent">/dashboard/:ticketId</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-filemap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-filemap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-filemap-row .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## File-based routing {#file-based-routing}
+
+### File → URL mapping
+
+| File                       | URL                    | Notes                                                                     |
+| -------------------------- | ---------------------- | ------------------------------------------------------------------------- |
+| `_index.tsx`               | `/`                    | Index route                                                               |
+| `dashboard.tsx`            | `/dashboard`           | Simple page                                                               |
+| `extensions.$id.tsx`       | `/extensions/:id`      | Nests inside `extensions.tsx`'s `<Outlet/>`. `$` is a dynamic param       |
+| `dashboard_.$ticketId.tsx` | `/dashboard/:ticketId` | Trailing `_` skips nesting under `dashboard.tsx`, so this is its own page |
+| `_app.tsx`                 | (no URL segment)       | Pathless layout. Prefix with `_`                                          |
+| `inbox/route.tsx`          | `/inbox`               | Folder form. `route.tsx` is the index                                     |
+
+Prefix a segment with `$` for a dynamic param. Prefix with `_` to make it a pathless layout route (no URL segment), or add a trailing `_` before a dot to opt a nested-looking path out of nesting under its parent's layout. Templates use `flatRoutes()`. The dot-notation file above is primary. The nested-folder form `inbox/route.tsx` also works.
+
+## Adding a new page {#adding-a-page}
+
+Create the file and export a default component:
+
+```tsx filename="app/routes/settings.tsx"
+export function meta() {
+  return [{ title: "Settings" }];
+}
+
+export default function SettingsPage() {
+  return <div>Settings</div>;
+}
+```
+
+That's it. React Router picks it up automatically, no registration needed.
+
+## Dynamic params {#dynamic-params}
+
+```tsx filename="app/routes/dashboard_.$ticketId.tsx"
+import { useParams } from "react-router";
+
+export default function TicketDetailPage() {
+  const { ticketId } = useParams();
+  return <div>Ticket: {ticketId}</div>;
+}
+```
+
+The trailing `_` before the dot keeps this page from nesting inside `dashboard.tsx`'s `<Outlet/>`, so it renders as its own full page at `/dashboard/:ticketId` instead of appearing inside the ticket queue's layout.
+
+## Navigation {#navigation}
+
+Use `<Link>` for client-side navigation and `useNavigate()` for programmatic navigation:
+
+```tsx
+import { Link, useNavigate } from "react-router";
+
+// In JSX
+<Link to="/dashboard">Dashboard</Link>;
+
+// Programmatic
+const navigate = useNavigate();
+navigate(`/dashboard/${ticketId}`);
+```
+
+Neither of these tells the agent what the user is looking at on their own. That's a separate concern, handled by `useAgentRouteState()` writing the current route into application state. See [Context Awareness](/docs/context-awareness).
+
+## What's next
+
+- [**Overview**](/docs/client-overview) — where `app/routes/` fits among the rest of `app/` and `public/`
+- [**Data & Sync**](/docs/client-data) — reading and writing data from inside a route
+- [**Agent Chat**](/docs/client-agent-chat) — sending prompts and staging context from a route
+- [**Routes**](/docs/server-routes) — the separate server-routing system: file routes under `server/routes/` and the framework's `/_agent-native/` namespace
+- [**Context Awareness**](/docs/context-awareness) — how the agent learns the current route and selection
