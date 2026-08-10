@@ -1,6 +1,20 @@
 import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
 import { normalizeProviderBaseUrl } from "./openai-compatible-endpoint.js";
 
+function isLoopbackOllamaEndpoint(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Validate a provider endpoint before a server-side model request can use it.
  * `allowPrivate` is reserved for operator-owned deployment configuration; it
@@ -8,11 +22,16 @@ import { normalizeProviderBaseUrl } from "./openai-compatible-endpoint.js";
  */
 export async function validateProviderBaseUrl(
   value: string,
-  options: { allowPrivate?: boolean } = {},
+  options: { allowPrivate?: boolean; allowLocalOllama?: boolean } = {},
 ): Promise<string> {
   const normalized = normalizeProviderBaseUrl(value);
+  const allowLocalOllama =
+    options.allowLocalOllama === true &&
+    process.env.NODE_ENV === "development" &&
+    isLoopbackOllamaEndpoint(normalized);
   if (
     !options.allowPrivate &&
+    !allowLocalOllama &&
     (await isBlockedExtensionUrlWithDns(normalized))
   ) {
     throw new Error(

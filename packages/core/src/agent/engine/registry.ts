@@ -666,7 +666,14 @@ async function resolveProviderBaseUrl(
     allowPrivate = true;
   }
 
-  return raw ? validateProviderBaseUrl(raw, { allowPrivate }) : undefined;
+  return raw
+    ? validateProviderBaseUrl(raw, {
+        allowPrivate,
+        allowLocalOllama:
+          envVar === OLLAMA_BASE_URL_ENV_VAR &&
+          process.env.NODE_ENV === "development",
+      })
+    : undefined;
 }
 
 /**
@@ -789,7 +796,11 @@ async function engineCreateConfigForEntry(
   }
   if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
-      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL);
+      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
+        allowLocalOllama:
+          entry.name === "ai-sdk:ollama" &&
+          process.env.NODE_ENV === "development",
+      });
     }
     if (safeExtra.baseUrl == null) {
       const baseUrl = await resolveProviderBaseUrl(

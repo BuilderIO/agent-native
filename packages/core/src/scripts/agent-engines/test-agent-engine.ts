@@ -68,7 +68,13 @@ async function resolveAgentEngineEndpoint(
 ): Promise<string | undefined> {
   try {
     const value = await resolveSecret(key);
-    if (value) return validateProviderBaseUrl(value);
+    if (value) {
+      return validateProviderBaseUrl(value, {
+        allowLocalOllama:
+          key === OLLAMA_BASE_URL_ENV_VAR &&
+          process.env.NODE_ENV === "development",
+      });
+    }
   } catch (error) {
     if (!canUseDeployCredentialFallbackForRequest(key)) throw error;
     console.warn(
@@ -109,7 +115,11 @@ async function createEngineConfig(
         : OPENAI_BASE_URL_ENV_VAR;
     const explicitBaseUrl = args.baseUrl?.trim();
     const baseUrl = explicitBaseUrl
-      ? await validateProviderBaseUrl(explicitBaseUrl)
+      ? await validateProviderBaseUrl(explicitBaseUrl, {
+          allowLocalOllama:
+            entry.name === "ai-sdk:ollama" &&
+            process.env.NODE_ENV === "development",
+        })
       : await resolveAgentEngineEndpoint(endpointKey);
     if (baseUrl) config.baseUrl = baseUrl;
   }

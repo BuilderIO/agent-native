@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
+const mockWriteAppSecret = vi.fn();
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
@@ -14,7 +15,7 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("../secrets/storage.js", () => ({
-  writeAppSecret: vi.fn(),
+  writeAppSecret: (...args: unknown[]) => mockWriteAppSecret(...args),
   deleteAppSecret: vi.fn(),
 }));
 
@@ -25,6 +26,7 @@ vi.mock("../extensions/url-safety.js", () => ({
 
 import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
+  createAgentEngineApiKeyHandler,
   normalizeAgentEngineApiKeyPayload,
   resolveAgentEngineApiKeyWriteTarget,
 } from "./agent-engine-api-key-route.js";
@@ -84,6 +86,43 @@ describe("agent engine api-key route helpers", () => {
       clearBaseUrl: false,
       scope: "user",
     });
+  });
+
+  it("saves the documented local Ollama endpoint in development", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    mockIsBlockedExtensionUrlWithDns.mockClear();
+    mockWriteAppSecret.mockClear();
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine-key", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "ollama",
+          baseUrl: "http://localhost:11434",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).resolves.toEqual({
+      ok: true,
+      key: "OLLAMA_BASE_URL",
+      baseUrlKey: "OLLAMA_BASE_URL",
+      scope: "user",
+    });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith({
+      key: "OLLAMA_BASE_URL",
+      value: "http://localhost:11434",
+      scope: "user",
+      scopeId: "alice@example.test",
+    });
+    expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
+    vi.stubEnv("NODE_ENV", "test");
   });
 
   it("rejects endpoint URLs for providers without endpoint support", () => {

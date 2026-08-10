@@ -208,7 +208,11 @@ export function createAgentEngineApiKeyHandler() {
 
     if (payload.baseUrl) {
       try {
-        await validateProviderBaseUrl(payload.baseUrl);
+        await validateProviderBaseUrl(payload.baseUrl, {
+          allowLocalOllama:
+            payload.key === OLLAMA_BASE_URL_ENV_VAR &&
+            process.env.NODE_ENV === "development",
+        });
       } catch (err) {
         setResponseStatus(event, 400);
         return {
