@@ -105,12 +105,38 @@ There are two action hooks you are most likely to use: `useActionQuery()` and `u
 
 #### useActionQuery {#use-action-query}
 
-This hook is intended to be used for read-only actions. It is a thin wrapper around the [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) function. `useActionQuery()` accepts three arguments:
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "The action's registered name.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "The action's input, typed from its `defineAction()` schema.",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "Everything from the [useQuery options](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) except `queryKey` and `queryFn`, which the hook sets itself.",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      'Cached under `["action", name, params]`. Refetches automatically whenever a mutating action completes, with no manual invalidation needed.',
+  }}
+/>
 
-- **actionName**: the action's registered name.
-- **params**: the action's input, typed from its `defineAction()` schema.
-- **options**: everything from the [useQuery options](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) except `queryKey` and `queryFn`, which the hook
-  sets itself.
+This hook is intended to be used for read-only actions. It is a thin wrapper around the [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) function.
 
 In the example below, the `list-tickets` action is called. This is similar to making a GET request for all tickets.
 
@@ -132,14 +158,49 @@ const { data, isLoading } = useActionQuery(
 );
 ```
 
-Results are cached under `["action", name, params]` and refetch automatically whenever a mutating action completes, with no manual invalidation needed.
-
 #### useActionMutation {#use-action-mutation}
 
-This hook is intended to be used for actions that change data, like creating, updating, or sending something. It is a thin wrapper around the [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) function. `useActionMutation()` accepts two arguments:
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "The action's registered name.",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "Everything from the [useMutation options](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) except `mutationFn`, which the hook sets itself.",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "Overrides the default request method.",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "Opts out of the automatic cache refresh on success.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      'On success, emits a change event with `source: "action"`, so every `useActionQuery()` reading affected data refetches automatically. No manual invalidation is needed.',
+  }}
+/>
 
-- **actionName**: the action's registered name.
-- **options**: everything from the [useMutation options](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) except `mutationFn`, which the hook sets itself. Two extra options are available. `method` overrides the default `POST` request. `skipActionQueryInvalidation` opts out of the automatic cache refresh described below.
+This hook is intended to be used for actions that change data, like creating, updating, or sending something. It is a thin wrapper around the [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) function.
 
 Unlike `useActionQuery()`, the action's input is not passed to the hook itself. It is passed to `mutate()` or `mutateAsync()` when you are ready to run the mutation.
 
@@ -165,15 +226,62 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 mutate({ ticketId, body: draft });
 ```
 
-On success, the hook emits a change event with `source: "action"`, so every `useActionQuery` reading affected data refetches automatically. No manual invalidation is needed.
-
 ### callAction {#call-action}
 
-This function is for imperative one-off action calls outside of a React render flow, such as a plain event handler, a script, or any other non-React code path. It returns a promise directly instead of a hook result. `callAction()` accepts three arguments:
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "The action's registered name.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "The action's input, typed from its `defineAction()` schema.",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "Everything below is optional.",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "Overrides the default request method.",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "Cancels the request.",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "Overrides the default 60 second timeout, for actions that legitimately take longer.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "Unlike the hooks above, there is no cache and no automatic refetch. Pair it with a manual invalidation if other UI depends on the result.",
+  }}
+/>
 
-- **actionName**: the action's registered name.
-- **params**: the action's input, typed from its `defineAction()` schema.
-- **options**: `method` overrides the default `POST` request. `signal` accepts an `AbortSignal`. `timeoutMs` overrides the default 60 second timeout.
+This function is for imperative one-off action calls outside of a React render flow, such as a plain event handler, a script, or any other non-React code path. It returns a promise directly instead of a hook result.
 
 In the example below, the `update-ticket` action is called from a keyboard shortcut handler outside of React's render flow, assigning the ticket to a rep.
 
@@ -198,13 +306,102 @@ await callAction(
 );
 ```
 
-Unlike the hooks above, `callAction()` has no cache and no automatic refetch. Pair it with a manual invalidation if other UI depends on the result.
-
 Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is bounded by a 60 second timeout, and timeouts surface as errors instead of retrying silently. `useActionQuery()` also cancels superseded requests automatically, using React Query's abort signal.
 
 ## useDbSync {#usedbsync}
 
-This hook is intended to keep the UI in sync with database changes that happen outside of your own actions, like an agent write, a webhook, or a change made from another browser tab. It listens for changes over server-sent events, and falls back to polling when server-sent events are unavailable. `useDbSync()` accepts a single options argument. The full list of options is in the table below.
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "Every field is optional.",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description: "React Query client used for cache invalidation.",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "Poll endpoint URL.",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description: "SSE endpoint URL. Pass `false` to use polling only.",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "Polling interval in ms.",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description: "Fallback polling interval when SSE is unavailable.",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Pause polling when the browser tab is hidden. Hidden tabs keep SSE connected and poll no faster than every 10s while active, 60s once idle.",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "Per-tab request source to ignore, so a tab does not refetch from its own writes.",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description:
+            "Optional callback when SSE or polling receives a change event.",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "Filters the broad invalidation an action event triggers. Rarely needed. Use it to keep an expensive active query on explicit-refresh semantics while normal source-versioned queries still react through `useChangeVersion`.",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "Action names whose sync events should not invalidate all action queries. Only for high-volume background actions that already perform their own narrow invalidation.",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description: "Deprecated and ignored. Kept for old call sites.",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+This hook is intended to keep the UI in sync with database changes that happen outside of your own actions, like an agent write, a webhook, or a change made from another browser tab. It listens for changes over server-sent events, and falls back to polling when server-sent events are unavailable.
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -222,20 +419,6 @@ function App() {
   return <div>...</div>;
 }
 ```
-
-### Options {#usedbsync-options}
-
-| Option             | Type               | Description                                                                                                                                                  |
-| ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `queryClient`      | `QueryClient?`     | React-query client for cache invalidation                                                                                                                    |
-| `queryKeys`        | `string[]?`        | Deprecated and ignored. Kept for old call sites                                                                                                              |
-| `pollUrl`          | `string?`          | Poll endpoint URL. Default: `"/_agent-native/poll"`                                                                                                          |
-| `sseUrl`           | `string \| false?` | SSE endpoint URL. Default: `"/_agent-native/events"`. Pass `false` to use polling only                                                                       |
-| `interval`         | `number?`          | Polling interval in ms. Default: `2000`                                                                                                                      |
-| `fallbackInterval` | `number?`          | Fallback polling interval when SSE is unavailable. Default: `60000`                                                                                          |
-| `pauseWhenHidden`  | `boolean?`         | Pause polling when the browser tab is hidden. Default: `false`. Hidden tabs keep SSE connected and poll no faster than every 10s while active, 60s once idle |
-| `ignoreSource`     | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes                                                                               |
-| `onEvent`          | `(data) => void`   | Optional callback when SSE/polling receives a change event                                                                                                   |
 
 For normal CRUD, prefer `useActionQuery()` and `useActionMutation()`. Mutating actions emit `source: "action"`, so those hooks refetch right away. Changes from the agent, a webhook, or another tab arrive through `useDbSync()` instead, over SSE or the polling fallback. If a raw `useQuery()` call needs to sync on a custom key, see [Sync Internals](/docs/client-sync-internals). If you need to write to `application_state` directly, see [Advanced](/docs/client-advanced).
 
