@@ -1,5 +1,4 @@
 ---
-"@agent-native/code-agents-ui": minor
 "@agent-native/core": patch
 "@agent-native/dispatch": minor
 ---
