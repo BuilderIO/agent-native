@@ -21,13 +21,11 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 
-import {
-  saveAgentEngineApiKey,
-  type AgentEngineProvider,
-} from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
+import { isProviderAuthenticationError } from "../error-format.js";
 import { useT } from "../i18n.js";
+import { AgentProviderSetupForm } from "../settings/ProviderSetupForm.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 
@@ -295,114 +293,13 @@ export function BuilderConnectCta({
 
 // ─── ApiKeyConnect ────────────────────────────────────────────────────────────
 
-const API_KEY_PROVIDERS: Array<{
-  value: AgentEngineProvider;
-  label: string;
-  placeholder: string;
-}> = [
-  { value: "anthropic", label: "Anthropic", placeholder: "sk-ant-…" },
-  { value: "openai", label: "OpenAI", placeholder: "sk-…" },
-];
-
 export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
-  const t = useT();
-  const [provider, setProvider] = useState<AgentEngineProvider>("anthropic");
-  const [apiKey, setApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const active = API_KEY_PROVIDERS.find((p) => p.value === provider)!;
-
-  const handleSave = useCallback(async () => {
-    if (!apiKey.trim() || saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await saveAgentEngineApiKey({ provider, apiKey });
-      setApiKey("");
-      onConnected?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the key.");
-    } finally {
-      setSaving(false);
-    }
-  }, [apiKey, onConnected, provider, saving]);
-
   return (
-    <div className="rounded-md border border-border bg-background/60 p-3">
-      <div className="mb-2 text-[11px] font-medium text-foreground">
-        {t("agentPanel.addOwnKeys", { defaultValue: "Add your own keys" })}
-      </div>
-      <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
-        Stored securely for this app only.
-      </p>
-      <div
-        role="tablist"
-        aria-label="API key provider"
-        className="mb-2 inline-flex rounded-md border border-border bg-muted/40 p-0.5"
-      >
-        {API_KEY_PROVIDERS.map((option) => {
-          const selected = option.value === provider;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => {
-                setProvider(option.value);
-                setError(null);
-              }}
-              className={cn(
-                "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
-                selected
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="password"
-          value={apiKey}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={active.placeholder}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void handleSave();
-            }
-          }}
-          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"
-        />
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!apiKey.trim() || saving}
-          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? (
-            <>
-              <IconLoader2 size={11} className="animate-spin" />
-              Saving…
-            </>
-          ) : (
-            "Save"
-          )}
-        </button>
-      </div>
-      {error ? (
-        <p className="mt-2 text-[11px] text-destructive">{error}</p>
-      ) : null}
-    </div>
+    <AgentProviderSetupForm
+      onConnected={() => onConnected?.()}
+      layout="compact"
+      showTitle={false}
+    />
   );
 }
 
@@ -440,8 +337,7 @@ export function BuilderSetupContent({
           </h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
             {t("agentPanel.builderOrOwnKeys", {
-              defaultValue:
-                "Use Builder.io (free credits), or add your own provider keys.",
+              defaultValue: "Choose Builder.io or custom keys.",
             })}
           </p>
         </div>
@@ -466,7 +362,7 @@ export function BuilderSetupContent({
             aria-expanded={keyOpen}
           >
             {t("agentPanel.addOwnKeys", {
-              defaultValue: "Add your own keys",
+              defaultValue: "Custom keys",
             })}
           </button>
         </div>
@@ -540,12 +436,14 @@ export function RunErrorRecoveryCard({
   onRetry,
   onFork,
   onDismiss,
+  onProviderConnected,
 }: {
   info: RunErrorInfo;
   onContinue: () => void;
   onRetry: () => void;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
+  onProviderConnected?: () => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
@@ -558,6 +456,16 @@ export function RunErrorRecoveryCard({
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const isProviderAuthError = isProviderAuthenticationError(
+    [info.message, info.details].filter(Boolean).join("\n"),
+    info.errorCode,
+  );
+  // Blocked on something the reader goes and fixes elsewhere, then comes back
+  // to. Without a retry the card is a dead end and its own copy ("then retry")
+  // points at a button that isn't there.
+  const isUnblockableExternally =
+    info.errorCode === "email_verification_required";
+  const canRetry = canRecover || isProviderAuthError || isUnblockableExternally;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -589,6 +497,11 @@ export function RunErrorRecoveryCard({
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
     onDismiss();
   }, [onDismiss]);
+
+  const handleProviderConnected = useCallback(() => {
+    onProviderConnected?.();
+    onDismiss();
+  }, [onDismiss, onProviderConnected]);
 
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
@@ -625,6 +538,14 @@ export function RunErrorRecoveryCard({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}
           </p>
+          {isProviderAuthError && (
+            <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
+              <BuilderSetupContent
+                layout="sidebar"
+                onConnected={handleProviderConnected}
+              />
+            </div>
+          )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
@@ -701,15 +622,17 @@ export function RunErrorRecoveryCard({
               <IconPlayerPlay size={13} />
               Continue
             </button>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-            >
-              <IconRefresh size={13} />
-              {isQueryError ? "Diagnose and retry" : "Retry"}
-            </button>
           </>
+        )}
+        {canRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            <IconRefresh size={13} />
+            {isQueryError ? "Diagnose and retry" : "Retry"}
+          </button>
         )}
         {canRecover && isConnectionRecoveryError && (
           <button

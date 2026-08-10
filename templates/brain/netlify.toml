@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs brain"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build && pnpm exec tsx templates/brain/jobs/emit-netlify-brain-queue-cron.ts"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build && pnpm exec tsx templates/brain/jobs/emit-netlify-brain-queue-cron.ts && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter brain migrate:production; fi"
 publish = "templates/brain/dist"
 functions = "templates/brain/.netlify/functions-internal"
 

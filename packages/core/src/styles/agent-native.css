@@ -128,6 +128,12 @@
   width: var(--agent-layout-left-drawer-expanded-width, 14rem);
 }
 
+.agent-layout-left-drawer[data-collapsed="false"] > * {
+  width: var(--agent-layout-left-drawer-expanded-width, 14rem);
+  min-width: var(--agent-layout-left-drawer-expanded-width, 14rem);
+  max-width: var(--agent-layout-left-drawer-expanded-width, 14rem);
+}
+
 .agent-layout-left-drawer .bg-sidebar {
   background: var(--agent-native-lower-surface) !important;
 }
@@ -171,6 +177,12 @@
 
 .agent-sidebar-resize-handle {
   background: transparent;
+}
+
+.agent-sidebar-drawer-placeholder {
+  height: 100%;
+  min-width: 0;
+  pointer-events: none;
 }
 
 .agent-layout-main-surface,
@@ -291,18 +303,48 @@
   transition: transform 260ms var(--ease-drawer);
 }
 
+/* The wide preset keeps the normal sidebar slot in flow while its panel
+   overlays the page as a fixed drawer. View Transitions morph the geometry
+   when available; these transforms provide the fallback and exit motion. */
+.agent-sidebar-panel[data-agent-sidebar-animation="drawer"] {
+  overflow: clip;
+  will-change: transform;
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: -12px 0 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+  transition:
+    transform 260ms var(--ease-drawer),
+    width 260ms var(--ease-drawer);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="drawer"][data-agent-sidebar-state="closed"][data-agent-sidebar-position="right"] {
+  transform: translateX(100%);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="drawer"][data-agent-sidebar-state="closed"][data-agent-sidebar-position="left"] {
+  transform: translateX(-100%);
+}
+
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"]
   > .agent-sidebar-panel-inner {
   transform: translateX(0);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
   transform: var(
     --agent-sidebar-closed-transform,
     translateX(calc(100% + 1px))
   );
   will-change: transform;
+  box-shadow: 0 18px 40px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   transition: transform 260ms var(--ease-drawer);
+}
+
+.dark .agent-sidebar-panel[data-agent-sidebar-animation="drawer"],
+.dark .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
+  --agent-shadow-o: 0.08;
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
@@ -358,6 +400,7 @@
   .agent-sidebar-panel[data-agent-sidebar-animation],
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
     > .agent-sidebar-panel-inner,
+  .agent-sidebar-panel[data-agent-sidebar-animation="drawer"],
   .agent-sidebar-backdrop[data-agent-sidebar-animation] {
     transition: none;
   }
@@ -929,6 +972,21 @@
   width: 100%;
 }
 
+/* Tool-call rows are rendered in several disclosure/grouping shapes as the
+   stream grows. Keep the motion wrapper layout-transparent, while its short
+   lived exit clones can travel from the visible stack into the summary row. */
+.agent-tool-call-stack {
+  display: contents;
+}
+
+.agent-tool-call-stack__exit {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 2;
+  pointer-events: none;
+  margin: 0 !important;
+}
+
 [data-agent-empty-state="centered"] {
   justify-content: center;
   padding-bottom: clamp(3rem, 8vh, 6rem);
@@ -972,8 +1030,13 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .agent-tool-call--entering {
+  .agent-tool-call--entering > .agent-tool-call__content,
+  .agent-tool-call--stack-entering > .agent-tool-call__content {
     animation: agent-tool-call-enter 220ms var(--ease-out-strong) both;
+  }
+
+  .agent-tool-summary__label {
+    display: inline-block;
   }
 
   @supports ((background-clip: text) or (-webkit-background-clip: text)) {
@@ -1026,7 +1089,9 @@
     }
 
     ::view-transition-old(agent-native-chat),
-    ::view-transition-new(agent-native-chat) {
+    ::view-transition-new(agent-native-chat),
+    ::view-transition-old(agent-native-sidebar-drawer),
+    ::view-transition-new(agent-native-sidebar-drawer) {
       /* The default `block-size: auto` scales each snapshot by width, so as the
          panel narrows (896 -> 380) its captured height shrinks and the
          bottom-pinned chat field gets dragged upward (the "rises to half-page"

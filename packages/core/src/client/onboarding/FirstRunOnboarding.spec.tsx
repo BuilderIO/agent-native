@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
   createMcpServer: vi.fn(),
   createMcpServerMutation: vi.fn(),
+  testMcpServer: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
   useMcpServers: vi.fn(),
+  useMcpServersApi: vi.fn(),
   useOnboarding: vi.fn(),
   useOnboardingPreviewMode: vi.fn(),
 }));
@@ -32,6 +34,7 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
 vi.mock("../resources/use-mcp-servers.js", () => ({
   useCreateMcpServer: mocks.createMcpServer,
   useMcpServers: mocks.useMcpServers,
+  useMcpServersApi: mocks.useMcpServersApi,
   formatMcpServerError: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
 }));
@@ -44,8 +47,10 @@ describe("FirstRunOnboarding", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
     mocks.createMcpServer.mockReset();
+    mocks.testMcpServer.mockReset();
     mocks.useBuilderConnectFlow.mockReset();
     mocks.useMcpServers.mockReset();
+    mocks.useMcpServersApi.mockReset();
     mocks.useOnboarding.mockReset();
     mocks.useOnboardingPreviewMode.mockReset();
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
@@ -59,6 +64,7 @@ describe("FirstRunOnboarding", () => {
       data: { user: [], org: [], orgId: null, role: null },
       isSuccess: true,
     });
+    mocks.useMcpServersApi.mockReturnValue({ test: mocks.testMcpServer });
     mocks.createMcpServerMutation.mockReset();
     mocks.createMcpServerMutation.mockResolvedValue(undefined);
     mocks.createMcpServer.mockReturnValue({
@@ -88,6 +94,14 @@ describe("FirstRunOnboarding", () => {
             builderIncluded: true,
             keySummary: "Image provider key",
             why: "Needed for image generation",
+          },
+          {
+            id: "design-system-intelligence",
+            label: "Design system intelligence",
+            required: false,
+            builderIncluded: true,
+            keySummary: "Builder Design System Intelligence",
+            why: "Uses your brand and design-system guidance to keep generated work on brand.",
           },
         ],
       },
@@ -134,6 +148,12 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain("Builder.io free credits");
+    expect(document.body.textContent).toContain("Design system intelligence");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="About Design system intelligence"]',
+      ),
+    ).toBeTruthy();
     const localProviderNote = document.body.querySelector(
       '[data-testid="first-run-local-provider-note"]',
     );
@@ -241,5 +261,61 @@ describe("FirstRunOnboarding", () => {
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("This app is an agent.");
     expect(document.body.textContent).not.toContain("Agent integrations");
+  });
+
+  it("asks a workspace admin for scope before connecting a shared-capable integration", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: "org-builder", role: "owner" },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Context7");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Context7"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "Who should be able to use this connection?",
+    );
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
   });
 });

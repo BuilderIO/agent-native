@@ -132,8 +132,9 @@ export interface CreateAppOptions {
 /**
  * Main entry for `agent-native create [name]`.
  *
- * Default behavior: scaffold a workspace at <name>/ with a multi-select
- * template picker. Use --standalone for the single-app standalone flow.
+ * Default behavior: ask for a starting shape, with Chat and first-party
+ * templates creating a workspace at <name>/. Use --standalone for the
+ * single-app standalone flow.
  *
  * If run *inside* an existing workspace, falls through to the add-app
  * flow that scaffolds one new app under apps/<name>/.
@@ -173,8 +174,8 @@ export async function createApp(
 
   // When exactly one template is specified explicitly, treat it as a
   // standalone scaffold (script-friendly, matches historic behavior).
-  // Use `--template a,b` or pass no --template to opt into the workspace
-  // flow with the multi-select picker.
+  // Use `--template a,b` to opt into the workspace flow with the multi-select
+  // picker. Bare `create` asks for the starting shape first.
   const parsed = parseTemplateList(opts?.template);
   // Headless can't live in a workspace, so reject it when more than one
   // template is requested or when workspace semantics are forced.
@@ -198,9 +199,8 @@ export async function createApp(
   // No template specified: ask what shape to start from before diving into
   // "which templates?". The on-ramp choice implies the project structure, so
   // we don't ask a separate "workspace or standalone?" question — Chat and
-  // Headless scaffold a single standalone app (the lightest starts; headless
-  // cannot live in a workspace), while Template continues into the workspace
-  // multi-select.
+  // Template creates a workspace, while Community and Headless scaffold a
+  // single standalone app.
   if (parsed.length === 0) {
     // The deprecated `create-workspace` alias forces workspace semantics, so
     // it must skip the start-shape prompt and scaffold a workspace directly.
@@ -209,8 +209,19 @@ export async function createApp(
       return;
     }
     const shape = await promptStartShape(clack);
-    if (shape === "headless" || shape === "chat") {
+    if (shape === "headless") {
       await createStandaloneApp(name, { ...opts, template: shape }, clack);
+      return;
+    }
+    if (shape === "chat") {
+      // Chat is the default workspace on-ramp. Keep the minimal chat app in
+      // the same workspace shape as every other first-party app so the next
+      // documented step, `add-app`, works immediately.
+      await createWorkspaceInteractive(
+        name,
+        { ...opts, template: shape },
+        clack,
+      );
       return;
     }
     if (shape === "community") {
@@ -232,12 +243,11 @@ export async function createApp(
  * choice made here implies the project structure, so we deliberately avoid a
  * separate "workspace or standalone?" question:
  *   - "template" → full app(s) in a workspace (the multi-select picker)
+ *   - "chat"     → a minimal Chat app in a workspace with Dispatch
  *   - "community" → a single standalone app from a public GitHub repository
- *   - "chat"     → a single standalone chat UI app
  *   - "headless" → a single standalone action-first app with no UI shell
- * Chat and headless are standalone on purpose: a monorepo is unnecessary
- * ceremony for the lightest on-ramps, and headless cannot be a workspace
- * member. Either can grow into a workspace later via `add-app`.
+ * Headless cannot be a workspace member. Use `--standalone --template chat`
+ * when a standalone Chat app is the intended shape.
  */
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
@@ -258,7 +268,7 @@ function startShapePromptOptions() {
       {
         value: "chat",
         label: "Chat",
-        hint: "A single app with a minimal chat UI and the browser shell wired up",
+        hint: "A minimal chat app in a workspace with the browser shell wired up",
       },
       {
         value: "template",
@@ -1872,23 +1882,9 @@ function postProcessStandalone(
           }
         }
       }
-      // Ensure pnpm.onlyBuiltDependencies is set so native packages
-      // (better-sqlite3, esbuild, node-pty) compile their postinstall scripts
-      // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
-
-      const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
-      if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
-        pkg.pnpm = {};
-      }
-      const existing = Array.isArray(pkg.pnpm.onlyBuiltDependencies)
-        ? pkg.pnpm.onlyBuiltDependencies
-        : [];
-      pkg.pnpm.onlyBuiltDependencies = Array.from(
-        new Set([...existing, ...requiredBuilt]),
-      );
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
@@ -1907,6 +1903,7 @@ function postProcessStandalone(
         "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
+        "tesseract.js": "true",
       },
     };
     if (templateName !== "headless") {
@@ -3444,7 +3441,13 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
+    // Tolerate escaped quotes inside the command. Every template's build
+    // command now contains `\"` (the release-migration step's CONTEXT test),
+    // and a naive [^"]* stops at the first one — which silently dropped the
+    // NETLIFY_DATABASE_URL_UNPOOLED override for the four templates that use it.
+    const originalCommand = content.match(
+      /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
+    )?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
@@ -3456,7 +3459,22 @@ function rewriteNetlifyToml(
     const buildDatabasePrefix = usesUnpooledDatabase
       ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
       : "";
-    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}`;
+    const releaseDatabasePrefix = usesUnpooledDatabase
+      ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
+      : "";
+    // Migrate at RELEASE, never on the request path. On serverless "migrate on
+    // first use" means migrate on every cold start; a production incident
+    // traced a multi-hour outage to schema introspection running concurrently
+    // on requests. Generated for every app so a fresh `create` + Netlify
+    // connect just works, with no flag to remember.
+    const releaseMigrations =
+      ' && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then ' +
+      releaseDatabasePrefix +
+      (mode === "workspace"
+        ? `pnpm --filter ${appName} migrate:production`
+        : "pnpm migrate:production") +
+      "; fi";
+    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}${releaseMigrations}`;
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
     const functionsPath =
       mode === "workspace"

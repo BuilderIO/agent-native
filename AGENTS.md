@@ -19,11 +19,22 @@ read the relevant skill before changing that area.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - On every response, consider whether the chat title still matches the work.
+- Do the work instead of asking whether to do it. If a step is inside the task
+  you were given and is not destructive, irreversible, or a spend/send/publish
+  action, run it and report the result — deploys, database reads and writes,
+  scripts, and browser checks included. Ask only for a missing credential, a
+  decision only the user can make, or a destructive action. On long runs, post
+  a progress note at each milestone and at least every ~15 minutes; if the user
+  has to ask "still going?", that is a miss.
 - Use sub-agents liberally for complex independent work when Agent Teams are
   available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
+- Never use `pnpm patch` or `pnpm patch-commit`, add
+  `pnpm.patchedDependencies`, or commit dependency patch artifacts under
+  `patches/`. Upgrade the dependency or fix app-owned code instead. The
+  `pnpm guards` check enforces this boundary.
 - A `catch`, default, or coercion that returns a value callers cannot
   distinguish from success is a bug, not a guard. "Absent" and "unreadable" must
   be different values; a truncated run is not a completed one; a dropped payload
@@ -43,6 +54,8 @@ read the relevant skill before changing that area.
   meaning changes. If translations cannot be updated in the same change, call
   out the specific locales that need follow-up; reviewers should flag docs
   changes that only update one language.
+- Docs-only commits start with `docs: ` in the present tense, e.g.
+  `docs: fix broken link in provider API guide`, not `docs: fixed broken link`.
 
 ## Final Status Block
 
@@ -59,7 +72,9 @@ The words after the icon are a short, task-specific status written for this
 response; never use the placeholder text `Brief status` literally. Use `🟢`
 when the requested coding/work unit is finished on the current branch, even if
 routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a manual
-step is still pending. Use `🔴` only when blocked on user input.
+step is still pending. Use `🔴` only when blocked on user input. When you use
+`🟡`, the pending item must be legible from that one line alone — the user
+should never have to reply asking what is not done.
 
 ## Checks
 
@@ -67,8 +82,9 @@ Rules here are carried by skills, not by blocking your tools. Two exceptions
 exist, and both are narrow on purpose.
 
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
-Code, and a human equally): `no-secret-literals`, `additive-migrations`,
-`no-silent-coercion`, `no-raw-colors`, alongside the existing 37. The last two
+Code, and a human equally): `no-pnpm-patches`, `no-secret-literals`,
+`additive-migrations`, `no-silent-coercion`, `no-raw-colors`, alongside the
+existing 37. The last two
 check only lines this branch added, so the pre-existing backlog stays a separate
 cleanup. Each has a documented opt-out pragma, and every opt-out is a decision a
 reviewer should see.
@@ -142,6 +158,13 @@ contract.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
 - Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Never do heavy work at serverless cold start. Module load and plugin init run
+  on every cold Lambda, so migrations, backfills, aggregation, index builds,
+  provider handshakes, and warmup probes placed there multiply across every
+  function and show up as sitewide slowness or an outage, not as a slow startup.
+  Do that work in a `recurring-jobs` task, an automation, or lazily behind the
+  first request that needs it. Read `performance` before adding anything to a
+  startup path.
 - The agent can modify app code; design UI and data flows with that in mind.
 
 Every feature must touch the four areas when applicable: UI, actions, skills or
@@ -234,8 +257,15 @@ instructions, and application state.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.
-- Keep template UX clean and progressively disclosed. Do not solve feedback by
-  adding always-visible controls unless that is clearly the main workflow.
+- Page and section data loads use layout-matching `Skeleton` geometry, preferably
+  the shared toolkit/design-system primitive. Never show a generic "Loading..."
+  label for content; reserve `Spinner` for brief mutations, uploads, and
+  progress actions.
+- For any user-facing UI change, including screenshot feedback, copy or density
+  cleanup, settings, and control placement, read `frontend-design`. Keep the
+  default surface high-information and low-chrome: make the current task, state,
+  and next decision clear; defer secondary detail contextually; and do not add
+  persistent controls or explanatory copy without a specific user need.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
   `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
   details.
@@ -273,7 +303,7 @@ iframe bridge. Use the `extensions` skill for the full rules.
 that area — most encode a decision the surrounding code cannot show. Prefer
 searching the skill directory over guessing from nearby code.
 
-Two are entry points rather than area guides:
+A few are entry points rather than area guides:
 
 - `content-product-development` — read before planning, implementing,
   reviewing, testing, or documenting Content behavior or shared framework
@@ -281,3 +311,6 @@ Two are entry points rather than area guides:
 - `adding-a-feature` — the four-area checklist every feature must satisfy.
 - `writing-agent-instructions` — read before editing any `AGENTS.md`,
   `SKILL.md`, or tool/action description, including this file.
+- `verifying-changes` — read before reporting a fix, feature, or deploy as
+  done. Exercising the path that was broken is the step most often skipped,
+  and skipping it is why the same bug gets reported twice.

@@ -298,12 +298,12 @@ If you're scaffolding now, the CLI command is:
 npx @agent-native/core@latest create my-platform
 ```
 
-The CLI first asks **How do you want to start?** — pick **Full template(s)**
-to reach the multi-select picker (Chat and Headless each scaffold a single
-standalone app directly instead, skipping the picker). Pick one app
-(standalone) or several (workspace — apps share auth, brand, agent config, and
-database). Each picked app is scaffolded into `apps/<name>/` with every file
-you need. For a no-browser automation instead of an app UI, use
+The CLI first asks **How do you want to start?** — pick **Chat** for a minimal
+workspace with Chat and Dispatch, or pick **First-party template(s)** to reach the
+multi-select picker. Community and Headless are the standalone on-ramps.
+Workspace apps share auth, brand, agent config, and database; each app is
+scaffolded into `apps/<name>/` with every file you need. For a no-browser
+automation instead of an app UI, use
 `npx @agent-native/core@latest create my-agent --headless`.
 
 Fill in `.env` (mostly `ANTHROPIC_API_KEY` and `DATABASE_URL`), `pnpm install`, `pnpm dev`, and it works. No "TODO: implement login," no placeholder routes.

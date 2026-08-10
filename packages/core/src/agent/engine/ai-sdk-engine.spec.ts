@@ -518,6 +518,15 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(engine.preserveCustomModels).toBe(true);
   });
 
+  it("keeps arbitrary local Ollama model ids", async () => {
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("ollama", {
+      allowEnvFallback: false,
+    });
+
+    expect(engine.preserveCustomModels).toBe(true);
+  });
+
   // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
   // rejects `reasoning_effort` together with function tools on the legacy
   // Chat Completions surface — "Function tools with reasoning_effort are not
@@ -850,4 +859,39 @@ describe("AISDKEngine missing-credential fail-closed", () => {
 
     expect(streamText).toHaveBeenCalled();
   });
+
+  // The exemption above is for a gateway you host. A PUBLIC one still needs a
+  // key, and exempting every baseUrl reopened the exact hole this guard closes:
+  // prod recorded repeated `http_401` "Missing Authentication header" against
+  // OPENROUTER_API_KEY, which reads to the user as the chat being broken.
+  it.each([
+    ["https://openrouter.ai/api/v1"],
+    ["https://api.example.com/v1"],
+    ["not-a-url"],
+  ])(
+    "fails closed for a keyless provider on a public baseUrl (%s)",
+    async (baseUrl) => {
+      const { streamText } = mockAiSdk();
+      const createOpenRouter = vi.fn();
+      vi.doMock("@openrouter/ai-sdk-provider", () => ({ createOpenRouter }));
+
+      const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+      const engine = createAISDKEngine("openrouter", {
+        allowEnvFallback: false,
+        baseUrl,
+      });
+
+      const events: any[] = [];
+      for await (const e of engine.stream(BASE_STREAM_OPTIONS as any)) {
+        events.push(e);
+      }
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.reason).toBe("error");
+      expect(stop?.errorCode).toBe("missing_credentials");
+      expect(stop?.error).toContain("OPENROUTER_API_KEY");
+      expect(createOpenRouter).not.toHaveBeenCalled();
+      expect(streamText).not.toHaveBeenCalled();
+    },
+  );
 });

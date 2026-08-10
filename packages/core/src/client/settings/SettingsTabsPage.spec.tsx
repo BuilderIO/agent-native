@@ -85,6 +85,33 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(searchInput);
   });
 
+  it("renders the optional navigation header above the settings search", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          navHeader={<div data-testid="settings-nav-header">Back to app</div>}
+        />,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    const navHeader = container.querySelector(
+      '[data-testid="settings-nav-header"]',
+    );
+
+    expect(navHeader).not.toBeNull();
+    expect(searchInput).not.toBeNull();
+    expect(
+      Boolean(
+        navHeader!.compareDocumentPosition(searchInput!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+  });
+
   it("does not focus the settings search on mobile entry", () => {
     stubMobileViewport(true);
     runAnimationFramesImmediately();
@@ -129,7 +156,7 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(teamTab);
   });
 
-  it("opens integrations by default when the route has no hash", () => {
+  it("opens general settings by default when the route has no hash", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -145,8 +172,8 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    expect(container.textContent).toContain("Integration content");
-    expect(container.textContent).not.toContain("General content");
+    expect(container.textContent).toContain("General content");
+    expect(container.textContent).not.toContain("Integration content");
   });
 
   it("opens the team tab from the hash and avoids rendering a settings title", () => {
@@ -167,7 +194,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Settings");
   });
 
-  it("updates the hash when switching tabs", () => {
+  it("updates the semantic route when switching tabs", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -187,7 +214,8 @@ describe("SettingsTabsPage", () => {
       whatsNewTab!.click();
     });
 
-    expect(window.location.hash).toBe("#whats-new");
+    expect(window.location.pathname).toBe("/settings/whats-new");
+    expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Recent updates");
     expect(container.textContent).not.toContain("General content");
   });
@@ -275,7 +303,7 @@ describe("SettingsTabsPage", () => {
                 id: "workspace",
                 label: "Workspace",
                 group: "workspace",
-                href: "/settings#workspace",
+                href: "/settings/workspace",
                 content: <div>Workspace settings</div>,
               },
             ]}
@@ -291,7 +319,7 @@ describe("SettingsTabsPage", () => {
     ).toEqual(["General", "Integrations", "Team", "What's new", "Workspace"]);
 
     const workspaceLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/settings#workspace"]',
+      'a[href="/settings/workspace"]',
     );
     expect(workspaceLink).not.toBeNull();
     expect(workspaceLink?.querySelector("svg")).not.toBeNull();

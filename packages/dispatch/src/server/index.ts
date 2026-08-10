@@ -73,7 +73,10 @@ export function setupDispatch(config: DispatchConfig = {}): NitroPluginDef {
 export { default as dispatchAuthPlugin } from "./plugins/auth.js";
 export { default as dispatchIntegrationsPlugin } from "./plugins/integrations.js";
 export { default as dispatchAgentChatPlugin } from "./plugins/agent-chat.js";
-export { default as dispatchDbPlugin } from "./plugins/db.js";
+export {
+  default as dispatchDbPlugin,
+  runDispatchMigrations,
+} from "./plugins/db.js";
 export { default as dispatchCoreRoutesPlugin } from "./plugins/core-routes.js";
 
 export type { DispatchConfig } from "../config.js";

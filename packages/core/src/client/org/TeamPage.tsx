@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/design-system";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,6 +12,13 @@ import {
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@agent-native/toolkit/ui/pagination";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -18,14 +26,6 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { Switch } from "@agent-native/toolkit/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@agent-native/toolkit/ui/table";
 import {
   IconUserPlus,
   IconTrash,
@@ -51,6 +51,7 @@ import {
 } from "@tabler/icons-react";
 import {
   forwardRef,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -69,6 +70,8 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
+import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
 import { cn } from "../utils.js";
 import {
   useOrg,
@@ -91,6 +94,7 @@ import {
   useJoinByDomain,
   useAppRoles,
   useSetAppMemberRole,
+  ORG_MEMBER_PAGE_SIZE,
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
@@ -163,6 +167,58 @@ function ErrorText({ error }: { error: unknown }) {
     <p className="text-xs text-destructive">
       {error instanceof Error ? error.message : String(error)}
     </p>
+  );
+}
+
+function OrganizationHelpIcon({
+  content,
+  docsUrl,
+}: {
+  content: string;
+  docsUrl?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          aria-label="More information"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&_svg]:!size-3"
+        >
+          <IconHelpCircle className="size-3" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs leading-5">
+        <p>{content}</p>
+        {docsUrl ? (
+          <a
+            href={docsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 inline-block underline underline-offset-2"
+          >
+            Learn more
+          </a>
+        ) : null}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function OrganizationDescription({
+  children,
+  help,
+  docsUrl,
+}: {
+  children: ReactNode;
+  help?: string;
+  docsUrl?: string;
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5">
+      <span>{children}</span>
+      {help ? <OrganizationHelpIcon content={help} docsUrl={docsUrl} /> : null}
+    </span>
   );
 }
 
@@ -406,84 +462,121 @@ interface PendingInviteListItem {
 function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
   const { data: org } = useOrg();
-  const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
+  const [memberOffset, setMemberOffset] = useState(0);
+  const {
+    data: membersData,
+    isLoading: isLoadingMembers,
+    isFetching: isFetchingMembers,
+    isPlaceholderData: isPlaceholderMembers,
+  } = useOrgMembers(memberOffset);
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
+
+  useEffect(() => {
+    setMemberOffset(0);
+  }, [org?.orgId]);
+
+  useEffect(() => {
+    if (
+      memberOffset > 0 &&
+      membersData &&
+      !isLoadingMembers &&
+      !isFetchingMembers &&
+      !isPlaceholderMembers &&
+      membersData.members.length === 0
+    ) {
+      setMemberOffset((currentOffset) =>
+        Math.max(0, currentOffset - ORG_MEMBER_PAGE_SIZE),
+      );
+    }
+  }, [
+    isFetchingMembers,
+    isLoadingMembers,
+    isPlaceholderMembers,
+    memberOffset,
+    membersData,
+  ]);
 
   if (!org?.orgId) return null;
 
   const isOwner = org.role === "owner";
   const isOwnerOrAdmin = isOwner || org.role === "admin";
   const members = membersData?.members ?? [];
+  const totalMembers = membersData?.totalCount ?? 0;
   const pendingInvites = invitationsData?.invitations ?? [];
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-lg border border-border bg-card p-4 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-              <IconUsersGroup className="h-5 w-5 text-primary" />
-            </div>
-            <div className="min-w-0">
+    <div className="space-y-6">
+      <SettingsGroup title="Organization">
+        <SettingsRow
+          id="organization"
+          label={
+            <span className="flex items-center gap-2">
+              <IconUsersGroup className="size-4 text-muted-foreground" />
               <OrgNameDisplay
                 name={org.orgName ?? ""}
                 canEdit={isOwnerOrAdmin}
               />
-              <div className="text-xs text-muted-foreground">
-                {t("org.memberCount", { count: members.length })} ·{" "}
-                {t("org.youAreRole", { role: org.role })}
-              </div>
-            </div>
-          </div>
-          {hasMultipleOrgs && (
-            <Select
-              value={org.orgId ?? ""}
-              onValueChange={(value) => switchOrg.mutate(value || null)}
-              disabled={switchOrg.isPending}
-            >
-              <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {org.orgs.map((o) => (
-                  <SelectItem key={o.orgId} value={o.orgId}>
-                    {o.orgName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+            </span>
+          }
+          description={`${t("org.memberCount", { count: totalMembers })} · ${t("org.youAreRole", { role: org.role })}`}
+          control={
+            hasMultipleOrgs ? (
+              <Select
+                value={org.orgId ?? ""}
+                onValueChange={(value) => switchOrg.mutate(value || null)}
+                disabled={switchOrg.isPending}
+              >
+                <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {org.orgs.map((o) => (
+                    <SelectItem key={o.orgId} value={o.orgId}>
+                      {o.orgName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : undefined
+          }
+        />
 
         {isOwnerOrAdmin && (
-          <div className="grid gap-5 border-t border-border pt-4 lg:grid-cols-2">
+          <>
             <DomainSettingsSection
               domain={org.allowedDomain}
               ownerEmail={org.email}
             />
-
             <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
-
             <AuthProviderSettingsSection
               requiredAuthProvider={org.requiredAuthProvider}
             />
-
             {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
-          </div>
+          </>
         )}
 
-        <ErrorText error={switchOrg.error} />
-      </section>
+        {switchOrg.error && (
+          <div className="px-5 pb-4">
+            <ErrorText error={switchOrg.error} />
+          </div>
+        )}
+      </SettingsGroup>
 
       <MembersTableCard
         members={members}
+        totalMembers={totalMembers}
         pendingInvites={pendingInvites}
         isLoadingMembers={isLoadingMembers}
+        isFetchingMembers={isFetchingMembers}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
         appRoles={appRoles}
+        memberOffset={memberOffset}
+        hasNextPage={membersData?.hasMore === true}
+        nextMemberOffset={membersData?.nextOffset ?? null}
+        onMemberPageChange={setMemberOffset}
       />
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
@@ -493,18 +586,30 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
 function MembersTableCard({
   members,
+  totalMembers,
   pendingInvites,
   isLoadingMembers,
+  isFetchingMembers,
   currentUserEmail,
   currentUserRole,
   appRoles,
+  memberOffset,
+  hasNextPage,
+  nextMemberOffset,
+  onMemberPageChange,
 }: {
   members: MemberListItem[];
+  totalMembers: number;
   pendingInvites: PendingInviteListItem[];
   isLoadingMembers: boolean;
+  isFetchingMembers: boolean;
   currentUserEmail: string;
   currentUserRole: string | null;
   appRoles?: AppRolesDescriptor;
+  memberOffset: number;
+  hasNextPage: boolean;
+  nextMemberOffset: number | null;
+  onMemberPageChange: (offset: number) => void;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -516,15 +621,14 @@ function MembersTableCard({
       a.role,
     ]),
   );
-  const columnCount = appRoles ? 5 : 4;
 
   return (
-    <section className="rounded-lg border border-border bg-card">
-      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
+      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-medium">{t("org.members")}</h3>
           <p className="text-xs text-muted-foreground">
-            {t("org.memberCount", { count: members.length })}
+            {t("org.memberCount", { count: totalMembers })}
           </p>
         </div>
         {canInvite && !showInviteForm && (
@@ -548,65 +652,139 @@ function MembersTableCard({
           />
         </div>
       )}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("org.member")}</TableHead>
-            <TableHead>{t("org.role")}</TableHead>
-            {appRoles && (
-              <TableHead>{appRoles.label ?? appRoles.appId}</TableHead>
-            )}
-            <TableHead>{t("org.status")}</TableHead>
-            <TableHead className="text-end">{t("org.actions")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoadingMembers && members.length === 0 ? (
-            [0, 1, 2].map((i) => (
-              <TableRow key={i}>
-                <TableCell colSpan={columnCount}>
-                  <div
-                    className="h-3.5 rounded bg-muted animate-pulse"
-                    style={{ width: `${180 + i * 48}px` }}
-                  />
-                </TableCell>
-              </TableRow>
-            ))
-          ) : members.length === 0 && pendingInvites.length === 0 ? (
-            <TableRow>
-              <TableCell
-                colSpan={columnCount}
-                className="py-8 text-center text-sm text-muted-foreground"
+      <div className="divide-y divide-border/60 border-t border-border/60">
+        {isLoadingMembers && members.length === 0 ? (
+          <div role="status" aria-busy="true" aria-label="Loading members">
+            {["w-44", "w-56", "w-64"].map((nameWidth) => (
+              <div
+                key={nameWidth}
+                className="flex items-center gap-3 px-5 py-4"
               >
-                {t("org.noMembers")}
-              </TableCell>
-            </TableRow>
-          ) : (
-            <>
-              {members.map((m) => (
-                <MemberRow
-                  key={m.email}
-                  email={m.email}
-                  role={m.role}
-                  isCurrentUser={m.email === currentUserEmail}
-                  currentUserRole={currentUserRole}
-                  appRoles={appRoles}
-                  appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
-                  canManageAppRoles={Boolean(appRoleData?.canManage)}
-                />
-              ))}
-              {pendingInvites.map((inv) => (
-                <PendingInviteRow
-                  key={inv.id}
-                  invite={inv}
-                  hasAppRoleColumn={Boolean(appRoles)}
-                />
-              ))}
-            </>
-          )}
-        </TableBody>
-      </Table>
+                <Skeleton className="size-8 rounded-full bg-muted" />
+                <div className="space-y-2">
+                  <Skeleton className={cn("h-3.5 bg-muted", nameWidth)} />
+                  <Skeleton className="h-3 w-20 bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : members.length === 0 && pendingInvites.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+            {t("org.noMembers")}
+          </div>
+        ) : (
+          <>
+            {members.map((m) => (
+              <MemberRow
+                key={m.email}
+                email={m.email}
+                role={m.role}
+                isCurrentUser={m.email === currentUserEmail}
+                currentUserRole={currentUserRole}
+                appRoles={appRoles}
+                appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
+                canManageAppRoles={Boolean(appRoleData?.canManage)}
+              />
+            ))}
+            {pendingInvites.map((inv) => (
+              <PendingInviteRow key={inv.id} invite={inv} />
+            ))}
+          </>
+        )}
+      </div>
+      {(memberOffset > 0 || hasNextPage) && (
+        <MemberPagination
+          memberOffset={memberOffset}
+          totalMembers={totalMembers}
+          hasNextPage={hasNextPage}
+          nextMemberOffset={nextMemberOffset}
+          isFetchingMembers={isFetchingMembers}
+          onMemberPageChange={onMemberPageChange}
+        />
+      )}
     </section>
+  );
+}
+
+function MemberPagination({
+  memberOffset,
+  totalMembers,
+  hasNextPage,
+  nextMemberOffset,
+  isFetchingMembers,
+  onMemberPageChange,
+}: {
+  memberOffset: number;
+  totalMembers: number;
+  hasNextPage: boolean;
+  nextMemberOffset: number | null;
+  isFetchingMembers: boolean;
+  onMemberPageChange: (offset: number) => void;
+}) {
+  const t = useT();
+  const currentPage = Math.floor(memberOffset / ORG_MEMBER_PAGE_SIZE) + 1;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalMembers / ORG_MEMBER_PAGE_SIZE),
+  );
+  const canGoPrevious = memberOffset > 0 && !isFetchingMembers;
+  const canGoNext =
+    hasNextPage && nextMemberOffset !== null && !isFetchingMembers;
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {t("org.memberPageStatus", {
+          page: currentPage,
+          totalPages,
+        })}
+      </p>
+      <Pagination
+        aria-label={t("org.memberPagination")}
+        className="mx-0 w-auto justify-start sm:justify-end"
+      >
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              href="#"
+              aria-label={t("org.previousMemberPage")}
+              aria-disabled={!canGoPrevious}
+              tabIndex={canGoPrevious ? undefined : -1}
+              className={cn(
+                "text-xs",
+                !canGoPrevious && "pointer-events-none opacity-50",
+              )}
+              onClick={(event) => {
+                event.preventDefault();
+                if (canGoPrevious) {
+                  onMemberPageChange(
+                    Math.max(0, memberOffset - ORG_MEMBER_PAGE_SIZE),
+                  );
+                }
+              }}
+            />
+          </PaginationItem>
+          <PaginationItem>
+            <PaginationNext
+              href="#"
+              aria-label={t("org.nextMemberPage")}
+              aria-disabled={!canGoNext}
+              tabIndex={canGoNext ? undefined : -1}
+              className={cn(
+                "text-xs",
+                !canGoNext && "pointer-events-none opacity-50",
+              )}
+              onClick={(event) => {
+                event.preventDefault();
+                if (canGoNext && nextMemberOffset !== null) {
+                  onMemberPageChange(nextMemberOffset);
+                }
+              }}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    </div>
   );
 }
 
@@ -629,69 +807,73 @@ function DangerZoneCard({ orgName }: { orgName: string }) {
     <section className="rounded-lg border border-destructive/40 bg-card p-4 space-y-3">
       <div className="flex items-start gap-2.5">
         <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-        <div className="space-y-1">
-          <h3 className="text-sm font-medium text-destructive">
-            {t("org.dangerZone")}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            {t("org.deleteOrgDescription")}
-          </p>
+        <div className="min-w-0 space-y-3">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium text-destructive">
+              {t("org.dangerZone")}
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">
+              <OrganizationDescription help={t("org.deleteOrgDescription")}>
+                Delete this organization and all of its members.
+              </OrganizationDescription>
+            </p>
+          </div>
+          <AlertDialog
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) setConfirmText("");
+            }}
+          >
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                intent="danger"
+                emphasis="outline"
+                className="cursor-pointer rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+              >
+                {t("org.deleteOrg")}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("org.deleteOrgConfirmPrompt", { name: orgName })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder={t("org.deleteOrgConfirmPlaceholder")}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-destructive"
+                autoFocus
+              />
+              <ErrorText error={deleteOrg.error} />
+              <AlertDialogFooter>
+                <AlertDialogCancel className="cursor-pointer">
+                  {t("org.cancel")}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={!canConfirm || deleteOrg.isPending}
+                  onClick={handleConfirm}
+                  className="cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deleteOrg.isPending ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <IconLoader2 size={14} className="animate-spin" />
+                      {t("org.deleteOrgPending")}
+                    </span>
+                  ) : (
+                    t("org.deleteOrgConfirmCta")
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
-      <AlertDialog
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) setConfirmText("");
-        }}
-      >
-        <AlertDialogTrigger asChild>
-          <Button
-            type="button"
-            intent="danger"
-            emphasis="outline"
-            className="cursor-pointer rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-          >
-            {t("org.deleteOrg")}
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("org.deleteOrgConfirmPrompt", { name: orgName })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <input
-            type="text"
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            placeholder={t("org.deleteOrgConfirmPlaceholder")}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-destructive"
-            autoFocus
-          />
-          <ErrorText error={deleteOrg.error} />
-          <AlertDialogFooter>
-            <AlertDialogCancel className="cursor-pointer">
-              {t("org.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!canConfirm || deleteOrg.isPending}
-              onClick={handleConfirm}
-              className="cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {deleteOrg.isPending ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <IconLoader2 size={14} className="animate-spin" />
-                  {t("org.deleteOrgPending")}
-                </span>
-              ) : (
-                t("org.deleteOrgConfirmCta")
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </section>
   );
 }
@@ -712,43 +894,41 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function PendingInviteRow({
-  invite,
-  hasAppRoleColumn,
-}: {
-  invite: PendingInviteListItem;
-  hasAppRoleColumn?: boolean;
-}) {
+function memberInitials(email: string): string {
+  const localPart = email.split("@", 1)[0] ?? email;
+  const initials = localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return initials || "?";
+}
+
+function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
   const t = useT();
   return (
-    <TableRow className="opacity-70">
-      <TableCell className="min-w-56">
-        <span className="truncate text-sm">{invite.email}</span>
-      </TableCell>
-      <TableCell>
+    <div className="flex flex-col gap-3 px-5 py-3.5 opacity-70 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground">
+          {memberInitials(invite.email)}
+        </div>
+        <span className="min-w-0 truncate text-sm">{invite.email}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
         <RoleBadge role={invite.role} />
-      </TableCell>
-      {/* App roles hang off membership, so there is nothing to assign until the
-          invitation is accepted. */}
-      {hasAppRoleColumn && (
-        <TableCell>
-          <span className="text-muted-foreground">-</span>
-        </TableCell>
-      )}
-      <TableCell>
         <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
           {t("org.invited")}
         </span>
-      </TableCell>
-      <TableCell className="text-end text-muted-foreground">-</TableCell>
-    </TableRow>
+      </div>
+    </div>
   );
 }
 
 /** Sentinel for "clear the assignment" — Select cannot carry an empty value. */
 const UNASSIGNED = "__unassigned__";
 
-function AppRoleCell({
+function AppRoleControl({
   email,
   appRoles,
   appRole,
@@ -765,44 +945,42 @@ function AppRoleCell({
 
   if (editing) {
     return (
-      <TableCell>
-        <Select
-          defaultOpen
-          value={appRole ?? UNASSIGNED}
-          onOpenChange={(open) => {
-            if (!open) setEditing(false);
-          }}
-          onValueChange={(value) => {
-            const next = value === UNASSIGNED ? null : value;
-            if (next === appRole) {
-              setEditing(false);
-              return;
-            }
-            setAppRole.mutate(
-              { email, role: next },
-              { onSuccess: () => setEditing(false) },
-            );
-          }}
-          disabled={setAppRole.isPending}
+      <Select
+        defaultOpen
+        value={appRole ?? UNASSIGNED}
+        onOpenChange={(open) => {
+          if (!open) setEditing(false);
+        }}
+        onValueChange={(value) => {
+          const next = value === UNASSIGNED ? null : value;
+          if (next === appRole) {
+            setEditing(false);
+            return;
+          }
+          setAppRole.mutate(
+            { email, role: next },
+            { onSuccess: () => setEditing(false) },
+          );
+        }}
+        disabled={setAppRole.isPending}
+      >
+        <SelectTrigger
+          autoFocus
+          className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
         >
-          <SelectTrigger
-            autoFocus
-            className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={UNASSIGNED}>
-              {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={UNASSIGNED}>
+            {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+          </SelectItem>
+          {appRoles.roles.map((r) => (
+            <SelectItem key={r} value={r}>
+              {labelFor(r)}
             </SelectItem>
-            {appRoles.roles.map((r) => (
-              <SelectItem key={r} value={r}>
-                {labelFor(r)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </TableCell>
+          ))}
+        </SelectContent>
+      </Select>
     );
   }
 
@@ -818,20 +996,16 @@ function AppRoleCell({
     </span>
   );
 
-  return (
-    <TableCell>
-      {canManage ? (
-        <Button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="cursor-pointer rounded hover:opacity-80"
-        >
-          {display}
-        </Button>
-      ) : (
-        display
-      )}
-    </TableCell>
+  return canManage ? (
+    <Button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="cursor-pointer rounded hover:opacity-80"
+    >
+      {display}
+    </Button>
+  ) : (
+    display
   );
 }
 
@@ -868,33 +1042,32 @@ function MemberRow({
       (currentUserRole === "admin" && role === "member"));
 
   return (
-    <TableRow>
-      <TableCell className="min-w-56">
-        <span className="truncate text-sm">{email}</span>
-      </TableCell>
-      <TableCell>
+    <div className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground">
+          {memberInitials(email)}
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-sm">{email}</div>
+          {isCurrentUser && (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {t("org.you")}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
         <RoleBadge role={role} />
-      </TableCell>
-      {appRoles && (
-        <AppRoleCell
-          email={email}
-          appRoles={appRoles}
-          appRole={appRole ?? null}
-          canManage={Boolean(canManageAppRoles)}
-        />
-      )}
-      <TableCell>
-        {isCurrentUser ? (
-          <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {t("org.you")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">-</span>
+        {appRoles && (
+          <AppRoleControl
+            email={email}
+            appRoles={appRoles}
+            appRole={appRole ?? null}
+            canManage={Boolean(canManageAppRoles)}
+          />
         )}
-      </TableCell>
-      <TableCell>
-        {canManage ? (
-          <div className="flex shrink-0 items-center justify-end gap-1">
+        {canManage && (
+          <div className="flex shrink-0 items-center gap-1">
             {editing ? (
               <Select
                 defaultOpen
@@ -917,7 +1090,7 @@ function MemberRow({
               >
                 <SelectTrigger
                   autoFocus
-                  className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                  className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
                 >
                   <SelectValue />
                 </SelectTrigger>
@@ -984,11 +1157,9 @@ function MemberRow({
               </Tooltip>
             )}
           </div>
-        ) : (
-          <div className="text-end text-muted-foreground">-</div>
         )}
-      </TableCell>
-    </TableRow>
+      </div>
+    </div>
   );
 }
 
@@ -1378,112 +1549,116 @@ function DomainSettingsSection({
   }
 
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Email domain auto-join
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Anyone who signs up with an email at this domain will join your
-        organization automatically. You can only set your own email domain (
-        {ownDomain || "—"}); free email providers like gmail.com or outlook.com
-        aren&apos;t allowed.
-      </p>
-      {!editing ? (
-        <div className="flex items-center gap-2">
-          {domain ? (
-            <>
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
-                <IconAt className="h-3.5 w-3.5 text-muted-foreground" />
-                {domain}
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setDraft(domain);
-                      setEditing(true);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <IconPencil size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Edit domain</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    intent="danger"
-                    emphasis="ghost"
-                    disabled={setOrgDomain.isPending}
-                    onClick={() => setOrgDomain.mutate(null)}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                  >
-                    <IconX size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Remove domain</TooltipContent>
-              </Tooltip>
-            </>
-          ) : (
+    <SettingsRow
+      id="email-domain"
+      label="Email domain auto-join"
+      description={
+        <OrganizationDescription
+          help={`Anyone who signs up with an email at this domain joins the organization automatically. Only your own email domain (${ownDomain || "—"}) can be used; free email providers are not allowed.`}
+          docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=domain_auto_join"
+        >
+          Automatically add members with your work email.
+        </OrganizationDescription>
+      }
+      control={
+        !editing ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {domain ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
+                  <IconAt className="h-3.5 w-3.5 text-muted-foreground" />
+                  {domain}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setDraft(domain);
+                        setEditing(true);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <IconPencil size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit domain</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      intent="danger"
+                      emphasis="ghost"
+                      disabled={setOrgDomain.isPending}
+                      onClick={() => setOrgDomain.mutate(null)}
+                      className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    >
+                      <IconX size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Remove domain</TooltipContent>
+                </Tooltip>
+              </>
+            ) : (
+              <Button
+                type="button"
+                intent="neutral"
+                emphasis="outline"
+                onClick={() => {
+                  setDraft(ownDomain);
+                  setEditing(true);
+                }}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              >
+                <IconAt size={14} />
+                Set domain
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") save();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              placeholder={ownDomain || "example.com"}
+              className="w-44 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              autoFocus
+            />
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              disabled={setOrgDomain.isPending}
+              onClick={save}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {setOrgDomain.isPending ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
             <Button
               type="button"
               intent="neutral"
               emphasis="outline"
-              onClick={() => {
-                setDraft(ownDomain);
-                setEditing(true);
-              }}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              <IconAt size={14} />
-              Allow {ownDomain || "your domain"} to auto-join
+              Cancel
             </Button>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-              if (e.key === "Escape") setEditing(false);
-            }}
-            placeholder={ownDomain || "example.com"}
-            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
-            autoFocus
-          />
-          <Button
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            disabled={setOrgDomain.isPending}
-            onClick={save}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {setOrgDomain.isPending ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : (
-              "Save"
-            )}
-          </Button>
-          <Button
-            type="button"
-            intent="neutral"
-            emphasis="outline"
-            onClick={() => setEditing(false)}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            Cancel
-          </Button>
-        </div>
-      )}
-      <ErrorText error={setOrgDomain.error} />
-    </div>
+          </div>
+        )
+      }
+    >
+      {setOrgDomain.error ? <ErrorText error={setOrgDomain.error} /> : null}
+    </SettingsRow>
   );
 }
 
@@ -1508,108 +1683,114 @@ function WorkspaceUrlSettingsSection({
   }
 
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Your workspace
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        If your team runs its own workspace, members who land on a different
-        deployment — opening a template from the catalog, for instance — get
-        pointed here instead of an app that looks empty.
-      </p>
-      {!editing ? (
-        <div className="flex items-center gap-2">
-          {workspaceUrl ? (
-            <>
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
-                <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                {workspaceUrl}
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setDraft(workspaceUrl);
-                      setEditing(true);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <IconPencil size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Edit workspace URL</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    intent="danger"
-                    emphasis="ghost"
-                    disabled={setWorkspaceUrl.isPending}
-                    onClick={() => setWorkspaceUrl.mutate(null)}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                  >
-                    <IconX size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Remove workspace URL</TooltipContent>
-              </Tooltip>
-            </>
-          ) : (
+    <SettingsRow
+      id="workspace-url"
+      label="Workspace URL"
+      description={
+        <OrganizationDescription
+          help="Members who land on another deployment can be sent to this workspace URL instead of an empty app."
+          docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=workspace_url"
+        >
+          Send members to this workspace from another deployment.
+        </OrganizationDescription>
+      }
+      control={
+        !editing ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {workspaceUrl ? (
+              <>
+                <span className="inline-flex max-w-72 items-center gap-1.5 truncate rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
+                  <IconExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{workspaceUrl}</span>
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setDraft(workspaceUrl);
+                        setEditing(true);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <IconPencil size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit workspace URL</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      intent="danger"
+                      emphasis="ghost"
+                      disabled={setWorkspaceUrl.isPending}
+                      onClick={() => setWorkspaceUrl.mutate(null)}
+                      className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    >
+                      <IconX size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Remove workspace URL</TooltipContent>
+                </Tooltip>
+              </>
+            ) : (
+              <Button
+                type="button"
+                intent="neutral"
+                emphasis="outline"
+                onClick={() => setEditing(true)}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              >
+                Set URL
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") save();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              placeholder="workspace.example.com"
+              className="w-56 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              autoFocus
+            />
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              disabled={setWorkspaceUrl.isPending}
+              onClick={save}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {setWorkspaceUrl.isPending ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
             <Button
               type="button"
               intent="neutral"
               emphasis="outline"
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              <IconExternalLink size={14} />
-              Set workspace URL
+              Cancel
             </Button>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-              if (e.key === "Escape") setEditing(false);
-            }}
-            placeholder="workspace.example.com"
-            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
-            autoFocus
-          />
-          <Button
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            disabled={setWorkspaceUrl.isPending}
-            onClick={save}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {setWorkspaceUrl.isPending ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : (
-              "Save"
-            )}
-          </Button>
-          <Button
-            type="button"
-            intent="neutral"
-            emphasis="outline"
-            onClick={() => setEditing(false)}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            Cancel
-          </Button>
-        </div>
-      )}
-      <ErrorText error={setWorkspaceUrl.error} />
-    </div>
+          </div>
+        )
+      }
+    >
+      {setWorkspaceUrl.error ? (
+        <ErrorText error={setWorkspaceUrl.error} />
+      ) : null}
+    </SettingsRow>
   );
 }
 
@@ -1631,27 +1812,36 @@ function AuthProviderSettingsSection({
   }
 
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Organization sign-in
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Require Google sign-in for every member of this organization. Enabling
-        this revokes all current sessions, and future password or non-Google
-        sign-ins will be rejected.
-      </p>
-      <div className="flex items-center gap-3">
-        <Switch
-          checked={enabled}
-          disabled={setAuthProvider.isPending}
-          onCheckedChange={changeProvider}
-          aria-label="Require Google sign-in"
-        />
-        <span className="text-sm font-medium">
-          {enabled ? "Google sign-in required" : "Google sign-in optional"}
-        </span>
-      </div>
-      <ErrorText error={setAuthProvider.error} />
+    <>
+      <SettingsRow
+        id="organization-sign-in"
+        label="Organization sign-in"
+        description={
+          <OrganizationDescription
+            help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins."
+            docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=organization_sign_in"
+          >
+            Choose how members sign in.
+          </OrganizationDescription>
+        }
+        control={
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium">
+              {enabled ? "Google required" : "Google optional"}
+            </span>
+            <Switch
+              checked={enabled}
+              disabled={setAuthProvider.isPending}
+              onCheckedChange={changeProvider}
+              aria-label="Require Google sign-in"
+            />
+          </div>
+        }
+      >
+        {setAuthProvider.error ? (
+          <ErrorText error={setAuthProvider.error} />
+        ) : null}
+      </SettingsRow>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -1683,7 +1873,7 @@ function AuthProviderSettingsSection({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }
 
@@ -1769,208 +1959,189 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
   const masked = isSet ? "••••••••••••" : "Not set";
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        <span>Cross-app authentication</span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <a
-              href="/docs/a2a-protocol#organization-secret-sync"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Read the cross-app authentication documentation"
-              className="inline-flex size-3.5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-            >
-              <IconHelpCircle className="size-3" />
-            </a>
-          </TooltipTrigger>
-          <TooltipContent>
-            Read the cross-app authentication documentation
-          </TooltipContent>
-        </Tooltip>
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        This secret authenticates cross-app delegation (e.g. Dispatch to
-        Analytics). All apps in your organization need the same secret.
-      </p>
-
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
-          <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
-          {secret ?? masked}
-        </span>
-        {isSet && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  onClick={toggleReveal}
-                  disabled={revealA2ASecret.isPending}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {secret ? "Hide secret" : "Reveal secret"}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  onClick={copyToClipboard}
-                  disabled={revealA2ASecret.isPending}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {copied ? (
-                    <IconCheck size={14} className="text-primary" />
-                  ) : (
-                    <IconCopy size={14} />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Copy secret</TooltipContent>
-            </Tooltip>
-          </>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              intent="danger"
-              emphasis="outline"
-              onClick={regenerate}
-              disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-            >
-              {setA2ASecret.isPending ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                <IconRefresh size={14} />
-              )}
-              Regenerate
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Regenerate secret and sync to connected apps
-          </TooltipContent>
-        </Tooltip>
-        {isSet && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="outline"
-                onClick={() => syncToApps()}
-                disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-              >
-                {syncA2ASecret.isPending ? (
-                  <IconLoader2 size={14} className="animate-spin" />
-                ) : (
-                  <IconCloudUpload size={14} />
-                )}
-                Sync to apps
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Push this secret to every connected app
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-
-      {syncA2ASecret.isPending && (
-        <p className="text-[11px] text-muted-foreground">
-          Syncing to connected apps…
-        </p>
-      )}
-
-      {syncResult && !syncA2ASecret.isPending && (
-        <div className="space-y-1">
-          <p className="text-[11px] text-muted-foreground">
-            Synced to {syncResult.succeeded}/{syncResult.total} app
-            {syncResult.total === 1 ? "" : "s"}
-            {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
-          </p>
-          {syncResult.failed > 0 && (
-            <ul className="text-[11px] text-destructive list-disc ps-5 space-y-0.5">
-              {syncResult.results
-                .filter((r) => !r.ok)
-                .map((r) => (
-                  <li key={r.id}>
-                    {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
-                  </li>
-                ))}
-            </ul>
+    <SettingsRow
+      id="cross-app-authentication"
+      label="Cross-app authentication"
+      description={
+        <OrganizationDescription help="This secret authenticates cross-app delegation. Every app in the organization must share it.">
+          Share one secret across connected apps.
+        </OrganizationDescription>
+      }
+      control={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
+            <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
+            {secret ?? masked}
+          </span>
+          {isSet && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    onClick={toggleReveal}
+                    disabled={revealA2ASecret.isPending}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {secret ? "Hide secret" : "Reveal secret"}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    onClick={copyToClipboard}
+                    disabled={revealA2ASecret.isPending}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {copied ? (
+                      <IconCheck size={14} className="text-primary" />
+                    ) : (
+                      <IconCopy size={14} />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Copy secret</TooltipContent>
+              </Tooltip>
+            </>
           )}
-        </div>
-      )}
-
-      {!pasteMode ? (
-        <Button
-          type="button"
-          intent="neutral"
-          emphasis="outline"
-          onClick={() => setPasteMode(true)}
-          className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
-        >
-          <IconKey size={14} />
-          Paste secret from another app
-        </Button>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={pasteValue}
-            onChange={(e) => setPasteValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") saveSecret();
-              if (e.key === "Escape") {
-                setPasteMode(false);
-                setPasteValue("");
-              }
-            }}
-            placeholder="Paste A2A secret"
-            className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
-            autoFocus
-          />
           <Button
             type="button"
-            intent="primary"
-            emphasis="solid"
-            disabled={!pasteValue.trim() || setA2ASecret.isPending}
-            onClick={saveSecret}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            intent="danger"
+            emphasis="outline"
+            onClick={regenerate}
+            disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
           >
             {setA2ASecret.isPending ? (
               <IconLoader2 size={14} className="animate-spin" />
             ) : (
-              "Save"
+              <IconRefresh size={14} />
             )}
+            Regenerate
           </Button>
-          <Button
-            type="button"
-            intent="neutral"
-            emphasis="outline"
-            onClick={() => {
-              setPasteMode(false);
-              setPasteValue("");
-            }}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            Cancel
-          </Button>
+          {isSet && (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={() => syncToApps()}
+              disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+            >
+              {syncA2ASecret.isPending ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                <IconCloudUpload size={14} />
+              )}
+              Sync
+            </Button>
+          )}
+          {!pasteMode && (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={() => setPasteMode(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+            >
+              <IconKey size={14} />
+              Paste secret
+            </Button>
+          )}
+        </div>
+      }
+    >
+      {(pasteMode ||
+        syncA2ASecret.isPending ||
+        syncResult ||
+        revealA2ASecret.error ||
+        setA2ASecret.error ||
+        syncA2ASecret.error) && (
+        <div className="space-y-3">
+          {syncA2ASecret.isPending && (
+            <p className="text-xs text-muted-foreground">
+              Syncing to connected apps…
+            </p>
+          )}
+
+          {syncResult && !syncA2ASecret.isPending && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Synced to {syncResult.succeeded}/{syncResult.total} app
+                {syncResult.total === 1 ? "" : "s"}
+                {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
+              </p>
+              {syncResult.failed > 0 && (
+                <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
+                  {syncResult.results
+                    .filter((r) => !r.ok)
+                    .map((r) => (
+                      <li key={r.id}>
+                        {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {pasteMode ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={pasteValue}
+                onChange={(e) => setPasteValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveSecret();
+                  if (e.key === "Escape") {
+                    setPasteMode(false);
+                    setPasteValue("");
+                  }
+                }}
+                placeholder="Paste A2A secret"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
+                autoFocus
+              />
+              <Button
+                type="button"
+                intent="primary"
+                emphasis="solid"
+                disabled={!pasteValue.trim() || setA2ASecret.isPending}
+                onClick={saveSecret}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {setA2ASecret.isPending ? (
+                  <IconLoader2 size={14} className="animate-spin" />
+                ) : (
+                  "Save"
+                )}
+              </Button>
+              <Button
+                type="button"
+                intent="neutral"
+                emphasis="outline"
+                onClick={() => {
+                  setPasteMode(false);
+                  setPasteValue("");
+                }}
+                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
+
+          <ErrorText error={revealA2ASecret.error} />
+          <ErrorText error={setA2ASecret.error} />
+          <ErrorText error={syncA2ASecret.error} />
         </div>
       )}
-
-      <ErrorText error={revealA2ASecret.error} />
-      <ErrorText error={setA2ASecret.error} />
-      <ErrorText error={syncA2ASecret.error} />
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -1990,7 +2161,7 @@ export function TeamPage({
   const { data: org, isLoading } = useOrg();
 
   const content = (
-    <div className={`space-y-6 ${className ?? "max-w-2xl"}`}>
+    <div className={`w-full space-y-6 ${className ?? ""}`}>
       {showTitle ? (
         <h2 className="text-2xl font-bold tracking-tight">
           {title ?? t("org.team")}
@@ -1999,9 +2170,7 @@ export function TeamPage({
 
       {isLoading && (
         <section className="rounded-lg border border-border bg-card p-6">
-          <div className="text-sm text-muted-foreground">
-            {t("org.loading")}
-          </div>
+          <SettingsSkeleton lines={3} />
         </section>
       )}
 

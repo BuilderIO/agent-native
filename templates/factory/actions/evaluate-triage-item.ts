@@ -15,6 +15,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   normalizeTriagePolicyGuards,
   triageGuardCodeSchema,
@@ -70,6 +71,20 @@ export default defineAction({
         : `Observed failure taxonomy: ${failureTaxonomy.label} (${failureTaxonomy.code}; ${failureTaxonomy.regime}). `;
 
     if (rules.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "evaluate-triage-item",
+          kind: "decision",
+          status: "skipped",
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: "No enabled shadow rules were available for this item.",
+          details: { evaluated: 0 },
+        },
+      );
       return {
         ok: true,
         itemId,
@@ -118,6 +133,28 @@ export default defineAction({
         })
         .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
     });
+
+    for (const decision of decisions) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "evaluate-triage-item",
+          kind: "decision",
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: decision.reason,
+          details: {
+            decisionId: decision.id,
+            outcome: decision.outcome,
+            ruleId: decision.ruleId,
+            mode: decision.mode,
+            promptVersion: decision.promptVersion,
+          },
+        },
+      );
+    }
 
     return {
       ok: true,

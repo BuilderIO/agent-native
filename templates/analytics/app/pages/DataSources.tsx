@@ -94,6 +94,8 @@ import {
   type WalkthroughStep,
 } from "@/lib/data-sources";
 
+import { CustomApiCard } from "../components/CustomApiCard";
+
 interface AnalyticsPublicKeyRow {
   id: string;
   name: string;
@@ -120,11 +122,19 @@ interface GitHubOAuthStatus {
 
 interface FirstPartyAnalyticsHealthResponse {
   status: "healthy" | "monitor" | "recommend_bigquery" | "unavailable";
+  externalBackendRecommendation?: "none" | "connect" | "use" | "unknown";
   metrics: {
     eventCount: number;
     slowQueryCount24h: number;
     maxQueryDurationMs24h: number;
   };
+  externalBackends?: Array<{
+    id: "bigquery" | "amplitude";
+    label: string;
+    role: "warehouse" | "product-analytics";
+    configured: boolean | null;
+    setupLink: string;
+  }>;
   bigQuery: {
     configured: boolean | null;
   };
@@ -156,10 +166,24 @@ async function testConnection(
   return res.json();
 }
 
+// Bounds the GitHub status fetch so a hang can't leave the connect poll's
+// `inFlight` guard stuck and stall the interval forever.
+const GITHUB_OAUTH_STATUS_ABORT_MS = 10_000;
+
 async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
-  const res = await fetch(
-    agentNativePath("/_agent-native/oauth/github/status"),
+  const controller = new AbortController();
+  const abortTimer = setTimeout(
+    () => controller.abort(),
+    GITHUB_OAUTH_STATUS_ABORT_MS,
   );
+  let res: Response;
+  try {
+    res = await fetch(agentNativePath("/_agent-native/oauth/github/status"), {
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(abortTimer);
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || "Failed to load GitHub status");
@@ -364,8 +388,18 @@ function GitHubOAuthView({
     },
     onSuccess: () => {
       const startedAt = Date.now();
-      const pollId = window.setInterval(() => {
-        refresh();
+      let inFlight = false;
+      const pollId = window.setInterval(async () => {
+        if (document.hidden || inFlight) return;
+        inFlight = true;
+        try {
+          await queryClient.invalidateQueries({
+            queryKey: ["github-oauth-status"],
+          });
+          onSaved();
+        } finally {
+          inFlight = false;
+        }
         if (Date.now() - startedAt > 120_000) {
           window.clearInterval(pollId);
         }
@@ -1615,23 +1649,25 @@ function FirstPartyAnalyticsCard() {
   });
   const health = rawHealth as FirstPartyAnalyticsHealthResponse | undefined;
   const healthStatus = isHealthError ? "unavailable" : health?.status;
-  const bigQueryConfigured = health?.bigQuery.configured === true;
-  const healthTitleKey =
-    healthStatus === "recommend_bigquery"
-      ? bigQueryConfigured
-        ? "dataSources.bigQueryConnectedTitle"
-        : "dataSources.bigQueryRecommendationTitle"
-      : null;
-  const healthDescriptionKey =
-    healthStatus === "recommend_bigquery"
-      ? bigQueryConfigured
-        ? "dataSources.bigQueryConnectedDescription"
-        : "dataSources.bigQueryRecommendationDescription"
-      : healthStatus === "monitor"
-        ? "dataSources.bigQueryMonitorDescription"
-        : healthStatus === "healthy"
-          ? "dataSources.bigQueryHealthyDescription"
-          : "dataSources.bigQueryHealthUnavailable";
+  const externalBackends = health?.externalBackends ?? [];
+  const externalBackendConfigured = externalBackends.some(
+    (backend) => backend.configured === true,
+  );
+  const recommendsExternalBackend = healthStatus === "recommend_bigquery";
+  const healthTitleKey = recommendsExternalBackend
+    ? externalBackendConfigured
+      ? "analyticsBackend.connectedTitle"
+      : "analyticsBackend.recommendationTitle"
+    : null;
+  const healthDescriptionKey = recommendsExternalBackend
+    ? externalBackendConfigured
+      ? "analyticsBackend.connectedDescription"
+      : "analyticsBackend.recommendationDescription"
+    : healthStatus === "monitor"
+      ? "analyticsBackend.monitorDescription"
+      : healthStatus === "healthy"
+        ? "analyticsBackend.healthyDescription"
+        : "analyticsBackend.unavailableDescription";
 
   const createKey = useActionMutation("create-analytics-public-key", {
     onSuccess: (result: any) => {
@@ -1681,7 +1717,7 @@ function FirstPartyAnalyticsCard() {
             <div className="flex shrink-0 items-center gap-2">
               {isLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
-              ) : healthStatus === "recommend_bigquery" ? (
+              ) : recommendsExternalBackend ? (
                 <span
                   className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-500"
                   title={healthTitleKey ? t(healthTitleKey) : undefined}
@@ -1690,13 +1726,13 @@ function FirstPartyAnalyticsCard() {
                   <span className="max-w-[12rem] truncate">
                     {healthTitleKey
                       ? t(healthTitleKey)
-                      : t("dataSources.bigQueryRecommendationTitle")}
+                      : t("analyticsBackend.recommendationTitle")}
                   </span>
                 </span>
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  {t("dataSources.configured")}
+                  {t("analyticsBackend.configured")}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
@@ -1722,7 +1758,7 @@ function FirstPartyAnalyticsCard() {
             ) : (
               <div
                 className={`rounded-md border p-3 text-xs ${
-                  healthStatus === "recommend_bigquery"
+                  recommendsExternalBackend
                     ? "border-amber-500/30 bg-amber-500/10"
                     : "border-border/50 bg-muted/20"
                 }`}
@@ -1731,7 +1767,7 @@ function FirstPartyAnalyticsCard() {
                   <div className="flex min-w-0 items-start gap-2">
                     <IconAlertCircle
                       className={`mt-px h-3.5 w-3.5 shrink-0 ${
-                        healthStatus === "recommend_bigquery"
+                        recommendsExternalBackend
                           ? "text-amber-500"
                           : "text-muted-foreground"
                       }`}
@@ -1747,15 +1783,41 @@ function FirstPartyAnalyticsCard() {
                       </p>
                     </div>
                   </div>
-                  {healthStatus === "recommend_bigquery" &&
-                  !bigQueryConfigured ? (
-                    <Button asChild size="sm" className="shrink-0 text-xs">
-                      <Link to="/data-sources?source=bigquery">
-                        {t("dataSources.bigQuerySetup")}
-                      </Link>
-                    </Button>
-                  ) : null}
                 </div>
+                {externalBackends.length > 0 && (
+                  <div className="mt-3 border-t border-border/30 pt-3">
+                    <div className="mb-2 text-muted-foreground">
+                      {t("analyticsBackend.options")}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {externalBackends.map((backend) => {
+                        const statusLabel =
+                          backend.configured === true
+                            ? t("analyticsBackend.configured")
+                            : backend.configured === false
+                              ? t("analyticsBackend.setUp")
+                              : t("dataSources.statusUnknown");
+                        return (
+                          <Button
+                            asChild
+                            key={backend.id}
+                            size="sm"
+                            variant={
+                              backend.configured === true
+                                ? "outline"
+                                : "default"
+                            }
+                            className="text-xs"
+                          >
+                            <Link to={backend.setupLink}>
+                              {backend.label} · {statusLabel}
+                            </Link>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {health && healthStatus !== "unavailable" && (
                   <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/30 pt-3">
                     <div>
@@ -2062,6 +2124,8 @@ export default function DataSources() {
       </p>
 
       <GoogleSheetsExportCard statusData={statusData} />
+
+      <CustomApiCard />
 
       {unknownFocusedSourceId && (
         <div

@@ -73,6 +73,11 @@ export interface GitHubMergeResult {
   message: string;
 }
 
+export interface GitHubComment {
+  id: number;
+  htmlUrl: string;
+}
+
 interface JsonResponse {
   ok: boolean;
   status: number;
@@ -358,6 +363,32 @@ export function createGitHubClient(options: GitHubClientOptions) {
         id: requiredNumber(item.id, "approval id"),
         state: "APPROVED",
         htmlUrl: requiredString(item.html_url, "approval URL"),
+      };
+    },
+
+    async createIssueComment(
+      repository: GitHubRepositoryRef,
+      issueNumber: number,
+      body: string,
+    ): Promise<GitHubComment> {
+      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+        throw new Error("GitHub issue number must be a positive integer");
+      }
+      const trimmedBody = body.trim();
+      if (!trimmedBody) throw new Error("GitHub comment body is required");
+      const item = record(
+        await request<unknown>(
+          `${repositoryPath(repository)}/issues/${issueNumber}/comments`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ body: trimmedBody.slice(0, 65_536) }),
+          },
+        ),
+      );
+      return {
+        id: requiredNumber(item.id, "comment id"),
+        htmlUrl: requiredString(item.html_url, "comment URL"),
       };
     },
 

@@ -159,6 +159,31 @@ const messages = {
     metricRuns: "Execuções",
     rulesTab: "Regras",
     automationsTab: "Automações",
+    auditTab: "Auditoria",
+    auditTitle: "Auditoria das execuções",
+    auditDescription:
+      "Veja exatamente quais fontes o agente inspecionou, o que decidiu e quais ações realizou.",
+    auditRefresh: "Atualizar",
+    auditLoadError: "Não foi possível carregar a auditoria das execuções.",
+    auditEmpty: "Nenhuma execução de automação foi registrada ainda.",
+    auditRuns: "Execuções recentes",
+    auditEventsShort: "eventos",
+    auditActionsShort: "ações",
+    auditRunDetail: "Evidências e decisões registradas para esta execução.",
+    auditStarted: "Início",
+    auditFinished: "Fim",
+    auditItems: "Itens",
+    auditRunError: "Erro na execução",
+    auditEvidence: "Evidências e decisões",
+    auditNoEvents:
+      "Nenhum evento detalhado foi registrado. Abra a thread do agente para ver o rastreamento completo.",
+    auditOpenThread: "Abrir thread",
+    auditOpenItem: "Abrir item",
+    auditOpenSource: "Abrir fonte",
+    auditInternal: "Factory",
+    auditClearBug: "Bug claro",
+    auditUxImpact: "Impacto de UX",
+    auditOwnerArea: "Área responsável",
     automationsTitle: "Automações",
     automationsDescription: "Agende e execute prompts da fábrica.",
     automationsLoading: "Carregando automações...",
@@ -183,6 +208,35 @@ const messages = {
     pastRunsEmpty: "Nenhuma execução registrada ainda.",
     saveAutomation: "Salvar",
     runNow: "Executar agora",
+    automationHealthTitle: "Saúde do agendador",
+    automationHealthDescription:
+      "O heartbeat mostra se o worker de tarefas recorrentes implantado continua verificando os agendamentos.",
+    automationHealthHealthy: "Saudável",
+    automationHealthStale: "Desatualizado",
+    automationHealthError: "Erro",
+    automationHealthNoData: "Sem heartbeat",
+    automationLastCheck: "Última verificação",
+    automationLastDispatch: "Último despacho",
+    automationRuntime: "Runtime",
+    automationHealthNoDataHint:
+      "Nenhum heartbeat do agendador foi registrado ainda. Implante o build mais recente do Factory e verifique novamente.",
+    automationHealthStaleHint:
+      "O agendador não verificou recentemente. Isso geralmente significa que a função agendada ou o worker em segundo plano implantado não está em execução.",
+    automationHealthErrorDetail: "Último erro do agendador",
+    automationOpenThread: "Abrir thread",
+    automationFailureAlertsTitle: "Alertas de falha da automação",
+    automationFailureAlertsDescription:
+      "Envie um alerta no app e um e-mail quando uma automação do Factory falhar. Falhas idênticas são agrupadas por 15 minutos.",
+    automationFailureAlertsEnabled:
+      "Envie-me um e-mail quando as automações falharem",
+    automationFailureAlertEmail: "E-mail de alerta",
+    automationFailureAlertEmailPlaceholder:
+      "Por padrão, o proprietário do workspace",
+    automationFailureEmailReadiness: "Provedor de e-mail",
+    automationDiagnosticsLoadError:
+      "Não foi possível carregar os diagnósticos do Factory. Verifique acesso, implantação e migrações do banco de dados e tente novamente.",
+    automationEmailReadinessHint:
+      "O e-mail usa o cofre Dispatch da organização. Configure um provedor lá se não estiver pronto.",
   },
   factoryCanvas: {
     dragHint: "Arraste os nós para remodelar a fábrica",

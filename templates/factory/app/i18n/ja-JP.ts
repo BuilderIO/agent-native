@@ -153,6 +153,31 @@ const messages = {
     metricRuns: "実行",
     rulesTab: "ルール",
     automationsTab: "自動化",
+    auditTab: "監査",
+    auditTitle: "実行監査",
+    auditDescription:
+      "エージェントが確認した情報源、判断、実行したアクションを正確に確認できます。",
+    auditRefresh: "更新",
+    auditLoadError: "実行監査を読み込めませんでした。",
+    auditEmpty: "自動化の実行履歴はまだありません。",
+    auditRuns: "最近の実行",
+    auditEventsShort: "イベント",
+    auditActionsShort: "アクション",
+    auditRunDetail: "この実行で記録された証拠と判断。",
+    auditStarted: "開始",
+    auditFinished: "終了",
+    auditItems: "項目",
+    auditRunError: "実行エラー",
+    auditEvidence: "証拠と判断",
+    auditNoEvents:
+      "項目単位の監査イベントはありません。完全な記録はエージェントのスレッドを開いてください。",
+    auditOpenThread: "スレッドを開く",
+    auditOpenItem: "項目を開く",
+    auditOpenSource: "ソースを開く",
+    auditInternal: "Factory",
+    auditClearBug: "明確なバグ",
+    auditUxImpact: "UXへの影響",
+    auditOwnerArea: "担当領域",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",
@@ -179,6 +204,34 @@ const messages = {
     pastRunsEmpty: "記録された実行はまだありません。",
     saveAutomation: "保存",
     runNow: "今すぐ実行",
+    automationHealthTitle: "スケジューラーの状態",
+    automationHealthDescription:
+      "ハートビートは、デプロイ済みの定期ジョブワーカーが引き続きスケジュールを確認しているかを示します。",
+    automationHealthHealthy: "正常",
+    automationHealthStale: "古い状態",
+    automationHealthError: "エラー",
+    automationHealthNoData: "ハートビートなし",
+    automationLastCheck: "最終確認",
+    automationLastDispatch: "最終ディスパッチ",
+    automationRuntime: "ランタイム",
+    automationHealthNoDataHint:
+      "スケジューラーのハートビートはまだ記録されていません。最新の Factory ビルドをデプロイして、もう一度確認してください。",
+    automationHealthStaleHint:
+      "スケジューラーは最近確認を行っていません。通常は、デプロイ済みのスケジュール関数またはバックグラウンドワーカーが動作していないことを示します。",
+    automationHealthErrorDetail: "スケジューラーの最終エラー",
+    automationOpenThread: "スレッドを開く",
+    automationFailureAlertsTitle: "自動化の失敗アラート",
+    automationFailureAlertsDescription:
+      "Factory の自動化が失敗したときに、アプリ内アラートとメールを送信します。同じ失敗は15分間まとめられます。",
+    automationFailureAlertsEnabled: "自動化が失敗したらメールで知らせる",
+    automationFailureAlertEmail: "アラート用メール",
+    automationFailureAlertEmailPlaceholder:
+      "デフォルトはワークスペースの所有者",
+    automationFailureEmailReadiness: "メールプロバイダー",
+    automationDiagnosticsLoadError:
+      "Factory の診断を読み込めませんでした。アクセス権、デプロイ、データベース移行を確認して再試行してください。",
+    automationEmailReadinessHint:
+      "メールは組織の Dispatch 保管庫を使用します。準備ができていない場合は、そこでプロバイダーを設定してください。",
   },
   factoryCanvas: {
     dragHint: "ノードをドラッグしてファクトリーの形を整えます",

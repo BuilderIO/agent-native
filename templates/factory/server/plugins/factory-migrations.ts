@@ -248,6 +248,45 @@ const migrations = [
       ALTER TABLE factory_config ADD COLUMN last_sentry_seen_at TEXT;
     `,
   },
+  {
+    version: 17,
+    name: "factory-automation-failure-alert-settings",
+    sql: `
+      ALTER TABLE factory_config ADD COLUMN automation_failure_alerts_enabled INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE factory_config ADD COLUMN automation_failure_alert_email TEXT;
+      ALTER TABLE factory_config ADD COLUMN last_automation_failure_alert_key TEXT;
+      ALTER TABLE factory_config ADD COLUMN last_automation_failure_alert_at TEXT;
+    `,
+  },
+  {
+    version: 18,
+    name: "factory-audit-events-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_audit_events (
+        id TEXT PRIMARY KEY,
+        automation_run_id TEXT,
+        automation_thread_id TEXT,
+        automation_name TEXT,
+        item_id TEXT,
+        source TEXT,
+        source_url TEXT,
+        action TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        details_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS factory_audit_events_org_created_idx
+        ON factory_audit_events (org_id, created_at);
+      CREATE INDEX IF NOT EXISTS factory_audit_events_run_created_idx
+        ON factory_audit_events (org_id, automation_run_id, created_at);
+      CREATE INDEX IF NOT EXISTS factory_audit_events_item_created_idx
+        ON factory_audit_events (org_id, item_id, created_at);
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

@@ -1,3 +1,4 @@
+import { IconLoader2 } from "@tabler/icons-react";
 import React from "react";
 
 import { captureError } from "./analytics.js";
@@ -41,6 +42,7 @@ type AssistantUiStaleIndexErrorBoundaryProps = {
   /** Remount children when the recovery scope changes. */
   remountOnResetKey?: boolean;
   componentName?: string;
+  fallback?: React.ReactNode;
   children: React.ReactNode;
 };
 
@@ -172,7 +174,11 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
       ) {
         throw this.state.error;
       }
-      return null;
+      return this.props.fallback === undefined ? (
+        <AssistantUiRecoverableRenderFallback />
+      ) : (
+        this.props.fallback
+      );
     }
 
     const fragmentKey =
@@ -198,8 +204,22 @@ export function AssistantMessageListErrorBoundary({
       resetKey={resetKey}
       remountOnResetKey={false}
       componentName="AssistantMessageList"
+      fallback={<AssistantUiRecoverableRenderFallback />}
     >
       {children}
     </AssistantUiStaleIndexErrorBoundary>
+  );
+}
+
+function AssistantUiRecoverableRenderFallback() {
+  return (
+    <div
+      aria-label="Updating chat"
+      className="flex min-h-8 items-center justify-center text-muted-foreground"
+      role="status"
+    >
+      <IconLoader2 className="size-3.5 animate-spin" aria-hidden="true" />
+      <span className="sr-only">Updating chat...</span>
+    </div>
   );
 }

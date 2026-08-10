@@ -189,6 +189,24 @@ function propertyValueTextForScreen(
 }
 
 export const DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT = 50;
+export const SCREEN_DOCUMENT_PREVIEW_CHARS = 1_200;
+
+export function documentContentPreview(content: string) {
+  const normalized = content.trim();
+  if (normalized.length <= SCREEN_DOCUMENT_PREVIEW_CHARS) {
+    return {
+      contentPreview: normalized,
+      contentLength: content.length,
+      contentTruncated: false,
+    };
+  }
+
+  return {
+    contentPreview: `${normalized.slice(0, SCREEN_DOCUMENT_PREVIEW_CHARS).trimEnd()}... [document body truncated; call get-document for the full content]`,
+    contentLength: content.length,
+    contentTruncated: true,
+  };
+}
 
 function propertyForDatabaseItem(
   item: ContentDatabaseItem,
@@ -535,11 +553,13 @@ export function databaseCurrentViewSnapshot(
     {};
   const calculationResults =
     arrayValue(nav.databaseCalculationResults) ??
-    databaseCalculationSummariesForScreen(
-      calculations,
-      response.items,
-      visibleProperties,
-    );
+    (response.pagination?.hasMore
+      ? null
+      : databaseCalculationSummariesForScreen(
+          calculations,
+          response.items,
+          visibleProperties,
+        ));
   const groupByPropertyId =
     stringValue(nav.databaseGroupByPropertyId) ??
     activeView?.groupByPropertyId ??
@@ -625,9 +645,13 @@ export function databaseCurrentViewSnapshot(
     formQuestions:
       arrayValue(nav.databaseFormQuestions) ?? activeView?.formQuestions ?? [],
     visibleItemCount:
-      numberValue(nav.databaseVisibleItemCount) ?? response.items.length,
+      numberValue(nav.databaseVisibleItemCount) ??
+      response.pagination?.returnedItems ??
+      response.items.length,
     totalItemCount:
-      numberValue(nav.databaseTotalItemCount) ?? response.items.length,
+      numberValue(nav.databaseTotalItemCount) ??
+      response.pagination?.totalItems ??
+      response.items.length,
     visibleItems: arrayValue(nav.databaseVisibleItems) ?? fallbackVisibleItems,
     visibleItemLimit:
       numberValue(nav.databaseVisibleItemLimit) ??
@@ -645,7 +669,7 @@ interface NavigationState {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Reads navigation state and fetches matching data.",
+    "See what the user is currently looking at on screen. Returns bounded navigation, document previews, and the current database window; use get-document for full page content.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -679,11 +703,12 @@ export default defineAction({
         const doc = access.resource;
         const database = await getDatabaseByDocumentId(doc.id);
         const databaseMembership = await getDatabaseItemByDocumentId(doc.id);
+        const contentSummary = documentContentPreview(doc.content);
         screen.document = {
           id: doc.id,
           parentId: doc.parentId,
           title: doc.title,
-          content: doc.content,
+          ...contentSummary,
           description: doc.description,
           icon: doc.icon,
           position: doc.position,
@@ -704,6 +729,10 @@ export default defineAction({
         if (database) {
           const databaseResponse = await getContentDatabaseResponse(
             database.id,
+            {
+              limit: DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT,
+              includeSources: false,
+            },
           );
           screen.database = databaseResponse;
           screen.databaseCurrentView = databaseCurrentViewSnapshot(
@@ -727,6 +756,9 @@ export default defineAction({
               previewMembership?.database.id === database.id
             ) {
               const previewDoc = previewAccess.resource;
+              const previewContentSummary = documentContentPreview(
+                previewDoc.content,
+              );
               screen.databasePreview = {
                 itemId: previewMembership.item.id,
                 databaseId: previewMembership.database.id,
@@ -736,7 +768,7 @@ export default defineAction({
                   id: previewDoc.id,
                   parentId: previewDoc.parentId,
                   title: previewDoc.title,
-                  content: previewDoc.content,
+                  ...previewContentSummary,
                   description: previewDoc.description,
                   icon: previewDoc.icon,
                   position: previewDoc.position,
@@ -760,7 +792,15 @@ export default defineAction({
     }
 
     const docs = await db
-      .select()
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+        title: schema.documents.title,
+        icon: schema.documents.icon,
+        isFavorite: schema.documents.isFavorite,
+        hideFromSearch: schema.documents.hideFromSearch,
+        visibility: schema.documents.visibility,
+      })
       .from(schema.documents)
       .where(
         and(
@@ -788,7 +828,17 @@ export default defineAction({
       const treeDatabases =
         treeDocs.length > 0
           ? await db
-              .select()
+              .select({
+                id: schema.contentDatabases.id,
+                ownerEmail: schema.contentDatabases.ownerEmail,
+                orgId: schema.contentDatabases.orgId,
+                documentId: schema.contentDatabases.documentId,
+                title: schema.contentDatabases.title,
+                systemRole: schema.contentDatabases.systemRole,
+                viewConfigJson: schema.contentDatabases.viewConfigJson,
+                createdAt: schema.contentDatabases.createdAt,
+                updatedAt: schema.contentDatabases.updatedAt,
+              })
               .from(schema.contentDatabases)
               .where(
                 inArray(

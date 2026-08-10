@@ -1426,7 +1426,7 @@ describe("handleJsonRpc", () => {
     expect(status.result.status.state).toBe("working");
   });
 
-  it("refuses async message/send on hosted runtimes without A2A auth config", async () => {
+  it("refuses async message/send on hosted runtimes without A2A_SECRET", async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousNetlify = process.env.NETLIFY;
     const previousNetlifyLocal = process.env.NETLIFY_LOCAL;
@@ -1458,7 +1458,7 @@ describe("handleJsonRpc", () => {
       expect(result.error).toMatchObject({
         code: -32001,
         message:
-          "A2A async mode is not available — A2A_SECRET or apiKeyEnv must be configured.",
+          "A2A async mode requires A2A_SECRET for internal processor dispatch; apiKeyEnv only supports synchronous A2A.",
       });
     } finally {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
@@ -1469,6 +1469,57 @@ describe("handleJsonRpc", () => {
       else process.env.NETLIFY_LOCAL = previousNetlifyLocal;
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("does not leave legacy apiKeyEnv async tasks polling forever", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousNetlify = process.env.NETLIFY;
+    const previousNetlifyLocal = process.env.NETLIFY_LOCAL;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const previousApiKey = process.env.TEST_A2A_API_KEY;
+    try {
+      process.env.NODE_ENV = "development";
+      process.env.NETLIFY = "true";
+      delete process.env.NETLIFY_LOCAL;
+      delete process.env.A2A_SECRET;
+      process.env.TEST_A2A_API_KEY = "test-api-key";
+
+      const result = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            async: true,
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "go" }],
+            },
+          },
+        },
+        mockEvent(),
+        { ...customHandler, apiKeyEnv: "TEST_A2A_API_KEY" },
+      );
+
+      expect(result).toMatchObject({
+        error: {
+          code: -32001,
+          message:
+            "A2A async mode requires A2A_SECRET for internal processor dispatch; apiKeyEnv only supports synchronous A2A.",
+        },
+      });
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousNetlify === undefined) delete process.env.NETLIFY;
+      else process.env.NETLIFY = previousNetlify;
+      if (previousNetlifyLocal === undefined) delete process.env.NETLIFY_LOCAL;
+      else process.env.NETLIFY_LOCAL = previousNetlifyLocal;
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+      if (previousApiKey === undefined) delete process.env.TEST_A2A_API_KEY;
+      else process.env.TEST_A2A_API_KEY = previousApiKey;
     }
   });
 

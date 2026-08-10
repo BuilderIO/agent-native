@@ -469,6 +469,9 @@ const messages = {
     agentLinkUnavailable: "Agent-Link konnte nicht erstellt werden.",
     retryAgentLink: "Erneut versuchen",
     gifPreview: "GIF-Vorschau",
+    copyEmailPreview: "E-Mail-Vorschau kopieren",
+    emailPreviewCopied: "E-Mail-Vorschau kopiert",
+    emailPreviewCopyFailed: "E-Mail-Vorschau konnte nicht kopiert werden",
     openPlayer: "Spieler öffnen",
     chooseFile: "Datei auswählen",
     remove: "Entfernen",
@@ -697,12 +700,12 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Builder.io ist der primäre Speicherpfad für Clips-Uploads. S3 ist verfügbar, wenn du deinen eigenen Bucket verwenden musst.",
     checkingBuilder: "Builder.io wird geprüft",
     builderConnected: "Builder.io verbunden",
-    connectBuilder: "Builder.io nutzen (kostenlos)",
+    connectBuilder: "Builder.io nutzen",
     builderConnectedFor: "Builder.io wird für {{orgName}} verwendet.",
     builderConnectedGeneric:
       "Neue Clips verwenden den verbundenen Builder.io-Anbieter.",
     builderIncludes:
-      "Enthält Objektspeicher, Uploads und verwaltete Transkription für neue Clips.",
+      "Der kostenlose Tarif von Builder.io umfasst Objektspeicher, Uploads und verwaltete Transkription für neue Clips.",
     s3Title: "S3-kompatibler Speicher",
     secondary: "Sekundär",
     active: "Aktiv",
@@ -730,8 +733,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     s3RegionInvalid:
       'Muss eine gültige Region sein (z. B. us-east-1) oder "auto"',
     apiSetup: "KI-Einrichtung",
-    apiSetupDescription:
-      "Verbinde KI mit kostenlosen Builder.io-Credits oder deinen eigenen LLM-Schlüsseln.",
+    apiSetupDescription: "Wähle, wie Clips eine Verbindung zur KI herstellt.",
     builderEasySetup: "Kostenlose Builder.io-Credits",
     builderAiAvailable:
       "Enthaltene KI-Guthaben und verwaltete Transkription sind für Clips verfügbar.",
@@ -739,8 +741,13 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Nutze Builder.io zuerst für enthaltene KI-Guthaben, Objektspeicher, Uploads und verwaltete Transkription.",
     providerKeyTitle: "Eigenen Anbieter-Schlüssel verwenden",
     providerKeyDescription:
-      "Füge Anthropic-, OpenAI-, Gemini-, Groq- oder OpenRouter-Schlüssel für anbieterseitig abgerechnete Nutzung hinzu.",
+      "Wähle Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere oder Ollama für anbieterseitig abgerechnete Nutzung.",
     providerKeysSet: "{{count}} gesetzt",
+    providerActionTitle: "KI-Anbieter",
+    providerActionDescription:
+      "Builder.io bietet einen kostenlosen Tarif, oder eigene Schlüssel verwenden.",
+    providerManage: "Verwalten",
+    providerCustomKeys: "Eigene Schlüssel",
     checkingProviderKeys: "Anbieter-Schlüssel werden geprüft…",
     keySet: "Gesetzt",
     keyCleared: "Speicher-Anmeldedaten gelöscht",
@@ -1177,7 +1184,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Nach 5 Minuten kam keine Antwort von Builder. Prüfe das Popup und versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    connectBuilder: "Builder.io nutzen (kostenlos)",
+    connectBuilder: "Builder.io nutzen",
     free: "Kostenlos",
     configureS3: "S3-kompatiblen Speicher konfigurieren",
     whyPrompt: "Warum sehe ich das?",

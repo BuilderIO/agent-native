@@ -10,10 +10,12 @@ import {
   IconLoader2,
   IconPlayerPlay,
   IconPlus,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
+import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
   FactoryCanvas,
   type FactoryCanvasEdge,
@@ -102,10 +104,22 @@ type TriageConfig = {
   sentryProjectSlug?: string | null;
   sentryEnvironment?: string | null;
   repository?: string | null;
+  automationFailureAlertsEnabled?: boolean;
+  automationFailureAlertEmail?: string | null;
+  emailReadiness?: {
+    status: "ready" | "not-configured" | "misconfigured" | "unavailable";
+    provider: string;
+  };
 };
 
 type Verdict = "correct" | "incorrect" | "uncertain";
-type WorkspaceTab = "map" | "inbox" | "rules" | "automations" | "settings";
+type WorkspaceTab =
+  | "map"
+  | "inbox"
+  | "rules"
+  | "automations"
+  | "audit"
+  | "settings";
 
 type FactoryAutomationRun = {
   id?: string;
@@ -113,6 +127,16 @@ type FactoryAutomationRun = {
   startedAt?: string | number | null;
   finishedAt?: string | number | null;
   error?: string | null;
+  runId?: string | null;
+  threadId?: string | null;
+};
+
+type FactoryAutomationHealth = {
+  status: "healthy" | "stale" | "error" | "no-data";
+  lastCheckedAt?: number | null;
+  lastDispatchedAt?: number | null;
+  lastError?: string | null;
+  runtime?: string | null;
 };
 
 type FactoryAutomation = {
@@ -148,6 +172,7 @@ export default function FactoryRoute() {
   const [dirty, setDirty] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [auditRefreshToken, setAuditRefreshToken] = useState(0);
 
   function setActiveTab(tab: WorkspaceTab) {
     setSearchParams(
@@ -242,7 +267,10 @@ export default function FactoryRoute() {
 
   function updateGraph(next: FactoryCanvasGraph) {
     setDraftGraph(next);
-    setDirty(true);
+    setDirty(
+      !graphData?.graph ||
+        JSON.stringify(next) !== JSON.stringify(graphData.graph),
+    );
   }
 
   function addNode() {
@@ -399,41 +427,62 @@ export default function FactoryRoute() {
             </Button>
           </div>
         </div>
-        <nav
-          className="mt-4 flex items-center gap-1 overflow-x-auto"
-          aria-label={t("factoryRoute.factoryViews")}
-        >
-          <TabButton
-            active={activeTab === "map"}
-            onClick={() => setActiveTab("map")}
+        <div className="mt-4 flex items-center gap-2">
+          <nav
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+            aria-label={t("factoryRoute.factoryViews")}
           >
-            Map
-          </TabButton>
-          <TabButton
-            active={activeTab === "inbox"}
-            onClick={() => setActiveTab("inbox")}
-          >
-            Inbox
-          </TabButton>
-          <TabButton
-            active={activeTab === "rules"}
-            onClick={() => setActiveTab("rules")}
-          >
-            {t("factoryRoute.rulesTab")}
-          </TabButton>
-          <TabButton
-            active={activeTab === "automations"}
-            onClick={() => setActiveTab("automations")}
-          >
-            {t("factoryRoute.automationsTab")}
-          </TabButton>
-          <TabButton
-            active={activeTab === "settings"}
-            onClick={() => setActiveTab("settings")}
-          >
-            Settings
-          </TabButton>
-        </nav>
+            <TabButton
+              active={activeTab === "map"}
+              onClick={() => setActiveTab("map")}
+            >
+              Map
+            </TabButton>
+            <TabButton
+              active={activeTab === "inbox"}
+              onClick={() => setActiveTab("inbox")}
+            >
+              Inbox
+            </TabButton>
+            <TabButton
+              active={activeTab === "rules"}
+              onClick={() => setActiveTab("rules")}
+            >
+              {t("factoryRoute.rulesTab")}
+            </TabButton>
+            <TabButton
+              active={activeTab === "automations"}
+              onClick={() => setActiveTab("automations")}
+            >
+              {t("factoryRoute.automationsTab")}
+            </TabButton>
+            <TabButton
+              active={activeTab === "audit"}
+              onClick={() => setActiveTab("audit")}
+            >
+              {t("factoryRoute.auditTab")}
+            </TabButton>
+            <TabButton
+              active={activeTab === "settings"}
+              onClick={() => setActiveTab("settings")}
+            >
+              Settings
+            </TabButton>
+          </nav>
+          {activeTab === "audit" && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label={t("factoryRoute.auditRefresh")}
+              title={t("factoryRoute.auditRefresh")}
+              onClick={() => setAuditRefreshToken((current) => current + 1)}
+            >
+              <IconRefresh className="size-4" />
+            </Button>
+          )}
+        </div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
@@ -507,6 +556,11 @@ export default function FactoryRoute() {
           <RulesView t={t} />
         ) : activeTab === "automations" ? (
           <AutomationsView factoryId={factoryId} t={t} />
+        ) : activeTab === "audit" ? (
+          <FactoryAuditView
+            factoryId={factoryId}
+            refreshToken={auditRefreshToken}
+          />
         ) : (
           <SettingsView t={t} />
         )}
@@ -540,6 +594,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
   return value === "inbox" ||
     value === "rules" ||
     value === "automations" ||
+    value === "audit" ||
     value === "settings"
     ? value
     : "map";
@@ -624,14 +679,29 @@ function AutomationsView({
 
   useEffect(() => {
     if (!selected) {
-      setDraft(null);
+      setDraft((current) => (current === null ? current : null));
       return;
     }
     if (selected.id !== selectedId) {
       selectAutomation(selected.id);
       return;
     }
-    setDraft(draftForAutomation(selected));
+    const nextDraft = draftForAutomation(selected);
+    setDraft((current) => {
+      if (
+        current &&
+        current.id === nextDraft.id &&
+        current.name === nextDraft.name &&
+        current.prompt === nextDraft.prompt &&
+        current.body === nextDraft.body &&
+        current.model === nextDraft.model &&
+        current.schedule === nextDraft.schedule &&
+        current.enabled === nextDraft.enabled
+      ) {
+        return current;
+      }
+      return nextDraft;
+    });
   }, [selected, selectedId]);
 
   async function saveAutomation() {
@@ -655,235 +725,250 @@ function AutomationsView({
   }
 
   return (
-    <div className="grid gap-4 p-4 lg:grid-cols-[minmax(220px,.35fr)_minmax(0,1fr)] lg:p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("factoryRoute.automationsTitle")}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("factoryRoute.automationsDescription")}
-          </p>
-        </CardHeader>
-        <CardContent className="p-0">
-          {automationsQuery.isLoading ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              {t("factoryRoute.automationsLoading")}
-            </p>
-          ) : automations.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">
-              {t("factoryRoute.automationsEmpty")}
-            </p>
-          ) : (
-            <div
-              className="divide-y"
-              role="tablist"
-              aria-label={t("factoryRoute.automationsTitle")}
-            >
-              {automations.map((automation) => (
-                <button
-                  key={automation.id}
-                  type="button"
-                  id={`factory-automation-tab-${automation.id}`}
-                  role="tab"
-                  aria-selected={activeAutomationId === automation.id}
-                  aria-controls="factory-automation-panel"
-                  className={`w-full cursor-pointer p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
-                  onClick={() => selectAutomation(automation.id)}
-                >
-                  <span className="block truncate text-sm font-medium">
-                    {automation.name}
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {automation.enabled
-                      ? t("factoryRoute.automationEnabled")
-                      : t("factoryRoute.automationDisabled")}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card
-        id="factory-automation-panel"
-        role="tabpanel"
-        aria-labelledby={
-          activeAutomationId
-            ? `factory-automation-tab-${activeAutomationId}`
-            : undefined
-        }
-      >
-        <CardHeader className="border-b sm:flex-row sm:items-center sm:justify-between">
-          <div>
+    <div className="space-y-4 p-4 lg:p-6">
+      <div className="grid gap-4 lg:grid-cols-[minmax(220px,.35fr)_minmax(0,1fr)]">
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">
-              {t("factoryRoute.automationEditorTitle")}
+              {t("factoryRoute.automationsTitle")}
             </CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("factoryRoute.automationEditorDescription")}
-            </p>
-          </div>
-          {draft && (
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void runAutomation()}
-                disabled={runMutation.isPending || draft.canUpdate === false}
-              >
-                {runMutation.isPending && (
-                  <IconLoader2 className="animate-spin" />
-                )}
-                <IconPlayerPlay className="size-4" />
-                {t("factoryRoute.runNow")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => void saveAutomation()}
-                disabled={saveMutation.isPending || draft.canUpdate === false}
-              >
-                {saveMutation.isPending && (
-                  <IconLoader2 className="animate-spin" />
-                )}
-                {t("factoryRoute.saveAutomation")}
-              </Button>
-            </div>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-5 pt-5">
-          {!draft ? (
             <p className="text-sm text-muted-foreground">
-              {t("factoryRoute.selectAutomation")}
+              {t("factoryRoute.automationsDescription")}
             </p>
-          ) : (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <Label htmlFor="factory-automation-model">
-                    {t("factoryRoute.automationModel")}
-                  </Label>
-                  <select
-                    id="factory-automation-model"
-                    value={draft.model ?? ""}
-                    onChange={(event) =>
-                      setDraft({ ...draft, model: event.target.value })
-                    }
-                    disabled={modelsLoading && modelOptions.length === 0}
-                    className="h-9 rounded-md border bg-background px-3 text-sm"
+          </CardHeader>
+          <CardContent className="p-0">
+            {automationsQuery.isLoading ? (
+              <p className="p-4 text-sm text-muted-foreground">
+                {t("factoryRoute.automationsLoading")}
+              </p>
+            ) : automations.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">
+                {t("factoryRoute.automationsEmpty")}
+              </p>
+            ) : (
+              <div
+                className="divide-y"
+                role="tablist"
+                aria-label={t("factoryRoute.automationsTitle")}
+              >
+                {automations.map((automation) => (
+                  <button
+                    key={automation.id}
+                    type="button"
+                    id={`factory-automation-tab-${automation.id}`}
+                    role="tab"
+                    aria-selected={activeAutomationId === automation.id}
+                    aria-controls="factory-automation-panel"
+                    className={`w-full cursor-pointer p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
+                    onClick={() => selectAutomation(automation.id)}
                   >
-                    <option value="auto">{autoModelLabel}</option>
-                    {draft.model &&
-                      draft.model !== "auto" &&
-                      !modelOptions.some(
-                        (option) => option.value === draft.model,
-                      ) && (
-                        <option value={draft.model}>
-                          Configured / {formatModelName(draft.model)}
+                    <span className="block truncate text-sm font-medium">
+                      {automation.name}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-muted-foreground">
+                      {automation.enabled
+                        ? t("factoryRoute.automationEnabled")
+                        : t("factoryRoute.automationDisabled")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card
+          id="factory-automation-panel"
+          role="tabpanel"
+          aria-labelledby={
+            activeAutomationId
+              ? `factory-automation-tab-${activeAutomationId}`
+              : undefined
+          }
+        >
+          <CardHeader className="border-b sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">
+                {t("factoryRoute.automationEditorTitle")}
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("factoryRoute.automationEditorDescription")}
+              </p>
+            </div>
+            {draft && (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runAutomation()}
+                  disabled={runMutation.isPending || draft.canUpdate === false}
+                >
+                  {runMutation.isPending && (
+                    <IconLoader2 className="animate-spin" />
+                  )}
+                  <IconPlayerPlay className="size-4" />
+                  {t("factoryRoute.runNow")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void saveAutomation()}
+                  disabled={saveMutation.isPending || draft.canUpdate === false}
+                >
+                  {saveMutation.isPending && (
+                    <IconLoader2 className="animate-spin" />
+                  )}
+                  {t("factoryRoute.saveAutomation")}
+                </Button>
+              </div>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-5 pt-5">
+            {!draft ? (
+              <p className="text-sm text-muted-foreground">
+                {t("factoryRoute.selectAutomation")}
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="factory-automation-model">
+                      {t("factoryRoute.automationModel")}
+                    </Label>
+                    <select
+                      id="factory-automation-model"
+                      value={draft.model ?? ""}
+                      onChange={(event) =>
+                        setDraft({ ...draft, model: event.target.value })
+                      }
+                      disabled={modelsLoading && modelOptions.length === 0}
+                      className="h-9 rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="auto">{autoModelLabel}</option>
+                      {draft.model &&
+                        draft.model !== "auto" &&
+                        !modelOptions.some(
+                          (option) => option.value === draft.model,
+                        ) && (
+                          <option value={draft.model}>
+                            Configured / {formatModelName(draft.model)}
+                          </option>
+                        )}
+                      {modelOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="factory-automation-schedule">
+                      {t("factoryRoute.automationSchedule")}
+                    </Label>
+                    <Input
+                      id="factory-automation-schedule"
+                      value={draft.schedule ?? ""}
+                      onChange={(event) =>
+                        setDraft({ ...draft, schedule: event.target.value })
+                      }
+                      placeholder={t(
+                        "factoryRoute.automationSchedulePlaceholder",
                       )}
-                    {modelOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={draft.enabled}
+                    onCheckedChange={(checked) =>
+                      setDraft({ ...draft, enabled: checked === true })
+                    }
+                    disabled={draft.canUpdate === false}
+                  />
+                  {t("factoryRoute.automationEnabledLabel")}
+                </label>
+                <div className="grid gap-2 rounded-md bg-muted/60 p-3 text-sm md:grid-cols-3">
+                  <div>
+                    <span className="block text-xs text-muted-foreground">
+                      {t("factoryRoute.automationTrigger")}
+                    </span>
+                    <span>{draft.triggerType ?? "-"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-muted-foreground">
+                      {t("factoryRoute.automationEvent")}
+                    </span>
+                    <span>{draft.event ?? "-"}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-muted-foreground">
+                      {t("factoryRoute.automationTimezone")}
+                    </span>
+                    <span>{draft.timezone ?? "-"}</span>
+                  </div>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label htmlFor="factory-automation-schedule">
-                    {t("factoryRoute.automationSchedule")}
-                  </Label>
-                  <Input
-                    id="factory-automation-schedule"
-                    value={draft.schedule ?? ""}
+                  <Label>{t("factoryRoute.automationPrompt")}</Label>
+                  <Textarea
+                    value={draft.prompt ?? draft.body ?? ""}
                     onChange={(event) =>
-                      setDraft({ ...draft, schedule: event.target.value })
+                      setDraft({ ...draft, prompt: event.target.value })
                     }
-                    placeholder={t(
-                      "factoryRoute.automationSchedulePlaceholder",
-                    )}
+                    placeholder={t("factoryRoute.automationPromptPlaceholder")}
+                    rows={12}
                   />
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={draft.enabled}
-                  onCheckedChange={(checked) =>
-                    setDraft({ ...draft, enabled: checked === true })
-                  }
-                  disabled={draft.canUpdate === false}
-                />
-                {t("factoryRoute.automationEnabledLabel")}
-              </label>
-              <div className="grid gap-2 rounded-md bg-muted/60 p-3 text-sm md:grid-cols-3">
-                <div>
-                  <span className="block text-xs text-muted-foreground">
-                    {t("factoryRoute.automationTrigger")}
-                  </span>
-                  <span>{draft.triggerType ?? "-"}</span>
-                </div>
-                <div>
-                  <span className="block text-xs text-muted-foreground">
-                    {t("factoryRoute.automationEvent")}
-                  </span>
-                  <span>{draft.event ?? "-"}</span>
-                </div>
-                <div>
-                  <span className="block text-xs text-muted-foreground">
-                    {t("factoryRoute.automationTimezone")}
-                  </span>
-                  <span>{draft.timezone ?? "-"}</span>
-                </div>
-              </div>
-              <div className="grid gap-1.5">
-                <Label>{t("factoryRoute.automationPrompt")}</Label>
-                <Textarea
-                  value={draft.prompt ?? draft.body ?? ""}
-                  onChange={(event) =>
-                    setDraft({ ...draft, prompt: event.target.value })
-                  }
-                  placeholder={t("factoryRoute.automationPromptPlaceholder")}
-                  rows={12}
-                />
-                <p className="text-right text-xs text-muted-foreground">
-                  {t("factoryRoute.promptEditorHint")}
-                </p>
-              </div>
-              <div className="border-t pt-5">
-                <h3 className="text-sm font-medium">
-                  {t("factoryRoute.pastRuns")}
-                </h3>
-                {(draft.runs ?? draft.pastRuns ?? []).length === 0 ? (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {t("factoryRoute.pastRunsEmpty")}
+                  <p className="text-right text-xs text-muted-foreground">
+                    {t("factoryRoute.promptEditorHint")}
                   </p>
-                ) : (
-                  <div className="mt-3 divide-y rounded-md border">
-                    {(draft.runs ?? draft.pastRuns ?? []).map((run, index) => (
-                      <div
-                        key={run.id ?? `${draft.id}-run-${index}`}
-                        className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                      >
-                        <span className="font-medium">{run.status ?? "-"}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {formatAutomationDate(run.startedAt)}
-                        </span>
-                        {run.error && (
-                          <span className="basis-full text-xs text-destructive">
-                            {run.error}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                </div>
+                <div className="border-t pt-5">
+                  <h3 className="text-sm font-medium">
+                    {t("factoryRoute.pastRuns")}
+                  </h3>
+                  {(draft.runs ?? draft.pastRuns ?? []).length === 0 ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {t("factoryRoute.pastRunsEmpty")}
+                    </p>
+                  ) : (
+                    <div className="mt-3 divide-y rounded-md border">
+                      {(draft.runs ?? draft.pastRuns ?? []).map(
+                        (run, index) => (
+                          <div
+                            key={run.id ?? `${draft.id}-run-${index}`}
+                            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                          >
+                            <span className="font-medium">
+                              {run.status ?? "-"}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatAutomationDate(run.startedAt)}
+                            </span>
+                            {run.threadId && (
+                              <a
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                                href={`/chat/${encodeURIComponent(run.threadId)}`}
+                              >
+                                {t("factoryRoute.automationOpenThread")}
+                                <IconExternalLink className="size-3" />
+                              </a>
+                            )}
+                            {run.error && (
+                              <span className="basis-full text-xs text-destructive">
+                                {run.error}
+                              </span>
+                            )}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -907,8 +992,11 @@ function formatModelName(model: string | null | undefined) {
 }
 
 function InboxView({ t }: { t: ReturnType<typeof useT> }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [status, setStatus] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    searchParams.get("itemId"),
+  );
   const [feedbackNote, setFeedbackNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const listQuery = useActionQuery("list-triage-items", {
@@ -939,6 +1027,24 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
     [];
   const normalizedItems = Array.isArray(items) ? items : (items.items ?? []);
   const selectedItem = detailQuery.data as TriageItem | undefined;
+
+  useEffect(() => {
+    setSelectedId(searchParams.get("itemId"));
+  }, [searchParams]);
+
+  function selectItem(itemId: string) {
+    setSelectedId(itemId);
+    setVerdict(null);
+    setFeedbackNote("");
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("itemId", itemId);
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,.7fr)] lg:p-6">
@@ -997,11 +1103,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                     key={id}
                     type="button"
                     className={`grid w-full gap-3 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
-                    onClick={() => {
-                      setSelectedId(id);
-                      setVerdict(null);
-                      setFeedbackNote("");
-                    }}
+                    onClick={() => selectItem(id)}
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">
@@ -1280,7 +1382,16 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   const [sentryOrgSlug, setSentryOrgSlug] = useState("");
   const [sentryProjectSlug, setSentryProjectSlug] = useState("");
   const [sentryEnvironment, setSentryEnvironment] = useState("");
+  const [automationFailureAlertsEnabled, setAutomationFailureAlertsEnabled] =
+    useState(true);
+  const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
+    useState("");
   const query = useActionQuery("get-triage-config", {});
+  const schedulerHealthQuery = useActionQuery<FactoryAutomationHealth>(
+    "get-factory-automation-health",
+    {},
+    { refetchInterval: 60_000 },
+  );
   const mutation = useActionMutation("save-triage-config");
   useEffect(() => {
     const data = query.data as TriageConfig | undefined;
@@ -1295,9 +1406,13 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
     setSentryOrgSlug(data.sentryOrgSlug ?? "");
     setSentryProjectSlug(data.sentryProjectSlug ?? "");
     setSentryEnvironment(data.sentryEnvironment ?? "");
+    setAutomationFailureAlertsEnabled(
+      data.automationFailureAlertsEnabled ?? true,
+    );
+    setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
   }, [query.data]);
   return (
-    <div className="max-w-4xl p-4 lg:p-6">
+    <div className="max-w-4xl space-y-4 p-4 lg:p-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
@@ -1409,6 +1524,57 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
             />
             {t("triage.enableSentryPolling")}
           </label>
+          <div className="space-y-3 border-t pt-4 sm:col-span-2">
+            <div>
+              <h3 className="text-sm font-medium">
+                {t("factoryRoute.automationFailureAlertsTitle")}
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("factoryRoute.automationFailureAlertsDescription")}
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={automationFailureAlertsEnabled}
+                onCheckedChange={(checked) =>
+                  setAutomationFailureAlertsEnabled(checked === true)
+                }
+              />
+              {t("factoryRoute.automationFailureAlertsEnabled")}
+            </label>
+            <div className="grid gap-1.5 sm:max-w-md">
+              <Label htmlFor="factory-automation-failure-email">
+                {t("factoryRoute.automationFailureAlertEmail")}
+              </Label>
+              <Input
+                id="factory-automation-failure-email"
+                type="email"
+                value={automationFailureAlertEmail}
+                onChange={(event) =>
+                  setAutomationFailureAlertEmail(event.target.value)
+                }
+                placeholder={t(
+                  "factoryRoute.automationFailureAlertEmailPlaceholder",
+                )}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t("factoryRoute.automationFailureEmailReadiness")}:{" "}
+              {(query.data as TriageConfig | undefined)?.emailReadiness
+                ?.status ?? "unknown"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {t("factoryRoute.automationEmailReadinessHint")}
+            </p>
+            {query.isError && (
+              <p className="text-xs text-destructive">
+                {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
+                {query.error instanceof Error
+                  ? query.error.message
+                  : String(query.error)}
+              </p>
+            )}
+          </div>
           <div className="sm:col-span-2">
             <Button
               onClick={() =>
@@ -1423,6 +1589,13 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
                   sentryOrgSlug,
                   sentryProjectSlug,
                   sentryEnvironment,
+                  automationFailureAlertsEnabled,
+                  ...(automationFailureAlertEmail.trim()
+                    ? {
+                        automationFailureAlertEmail:
+                          automationFailureAlertEmail.trim(),
+                      }
+                    : {}),
                 })
               }
               disabled={mutation.isPending}
@@ -1433,7 +1606,107 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           </div>
         </CardContent>
       </Card>
+      <SchedulerHealthStatus
+        health={schedulerHealthQuery.data}
+        isError={schedulerHealthQuery.isError}
+        error={schedulerHealthQuery.error}
+        t={t}
+      />
     </div>
+  );
+}
+
+function SchedulerHealthStatus({
+  health,
+  isError,
+  error,
+  t,
+}: {
+  health?: FactoryAutomationHealth;
+  isError: boolean;
+  error: unknown;
+  t: ReturnType<typeof useT>;
+}) {
+  const healthLabel = isError
+    ? t("factoryRoute.automationHealthError")
+    : health
+      ? {
+          healthy: t("factoryRoute.automationHealthHealthy"),
+          stale: t("factoryRoute.automationHealthStale"),
+          error: t("factoryRoute.automationHealthError"),
+          "no-data": t("factoryRoute.automationHealthNoData"),
+        }[health.status]
+      : t("factoryRoute.automationHealthNoData");
+  const hasNoHeartbeat =
+    !isError &&
+    (!health || health.status === "no-data") &&
+    !health?.lastCheckedAt;
+  const hasDiagnostics =
+    isError ||
+    hasNoHeartbeat ||
+    health?.status === "stale" ||
+    health?.status === "error" ||
+    Boolean(health?.lastError);
+
+  return (
+    <section
+      aria-labelledby="factory-scheduler-health"
+      className="border-t px-1 pt-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2
+            id="factory-scheduler-health"
+            className="text-sm font-medium text-muted-foreground"
+          >
+            {t("factoryRoute.automationHealthTitle")}
+          </h2>
+          <span className="rounded-full border px-2 py-0.5 text-xs font-medium">
+            {healthLabel}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {health?.lastCheckedAt && (
+            <span>
+              {t("factoryRoute.automationLastCheck")}:{" "}
+              {formatAutomationDate(health.lastCheckedAt)}
+            </span>
+          )}
+          {health?.lastDispatchedAt && (
+            <span>
+              {t("factoryRoute.automationLastDispatch")}:{" "}
+              {formatAutomationDate(health.lastDispatchedAt)}
+            </span>
+          )}
+        </div>
+      </div>
+      {hasDiagnostics && (
+        <div className="mt-2 grid gap-1 text-xs">
+          {hasNoHeartbeat && (
+            <p className="text-muted-foreground">
+              {t("factoryRoute.automationHealthNoDataHint")}
+            </p>
+          )}
+          {health?.status === "stale" && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationHealthStaleHint")}
+            </p>
+          )}
+          {health?.lastError && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationHealthErrorDetail")}:{" "}
+              {health.lastError}
+            </p>
+          )}
+          {isError && (
+            <p className="text-destructive">
+              {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
+              {error instanceof Error ? error.message : String(error)}
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

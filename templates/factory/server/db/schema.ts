@@ -120,11 +120,54 @@ export const triageConfig = table("factory_config", {
   sentryProjectSlug: text("sentry_project_slug"),
   sentryEnvironment: text("sentry_environment"),
   lastSentrySeenAt: text("last_sentry_seen_at"),
+  automationFailureAlertsEnabled: integer("automation_failure_alerts_enabled")
+    .notNull()
+    .default(1),
+  automationFailureAlertEmail: text("automation_failure_alert_email"),
+  lastAutomationFailureAlertKey: text("last_automation_failure_alert_key"),
+  lastAutomationFailureAlertAt: text("last_automation_failure_alert_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
 });
+
+export const factoryAuditEvents = table(
+  "factory_audit_events",
+  {
+    id: text("id").primaryKey(),
+    automationRunId: text("automation_run_id"),
+    automationThreadId: text("automation_thread_id"),
+    automationName: text("automation_name"),
+    itemId: text("item_id"),
+    source: text("source"),
+    sourceUrl: text("source_url"),
+    action: text("action").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    summary: text("summary").notNull(),
+    detailsJson: text("details_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (event) => ({
+    orgCreatedIdx: index("factory_audit_events_org_created_idx").on(
+      event.orgId,
+      event.createdAt,
+    ),
+    runCreatedIdx: index("factory_audit_events_run_created_idx").on(
+      event.orgId,
+      event.automationRunId,
+      event.createdAt,
+    ),
+    itemCreatedIdx: index("factory_audit_events_item_created_idx").on(
+      event.orgId,
+      event.itemId,
+      event.createdAt,
+    ),
+  }),
+);
 
 export const factoryDefinitions = table(
   "factory_definitions",

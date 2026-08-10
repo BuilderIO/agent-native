@@ -6,12 +6,16 @@ const {
   mockUploadFile,
   mockGetProvider,
   mockProviderGenerate,
+  mockGetDeckRun,
+  mockUpdateSlideRun,
 } = vi.hoisted(() => ({
   mockDelegateImageGenerationToAssets: vi.fn(),
   mockExtractAssetUrl: vi.fn(() => "https://cdn.example.com/generated.png"),
   mockUploadFile: vi.fn(),
   mockGetProvider: vi.fn(),
   mockProviderGenerate: vi.fn(),
+  mockGetDeckRun: vi.fn(),
+  mockUpdateSlideRun: vi.fn(),
 }));
 
 vi.mock("../server/lib/assets-image-delegation.js", () => ({
@@ -37,18 +41,39 @@ vi.mock("../server/handlers/image-providers/index.js", () => ({
     mockGetProvider(...args),
 }));
 
+vi.mock("./get-deck.js", () => ({
+  default: {
+    run: (...args: Parameters<typeof mockGetDeckRun>) =>
+      mockGetDeckRun(...args),
+  },
+}));
+
+vi.mock("./update-slide.js", () => ({
+  default: {
+    run: (...args: Parameters<typeof mockUpdateSlideRun>) =>
+      mockUpdateSlideRun(...args),
+  },
+}));
+
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 import action from "./generate-image-api.js";
 
 describe("generate-image-api", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExtractAssetUrl.mockReturnValue(
+      "https://cdn.example.com/generated.png",
+    );
     DEFAULT_STYLE_REFERENCE_URLS.splice(0, DEFAULT_STYLE_REFERENCE_URLS.length);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
+
+  function deckWithSlide(content: string) {
+    return { slides: [{ id: "slide-1", content }] };
+  }
 
   it("forwards referenceImageUrls to Assets delegation", async () => {
     mockDelegateImageGenerationToAssets.mockResolvedValue({
@@ -155,5 +180,118 @@ describe("generate-image-api", () => {
       showToUser: "![a brand hero image](https://cdn.example.com/fallback.png)",
       model: "gemini",
     });
+  });
+
+  it("inserts and verifies an Assets image when requested", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "delegated",
+      reply: "previewUrl: https://cdn.example.com/generated.png",
+      target: "https://assets.example.com",
+    });
+    mockGetDeckRun
+      .mockResolvedValueOnce(
+        deckWithSlide(
+          '<div class="fmd-slide"><div class="fmd-img-placeholder">Hero</div></div>',
+        ),
+      )
+      .mockResolvedValueOnce(
+        deckWithSlide(
+          '<div class="fmd-slide"><img src="https://cdn.example.com/generated.png"></div>',
+        ),
+      );
+    mockUpdateSlideRun.mockResolvedValue({ ok: true, applied: true });
+
+    const result = await action.run({
+      prompt: "a brand hero image",
+      deckId: "deck-1",
+      slideId: "slide-1",
+      insertIntoSlide: true,
+    });
+
+    expect(mockUpdateSlideRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        preserveSource: true,
+        fullContent: expect.stringContaining(
+          'src="https://cdn.example.com/generated.png"',
+        ),
+      }),
+    );
+    expect(mockGetDeckRun).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      inserted: true,
+      url: "https://cdn.example.com/generated.png",
+    });
+  });
+
+  it("rejects insertion when the target slide is missing", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "delegated",
+      reply: "previewUrl: https://cdn.example.com/generated.png",
+      target: "https://assets.example.com",
+    });
+    mockGetDeckRun.mockResolvedValue({ slides: [] });
+
+    await expect(
+      action.run({
+        prompt: "a brand hero image",
+        deckId: "deck-1",
+        slideId: "missing-slide",
+        insertIntoSlide: true,
+      }),
+    ).rejects.toThrow("was not found");
+    expect(mockUpdateSlideRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects insertion when Assets returns no parseable image URL", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "delegated",
+      reply: "The image is ready.",
+      target: "https://assets.example.com",
+    });
+    mockExtractAssetUrl.mockReturnValue(null);
+
+    await expect(
+      action.run({
+        prompt: "a brand hero image",
+        deckId: "deck-1",
+        slideId: "slide-1",
+        insertIntoSlide: true,
+      }),
+    ).rejects.toThrow("did not return a parseable image URL");
+    expect(mockGetDeckRun).not.toHaveBeenCalled();
+    expect(mockUpdateSlideRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects insertion when the write fails or cannot be verified", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "delegated",
+      reply: "previewUrl: https://cdn.example.com/generated.png",
+      target: "https://assets.example.com",
+    });
+    mockGetDeckRun.mockResolvedValue(
+      deckWithSlide('<div class="fmd-slide">Original</div>'),
+    );
+    mockUpdateSlideRun.mockResolvedValue({ ok: true, applied: false });
+
+    await expect(
+      action.run({
+        prompt: "a brand hero image",
+        deckId: "deck-1",
+        slideId: "slide-1",
+        insertIntoSlide: true,
+      }),
+    ).rejects.toThrow("was not applied");
+
+    mockUpdateSlideRun.mockResolvedValue({ ok: true, applied: true });
+    await expect(
+      action.run({
+        prompt: "a brand hero image",
+        deckId: "deck-1",
+        slideId: "slide-1",
+        insertIntoSlide: true,
+      }),
+    ).rejects.toThrow("could not be verified");
   });
 });

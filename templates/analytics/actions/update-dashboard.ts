@@ -1,10 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
-import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
@@ -13,6 +8,7 @@ import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { dryRunQuery } from "../server/lib/bigquery";
+import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   upsertDashboard,
@@ -20,6 +16,7 @@ import {
 } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
+import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import {
   applyPanelOrder,
   compactDashboardResult,
@@ -392,15 +389,30 @@ export function validateDashboardConfig(
   return null;
 }
 
+const MAX_CONCURRENT_SQL_VALIDATIONS = 8;
+
+export interface ValidatePanelSqlOptions {
+  signal?: AbortSignal;
+}
+
 /** Validate every query panel, or only the supplied ids for a targeted edit. */
 export async function validatePanelSql(
   config: Record<string, unknown>,
   panelIds?: ReadonlySet<string>,
+  options: ValidatePanelSqlOptions = {},
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
   const vars = buildDryRunVars(config);
+  const bigQueryPanels: Array<{
+    index: number;
+    panel: Record<string, unknown>;
+    sql: string;
+  }> = [];
   for (let i = 0; i < panels.length; i++) {
+    if (options.signal?.aborted) {
+      throw new Error("Dashboard SQL validation was cancelled");
+    }
     const p = panels[i] as Record<string, unknown>;
     if (panelIds && (typeof p.id !== "string" || !panelIds.has(p.id))) {
       continue;
@@ -462,14 +474,72 @@ export async function validatePanelSql(
     if (!raw.trim()) continue;
     const sql = interpolate(raw, vars);
     if (!sql.trim()) continue;
-    let err: string | null;
-    try {
-      err = await dryRunQuery(sql);
-    } catch (e: any) {
-      err = e?.message ?? String(e);
+    bigQueryPanels.push({ index: i, panel: p, sql });
+  }
+
+  if (bigQueryPanels.length === 0) return null;
+
+  // A dashboard save is one logical operation. Validate the selected BigQuery
+  // panels as one bounded batch so a slow panel cannot multiply the per-query
+  // timeout by the number of panels in the mutation.
+  const validationController = new AbortController();
+  const abortFromCaller = () => validationController.abort();
+  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    validationController.abort();
+  }, DASHBOARD_SQL_VALIDATION_TIMEOUT_MS);
+  const errors: Array<string | null> = Array(bigQueryPanels.length).fill(null);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (!validationController.signal.aborted) {
+      const taskIndex = nextIndex++;
+      const task = bigQueryPanels[taskIndex];
+      if (!task) return;
+
+      let err: string | null;
+      try {
+        err = await dryRunQuery(task.sql, {
+          signal: validationController.signal,
+        });
+      } catch (e: any) {
+        err = e?.message ?? String(e);
+      }
+      errors[taskIndex] = err;
     }
+  };
+
+  try {
+    await Promise.all(
+      Array.from(
+        {
+          length: Math.min(
+            MAX_CONCURRENT_SQL_VALIDATIONS,
+            bigQueryPanels.length,
+          ),
+        },
+        () => worker(),
+      ),
+    );
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
+
+  if (options.signal?.aborted && !timedOut) {
+    throw new Error("Dashboard SQL validation was cancelled");
+  }
+  if (timedOut) {
+    return `Dashboard SQL validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`;
+  }
+
+  for (let i = 0; i < bigQueryPanels.length; i++) {
+    const err = errors[i];
     if (err) {
-      return `panel[${i}] "${p.title || p.id}" SQL is invalid: ${err}`;
+      const task = bigQueryPanels[i];
+      return `panel[${task.index}] "${task.panel.title || task.panel.id}" SQL is invalid: ${err}`;
     }
   }
   return null;
@@ -536,30 +606,6 @@ function opCanChangePanelSql(op: JsonOp): boolean {
   );
 }
 
-/**
- * Push a config update through the collab layer so open dashboard editors
- * receive the change in real time. Seeds the collab state if it doesn't
- * exist yet (e.g. dashboard was created before the collab plugin was added).
- */
-async function syncToCollab(
-  dashboardId: string,
-  config: Record<string, unknown>,
-  requestSource?: string,
-): Promise<void> {
-  const docId = `dash-${dashboardId}`;
-  const configStr = JSON.stringify(config);
-  try {
-    const exists = await hasCollabState(docId);
-    if (exists) {
-      await applyText(docId, configStr, "content", requestSource);
-    } else {
-      await seedFromText(docId, configStr);
-    }
-  } catch {
-    // Collab sync is best-effort — the SQL write is the source of truth
-  }
-}
-
 function isAgentCaller(caller: string | undefined): boolean {
   return caller === "tool" || caller === "mcp" || caller === "a2a";
 }
@@ -576,7 +622,6 @@ export default defineAction({
     "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
     "When this action is appropriate, provide only one of `ops`, `panelOrder`, or `config`; `config` replaces the whole dashboard config. " +
     "First-party event panels must bind to a declared dashboard time filter with `{{timeRange}}` or date-range variables. Intentional fixed-window, cohort-history, and all-time exceptions must be explicit in `panel.config.timeScope`; unbounded first-party SQL is rejected at save time. " +
-    "To add a shipped catalog template's panels to an existing dashboard, prefer `install-dashboard-template` with `mergePanels: true` — it appends the template's panels in one call without you having to author each panel. " +
     "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +
     "The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
   schema: z.object({
@@ -643,7 +688,7 @@ export default defineAction({
       const sqlError = await validatePanelSql(args.config);
       if (sqlError) throw new Error(sqlError);
       await upsertDashboard(dashboardId, "sql", args.config, ctx);
-      await syncToCollab(
+      queueDashboardCollabSync(
         dashboardId,
         args.config,
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
@@ -676,7 +721,7 @@ export default defineAction({
         },
       );
       const root = saved.config as Record<string, unknown>;
-      await syncToCollab(
+      queueDashboardCollabSync(
         dashboardId,
         root,
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
@@ -722,7 +767,7 @@ export default defineAction({
       },
     );
     const root = saved.config as Record<string, unknown>;
-    await syncToCollab(
+    queueDashboardCollabSync(
       dashboardId,
       root,
       isAgentCaller(actionContext?.caller) ? "agent" : undefined,

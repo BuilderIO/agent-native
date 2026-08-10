@@ -1,8 +1,6 @@
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
-import { useMemo } from "react";
+import { buildLegacyAgentSettingsRoute } from "@agent-native/core/client/navigation";
+import { Navigate, useLocation } from "react-router";
 
-import { useAppHeaderControls } from "@/components/layout/AppLayout";
 import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {
@@ -10,17 +8,11 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  const t = useT();
-  const controls = useMemo(
-    () => ({
-      left: (
-        <h1 className="truncate text-lg font-semibold tracking-tight">
-          {t("settings.agentTitle")}
-        </h1>
-      ),
-    }),
-    [t],
+  const location = useLocation();
+  return (
+    <Navigate
+      to={buildLegacyAgentSettingsRoute(location.hash, location.search)}
+      replace
+    />
   );
-  useAppHeaderControls(controls);
-  return <AgentTabsPage appName="Calendar" />;
 }

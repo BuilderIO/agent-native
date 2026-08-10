@@ -18,7 +18,10 @@ import {
   useBuilderStatus,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
+import {
+  CreativeContextSettingsLink,
+  createCreativeContextAgentTab,
+} from "@agent-native/creative-context/client";
 import {
   IconAlertCircle,
   IconCheck,
@@ -61,9 +64,14 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useAssetsPrefs } from "@/hooks/use-assets-prefs";
+import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
+
+export function meta() {
+  return [{ title: messagesByLocale["en-US"].settings.title }];
+}
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;
@@ -82,7 +90,9 @@ type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 export default function SettingsPage() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+  });
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };

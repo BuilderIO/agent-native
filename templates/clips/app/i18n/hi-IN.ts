@@ -449,6 +449,9 @@ const messages = {
     agentLinkUnavailable: "एजेंट लिंक नहीं बन सका।",
     retryAgentLink: "फिर से प्रयास करें",
     gifPreview: "GIF पूर्वावलोकन",
+    copyEmailPreview: "ईमेल पूर्वावलोकन कॉपी करें",
+    emailPreviewCopied: "ईमेल पूर्वावलोकन कॉपी किया गया",
+    emailPreviewCopyFailed: "ईमेल पूर्वावलोकन कॉपी नहीं किया जा सका",
     openPlayer: "खुला खिलाड़ी",
     chooseFile: "फ़ाइल चुनें",
     remove: "हटाएं",
@@ -668,12 +671,12 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "Builder.io Clips अपलोड के लिए मुख्य स्टोरेज पथ है। अपना bucket लाने की ज़रूरत हो तो S3 उपलब्ध है।",
     checkingBuilder: "Builder.io जाँचा जा रहा है",
     builderConnected: "Builder.io कनेक्टेड",
-    connectBuilder: "Builder.io इस्तेमाल करें (मुफ्त)",
+    connectBuilder: "Builder.io इस्तेमाल करें",
     builderConnectedFor: "{{orgName}} के लिए Builder.io इस्तेमाल हो रहा है।",
     builderConnectedGeneric:
       "नई क्लिप्स कनेक्टेड Builder.io प्रोवाइडर का उपयोग करती हैं।",
     builderIncludes:
-      "नई क्लिप्स के लिए ऑब्जेक्ट स्टोरेज, अपलोड और मैनेज्ड ट्रांसक्रिप्शन शामिल हैं।",
+      "Builder.io के मुफ्त स्तर में नई क्लिप्स के लिए ऑब्जेक्ट स्टोरेज, अपलोड और मैनेज्ड ट्रांसक्रिप्शन शामिल हैं।",
     s3Title: "S3-संगत स्टोरेज",
     secondary: "सेकेंडरी",
     active: "सक्रिय",
@@ -698,8 +701,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     s3BucketInvalid: "बकेट नाम 3–63 लोअरकेस अक्षर, अंक या हाइफ़न होने चाहिए",
     s3RegionInvalid: 'एक मान्य क्षेत्र (उदा. us-east-1) या "auto" होना चाहिए',
     apiSetup: "AI सेटअप",
-    apiSetupDescription:
-      "Builder.io मुफ्त क्रेडिट या अपनी LLM keys के साथ AI कनेक्ट करें.",
+    apiSetupDescription: "चुनें कि Clips AI से कैसे कनेक्ट हो।",
     builderEasySetup: "Builder.io मुफ्त क्रेडिट",
     builderAiAvailable:
       "Clips के लिए शामिल AI क्रेडिट और मैनेज्ड ट्रांसक्रिप्शन उपलब्ध हैं।",
@@ -707,8 +709,13 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "शामिल AI क्रेडिट, ऑब्जेक्ट स्टोरेज, अपलोड और managed transcription के लिए पहले Builder.io इस्तेमाल करें.",
     providerKeyTitle: "अपनी प्रोवाइडर की लाएँ",
     providerKeyDescription:
-      "प्रोवाइडर-बिल्ड उपयोग के लिए Anthropic, OpenAI, Gemini, Groq या OpenRouter कीज़ जोड़ें।",
+      "प्रोवाइडर-बिल्ड उपयोग के लिए Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere या Ollama चुनें।",
     providerKeysSet: "{{count}} सेट",
+    providerActionTitle: "AI प्रदाता",
+    providerActionDescription:
+      "Builder.io में मुफ्त स्तर शामिल है, या कस्टम कुंजियां इस्तेमाल करें।",
+    providerManage: "प्रबंधित करें",
+    providerCustomKeys: "कस्टम कुंजियां",
     checkingProviderKeys: "प्रोवाइडर कीज़ जाँची जा रही हैं…",
     keySet: "सेट",
     keyCleared: "स्टोरेज क्रेडेंशियल साफ़ किए गए",
@@ -1132,7 +1139,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    connectBuilder: "Builder.io इस्तेमाल करें (मुफ्त)",
+    connectBuilder: "Builder.io इस्तेमाल करें",
     free: "मुफ्त",
     configureS3: "S3-संगत स्टोरेज कॉन्फ़िगर करें",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",

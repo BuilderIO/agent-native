@@ -1197,7 +1197,7 @@ export function CreativeContextPanel({
   scope = "user",
   canManageOrg = false,
   scopeControl,
-  connectionsHref = "/settings#integrations",
+  connectionsHref = "/settings/integrations",
 }: CreativeContextPanelProps) {
   const t = useT();
   const { formatNumber } = useFormatters();
@@ -3191,7 +3191,7 @@ export function CreativeContextPanel({
                                   : t("creativeContext.applyBrandContext")}
                               </Button>
                               <Button asChild type="button" variant="outline">
-                                <a href="/agent">
+                                <a href="/settings/agent">
                                   {t("creativeContext.generateWithContext")}
                                   <IconArrowUpRight />
                                 </a>

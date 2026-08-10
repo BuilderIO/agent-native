@@ -92,6 +92,7 @@ import {
   exportBrowserRecordingBackup,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
+  pickFullscreenRecordingDisplay,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
@@ -427,6 +428,24 @@ function serverUrlForPendingUpload(
 // already-connected user to the setup flow.
 type VideoStorageProbe = "configured" | "missing" | "unknown";
 
+// Poll cadence for the caller's re-check loop is 5s; bound each probe request
+// well above that so a hung request can't wedge the poll's in-flight guard.
+const VIDEO_STORAGE_PROBE_TIMEOUT_MS = Math.max(10_000, 5000 * 4);
+
+async function fetchWithAbortTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function hasConfiguredVideoStorage(
   serverUrl: string,
 ): Promise<VideoStorageProbe> {
@@ -437,12 +456,13 @@ async function hasConfiguredVideoStorage(
   let sawDefinitiveAnswer = false;
 
   try {
-    const uploadStatus = await fetch(
+    const uploadStatus = await fetchWithAbortTimeout(
       `${base}/_agent-native/file-upload/status`,
       {
         credentials: "include",
         cache: "no-store",
       },
+      VIDEO_STORAGE_PROBE_TIMEOUT_MS,
     );
     if (uploadStatus.ok) {
       const body = (await uploadStatus.json().catch(() => null)) as {
@@ -458,10 +478,14 @@ async function hasConfiguredVideoStorage(
   }
 
   try {
-    const builderStatus = await fetch(`${base}/_agent-native/builder/status`, {
-      credentials: "include",
-      cache: "no-store",
-    });
+    const builderStatus = await fetchWithAbortTimeout(
+      `${base}/_agent-native/builder/status`,
+      {
+        credentials: "include",
+        cache: "no-store",
+      },
+      VIDEO_STORAGE_PROBE_TIMEOUT_MS,
+    );
     if (builderStatus.ok) {
       const body = (await builderStatus.json().catch(() => null)) as {
         configured?: boolean;
@@ -980,6 +1004,7 @@ export function App() {
   );
   const [rewindHomeOpen, setRewindHomeOpen] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const recordingStartAbortRef = useRef<AbortController | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [shortcutRegistrationError, setShortcutRegistrationError] = useState<
@@ -1142,10 +1167,23 @@ export function App() {
       return;
     }
 
-    const interval = window.setInterval(() => {
-      void refreshVideoStorageStatus();
-    }, 5000);
-    return () => window.clearInterval(interval);
+    let inFlight = false;
+    const tick = () => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      void refreshVideoStorageStatus().finally(() => {
+        inFlight = false;
+      });
+    };
+    const interval = window.setInterval(tick, 5000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) tick();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [
     authStatus,
     localRecordingMode,
@@ -1629,22 +1667,45 @@ export function App() {
       return;
     }
     let cancelled = false;
+    let inFlight = false;
     const poll = async () => {
-      const result = await callClipsAction<{
-        requests?: RewindExtensionRequest[];
-      }>("list-rewind-extension-requests", {}, { method: "GET" }).catch(
-        () => null,
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        Math.max(10_000, 3_000 * 4),
       );
-      if (cancelled) return;
-      for (const request of result?.requests ?? []) {
-        void processRewindExtension(request);
+      try {
+        const result = await callClipsAction<{
+          requests?: RewindExtensionRequest[];
+        }>(
+          "list-rewind-extension-requests",
+          {},
+          { method: "GET", signal: controller.signal },
+        )
+          // coercion-ok: nothing to process this sweep either way; the next
+          // tick re-reads the pending requests.
+          .catch(() => null);
+        if (cancelled) return;
+        for (const request of result?.requests ?? []) {
+          void processRewindExtension(request);
+        }
+      } finally {
+        clearTimeout(abortTimer);
+        inFlight = false;
       }
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 3_000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) void poll();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [
     authStatus,
@@ -1701,41 +1762,63 @@ export function App() {
   useEffect(() => {
     if (featureConfig?.screenMemory?.enabled !== true) return;
     let cancelled = false;
+    let inFlight = false;
     const sweep = async () => {
-      const due = await invoke<DueRewindAgentHandoff[]>(
-        "screen_memory_due_agent_handoffs",
-      ).catch(() => []);
-      if (cancelled) return;
-      for (const item of due) {
-        try {
-          const cleanup = await callClipsAction<{
-            deleted: boolean;
-            reason: string;
-          }>("delete-agent-recording-if-unpromoted", {
-            id: item.recordingId,
-          });
-          if (cleanup.deleted) {
-            await invoke("screen_memory_mark_agent_handoff_deleted", {
-              requestId: item.requestId,
-            });
-          } else if (cleanup.reason === "promoted") {
-            await invoke("screen_memory_cancel_agent_handoff_cleanup", {
-              requestId: item.requestId,
-            });
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      try {
+        const due = await invoke<DueRewindAgentHandoff[]>(
+          "screen_memory_due_agent_handoffs",
+        )
+          // coercion-ok: handoffs stay due in the local store, so an empty
+          // sweep and a failed one both retry on the next tick.
+          .catch(() => []);
+        if (cancelled) return;
+        for (const item of due) {
+          try {
+            const controller = new AbortController();
+            const abortTimer = setTimeout(
+              () => controller.abort(),
+              Math.max(10_000, 60_000 * 4),
+            );
+            const cleanup = await callClipsAction<{
+              deleted: boolean;
+              reason: string;
+            }>(
+              "delete-agent-recording-if-unpromoted",
+              { id: item.recordingId },
+              { signal: controller.signal },
+            ).finally(() => clearTimeout(abortTimer));
+            if (cleanup.deleted) {
+              await invoke("screen_memory_mark_agent_handoff_deleted", {
+                requestId: item.requestId,
+              });
+            } else if (cleanup.reason === "promoted") {
+              await invoke("screen_memory_cancel_agent_handoff_cleanup", {
+                requestId: item.requestId,
+              });
+            }
+          } catch (error) {
+            console.warn(
+              "[clips-tray] agent-created Clip cleanup failed:",
+              error,
+            );
           }
-        } catch (error) {
-          console.warn(
-            "[clips-tray] agent-created Clip cleanup failed:",
-            error,
-          );
         }
+      } finally {
+        inFlight = false;
       }
     };
     void sweep();
     const timer = window.setInterval(() => void sweep(), 60_000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) void sweep();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [callClipsAction, featureConfig?.screenMemory?.enabled]);
 
@@ -1966,10 +2049,17 @@ export function App() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
 
+    let tickInFlight = false;
+    let onVisibilityChange: (() => void) | null = null;
+
     function stopPolling() {
       if (pollIntervalRef.current !== null) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
+      }
+      if (onVisibilityChange) {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        onVisibilityChange = null;
       }
     }
 
@@ -1999,11 +2089,16 @@ export function App() {
       // Poll the exchange endpoint for the session token.
       const start = Date.now();
       const TIMEOUT_MS = 180_000; // 3 minutes
-      pollIntervalRef.current = setInterval(async () => {
+      const POLL_ABORT_MS = Math.max(10_000, 1500 * 4);
+      const tick = async () => {
+        if (document.hidden || tickInFlight) return;
+        tickInFlight = true;
+        const controller = new AbortController();
+        const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
         try {
           const xr = await fetch(
             `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-            { credentials: "include" },
+            { credentials: "include", signal: controller.signal },
           );
           if (!xr.ok) {
             if (Date.now() - start > TIMEOUT_MS) {
@@ -2029,7 +2124,7 @@ export function App() {
             // bearer token above is the reliable desktop auth path.
             await fetch(
               `${base}/_agent-native/auth/session?_session=${xd.token}`,
-              { credentials: "include" },
+              { credentials: "include", signal: controller.signal },
             );
             signInInflightRef.current = false;
             setSignInPending(false);
@@ -2046,8 +2141,16 @@ export function App() {
           if (Date.now() - start > TIMEOUT_MS) {
             finishWithError("Google sign-in timed out. Please try again.");
           }
+        } finally {
+          clearTimeout(abortTimer);
+          tickInFlight = false;
         }
-      }, 1500);
+      };
+      pollIntervalRef.current = setInterval(() => void tick(), 1500);
+      onVisibilityChange = () => {
+        if (!document.hidden) void tick();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;
@@ -2267,14 +2370,14 @@ export function App() {
       try {
         await invoke("show_toolbar");
         if (cancelled) return;
-        // Seed disabled — previous recordings may have latched it on in
-        // the toolbar's React state (the window is destroyed on
-        // `hide_overlays`, so this is mostly defensive, but free).
-        emit("clips:toolbar-enabled", false).catch(() => {});
       } catch (err) {
         console.error("[clips-popover] show_toolbar failed:", err);
       }
     })();
+    // Seed disabled before the asynchronous window creation. A late seed can
+    // otherwise arrive after the recorder's enabled event and strand the
+    // toolbar at 0:00.
+    emit("clips:toolbar-enabled", false).catch(() => {});
     return () => {
       cancelled = true;
       // In screen-only mode the bubble effect never runs, so its
@@ -2797,7 +2900,10 @@ export function App() {
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
-    if (recorder && !options?.ignoreActiveRecorder) {
+    if (
+      (recorder || recordingFlowGateRef.current) &&
+      !options?.ignoreActiveRecorder
+    ) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — recorder already active",
       );
@@ -2839,20 +2945,53 @@ export function App() {
     });
 
     if (mode !== "camera" && nativeFullscreenRecordingActive) {
+      // Latch re-entry protection before these awaits, not after — both the
+      // permission prompt and the monitor picker below can take a while (the
+      // picker waits on the user), and without this a double-click while
+      // either is pending passes the top-of-function guard and starts a
+      // second, competing recording-start flow. The real flow-active latch
+      // further below hasn't run yet at this point, so reset this on every
+      // early return in this block.
+      recordingFlowGateRef.current = true;
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
         );
         if (!granted) {
+          recordingFlowGateRef.current = false;
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
+        recordingFlowGateRef.current = false;
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
+      }
+      // A restart hands off the already-live display stream from the take
+      // it's replacing (see `discardForRestart`/`preAcquiredDisplayStream`
+      // below) — it must keep recording the same screen, not re-prompt.
+      if (source === "full-screen" && !options?.resumeCapture) {
+        try {
+          // Must resolve before `recordingFlowActive` flips the toolbar on
+          // below — the toolbar reads the pick to place itself on the
+          // chosen screen the first time it's shown.
+          await pickFullscreenRecordingDisplay();
+        } catch (err) {
+          recordingFlowGateRef.current = false;
+          if (err instanceof Error && err.name === "AbortError") {
+            // User cancelled the screen picker (Escape) — abort silently,
+            // same as dismissing the native macOS screen picker.
+            return null;
+          }
+          // A real failure (picker window construction, persisting the
+          // pick, etc.) — surface it instead of silently aborting like a
+          // cancel, or the user has no idea why nothing happened.
+          setRecError(err instanceof Error ? err.message : String(err));
+          return null;
+        }
       }
     }
 
@@ -2889,6 +3028,9 @@ export function App() {
 
     let handle: RecorderHandle | null = null;
     let startError: unknown = null;
+    const startController = new AbortController();
+    recordingStartAbortRef.current = startController;
+    let parkPopoverTimer: number | null = null;
     try {
       // Per Steve: "when we hit Start Recording the popover should disappear
       // BEFORE the screen picker shows up — otherwise you might accidentally
@@ -2940,11 +3082,11 @@ export function App() {
         preAcquiredCameraStream,
         preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
         preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
+        signal: startController.signal,
       });
-      // macOS: park the popover to its 2×2 pinhole IMMEDIATELY so it
-      // doesn't appear in the screen picker window list. The native
-      // Rust recorder used for full-screen doesn't need getDisplayMedia
-      // at all, so parking is always safe on macOS.
+      // macOS: give WebKit a short window to dispatch getDisplayMedia before
+      // parking the popover. Parking synchronously can leave the picker
+      // request pending in a long-lived tray webview.
       //
       // Windows: do NOT park before getDisplayMedia resolves. On Windows,
       // the WebView2 screen picker UI renders within the popover webview —
@@ -2953,24 +3095,25 @@ export function App() {
       // popover itself (line ~2165) AFTER the streams are acquired, which
       // is the correct time on Windows.
       if (isMacPlatform()) {
-        invoke("park_popover_offscreen").catch(() => {});
-        emit("clips:popover-visible", false).catch(() => {});
+        parkPopoverTimer = window.setTimeout(() => {
+          if (!startController.signal.aborted && recordingFlowGateRef.current) {
+            invoke("park_popover_offscreen").catch(() => {});
+            emit("clips:popover-visible", false).catch(() => {});
+          }
+        }, 250);
       }
-
-      // No watchdog — the macOS screen picker can stay open indefinitely
-      // (a user deciding which window to capture may take 20, 60, 180
-      // seconds). A false-positive timeout here fires recovery mid-setup,
-      // which flips `recordingFlowActive` back to false → the bubble
-      // session effect's cleanup runs and stops the popover-owned camera
-      // stream → the recorder ends up with a dead track when the screen
-      // picker finally resolves. If the user actually wants to abort,
-      // canceling the picker throws NotAllowedError and we recover through
-      // the normal error path.
       handle = await recordingPromise;
       console.log("[clips-popover] recorder handle received");
     } catch (err) {
       startError = err;
     } finally {
+      if (parkPopoverTimer !== null) {
+        window.clearTimeout(parkPopoverTimer);
+        parkPopoverTimer = null;
+      }
+      if (recordingStartAbortRef.current === startController) {
+        recordingStartAbortRef.current = null;
+      }
       // If the recorder handle was NEVER set, ALWAYS run recovery here —
       // even if downstream code throws before reaching the failure
       // branch. This makes the tray-dead symptom impossible: regardless
@@ -3063,6 +3206,29 @@ export function App() {
   // start flow through this ref keeps that dependency list from having to
   // include a function that is recreated every render.
   handleStartRecordingRef.current = handleStartRecording;
+
+  // The toolbar exists before a recorder handle does. Keep its Cancel action
+  // useful during capture setup, when the normal recorder event listener has
+  // not been installed yet.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    listen("clips:recorder-cancel", () => {
+      recordingStartAbortRef.current?.abort();
+    })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Gates every start-recording gesture (button, global shortcut, permission
   // retry) on the mic toggle. When the mic is off we hold the actual
@@ -7523,7 +7689,7 @@ function Setup({
                 className="secondary"
                 onClick={connectBuilder}
               >
-                Use Builder.io (free)
+                Use Builder.io
               </button>
             ) : null}
           </div>

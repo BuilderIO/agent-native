@@ -93,8 +93,17 @@ import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH_MESSAGE,
+  PASSWORD_MIN_LENGTH_MESSAGE,
+} from "../shared/password-policy.js";
+import {
   SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
+  decodeContinuation,
   normalizeAppPath,
   signInJourney,
 } from "../shared/sign-in-journey.js";
@@ -114,15 +123,18 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
+  createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
   getBetterAuth,
   getBetterAuthSync,
+  isDeployPreview,
 } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
@@ -164,6 +176,7 @@ import {
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getOnboardingHtml,
@@ -171,6 +184,12 @@ import {
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
 import { captureAuthError } from "./sentry.js";
+import {
+  forgetCachedSessionEmail,
+  getCachedSessionEmail,
+  invalidateSessionEmailCache,
+  setCachedSessionEmail,
+} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
@@ -459,6 +478,14 @@ async function getLegacyCookieSession(
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
     const email = await getSessionEmail(value);
     if (email) {
+      try {
+        await ensureCanonicalUserForLegacySession(email);
+      } catch (error) {
+        console.warn(
+          "[auth] legacy session canonical-user backfill failed:",
+          error instanceof Error ? error.message : error,
+        );
+      }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
       return { email, token: value };
     }
@@ -862,6 +889,21 @@ function verifyEmailRedirectHasError(
   }
 }
 
+function sanitizeVerificationErrorRedirect(
+  location: string,
+  requestUrl: string,
+): string {
+  try {
+    const parsed = new URL(location, requestUrl);
+    parsed.searchParams.set("error", "verification_link_invalid");
+    return /^[a-z][a-z\d+.-]*:/i.test(location)
+      ? parsed.toString()
+      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return location;
+  }
+}
+
 function appendVerifiedParamToLocation(location: string): string {
   const hashIndex = location.indexOf("#");
   const beforeHash = hashIndex >= 0 ? location.slice(0, hashIndex) : location;
@@ -926,6 +968,68 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
 const VALID_AUTH_EMAIL_MESSAGE =
   "Enter a valid email address, like you@example.com.";
 const AUTH_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AUTH_CREDENTIALS_REQUIRED_MESSAGE = "Enter your email and password.";
+const AUTH_EMAIL_NOT_VERIFIED_MESSAGE =
+  "Your email isn't verified yet. Check your inbox for a verification link.";
+const AUTH_ACCOUNT_EXISTS_MESSAGE =
+  "An account with this email already exists. Sign in instead or reset your password.";
+const AUTH_PASSWORD_REQUIRED_MESSAGE = "Enter a password.";
+const AUTH_LOGIN_FALLBACK =
+  "We couldn't sign you in right now. Please try again.";
+const AUTH_MAGIC_LINK_FALLBACK =
+  "We couldn't send a sign-in link right now. Please try again.";
+const AUTH_SIGNUP_FALLBACK =
+  "We couldn't create your account right now. Please try again.";
+const AUTH_VERIFICATION_LINK_FALLBACK =
+  "This verification link is invalid or expired. Request a new one.";
+const AUTH_RESET_PASSWORD_FALLBACK =
+  "We couldn't update your password. The link may have expired; request a new one.";
+const AUTH_RESET_EMAIL_FALLBACK =
+  "We couldn't send a password reset email. Check your email and try again.";
+const AUTH_GENERIC_FALLBACK =
+  "We couldn't complete that request right now. Please try again.";
+const AUTH_GOOGLE_FALLBACK =
+  "We couldn't sign you in with Google right now. Please try again.";
+const AUTH_GOOGLE_CANCELLED =
+  "Google sign-in was cancelled. Try again when you're ready.";
+const AUTH_GOOGLE_START_FALLBACK =
+  "We couldn't start Google sign-in. Please try again.";
+
+function isTechnicalAuthErrorMessage(message: string): boolean {
+  return /failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(
+    message,
+  );
+}
+
+function isAuthPasswordTooShortMessage(message: string): boolean {
+  return /password.*(?:at least|minimum|min(?:imum)?|too short)/i.test(message);
+}
+
+function isAuthPasswordTooLongMessage(message: string): boolean {
+  return /password.*(?:at most|maximum|max(?:imum)?|too long)/i.test(message);
+}
+
+function isAuthPasswordRequiredMessage(message: string): boolean {
+  return /password.*(?:required|missing)/i.test(message);
+}
+
+function isAuthEmailNotVerifiedMessage(message: string): boolean {
+  return /(?:email|account).*(?:not verified|unverified)|not verified/i.test(
+    message,
+  );
+}
+
+function isAuthAccountExistsMessage(message: string): boolean {
+  return /(?:already exists|already registered|already in use|user exists|user already|duplicate key|unique constraint|unique.*(?:email|constraint))/i.test(
+    message,
+  );
+}
+
+function isAuthInvalidCredentialsMessage(message: string): boolean {
+  return /(?:invalid|incorrect|wrong).*?(?:email|password|credentials)|(?:email|password|credentials).*?(?:invalid|incorrect|wrong)/i.test(
+    message,
+  );
+}
 
 function normalizeAuthEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -937,14 +1041,125 @@ function publicAuthError(
   error: unknown,
   fallback: string,
 ): { message: string; statusCode?: number } {
-  const message = (error as { message?: unknown })?.message;
-  if (typeof message === "string") {
-    if (isAuthEmailValidationMessage(message)) {
-      return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
-    }
-    if (message.trim()) return { message };
+  const authError = error as { code?: unknown; message?: unknown };
+  const message =
+    typeof authError?.message === "string" ? authError.message : "";
+  const code = typeof authError?.code === "string" ? authError.code : "";
+  const details = `${code} ${message}`.trim();
+
+  if (
+    isAuthEmailValidationMessage(details) ||
+    /invalid[_ -]?email/i.test(code)
+  ) {
+    return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
+  }
+  if (
+    isAuthPasswordTooShortMessage(details) ||
+    /password[_ -]?(too[_ -]?short|minimum)/i.test(code)
+  ) {
+    return { message: PASSWORD_MIN_LENGTH_MESSAGE, statusCode: 400 };
+  }
+  if (
+    isAuthPasswordTooLongMessage(details) ||
+    /password[_ -]?(too[_ -]?long|maximum)/i.test(code)
+  ) {
+    return { message: PASSWORD_MAX_LENGTH_MESSAGE, statusCode: 400 };
+  }
+  if (isAuthPasswordRequiredMessage(details)) {
+    return { message: AUTH_PASSWORD_REQUIRED_MESSAGE, statusCode: 400 };
+  }
+  if (isAuthEmailNotVerifiedMessage(details)) {
+    return { message: AUTH_EMAIL_NOT_VERIFIED_MESSAGE, statusCode: 403 };
+  }
+  if (
+    isAuthAccountExistsMessage(details) ||
+    /user[_ -]?already[_ -]?exists/i.test(code)
+  ) {
+    return { message: AUTH_ACCOUNT_EXISTS_MESSAGE, statusCode: 409 };
+  }
+  if (isAuthInvalidCredentialsMessage(details)) {
+    return { message: "The email or password is incorrect.", statusCode: 401 };
+  }
+  // Better Auth adapters can include the underlying SQL statement in an
+  // Error.message. That detail is useful in server logs, but it is neither a
+  // recovery path nor a safe public response. Map it to the route-specific
+  // fallback and keep the diagnostic in captureAuthError() above. Account
+  // conflicts are classified above so a unique constraint error stays useful.
+  if (isTechnicalAuthErrorMessage(details)) {
+    return { message: fallback, statusCode: 500 };
   }
   return { message: fallback };
+}
+
+function publicAuthErrorFromPayload(
+  payload: Record<string, unknown>,
+  fallback: string,
+): { message: string; statusCode?: number } {
+  const payloadError =
+    typeof payload.error === "string" ? payload.error : undefined;
+  const code =
+    typeof payload.code === "string"
+      ? payload.code
+      : typeof payload.errorCode === "string"
+        ? payload.errorCode
+        : payloadError && /^[A-Z0-9_ -]+$/.test(payloadError)
+          ? payloadError
+          : undefined;
+  const message =
+    typeof payload.message === "string"
+      ? payload.message
+      : payloadError && code !== payloadError
+        ? payloadError
+        : undefined;
+  return publicAuthError({ code, message }, fallback);
+}
+
+function betterAuthErrorFallback(path: string): string {
+  if (path.includes("reset-password")) return AUTH_RESET_PASSWORD_FALLBACK;
+  if (path.includes("request-password-reset")) return AUTH_RESET_EMAIL_FALLBACK;
+  if (path.includes("verify-email")) return AUTH_VERIFICATION_LINK_FALLBACK;
+  if (path.includes("send-verification-email")) {
+    return "We couldn't resend the verification email. Please try again.";
+  }
+  if (path.includes("sign-in/magic-link")) return AUTH_MAGIC_LINK_FALLBACK;
+  if (path.includes("sign-in/email")) {
+    return "The email or password is incorrect.";
+  }
+  if (path.includes("sign-up/email")) return AUTH_SIGNUP_FALLBACK;
+  return AUTH_GENERIC_FALLBACK;
+}
+
+async function sanitizeBetterAuthErrorResponse(
+  response: Response,
+  fallback: string,
+): Promise<Response> {
+  if (response.status < 400) return response;
+  const payload = await response
+    .clone()
+    .json()
+    .catch(() => undefined);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return response;
+  }
+
+  const authError = publicAuthErrorFromPayload(
+    payload as Record<string, unknown>,
+    fallback,
+  );
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json");
+  return new Response(
+    JSON.stringify({ error: authError.message, message: authError.message }),
+    {
+      status:
+        authError.message === fallback
+          ? response.status
+          : (authError.statusCode ?? response.status),
+      statusText: response.statusText,
+      headers,
+    },
+  );
 }
 
 function isAuthEmailValidationMessage(message: string): boolean {
@@ -1056,6 +1271,9 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
+  // The upsert can REBIND an existing token to a different email, so a cached
+  // resolution for it is now wrong.
+  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1082,13 +1300,20 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
+  // Sign-out must take effect immediately, not after the cache TTL.
+  invalidateSessionEmailCache();
 }
 
 /**
  * Look up the email associated with a legacy session token.
  * Returns null if the session doesn't exist, is expired, or has no email.
+ *
+ * Resolutions are cached across requests — see `session-email-cache.ts` for the
+ * TTL and the only-cache-successes rule.
  */
 export async function getSessionEmail(token: string): Promise<string | null> {
+  const cached = getCachedSessionEmail(token);
+  if (cached !== undefined) return cached;
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1104,9 +1329,12 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
+    forgetCachedSessionEmail(token);
     return null;
   }
-  return (rows[0].email as string) ?? null;
+  const email = (rows[0].email as string) ?? null;
+  if (email) setCachedSessionEmail(token, email);
+  return email;
 }
 
 // ---------------------------------------------------------------------------
@@ -1143,6 +1371,40 @@ function getRequestHost(event: H3Event): string | undefined {
   );
 }
 
+function parseRequestUrl(rawUrl: string | undefined): URL | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl, "http://an.invalid");
+  } catch {
+    // coercion-ok: an invalid request URL has no query context to classify.
+    return null;
+  }
+}
+
+function hasInitialPromptQuery(rawUrl: string | undefined): boolean {
+  return !!parseRequestUrl(rawUrl)?.searchParams.get("initialPrompt")?.trim();
+}
+
+function requestHasInitialPrompt(event: H3Event): boolean {
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  if (hasInitialPromptQuery(rawUrl)) return true;
+
+  const requestUrl = parseRequestUrl(rawUrl);
+  if (!requestUrl) return false;
+  const continuation = requestUrl.searchParams.get(SIGN_IN_CONTINUATION_PARAM);
+  if (
+    continuation &&
+    hasInitialPromptQuery(
+      decodeContinuation(continuation, getConfiguredAppBasePath()) ?? undefined,
+    )
+  ) {
+    return true;
+  }
+
+  const legacyReturn = requestUrl.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM);
+  return legacyReturn ? hasInitialPromptQuery(legacyReturn) : false;
+}
+
 function getOnboardingHtmlOptions(
   options: AuthOptions,
   event?: H3Event,
@@ -1159,6 +1421,7 @@ function getOnboardingHtmlOptions(
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
+    initialPrompt: event ? requestHasInitialPrompt(event) : false,
   };
 }
 
@@ -1337,6 +1600,7 @@ async function consumeDesktopExchangeFromDB(
       sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
+    forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
@@ -1785,6 +2049,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
+    // through the durable background function and authenticate with the same
+    // short-lived HMAC token as the other internal processors. They do not
+    // carry a browser session, so let the route perform its own token check.
+    if (p === "/_agent-native/jobs/_process-sweep") {
+      return;
+    }
+
     // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
     // a queued sub-agent in a fresh function invocation; authenticity is
     // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
@@ -1932,11 +2204,12 @@ function createAuthGuardFn(): (
     }
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
-    // (share links, embeds) here with a `?return=<path>` query. The cached
-    // login document validates that return path in the browser and redirects
-    // there after sign-in or when its client-side session check finds an
-    // existing session.
-    if (p === "/_agent-native/sign-in") {
+    // (share links, embeds) here with a `?return=<path>` query. The clean
+    // `/sign-in` path is canonical; keep the old framework path as a
+    // compatibility alias. The cached login document validates that return
+    // path in the browser and redirects there after sign-in or when its
+    // client-side session check finds an existing session.
+    if (p === SIGN_IN_ENTRY_PATH || p === SIGN_IN_LEGACY_ENTRY_PATH) {
       // Preserve the zero-setup localhost experience without putting a
       // session lookup back on the cacheable app-shell URL. The client gate
       // reaches this explicit entrypoint after discovering there is no
@@ -1946,7 +2219,8 @@ function createAuthGuardFn(): (
           queryStart >= 0 ? url.slice(queryStart + 1) : "",
         );
         // `?return=` is read as a fallback FOREVER. Generated apps in the wild
-        // hand-write `/_agent-native/sign-in?return=…` and cannot be upgraded;
+        // hand-write the legacy `/_agent-native/sign-in?return=…` path and
+        // cannot be upgraded;
         // dropping the fallback would send them all to "/" — a UX quirk no
         // test would catch. New producers emit `c`; only NEW `?return=`
         // producers are forbidden, never this consumer.
@@ -1996,12 +2270,12 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
-    // Liveness probe: always public so uptime monitors and the keep-warm cron
-    // can reach the DB-warmup route without a session. It exposes no per-user
-    // data (just ok/db/ms) and runs a trivial `SELECT 1`. Without this bypass
-    // the gate below 401s anonymous /_agent-native/* requests before any DB
-    // query, so the database would never get warmed.
-    if (p === "/_agent-native/health") return;
+    // Liveness probes: always public so uptime monitors and the keep-warm cron
+    // can reach them without a session. Ping exposes only a static message;
+    // health exposes only aggregate readiness and a trivial `SELECT 1`.
+    // Without this bypass the gate below 401s anonymous /_agent-native/*
+    // requests before either probe can run.
+    if (p === "/_agent-native/ping" || p === "/_agent-native/health") return;
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
@@ -2179,6 +2453,124 @@ async function createAutoDevAccountForSession(
 
   const result = await creationPromise;
   return result?.password ?? null;
+}
+
+function isHostedPreviewRequest(event: H3Event): boolean {
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return (
+    host.endsWith(".agent-native.com") ||
+    isBuilderPreviewHost(host) ||
+    host.includes("deploy-preview")
+  );
+}
+
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewHost(host: string): boolean {
+  return (
+    host.endsWith(".builderio.xyz") ||
+    host.endsWith(".builderio.dev") ||
+    host.endsWith(".builder.codes") ||
+    host.endsWith(".builder.my")
+  );
+}
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function isBuilderPreviewLocalDevRequest(event: H3Event): boolean {
+  if (!isBuilderPreviewLocalDevEnabled()) return false;
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return isBuilderPreviewHost(host);
+}
+
+export function isLocalDevAuthAllowed(event: H3Event): boolean {
+  const deployPreview =
+    typeof isDeployPreview === "function" && isDeployPreview();
+  return (
+    isDevEnvironment() &&
+    !deployPreview &&
+    !isAuthDisabled() &&
+    process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
+    ((!isHostedPreviewRequest(event) && isLoopbackRequest(event)) ||
+      isBuilderPreviewLocalDevRequest(event))
+  );
+}
+
+async function createOrReuseAutoDevSession(
+  auth: NonNullable<Awaited<ReturnType<typeof getBetterAuth>>>,
+  config?: BetterAuthConfig,
+): Promise<{ email: string; token: string } | null> {
+  let session = await createBetterAuthSessionForEmail(
+    AUTO_DEV_ACCOUNT_EMAIL,
+    config,
+  );
+  if (!session) {
+    session = await createBetterAuthSessionForEmail(
+      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      config,
+    );
+  }
+  if (session) return { email: session.email, token: session.token };
+
+  const db = getDbExec();
+  const { rows: realUsers } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  if (realUsers.length > 0) return null;
+
+  const devPassword = await createAutoDevAccountForSession(auth, db);
+  if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
+
+  session = await createBetterAuthSessionForEmail(
+    AUTO_DEV_ACCOUNT_EMAIL,
+    config,
+  );
+  if (!session) {
+    session = await createBetterAuthSessionForEmail(
+      LEGACY_AUTO_DEV_ACCOUNT_EMAIL,
+      config,
+    );
+  }
+  return session ? { email: session.email, token: session.token } : null;
+}
+
+function createLocalDevAuthHandler(config?: BetterAuthConfig) {
+  return defineEventHandler(async (event) => {
+    if (getMethod(event) !== "POST") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    // This exact route is also allowed through createAuthGuardFn's public auth
+    // route branch. The state-changing handler still owns the full local gate.
+    if (!isLocalDevAuthAllowed(event)) {
+      setResponseStatus(event, 404);
+      return { error: "Not found" };
+    }
+
+    try {
+      const auth = await getBetterAuth(config);
+      const session = await createOrReuseAutoDevSession(auth, config);
+      if (!session) {
+        setResponseStatus(event, 404);
+        return { error: "Local development sign-in is unavailable" };
+      }
+      setFrameworkSessionCookie(event, session.token);
+      await addSession(session.token, session.email);
+      return authLoginResponse(event, session.token, session.email);
+    } catch {
+      // The local convenience must fail closed without exposing adapter or
+      // generated credential details to the browser or terminal.
+      setResponseStatus(event, 503);
+      return { error: "Local development sign-in is unavailable" };
+    }
+  });
 }
 
 /**
@@ -2763,7 +3155,7 @@ async function mountBetterAuthRoutes(
         const redirectUri = resolveOAuthRedirectUri(event);
         if (redirectUri === null) {
           setResponseStatus(event, 400);
-          return { error: "Invalid redirect_uri" };
+          return { error: AUTH_GOOGLE_START_FALLBACK };
         }
         const q = getQuery(event);
         const desktop =
@@ -2882,22 +3274,22 @@ async function mountBetterAuthRoutes(
                 ? query.error_description
                 : undefined;
             const msg =
-              providerDescription ||
-              providerError ||
-              "Missing authorization code";
+              providerError === "access_denied"
+                ? AUTH_GOOGLE_CANCELLED
+                : AUTH_GOOGLE_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {
-                message: `Google sign-in failed: ${msg}`,
+                message: msg,
                 code: providerError || "missing_authorization_code",
               });
             }
             logGoogleOAuthDebug(event, "callback-error", {
               flowId,
               desktop,
-              message: msg,
+              message: providerDescription || providerError || msg,
               code: providerError,
             });
-            return oauthErrorPage(`Connection failed: ${msg}`);
+            return oauthErrorPage(msg);
           }
           // Defence in depth: the state is HMAC-signed, but if the signing
           // key ever leaked an attacker could mint state with their own
@@ -2905,8 +3297,7 @@ async function mountBetterAuthRoutes(
           // auth-url time so the token exchange is always sent to a URI we
           // own.
           if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
-            const msg =
-              "Invalid Google OAuth redirect URI in state. Restart sign-in from this app.";
+            const msg = AUTH_GOOGLE_START_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {
                 message: msg,
@@ -2918,7 +3309,7 @@ async function mountBetterAuthRoutes(
               desktop,
               message: msg,
             });
-            return oauthErrorPage(`Connection failed: ${msg}`);
+            return oauthErrorPage(msg);
           }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -3031,7 +3422,7 @@ async function mountBetterAuthRoutes(
           const msg = error.message || "Unknown error";
           if (callbackFlowId) {
             setDesktopExchangeError(callbackFlowId, {
-              message: `Google sign-in failed: ${msg}`,
+              message: AUTH_GOOGLE_FALLBACK,
               code: "callback_error",
             });
           }
@@ -3040,7 +3431,7 @@ async function mountBetterAuthRoutes(
             desktop: callbackDesktop,
             message: msg,
           });
-          return oauthErrorPage(`Connection failed: ${msg}`);
+          return oauthErrorPage(AUTH_GOOGLE_FALLBACK);
         }
       }),
     );
@@ -3130,6 +3521,11 @@ async function mountBetterAuthRoutes(
     typeof getAuthLoginMode === "function"
       ? await getAuthLoginMode()
       : ("password" as const);
+
+  app.use(
+    "/_agent-native/auth/local-dev",
+    createLocalDevAuthHandler(betterAuthConfig),
+  );
 
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
   app.use(
@@ -3253,11 +3649,21 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      const response = await auth.handler(requestForAuth);
+      let response = await auth.handler(requestForAuth);
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
+
+      if (isResponse && (response as Response).status >= 400) {
+        // The direct Better Auth surface is also reachable from the browser,
+        // so wrapper-route sanitization alone is not enough to keep adapter
+        // SQL and provider internals out of the auth UI.
+        response = await sanitizeBetterAuthErrorResponse(
+          response as Response,
+          betterAuthErrorFallback(reqPath),
+        );
+      }
 
       // After email verification, add ?verified=1 to the redirect so the
       // login page can show "Email verified!". MUTATE the response in
@@ -3274,11 +3680,12 @@ async function mountBetterAuthRoutes(
         (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
-        if (
-          loc &&
-          !/[?&]verified=/.test(loc) &&
-          !verifyEmailRedirectHasError(loc, authRequest.url)
-        ) {
+        if (loc && verifyEmailRedirectHasError(loc, authRequest.url)) {
+          response.headers.set(
+            "location",
+            sanitizeVerificationErrorRedirect(loc, authRequest.url),
+          );
+        } else if (loc && !/[?&]verified=/.test(loc)) {
           await ensureEmailVerifiedForRedirect(
             authRequest,
             response as Response,
@@ -3364,6 +3771,9 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
+              // Deleted by email, so the removed tokens are unknown here — the
+              // whole cache goes.
+              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -3404,7 +3814,7 @@ async function mountBetterAuthRoutes(
 
       if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
-        return { error: "Email and password are required" };
+        return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
       }
       if (!email) {
         setResponseStatus(event, 400);
@@ -3436,15 +3846,12 @@ async function mountBetterAuthRoutes(
         // email isn't verified yet. Don't return { ok: true } without a
         // session or the frontend will reload into a dead end.
         setResponseStatus(event, 403);
-        return {
-          error:
-            "Email not verified. Check your inbox for a verification link.",
-        };
+        return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        const authError = publicAuthError(e, "Invalid email or password");
+        const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
         return { error: authError.message };
       }
@@ -3492,7 +3899,7 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "magic-link", email });
         }
-        const authError = publicAuthError(e, "Unable to send sign-in link");
+        const authError = publicAuthError(e, AUTH_MAGIC_LINK_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 400);
         return { error: authError.message };
       }
@@ -3521,9 +3928,17 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (!password || typeof password !== "string") {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: AUTH_PASSWORD_REQUIRED_MESSAGE };
+      }
+      if (password.length < PASSWORD_MIN_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
+      }
+      if (password.length > PASSWORD_MAX_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3542,7 +3957,7 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        const authError = publicAuthError(e, "Registration failed");
+        const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 409);
         return { error: authError.message };
       }
@@ -3628,6 +4043,7 @@ async function mountBetterAuthRoutes(
         } catch {
           // Best-effort.
         }
+        invalidateSessionEmailCache();
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
@@ -3695,7 +4111,9 @@ async function mountBetterAuthRoutes(
       const rawReturn = Array.isArray(query.return)
         ? query.return[0]
         : query.return;
-      setFirstRunOnboardingCookie(event);
+      if (await getSession(event)) {
+        setFirstRunOnboardingCookie(event);
+      }
       return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );
@@ -3720,6 +4138,11 @@ async function mountBetterAuthRoutes(
 // ---------------------------------------------------------------------------
 
 function mountAuthFallbackRoutes(app: H3App): void {
+  // Keep the local-dev action available when Better Auth initialization failed
+  // during boot. The handler retries Better Auth lazily and preserves the same
+  // production, preview, and loopback gates as the normal route set.
+  app.use("/_agent-native/auth/local-dev", createLocalDevAuthHandler());
+
   app.use(
     "/_agent-native/auth/login",
     defineEventHandler(async (event) => {
@@ -3735,7 +4158,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
-        return { error: "Email and password are required" };
+        return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
       }
       if (!email) {
         setResponseStatus(event, 400);
@@ -3765,15 +4188,12 @@ function mountAuthFallbackRoutes(app: H3App): void {
           return authLoginResponse(event, result.token, email);
         }
         setResponseStatus(event, 403);
-        return {
-          error:
-            "Email not verified. Check your inbox for a verification link.",
-        };
+        return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        const authError = publicAuthError(e, "Invalid email or password");
+        const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
         return { error: authError.message };
       }
@@ -3797,9 +4217,17 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (!password || typeof password !== "string") {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: AUTH_PASSWORD_REQUIRED_MESSAGE };
+      }
+      if (password.length < PASSWORD_MIN_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
+      }
+      if (password.length > PASSWORD_MAX_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3819,7 +4247,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        const authError = publicAuthError(e, "Registration failed");
+        const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 409);
         return { error: authError.message };
       }

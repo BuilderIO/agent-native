@@ -71,6 +71,21 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("bg-muted/30");
   });
 
+  it("keeps collapsed footer actions at the bottom of the rail", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const collapsedBranchStart = sidebar.indexOf("if (collapsed)");
+    const expandedBranchStart = sidebar.indexOf(
+      "\n  return (",
+      collapsedBranchStart,
+    );
+    const collapsedBranch = sidebar.slice(
+      collapsedBranchStart,
+      expandedBranchStart,
+    );
+
+    expect(collapsedBranch).toContain('className="mt-auto"');
+  });
+
   it("gates page tree actions by document capabilities", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 

@@ -162,6 +162,32 @@ const messages = {
     metricRuns: "Exécutions",
     rulesTab: "Règles",
     automationsTab: "Automatisations",
+    auditTab: "Audit",
+    auditTitle: "Audit des exécutions",
+    auditDescription:
+      "Voyez précisément quelles sources l'agent a inspectées, ses décisions et les actions effectuées.",
+    auditRefresh: "Actualiser",
+    auditLoadError: "Impossible de charger l'audit des exécutions.",
+    auditEmpty: "Aucune exécution n'a encore été enregistrée.",
+    auditRuns: "Exécutions récentes",
+    auditEventsShort: "événements",
+    auditActionsShort: "actions",
+    auditRunDetail:
+      "Éléments de preuve et décisions enregistrés pour cette exécution.",
+    auditStarted: "Début",
+    auditFinished: "Fin",
+    auditItems: "Éléments",
+    auditRunError: "Erreur d'exécution",
+    auditEvidence: "Preuves et décisions",
+    auditNoEvents:
+      "Aucun événement détaillé n'a été enregistré. Ouvrez le fil de l'agent pour la trace complète.",
+    auditOpenThread: "Ouvrir le fil",
+    auditOpenItem: "Ouvrir l’élément",
+    auditOpenSource: "Ouvrir la source",
+    auditInternal: "Factory",
+    auditClearBug: "Bug avéré",
+    auditUxImpact: "Impact UX",
+    auditOwnerArea: "Domaine responsable",
     automationsTitle: "Automatisations",
     automationsDescription: "Planifiez et exécutez les prompts de la factory.",
     automationsLoading: "Chargement des automatisations...",
@@ -188,6 +214,35 @@ const messages = {
     pastRunsEmpty: "Aucune exécution enregistrée.",
     saveAutomation: "Enregistrer",
     runNow: "Exécuter maintenant",
+    automationHealthTitle: "État du planificateur",
+    automationHealthDescription:
+      "Le signal indique si le worker de tâches récurrentes déployé vérifie toujours les plannings.",
+    automationHealthHealthy: "Opérationnel",
+    automationHealthStale: "Obsolète",
+    automationHealthError: "Erreur",
+    automationHealthNoData: "Aucun signal",
+    automationLastCheck: "Dernière vérification",
+    automationLastDispatch: "Dernier envoi",
+    automationRuntime: "Environnement d’exécution",
+    automationHealthNoDataHint:
+      "Aucun signal du planificateur n’a encore été enregistré. Déployez la dernière build de Factory, puis vérifiez à nouveau.",
+    automationHealthStaleHint:
+      "Le planificateur n’a pas vérifié récemment. Cela signifie généralement que la fonction planifiée ou le worker d’arrière-plan déployé ne fonctionne pas.",
+    automationHealthErrorDetail: "Dernière erreur du planificateur",
+    automationOpenThread: "Ouvrir le fil",
+    automationFailureAlertsTitle: "Alertes d’échec des automatisations",
+    automationFailureAlertsDescription:
+      "Envoyez une alerte dans l’application et un e-mail lorsqu’une automatisation Factory échoue. Les échecs identiques sont regroupés pendant 15 minutes.",
+    automationFailureAlertsEnabled:
+      "M’envoyer un e-mail en cas d’échec d’automatisation",
+    automationFailureAlertEmail: "E-mail d’alerte",
+    automationFailureAlertEmailPlaceholder:
+      "Par défaut, le propriétaire de l’espace de travail",
+    automationFailureEmailReadiness: "Fournisseur d’e-mail",
+    automationDiagnosticsLoadError:
+      "Impossible de charger les diagnostics Factory. Vérifiez l’accès, le déploiement et les migrations de la base de données, puis réessayez.",
+    automationEmailReadinessHint:
+      "L’e-mail utilise le coffre Dispatch de l’organisation. Configurez-y un fournisseur si l’état n’est pas prêt.",
   },
   factoryCanvas: {
     dragHint: "Faites glisser les nœuds pour remodeler la factory",

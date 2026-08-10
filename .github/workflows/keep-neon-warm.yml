@@ -5,15 +5,21 @@ name: Audit hosted app health
 # latency-control mechanism: GitHub Actions schedules can be delayed too long
 # to prevent a scale-to-zero database from suspending.
 #
+# --strict also asks every app to read its own pg_stat_activity, which is how
+# the database-pressure signals from the 2026-08-06 analytics outage get
+# checked every 15 minutes without putting a single production database credential in
+# CI. The app already holds its own.
+#
 # Scheduled workflows only run on the default branch, so this takes effect once
 # merged to main. Use the manual trigger to warm on demand.
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  issues: write
 
 concurrency:
   group: keep-neon-warm
@@ -24,10 +30,70 @@ jobs:
     name: Audit app health endpoints
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Ping /_agent-native/health for every app
-        run: node scripts/keep-warm.mjs --strict
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/keep-warm.mjs --strict 2>&1 | tee /tmp/keep-warm.log
+
+      # One rolling issue, and it means something: open == currently failing.
+      #
+      # The previous version posted "Scheduled audit failed: <run url>" on every
+      # red run. One app's health route hung for a day and buried the issue
+      # under 14 identical comments, which is exactly how a monitor teaches
+      # people to stop opening it. Now the comment names what broke, and repeats
+      # of the SAME breakage stay silent — a new comment means something changed.
+      - name: Report failure on a rolling issue
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ISSUE_TITLE="Production health check failing"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          FAILING="$(grep -E '^\s*(✗|!) ' /tmp/keep-warm.log || true)"
+          if [ -z "$FAILING" ]; then
+            FAILING="(no per-app detail — the audit itself failed to run)"
+          fi
+          # Digits are stripped before hashing: latencies and counts differ on
+          # every run, so hashing them made every repeat look like a new
+          # failure and the de-duplication never engaged. The signature is
+          # which apps are failing and how, not by how much.
+          SIGNATURE="$(printf '%s' "$FAILING" | tr -d '0-9' | shasum | cut -c1-12)"
+          BODY="$(printf '%s\n\n```\n%s\n```\n\n%s\n\n<!-- health-signature: %s -->' \
+            "15-minute audit is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
+          ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)
+          if [ -z "$ISSUE_NUMBER" ]; then
+            gh issue create --repo "${{ github.repository }}" \
+              --title "$ISSUE_TITLE" --body "$BODY"
+            exit 0
+          fi
+          LAST=$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+            --json comments,body --jq '[.body] + [.comments[].body] | last')
+          if printf '%s' "$LAST" | grep -q "health-signature: $SIGNATURE"; then
+            echo "Same failure as the last report — issue #$ISSUE_NUMBER already open, not commenting again."
+            exit 0
+          fi
+          gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
+
+      - name: Close the rolling issue once the fleet is healthy
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ISSUE_TITLE="Production health check failing"
+          ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --comment "Fleet audit is green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi

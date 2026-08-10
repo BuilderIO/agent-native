@@ -12,26 +12,6 @@
       "note": "Extended the shared scaffold (and reworded its header) with real app-specific learnings. Same reasoning as analytics — intentional customization, not a gap to silently overwrite."
     },
     {
-      "rule": "byte-sync:learnings-defaults:missing",
-      "template": "content",
-      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "byte-sync:learnings-defaults:missing",
-      "template": "forms",
-      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "byte-sync:learnings-defaults:missing",
-      "template": "macros",
-      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "byte-sync:gitignore-source:missing",
-      "template": "analytics",
-      "note": "Has a working .gitignore but no _gitignore, so scaffolding a new app from this template won't get the canonical ignore rules re-applied. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "assets",
       "note": "Existing _gitignore has legitimate template-specific additions (.generated/, .agent-native/, data/*.db*) on top of the shared base. Needs a human decision in Phase 2/3: reconcile into the canonical file or keep as an accepted per-template diff."
@@ -42,19 +22,9 @@
       "note": "Existing _gitignore predates the canonical shape (different section ordering/entries). Needs reconciliation in Phase 2/3."
     },
     {
-      "rule": "byte-sync:gitignore-source:missing",
-      "template": "calendar",
-      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "chat",
       "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
-    },
-    {
-      "rule": "byte-sync:gitignore-source:missing",
-      "template": "content",
-      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
     },
     {
       "rule": "byte-sync:gitignore-source:mismatch",
@@ -72,39 +42,14 @@
       "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
     },
     {
-      "rule": "byte-sync:gitignore-source:missing",
-      "template": "forms",
-      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "byte-sync:gitignore-source:missing",
-      "template": "macros",
-      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "byte-sync:gitignore-source:missing",
-      "template": "mail",
-      "note": "Has a working .gitignore but no _gitignore — this is the template the canonical learnings.defaults.md scaffold is sourced from, but it never got a _gitignore of its own. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "plan",
       "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
     },
     {
-      "rule": "byte-sync:gitignore-source:missing",
+      "rule": "byte-sync:gitignore-source:mismatch",
       "template": "slides",
-      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "byte-sync:gitignore-source:missing",
-      "template": "tasks",
-      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "agents-md-placeholder",
-      "template": "chat",
-      "note": "AGENTS.md still starts with the unrendered `{{APP_NAME}}` scaffold placeholder from template generation; needs the real title substituted in Phase 2."
+      "note": "Slides stores development-only PPTX import fallback assets under data/import-assets/, so its generated-app ignore list intentionally extends the shared base."
     }
   ]
 }

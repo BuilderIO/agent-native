@@ -34,7 +34,6 @@ import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
-import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
@@ -45,7 +44,7 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { Button } from "@/components/ui/button";
-import { useDecks } from "@/context/DeckContext";
+import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -156,6 +155,7 @@ export default function DeckEditor() {
     getDeck,
     reloadDecks,
     reloadDecksWithStatus,
+    refreshOpenDeck,
     updateDeck,
     updateSlide,
     deleteSlide,
@@ -275,8 +275,10 @@ export default function DeckEditor() {
   });
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
-  // get the full editor.
-  const { canEdit } = useDeckRole(id);
+  // get the full editor. Only assume edit access while the role is still
+  // loading when `createdByMe` already confirms ownership — otherwise a
+  // viewer would briefly see (and could click) edit affordances.
+  const { canEdit } = useDeckRole(id, deck?.createdByMe === true);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -285,6 +287,7 @@ export default function DeckEditor() {
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
+    generationStarted: newDeckGenerationStarted.current,
   });
   const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
     deck?.designSystemId,
@@ -324,7 +327,9 @@ export default function DeckEditor() {
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
   const generatingSlideVisible =
-    canEdit && !showQuestionFlow && (isNewDeckGenerating || addSlideGenerating);
+    canEdit &&
+    !showQuestionFlow &&
+    (isNewDeckGenerating || addSlideGenerating || showNewDeckGeneratingOverlay);
   const showCurrentSlideEditor =
     !generatingSlideSelected &&
     !showNewDeckGeneratingOverlay &&
@@ -340,12 +345,35 @@ export default function DeckEditor() {
     if (!generating) setAddSlideGenerating(false);
   }, [generating]);
 
-  const previousSlideCountRef = useRef(slideCount);
+  const previousSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
-    if (previousSlideCountRef.current === slideCount) return;
-    previousSlideCountRef.current = slideCount;
-    setGeneratingSlideSelected(false);
-  }, [slideCount]);
+    const currentSlideIds = deck?.slides.map((slide) => slide.id) ?? [];
+    const previousSlideIds = previousSlideIdsRef.current;
+    const addedSlide = deck?.slides.find(
+      (slide) => !previousSlideIds.includes(slide.id),
+    );
+    const slideWasAdded = currentSlideIds.length > previousSlideIds.length;
+
+    if (
+      slideWasAdded &&
+      addedSlide &&
+      (generating ||
+        isNewDeckGenerating ||
+        addSlideGenerating ||
+        generatingSlideSelected)
+    ) {
+      setActiveSlideId(addedSlide.id);
+    }
+
+    previousSlideIdsRef.current = currentSlideIds;
+    if (slideWasAdded) setGeneratingSlideSelected(false);
+  }, [
+    addSlideGenerating,
+    deck,
+    generating,
+    generatingSlideSelected,
+    isNewDeckGenerating,
+  ]);
 
   useEffect(() => {
     if (
@@ -396,6 +424,22 @@ export default function DeckEditor() {
       setRetryingMissingDeck(false);
     }
   }, [refetchOrg, reloadDecks]);
+
+  // The final generation write can race the last sync event. Pull the
+  // authoritative open deck when the run settles so a stale canvas does not
+  // require a browser refresh to reveal completed slides.
+  useEffect(() => {
+    if (
+      !id ||
+      !shouldClearNewDeckGeneratingState({
+        generating,
+        generationStarted: newDeckGenerationStarted.current,
+      })
+    ) {
+      return;
+    }
+    void refreshOpenDeck(id);
+  }, [generating, id, refreshOpenDeck]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
@@ -985,9 +1029,10 @@ export default function DeckEditor() {
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
-        onUpdateSlide={(updates) =>
-          currentSlide && updateSlide(id, currentSlide.id, updates)
-        }
+        onUpdateSlide={(updates, slideIdOverride) => {
+          const targetId = slideIdOverride ?? currentSlide?.id;
+          if (targetId) updateSlide(id, targetId, updates);
+        }}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
@@ -1009,7 +1054,16 @@ export default function DeckEditor() {
         onToggleTextBoxMode={toggleTextBoxMode}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
-          const optimistic = duplicateDeck(id, newId);
+          const optimistic = duplicateDeck(id, newId, undefined, () => {
+            // The background duplicate-deck action failed after we already
+            // navigated to the optimistic copy. If the user is still there,
+            // send them back instead of stranding them on a "Deck
+            // unavailable" screen for a deck that no longer exists.
+            if (deckIdFromPathname(window.location.pathname) === newId) {
+              navigate("/");
+            }
+            toast.error(t("home.duplicateFailed"));
+          });
           if (optimistic) navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
@@ -1100,18 +1154,11 @@ export default function DeckEditor() {
                     setActiveSlideId(slideId);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
-                  onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
-                  onDeleteSlide={(slideId) => {
-                    const idx = deck.slides.findIndex((s) => s.id === slideId);
-                    const nextSlide =
-                      deck.slides[idx + 1] || deck.slides[idx - 1];
-                    deleteSlideWithUndo(id, slideId);
-                    if (nextSlide) setActiveSlideId(nextSlide.id);
-                  }}
                   readOnly={!canEdit}
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
                   generatingSlide={
                     generatingSlideVisible
                       ? {
@@ -1150,6 +1197,7 @@ export default function DeckEditor() {
               <GeneratingSlidePreview
                 content={streamedGeneratingSlideContent}
                 aspectRatio={deck.aspectRatio}
+                designSystem={designSystem}
                 thumbnail={false}
               />
             </div>
@@ -1157,18 +1205,20 @@ export default function DeckEditor() {
         )}
 
         {!generatingSlideSelected &&
-          showNewDeckGeneratingOverlay &&
+          generatingSlideVisible &&
           deck.slides.length === 0 &&
-          !showQuestionFlow && <GeneratingOverlay />}
-
-        {isNewDeckGenerating && deck.slides.length > 0 && !showQuestionFlow && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
-            <span className="font-medium">{t("deckEditor.buildingDeck")}</span>
-            <span className="ml-2 text-muted-foreground">
-              {t("deckEditor.slidesAdded", { count: deck.slides.length })}
-            </span>
-          </div>
-        )}
+          !showQuestionFlow && (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  content={streamedGeneratingSlideContent}
+                  aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
+                  thumbnail={false}
+                />
+              </div>
+            </div>
+          )}
 
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor

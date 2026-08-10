@@ -52,6 +52,8 @@ const run = {
   worker_stage: "model",
   diag_stage: '{"stage":"model"}',
   peak_rss_mb: 321,
+  in_flight_since: 8,
+  dispatch_payload: '{"request":"retained"}',
 };
 
 function rowsForThreadLookup(sql: string, args: unknown[]) {
@@ -117,6 +119,19 @@ describe("thread-debug-store", () => {
     expect(result.threads[0]?.id).toBe(thread.id);
   });
 
+  it("matches owner email from the main search query", async () => {
+    const result = await searchAgentThreads({ query: "owner@example.com" });
+
+    expect(result.threads).toHaveLength(1);
+    const searchRequest = mocks.currentExecute.mock.calls.find(
+      ([request]) =>
+        typeof request?.sql === "string" &&
+        request.sql.includes("LOWER(owner_email) LIKE"),
+    )?.[0];
+    expect(searchRequest?.sql).toContain("LOWER(owner_email) LIKE");
+    expect(searchRequest?.args).toContain("%owner@example.com%");
+  });
+
   it("resolves a run id and returns rich run diagnostics", async () => {
     const result = await getAgentThreadDebug({ runId: run.id });
 
@@ -137,6 +152,8 @@ describe("thread-debug-store", () => {
       workerStage: "model",
       diagStage: '{"stage":"model"}',
       peakRssMb: 321,
+      inFlightSince: 8,
+      hasDispatchPayload: true,
     });
     expect(
       mocks.currentExecute.mock.calls.some(([request]) =>
@@ -390,9 +407,13 @@ describe("thread-debug-store", () => {
   it("keeps explicit remote sources admin-only", async () => {
     vi.stubEnv("REMOTE_DATABASE_URL", "libsql://remote");
 
-    await expect(listAgentRunFailures({ sourceId: "remote" })).rejects.toThrow(
-      "Only Dispatch admins",
-    );
+    await expect(
+      listAgentRunFailures({ sourceId: "remote" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message:
+        "Only Dispatch admins can inspect thread databases from other apps.",
+    });
     expect(mocks.createDbExec).not.toHaveBeenCalled();
   });
 

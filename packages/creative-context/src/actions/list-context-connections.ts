@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { getCreativeContext } from "../server/context.js";
 
-const CREATIVE_CONTEXT_LIBRARY_PATH = "/agent#library";
+const CREATIVE_CONTEXT_LIBRARY_PATH = "/settings/library";
 
 export function creativeContextConnectionPath(input: {
   provider: "google_drive" | "figma" | "notion";
@@ -44,7 +44,7 @@ export default defineAction({
         connections.length === 1 ? connections[0]!.connectionId : null,
       needsPicker: connections.length > 1,
       needsSetup: connections.length === 0,
-      connectionsPath: "/settings#integrations",
+      connectionsPath: "/settings/integrations",
       connectPath: creativeContextConnectionPath({ provider, appId }),
     };
   },

@@ -21,6 +21,7 @@ interface Write {
 function mockDb() {
   const writes: Write[] = [];
   const tx = {
+    execute: vi.fn(async (_query: unknown) => ({ rows: [] })),
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((rows: unknown) => ({
         onConflictDoUpdate: vi.fn(async (config: unknown) => {
@@ -37,7 +38,7 @@ function mockDb() {
       callback(tx),
     ),
   };
-  return { db, writes };
+  return { db, tx, writes };
 }
 
 beforeEach(() => {
@@ -192,6 +193,40 @@ describe("upsertFirstPartyAnalyticsRollups", () => {
       (dailyWrites[1].rows as Array<Record<string, unknown>>)[0]?.id,
     );
     expect(userDayWrites).toHaveLength(2);
+  });
+
+  it("uses a caller-owned transaction when one is provided", async () => {
+    const { db, tx, writes } = mockDb();
+    getDbMock.mockReturnValue(db);
+    const row = {
+      eventName: "pageview",
+      eventDate: "2026-08-05",
+      ownerEmail: "owner@example.com",
+      userKey: "visitor_1",
+    };
+
+    await upsertFirstPartyAnalyticsRollups([row], tx);
+
+    expect(writes).toHaveLength(2);
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not block foreground ingest behind a historical backfill", async () => {
+    const { tx, db } = mockDb();
+    getDbMock.mockReturnValue(db);
+
+    await upsertFirstPartyAnalyticsRollups(
+      [
+        {
+          eventName: "pageview",
+          eventDate: "2026-08-05",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      tx,
+    );
+
+    expect(tx.execute).not.toHaveBeenCalled();
   });
 
   it("fails before opening a transaction for malformed normalized rows", async () => {

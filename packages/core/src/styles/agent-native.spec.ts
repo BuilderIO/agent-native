@@ -45,6 +45,16 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  it("keeps expanded left drawer contents at the revealed width", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-layout-left-drawer\[data-collapsed="false"\] > \* \{[\s\S]*?width: var\(--agent-layout-left-drawer-expanded-width, 14rem\);[\s\S]*?min-width: var\(--agent-layout-left-drawer-expanded-width, 14rem\);[\s\S]*?max-width: var\(--agent-layout-left-drawer-expanded-width, 14rem\);/,
+    );
+  });
+
   it("does not double-animate a named chat handoff through the drawer entry", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
@@ -58,6 +68,22 @@ describe("agent-native shell surface tokens", () => {
     );
     expect(css).toMatch(
       /\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][\s\S]*?transition: width 260ms var\(--ease-drawer\);/s,
+    );
+  });
+
+  it("keeps drawer shadows dark and wide-mode snapshots full height", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?--agent-shadow: 0 0% 0%;[\s\S]*?box-shadow:[\s\S]*?hsl\(var\(--agent-shadow\) \/ var\(--agent-shadow-o\)\);/s,
+    );
+    expect(css).toMatch(
+      /\.dark \.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?--agent-shadow-o: 0\.08;/s,
+    );
+    expect(css).toMatch(
+      /::view-transition-old\(agent-native-sidebar-drawer\),\s*::view-transition-new\(agent-native-sidebar-drawer\)[\s\S]*?height: 100%;/s,
     );
   });
 

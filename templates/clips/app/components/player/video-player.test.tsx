@@ -198,6 +198,40 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
+  it("reloads stable media URLs when the stored media version changes", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="raw"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=raw");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="repaired"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=repaired");
+  });
+
   it("starts after an intro cut instead of rewinding into the excluded range", () => {
     act(() => {
       root.render(
@@ -237,6 +271,30 @@ describe("VideoPlayer playback", () => {
 
     expect(video.currentTime).toBe(3);
     expect(video.paused).toBe(false);
+  });
+
+  it("shows the edited duration without exposing cut ranges", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 2_000, endMs: 4_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.querySelector('[title^="Cut:"]')).toBeNull();
+    expect(container.textContent).toContain("0:00/0:08");
+    expect(container.textContent).not.toContain("0:00/0:10");
+    expect(container.textContent).not.toContain("10 sec");
   });
 
   it("stops a hung play attempt and leaves playback retryable", () => {
@@ -431,6 +489,29 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses WebKit video fullscreen when the player container cannot enter fullscreen", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Fullscreen (F)"]')
+        ?.click();
+    });
+
+    expect(enterFullscreen).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -12,6 +12,7 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Modal,
   Pressable,
   Share,
@@ -21,6 +22,7 @@ import {
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import AppWebView from "@/components/AppWebView";
+import { ChatFirstMobileRail } from "@/components/chat/ChatFirstMobileRail";
 import {
   ChatSettingsSheet,
   useChatSettings,
@@ -33,8 +35,10 @@ import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
+import { useChatFirstMode } from "@/lib/chat-first-mode";
 import { getAppUrl } from "@/lib/get-app-url";
 import { getSessionToken } from "@/lib/session-token-store";
+import { useApps } from "@/lib/use-apps";
 
 const chatApp = TEMPLATE_APPS.find((a) => a.id === "chat")!;
 
@@ -94,6 +98,8 @@ export default function ChatTab() {
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
+  const { enabled: chatFirstMode } = useChatFirstMode();
+  const { enabledApps } = useApps();
   const chat = useAgentChat(settings);
 
   // A model/engine chosen for one app may not exist in another deployment.
@@ -123,8 +129,23 @@ export default function ChatTab() {
   // a token; poll until it lands, then switch to the native chat.
   useEffect(() => {
     if (authState !== "signed-out") return;
-    const interval = setInterval(() => void refreshAuth(), 800);
-    return () => clearInterval(interval);
+    let active = AppState.currentState === "active";
+    let inFlight = false;
+    const tick = () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      void refreshAuth().finally(() => {
+        inFlight = false;
+      });
+    };
+    const interval = setInterval(tick, 800);
+    const subscription = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
   }, [authState, refreshAuth]);
 
   const { authRequired, clearAuthRequired } = chat;
@@ -191,7 +212,7 @@ export default function ChatTab() {
     return (
       <SafeAreaView className="flex-1 bg-background-dark">
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#c7f36b" />
+          <ActivityIndicator color="#d4d4d8" />
           <Text className="text-status-gray text-[13px] mt-2.5">
             Opening Chat…
           </Text>
@@ -210,7 +231,7 @@ export default function ChatTab() {
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <View className="flex-row items-center gap-0.5 px-2 py-1.5 border-b border-border-dark">
+      <View className="flex-row items-center gap-0.5 px-2 py-1.5">
         <Text className="flex-1 text-white text-[17px] font-bold pl-2">
           Chat
         </Text>
@@ -225,6 +246,14 @@ export default function ChatTab() {
         </HeaderButton>
       </View>
 
+      {chatFirstMode && (
+        <ChatFirstMobileRail
+          apps={enabledApps}
+          onHistory={() => setHistoryOpen(true)}
+          onSettings={() => setSettingsOpen(true)}
+        />
+      )}
+
       <KeyboardAvoidingView
         behavior="padding"
         keyboardVerticalOffset={TAB_BAR_HEIGHT}
@@ -232,7 +261,7 @@ export default function ChatTab() {
       >
         {chat.historyLoading ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#c7f36b" />
+            <ActivityIndicator color="#d4d4d8" />
           </View>
         ) : (
           <MessagesList

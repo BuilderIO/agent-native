@@ -1,12 +1,27 @@
 ---
 name: image-generation
-description: Generate and refine brand-consistent images from libraries, references, and prior candidates.
+description: >-
+  Generate and refine brand-consistent images from libraries, references, and
+  prior candidates. Use before calling image-generation or refinement actions.
 ---
 
 # Image Generation
 
 Use this skill before calling `generate-image`, `generate-image-batch`, or
 `refine-image`.
+
+## Prompt contract
+
+Treat references as evidence, not decoration. The prompt should explain the
+asset's job, subject, framing, medium, lighting, palette, exact text policy,
+and what must not change. Keep the active library or preset's style brief and
+the caller's design-system constraints authoritative; Impeccable-style
+composition guidance may improve the result but must not replace them.
+
+Before generating, decide whether the slot needs a produced image, a direct
+reuse of an approved asset, or a semantic UI/icon/diagram owned by the caller.
+Do not use image generation to paper over missing product facts, customer
+evidence, screenshots, or exact logos.
 
 ## Rules
 

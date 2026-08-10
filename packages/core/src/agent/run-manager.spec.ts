@@ -148,11 +148,14 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
   resolveSqlSubscriptionRetryMs,
   startRun,
   subscribeToRun,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
+  SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS,
+  SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
   SQL_SUBSCRIPTION_IDLE_POLL_MS,
   SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
   SQL_SUBSCRIPTION_RETRY_BASE_MS,
@@ -290,6 +293,72 @@ describe("run manager soft timeout", () => {
     );
     expect(resolveSqlSubscriptionPollMs(1_000, 999)).toBe(
       SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
+  });
+
+  it("holds the idle cadence until the decay threshold, then backs off to the cap", () => {
+    // Below the threshold nothing changes — a run that goes quiet for a beat
+    // between tokens must not be penalized.
+    for (let n = 0; n <= SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS; n += 1) {
+      expect(resolveSqlSubscriptionPollMs(1_000, 999, n)).toBe(
+        SQL_SUBSCRIPTION_IDLE_POLL_MS,
+      );
+    }
+
+    expect(
+      resolveSqlSubscriptionPollMs(
+        1_000,
+        999,
+        SQL_SUBSCRIPTION_IDLE_DECAY_AFTER_POLLS + 1,
+      ),
+    ).toBe(SQL_SUBSCRIPTION_IDLE_POLL_MS * 2);
+
+    // Capped, and stays capped for an absurd count rather than overflowing to
+    // Infinity through `2 ** steps`.
+    expect(resolveSqlSubscriptionPollMs(1_000, 999, 500)).toBe(
+      SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS,
+    );
+    expect(
+      resolveSqlSubscriptionPollMs(1_000, 999, Number.MAX_SAFE_INTEGER),
+    ).toBe(SQL_SUBSCRIPTION_IDLE_MAX_POLL_MS);
+  });
+
+  it("counts only idle polls toward the decay ladder", () => {
+    // Events always reset.
+    expect(nextSqlSubscriptionEmptyPolls(9, true, 1_000, 0)).toBe(0);
+    expect(nextSqlSubscriptionEmptyPolls(9, true, 1_000, 5_000)).toBe(0);
+
+    // Empty poll INSIDE the active grace window: held, not incremented. Without
+    // this the ~16 fast polls in a 2s grace window would land the ladder at its
+    // cap the moment the grace expired.
+    expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 5_000)).toBe(3);
+    expect(nextSqlSubscriptionEmptyPolls(0, false, 1_000, 1_001)).toBe(0);
+
+    // Empty poll at or past the grace boundary: counts.
+    expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 1_000)).toBe(4);
+    expect(nextSqlSubscriptionEmptyPolls(3, false, 1_000, 0)).toBe(4);
+  });
+
+  it("resumes at the idle cadence, not the cap, after a brief mid-stream pause", () => {
+    // Regression guard for the stutter: a run streams, pauses ~2.5s, resumes.
+    // The polls during the grace window must not have advanced the ladder.
+    let empties = 0;
+    const activeUntil = 2_000; // grace set at t=0 by a non-empty read
+    for (const now of [125, 250, 375, 500, 1_000, 1_500, 1_999]) {
+      empties = nextSqlSubscriptionEmptyPolls(empties, false, now, activeUntil);
+    }
+    expect(empties).toBe(0);
+    expect(resolveSqlSubscriptionPollMs(2_000, activeUntil, empties)).toBe(
+      SQL_SUBSCRIPTION_IDLE_POLL_MS,
+    );
+  });
+
+  it("never decays while the active polling window is open", () => {
+    // A streaming producer must keep the 125ms cadence no matter what the empty
+    // counter says — the counter is reset on every non-empty read, but a stale
+    // value must not leak into the active branch.
+    expect(resolveSqlSubscriptionPollMs(1_000, 1_001, 999)).toBe(
+      SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
     );
   });
 
@@ -2543,6 +2612,20 @@ describe("run manager soft timeout", () => {
     const result = await getActiveRunForThreadAsync("thread-old");
 
     expect(result).toBeNull();
+  });
+
+  it("keeps terminal replay available beyond the durable client watchdog", async () => {
+    const {
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+      SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
+    } = await import("../client/sse-event-processor.js");
+
+    expect(TERMINAL_RUN_RECONNECT_WINDOW_MS).toBeGreaterThan(
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+    );
+    expect(TERMINAL_RUN_RECONNECT_WINDOW_MS).toBeGreaterThan(
+      SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
+    );
   });
 
   it("uses completed_at (not started_at) for the reconnect window so long-running tasks are still reachable", async () => {

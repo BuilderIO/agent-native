@@ -10,6 +10,7 @@ const FACTORY_AUTOMATION_NAMES = {
     "factory-github-issues",
   ]),
   governance: new Set(["factory-pr-governance"]),
+  prBabysit: new Set(["factory-pr-babysit"]),
   sourcePolling: new Set([
     "factory-slack-feedback",
     "factory-sentry-errors",
@@ -44,7 +45,11 @@ export async function requireFactoryAutomation(
 
   const definition = (
     await listAutomationDefinitions(
-      { userEmail: identity.userEmail, orgId: identity.orgId },
+      {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+        appId: "factory",
+      },
       "organization",
     )
   ).find((entry) => entry.resource.id === lineage.triggerId);

@@ -34,7 +34,6 @@ export interface ResolveLocaleFromRequestOptions {
 export interface LocaleInitScriptOptions {
   locale?: LocaleCode;
   preference?: LocalizationPreference | LocalePreference;
-  messages?: Record<string, unknown> | null;
 }
 
 function readHeader(
@@ -106,11 +105,13 @@ export function getLocaleInitScript(options: LocaleInitScriptOptions = {}) {
   const safePreference = normalizeLocalizationPreference(
     options.preference ?? { locale: "system" },
   );
+  // Translations are deliberately absent here: this script is render-blocking in
+  // <head>, and the provider already receives the same catalog through loader
+  // data as `initialMessages`. Adding them back doubles every localized payload.
   const payload = {
     locale: safeLocale,
     preference: safePreference,
     dir: localeDirection(safeLocale),
-    messages: options.messages ?? undefined,
   };
 
   return `(function(){try{var supported=${JSON.stringify(

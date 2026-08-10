@@ -177,7 +177,7 @@ function AppContent() {
             {t("root.openRecaps")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => go("/agent")}
+            onSelect={() => go("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
           >
             <IconHierarchy2 size={16} />
@@ -241,6 +241,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         sessionBypass={sessionBypass}
+        documentTitleFallback={APP_TITLE}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >

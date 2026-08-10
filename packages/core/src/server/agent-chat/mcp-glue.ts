@@ -9,6 +9,7 @@ import {
   buildMergedConfig,
   getHubStatus,
   McpClientManager,
+  McpConfigUnreadableError,
 } from "../../mcp-client/index.js";
 import { getH3App } from "../framework-request-handler.js";
 
@@ -32,8 +33,16 @@ export function getGlobalMcpManager(): McpClientManager | null {
 export async function refreshGlobalMcpManager(): Promise<boolean> {
   const manager = getGlobalMcpManager();
   if (!manager) return false;
-  await manager.reconfigure(await buildMergedConfig());
-  return true;
+  try {
+    await manager.reconfigure(await buildMergedConfig());
+    return true;
+  } catch (err) {
+    if (err instanceof McpConfigUnreadableError) {
+      console.warn(`[mcp-client] global refresh skipped: ${err.message}`);
+      return false;
+    }
+    throw err;
+  }
 }
 
 export function mountMcpHubStatusRoute(nitroApp: any): void {

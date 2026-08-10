@@ -37,6 +37,7 @@ const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { getDbExec, isPostgres } from "../db/client.js";
+import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
@@ -45,9 +46,10 @@ import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
+import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
-import { invalidateRequestMemberOrgIds } from "./request-org-cache.js";
+import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type { OrgRole, RequiredAuthProvider } from "./types.js";
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
@@ -197,7 +199,9 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** GET /_agent-native/org/members — list org members */
 export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return { members: [], hasMore: false, nextOffset: null };
+  if (!ctx.orgId) {
+    return { members: [], totalCount: 0, hasMore: false, nextOffset: null };
+  }
 
   const url = getRequestURL(event);
   const search = (
@@ -219,10 +223,14 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const args: unknown[] = [ctx.orgId];
+  const countArgs: unknown[] = [ctx.orgId];
   let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
+  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members WHERE org_id = ?`;
   if (search) {
     sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
     args.push(`%${escapeLike(search)}%`);
+    countSql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
+    countArgs.push(`%${escapeLike(search)}%`);
   }
   sql += ` ORDER BY LOWER(email) ASC`;
   if (limit !== null) {
@@ -230,12 +238,23 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     args.push(limit + 1, offset);
   }
 
+  const totalCountResult =
+    limit === null
+      ? undefined
+      : await e.execute({ sql: countSql, args: countArgs });
   const { rows } = await e.execute({
     sql,
     args,
   });
   const pageRows = limit !== null ? rows.slice(0, limit) : rows;
   const hasMore = limit !== null && rows.length > limit;
+  const totalCount =
+    totalCountResult === undefined
+      ? pageRows.length
+      : Number((totalCountResult.rows[0] as any)?.totalCount);
+  if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
+    throw new Error("Organization member count was not returned");
+  }
   const members = pageRows.map((r: any) => ({
     email: String(r.email),
     role: String(r.role) as OrgRole,
@@ -243,6 +262,7 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   }));
   return {
     members,
+    totalCount,
     hasMore,
     nextOffset: hasMore ? offset + members.length : null,
   };
@@ -338,7 +358,14 @@ async function inviteOne(
         acceptUrl: getInviteAppUrl(event),
         inviter: ctx.email,
       });
-      await sendEmail({ to: email, subject, html, text });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        templateId: CORE_INVITE_EMAIL_ID,
+        orgId: ctx.orgId,
+      });
       emailSent = true;
     } catch (err) {
       emailError = err instanceof Error ? err.message : String(err);
@@ -512,7 +539,7 @@ export const acceptInvitationHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -582,7 +609,7 @@ export const removeMemberHandler = defineEventHandler(
       sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -662,6 +689,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
       args: [role, ctx.orgId, memberEmailLower],
     });
+    invalidateMemberOrgCaches();
 
     return { email: memberEmailLower, role };
   },
@@ -694,6 +722,9 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET name = ? WHERE id = ?`,
     args: [name, ctx.orgId],
   });
+  // `orgName` is joined into the cached membership rows, so a rename that skips
+  // this leaves every member's org context showing the old name for the TTL.
+  invalidateMemberOrgCaches();
 
   return { orgId: ctx.orgId, name };
 });
@@ -781,7 +812,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  invalidateRequestMemberOrgIds();
+  invalidateMemberOrgCaches();
 
   const nextRes = await e.execute({
     sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
@@ -886,7 +917,7 @@ export const joinByDomainHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
       args: [nanoid(), orgId, email, Date.now()],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
@@ -967,6 +998,13 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
     args: [raw, ctx.orgId],
   });
+  // A domain that previously matched nothing now matches this org. Without this
+  // the negative cache keeps every account at that domain out of it for the
+  // rest of the TTL, right after an owner deliberately turned domain-join on.
+  invalidateDomainMatchCache();
+  // `allowedDomain` is joined into the cached membership rows too, and existing
+  // members read it to decide whether a domain auto-join is still needed.
+  invalidateMemberOrgCaches();
 
   return { domain: raw };
 });

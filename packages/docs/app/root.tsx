@@ -21,6 +21,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
   localeDirection,
@@ -336,6 +337,12 @@ function ScrollManager() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const localeData = useRootLocaleData();
+  const matches = useMatches() as unknown as Array<{ loaderData: unknown }>;
+  const hasDocBlocks = matches.some((match) => {
+    if (!match.loaderData || typeof match.loaderData !== "object") return false;
+    const data = match.loaderData as { body?: unknown };
+    return typeof data.body === "string" && hasDocBlockSyntax(data.body);
+  });
   const locale = localeData.locale;
   const localeInitScript =
     typeof document !== "undefined"
@@ -345,17 +352,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
           locale,
           preference:
             locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
-          messages: localeData.messages,
         }))
       : getLocaleInitScript({
           locale,
           preference:
             locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
-          messages: localeData.messages,
         });
 
   return (
-    <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
+    <html
+      lang={locale}
+      dir={localeDirection(locale)}
+      data-doc-blocks={hasDocBlocks ? "true" : undefined}
+      suppressHydrationWarning
+    >
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />

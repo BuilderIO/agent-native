@@ -261,18 +261,30 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
 export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
 export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
 
+function sseTimeoutOverrideMs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 export function sseNoProgressTimeoutMs(options?: SSEStreamOptions): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
-    : SSE_NO_PROGRESS_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.noProgressTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
+      : SSE_NO_PROGRESS_TIMEOUT_MS)
+  );
 }
 
 function sseActionPreparationStallTimeoutMs(
   options?: SSEStreamOptions,
 ): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
-    : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.actionPreparationStallTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+      : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS)
+  );
 }
 
 export interface SSEStreamOptions {
@@ -286,6 +298,14 @@ export interface SSEStreamOptions {
    * the tight foreground 75s/90s windows.
    */
   durableBackgroundRun?: boolean;
+  /**
+   * Optional reader-local watchdog override. A background follow reader can
+   * use a shorter value because a timeout only detaches that read; the follow
+   * loop immediately re-checks the server-owned run state.
+   */
+  noProgressTimeoutMs?: number;
+  /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
+  actionPreparationStallTimeoutMs?: number;
   /**
    * Optional caller-owned preparation watchdog state. Passing the same object
    * across reconnect reads keeps a stuck action preparation from getting a

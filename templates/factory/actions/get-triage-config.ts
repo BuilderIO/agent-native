@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getEmailReadiness } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -19,6 +20,7 @@ export default defineAction({
     const { orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    const emailReadiness = await getEmailReadiness();
     const row = (
       await getDb()
         .select()
@@ -41,6 +43,9 @@ export default defineAction({
         sentryProjectSlug: null,
         sentryEnvironment: null,
         lastSentrySeenAt: null,
+        automationFailureAlertsEnabled: true,
+        automationFailureAlertEmail: null,
+        emailReadiness,
       };
     }
     return {
@@ -48,6 +53,9 @@ export default defineAction({
       pollingEnabled: row.pollingEnabled === 1,
       githubPollingEnabled: row.githubPollingEnabled === 1,
       sentryPollingEnabled: row.sentryPollingEnabled === 1,
+      automationFailureAlertsEnabled: row.automationFailureAlertsEnabled === 1,
+      automationFailureAlertEmail: row.automationFailureAlertEmail,
+      emailReadiness,
     };
   },
 });

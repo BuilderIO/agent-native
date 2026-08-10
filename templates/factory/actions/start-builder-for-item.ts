@@ -14,6 +14,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { startBuilderRun } from "../server/triage/builder-executor.js";
 import { stableId } from "../server/triage/ids.js";
 import {
@@ -182,6 +183,26 @@ export default defineAction({
         : reason,
       guardResults,
     });
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "start-builder-for-item",
+        kind: "decision",
+        itemId,
+        source: item.source,
+        sourceUrl: item.sourceUrl,
+        status: blocked ? "skipped" : "success",
+        summary: blocked ? "Factory kept this item for manual review." : reason,
+        details: {
+          decisionId,
+          clearBug,
+          productUxImplications,
+          ownerOwnedArea: ownerOwnedArea ?? null,
+          guardResults,
+        },
+      },
+    );
     if (blocked) {
       await db
         .update(triageItems)
@@ -332,6 +353,19 @@ export default defineAction({
             updatedAt: new Date().toISOString(),
           })
           .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "start-builder-for-item",
+            kind: "external_action",
+            itemId,
+            source: item.source,
+            sourceUrl: item.sourceUrl,
+            summary: "Tagged Builder in the Slack thread and requested a PR.",
+            details: { provider: "bot-tag", runId },
+          },
+        );
         return {
           ok: true,
           started: true,
@@ -385,6 +419,23 @@ export default defineAction({
           updatedAt: new Date().toISOString(),
         })
         .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "start-builder-for-item",
+          kind: "external_action",
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: "Submitted the clear bug to Builder.",
+          details: {
+            provider: "builder-http",
+            runId,
+            providerTaskId: result.providerTaskId ?? null,
+          },
+        },
+      );
       return {
         ok: true,
         started: true,

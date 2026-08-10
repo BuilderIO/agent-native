@@ -1,9 +1,12 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
   createSlidesCanvasGestureController,
   createSlidesCanvasInteractionCore,
   isWithinSlidesCanvasEdgeMoveBand,
+  resolveSlidesCanvasDragTarget,
   resolveSlidesCanvasPointerIntent,
   SLIDES_CANVAS_EDGE_MOVE_BAND,
 } from "./slides-canvas-adapter";
@@ -89,6 +92,23 @@ describe("Slides canvas interaction adapter", () => {
         targetIsEditableText: false,
       }),
     ).toBe("move-object-body");
+  });
+
+  it("uses the object under the pointer when no prior selection exists", () => {
+    const image = document.createElement("img");
+    const wrapper = document.createElement("div");
+
+    expect(resolveSlidesCanvasDragTarget(null, image)).toBe(image);
+    expect(resolveSlidesCanvasDragTarget(null, wrapper)).toBe(wrapper);
+  });
+
+  it("keeps a selected parent as the drag target for nested content", () => {
+    const wrapper = document.createElement("div");
+    const image = document.createElement("img");
+    wrapper.append(image);
+
+    expect(resolveSlidesCanvasDragTarget(wrapper, image)).toBe(wrapper);
+    expect(resolveSlidesCanvasDragTarget(image, wrapper)).toBe(image);
   });
 
   it("uses the same measured outside edge band for hover and pointer intent", () => {

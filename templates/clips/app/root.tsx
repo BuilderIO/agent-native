@@ -130,7 +130,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getHydrationStableLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -369,7 +368,7 @@ function AppContent() {
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>
-            <CommandMenu.Item onSelect={() => navigate("/agent")}>
+            <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
               <IconHierarchy2 size={16} />
               {t("root.openAgent")}
             </CommandMenu.Item>

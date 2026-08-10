@@ -162,6 +162,31 @@ const messages = {
     metricRuns: "Ejecuciones",
     rulesTab: "Reglas",
     automationsTab: "Automatizaciones",
+    auditTab: "Auditoría",
+    auditTitle: "Auditoría de ejecuciones",
+    auditDescription:
+      "Consulta exactamente qué fuentes inspeccionó el agente, qué decidió y qué acciones realizó.",
+    auditRefresh: "Actualizar",
+    auditLoadError: "No se pudo cargar la auditoría de ejecuciones.",
+    auditEmpty: "Todavía no se han registrado ejecuciones.",
+    auditRuns: "Ejecuciones recientes",
+    auditEventsShort: "eventos",
+    auditActionsShort: "acciones",
+    auditRunDetail: "Evidencia y decisiones registradas para esta ejecución.",
+    auditStarted: "Inicio",
+    auditFinished: "Fin",
+    auditItems: "Elementos",
+    auditRunError: "Error de ejecución",
+    auditEvidence: "Evidencia y decisiones",
+    auditNoEvents:
+      "No se registraron eventos por elemento. Abre el hilo del agente para ver el rastro completo.",
+    auditOpenThread: "Abrir hilo",
+    auditOpenItem: "Abrir elemento",
+    auditOpenSource: "Abrir fuente",
+    auditInternal: "Factory",
+    auditClearBug: "Error claro",
+    auditUxImpact: "Impacto de UX",
+    auditOwnerArea: "Área responsable",
     automationsTitle: "Automatizaciones",
     automationsDescription: "Programa y ejecuta prompts de la fábrica.",
     automationsLoading: "Cargando automatizaciones...",
@@ -187,6 +212,35 @@ const messages = {
     pastRunsEmpty: "Aún no hay ejecuciones registradas.",
     saveAutomation: "Guardar",
     runNow: "Ejecutar ahora",
+    automationHealthTitle: "Estado del programador",
+    automationHealthDescription:
+      "El latido muestra si el trabajador de tareas recurrentes desplegado sigue comprobando los horarios.",
+    automationHealthHealthy: "Saludable",
+    automationHealthStale: "Desactualizado",
+    automationHealthError: "Error",
+    automationHealthNoData: "Sin latido",
+    automationLastCheck: "Última comprobación",
+    automationLastDispatch: "Último envío",
+    automationRuntime: "Entorno de ejecución",
+    automationHealthNoDataHint:
+      "Aún no se ha registrado ningún latido del programador. Despliega la compilación más reciente de Factory y vuelve a comprobarlo.",
+    automationHealthStaleHint:
+      "El programador no ha comprobado recientemente. Normalmente significa que la función programada o el trabajador en segundo plano desplegado no está ejecutándose.",
+    automationHealthErrorDetail: "Último error del programador",
+    automationOpenThread: "Abrir hilo",
+    automationFailureAlertsTitle: "Alertas de fallos de automatización",
+    automationFailureAlertsDescription:
+      "Envía una alerta dentro de la aplicación y un correo cuando falle una automatización de Factory. Los fallos idénticos se agrupan durante 15 minutos.",
+    automationFailureAlertsEnabled:
+      "Envíame un correo cuando fallen las automatizaciones",
+    automationFailureAlertEmail: "Correo de alertas",
+    automationFailureAlertEmailPlaceholder:
+      "De forma predeterminada, el propietario del espacio de trabajo",
+    automationFailureEmailReadiness: "Proveedor de correo",
+    automationDiagnosticsLoadError:
+      "No se pudieron cargar los diagnósticos de Factory. Comprueba el acceso, el despliegue y las migraciones de la base de datos, y vuelve a intentarlo.",
+    automationEmailReadinessHint:
+      "El correo usa el almacén de Dispatch de la organización. Configura allí un proveedor si no está listo.",
   },
   factoryCanvas: {
     dragHint: "Arrastra los nodos para cambiar la forma de la fábrica",

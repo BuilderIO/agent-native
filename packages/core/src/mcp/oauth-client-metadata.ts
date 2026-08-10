@@ -228,17 +228,23 @@ function validateClientMetadataDocument(
     throw new Error("Only public Client ID Metadata clients are supported");
   }
 
+  // A grant type we do not support is not a reason to reject the document —
+  // clients advertise grants they use elsewhere (Claude.ai's CIMD document
+  // lists "urn:ietf:params:oauth:grant-type:jwt-bearer" next to the two we
+  // support). The token endpoint independently honors only
+  // "authorization_code"/"refresh_token" no matter what this list says.
   const grantTypes = parseStringArray(document.grant_types);
+  // Metadata documents may advertise extension grants that this server does
+  // not implement. The authorization request still selects the supported
+  // authorization-code flow, so rejecting an extra grant here only prevents
+  // otherwise compatible clients such as Claude from connecting.
   if (
     (document.grant_types !== undefined &&
       (!Array.isArray(document.grant_types) ||
         grantTypes.length !== document.grant_types.length)) ||
-    grantTypes.length > 10 ||
-    !grantTypes.every(
-      (grant) => grant === "authorization_code" || grant === "refresh_token",
-    )
+    grantTypes.length > 10
   ) {
-    throw new Error("Client metadata document grant_types are unsupported");
+    throw new Error("Client metadata document grant_types are invalid");
   }
 
   const responseTypes = parseStringArray(document.response_types);

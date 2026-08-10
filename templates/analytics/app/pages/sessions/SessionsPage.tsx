@@ -621,9 +621,7 @@ export function ReplayStorageHint({
                 <IconLoader2 className="h-4 w-4 animate-spin" />
               ) : builderConnected ? (
                 <IconCheck className="h-4 w-4" />
-              ) : (
-                <IconExternalLink className="h-4 w-4" />
-              )}
+              ) : null}
               {builderConnected
                 ? t("sessions.storageConnected")
                 : t("sessions.connectBuilder")}

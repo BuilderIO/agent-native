@@ -13,6 +13,7 @@ const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
+const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
@@ -37,6 +38,7 @@ vi.mock("../resources/store.js", () => ({
 }));
 
 vi.mock("../event-bus/index.js", () => ({
+  registerEvent: registerEventMock,
   subscribe: subscribeMock,
   unsubscribe: unsubscribeMock,
 }));
@@ -425,6 +427,38 @@ Respond to the event.`,
     );
   });
 
+  it("does not subscribe to event automations owned by another app", async () => {
+    const eventName = "cross-app.event.ownership";
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-cross-app",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/cross-app-alert.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: ${eventName}
+mode: agentic
+appId: calendar
+createdBy: alice+triggers@agent-native.test
+---
+
+Respond to the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      appId: "plan",
+    });
+
+    expect(subscribeMock.mock.calls.some(([name]) => name === eventName)).toBe(
+      false,
+    );
+  });
+
   it("passes a stored delegated policy only from trigger frontmatter", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -599,10 +633,15 @@ Read the calendar.`,
       },
       run: async () => "ok",
     };
+    let releaseActions: () => void = () => {};
+    const actionsReady = new Promise<void>((resolve) => {
+      releaseActions = resolve;
+    });
     let observedRequestIdentity:
       | { userEmail?: string; orgId?: string }
       | undefined;
-    const getActions = vi.fn(() => {
+    const getActions = vi.fn(async () => {
+      await actionsReady;
       observedRequestIdentity = {
         userEmail: getRequestUserEmail(),
         orgId: getRequestOrgId(),
@@ -627,7 +666,7 @@ Read the calendar.`,
     const handler = subscribeMock.mock.calls.find(
       ([eventName]) => eventName === "event.mcp.required",
     )?.[1];
-    await handler(
+    const handlerPromise = handler(
       { ok: true },
       {
         owner: "alice+triggers@agent-native.test",
@@ -635,6 +674,10 @@ Read the calendar.`,
         emittedAt: "2026-04-30T00:00:00.000Z",
       },
     );
+    await vi.waitFor(() => expect(getActions).toHaveBeenCalled());
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    releaseActions();
+    await handlerPromise;
 
     expect(getActions).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -723,6 +766,7 @@ event: event.org.creator
 mode: agentic
 createdBy: alice+triggers@agent-native.test
 orgId: "org-1"
+appId: mail
 runAs: creator
 ---
 
@@ -733,6 +777,7 @@ Handle the organization event.`,
     await initTriggerDispatcher({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
+      appId: "mail",
     });
     const handler = subscribeMock.mock.calls.find(
       ([eventName]) => eventName === "event.org.creator",

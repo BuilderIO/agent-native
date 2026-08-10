@@ -56,17 +56,54 @@ describe("new deck generation flow", () => {
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
   });
 
+  it("keeps presentation generation multi-slide and persisted", () => {
+    expect(flow).toContain(
+      "infer a coherent multi-slide outline from the scope",
+    );
+    expect(flow).toContain("Do not call the legacy generate-slides-ai action");
+    expect(flow).toContain(
+      "Treat each successful add-slide result as confirmation",
+    );
+  });
+
   it("turns an imported PPTX into a reusable reference deck", () => {
-    expect(flow).toContain('callAction("import-pptx"');
-    expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
-    expect(flow).toContain("const generationFiles = uploaded.filter");
-    expect(flow).toContain("setPendingDeck((current) =>");
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toContain('callAction("import-pptx"');
+    expect(referenceImportFlow).toContain("importedReference = {");
+    expect(referenceImportFlow).toContain('source: "pptx"');
+    expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
+    expect(referenceImportFlow).toContain("return importedReference");
+    expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
   });
 
   it("imports an uploaded PDF into a reusable reference deck", () => {
-    expect(flow).toContain('callAction("import-file"');
-    expect(flow).toContain('format: "pdf"');
-    expect(flow).toContain("importIntoDeck: true");
-    expect(flow).toContain("The PDF reference deck could not be imported.");
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toContain('callAction("import-file"');
+    expect(referenceImportFlow).toContain('format: "pdf"');
+    expect(referenceImportFlow).toContain("importIntoDeck: true");
+    expect(referenceImportFlow).toContain(
+      "The PDF reference deck could not be imported.",
+    );
+  });
+
+  it("imports a pasted Google Slides URL before selecting the reference deck", () => {
+    const referenceSourceImportFlow = source.slice(
+      source.indexOf("const handleReferenceSourceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceSourceImportFlow).toContain(
+      'callAction("import-google-slides-reference"',
+    );
+    expect(referenceSourceImportFlow).toContain("return importedReference");
+    expect(source).toContain("onImportSource={handleReferenceSourceImport}");
   });
 });

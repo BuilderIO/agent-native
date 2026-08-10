@@ -18,6 +18,7 @@ import {
   FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS,
   queryOutcomeFromError,
   recordFirstPartyAnalyticsQueryPressure,
+  unavailableFirstPartyAnalyticsHealth,
 } from "./first-party-analytics-health";
 
 beforeEach(() => {
@@ -74,11 +75,12 @@ describe("first-party analytics pressure", () => {
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantKey: "org:org_123",
-        eventDate: expect.any(String),
+        eventDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
         queryClass: "raw-events",
         slowQueryCount: 1,
         totalDurationMs: 5_000,
         maxDurationMs: 5_000,
+        lastSeenAt: expect.stringMatching(/T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       }),
     );
     expect(insertConflictUpdate).toHaveBeenCalledWith(
@@ -99,5 +101,29 @@ describe("first-party analytics pressure", () => {
     );
 
     expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("advertises the verified external analytics backends", () => {
+    const health = unavailableFirstPartyAnalyticsHealth();
+
+    expect(health.externalBackends.map((backend) => backend.id)).toEqual([
+      "bigquery",
+      "amplitude",
+    ]);
+    expect(health.externalBackends).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "bigquery",
+          role: "warehouse",
+          setupLink: expect.stringContaining("bigquery"),
+        }),
+        expect.objectContaining({
+          id: "amplitude",
+          role: "product-analytics",
+          setupLink: expect.stringContaining("amplitude"),
+        }),
+      ]),
+    );
+    expect(health.bigQuery.id).toBe("bigquery");
   });
 });

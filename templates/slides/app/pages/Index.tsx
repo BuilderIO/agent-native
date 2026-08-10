@@ -1,10 +1,15 @@
-import { callAction, useSession } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  deleteClientAppState,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
@@ -20,7 +25,12 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
-import { NewDeckReferenceStep } from "@/components/editor/NewDeckReferenceStep";
+import {
+  NewDeckReferenceStep,
+  type ImportedReference,
+  type NewDeckReferenceSelection,
+  type NewDeckReferenceSource,
+} from "@/components/editor/NewDeckReferenceStep";
 import PromptPopover, {
   uploadPromptFiles,
   type UploadedFile,
@@ -37,8 +47,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { Deck } from "@/context/DeckContext";
-import { useDecks } from "@/context/DeckContext";
+import {
+  describeDeckPersistenceFailure,
+  type Deck,
+} from "@/context/DeckContext";
+import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
@@ -46,10 +59,15 @@ import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import {
-  resolveNewDeckReferenceSelection,
-  type NewDeckReferenceSelection,
-} from "@/lib/new-deck-reference-selection";
-import { rememberRecentReference } from "@/lib/recent-references";
+  importUploadedDeckIntoDeck,
+  type ImportedSourceDeck,
+} from "@/lib/import-uploaded-deck";
+import {
+  readRecentReferences,
+  rememberRecentReference,
+  type RecentReference,
+} from "@/lib/recent-references";
+import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
@@ -174,6 +192,7 @@ async function loadReferenceDeckGenerationContext(
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
+  importedSourceDeck?: ImportedSourceDeck | null,
 ): string {
   if (files.length === 0) return "";
   const fileList = files
@@ -184,15 +203,22 @@ function describeUploadedFilesForAgent(
     .join("\n");
   return [
     "",
-    `The user uploaded ${files.length} file(s). These paths are real uploaded files; process them with import actions before using their contents:`,
+    importedSourceDeck
+      ? `The user uploaded ${files.length} file(s). The ${importedSourceDeck.file.originalName} source deck has already been imported into target deck ${deckId} with ${importedSourceDeck.slideCount} source slide(s); do not import it again.`
+      : `The user uploaded ${files.length} file(s). These are mandatory source material, not optional references — process every one of them with the matching import action BEFORE adding the first slide:`,
     fileList,
     "",
     "File handling rules:",
-    `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` before adding or editing slides.`,
-    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed.`,
+    importedSourceDeck
+      ? "- The imported source deck is the canonical source. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. Use update-slide on existing slide IDs; do not rebuild it with add-slide."
+      : `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` before adding or editing slides.`,
+    importedSourceDeck
+      ? "- For a PDF source, keep the original full-page image in every slide and add restrained design-system chrome around it without obscuring source content. Never OCR-reconstruct a source-faithful page from extracted text."
+      : `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text. Do not proceed to add-slide until this call has returned for every PDF/DOCX in the list above.`,
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
-    '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
+    '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
+    "- Before your final response, verify every uploaded file above was either imported (PPTX/PDF/DOCX) or placed as requested (images). If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
   ].join("\n");
 }
 
@@ -237,6 +263,9 @@ export default function Index() {
   } | null>(null);
   const [showNewDeckReferenceStep, setShowNewDeckReferenceStep] =
     useState(false);
+  const [recentReferences, setRecentReferences] = useState<RecentReference[]>(
+    [],
+  );
   const [referenceImporting, setReferenceImporting] = useState(false);
   const initialPromptConsumedRef = useRef(false);
   const [signInPromptHadFiles, setSignInPromptHadFiles] = useState(false);
@@ -296,10 +325,17 @@ export default function Index() {
     [deckFilter, decks],
   );
   const rememberReference = useCallback(
-    (reference: Parameters<typeof rememberRecentReference>[0]) =>
-      rememberRecentReference(reference),
+    (reference: Parameters<typeof rememberRecentReference>[0]) => {
+      const result = rememberRecentReference(reference);
+      if (result.readable) setRecentReferences(result.items);
+    },
     [],
   );
+
+  useEffect(() => {
+    const result = readRecentReferences();
+    if (result.readable) setRecentReferences(result.items);
+  }, []);
 
   useEffect(() => {
     if (initialDesignSystemId) {
@@ -314,15 +350,13 @@ export default function Index() {
   }, [initialDesignSystemId, rememberReference, workspaceReferenceDeckId]);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
-  const openInitialPromptReferenceStep = useCallback(() => {
+  const onboardingPreview = searchParams.get("onboarding") === "preview";
+  const openInitialPrompt = useCallback(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
     initialPromptConsumedRef.current = true;
-    setPendingDeck({ prompt: initialPrompt, files: [] });
-    designSystemAutoRef.current = true;
-    referenceDeckAutoRef.current = true;
-    setSelectedDesignSystemId(initialDesignSystemId ?? null);
-    setSelectedReferenceDeckId(workspaceReferenceDeckId ?? null);
-    setShowNewDeckReferenceStep(true);
+    anchorElRef.current = null;
+    setNewDeckInitialPrompt({ text: initialPrompt, key: Date.now() });
+    setShowNewDeckPrompt(true);
     setSearchParams(
       (previous) => {
         const next = new URLSearchParams(previous);
@@ -336,22 +370,39 @@ export default function Index() {
   useEffect(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
     const firstRunActive =
-      typeof document !== "undefined" &&
-      document.cookie
-        .split(";")
-        .some((part) => part.trim().startsWith("agent-native-first-run="));
-    const handleFirstRunCompleted = () => openInitialPromptReferenceStep();
+      onboardingPreview ||
+      (typeof document !== "undefined" &&
+        document.cookie
+          .split(";")
+          .some((part) => part.trim().startsWith("agent-native-first-run=")));
+    const handleFirstRunCompleted = () => openInitialPrompt();
     window.addEventListener(
       "agent-native:first-run-completed",
       handleFirstRunCompleted,
     );
-    if (!firstRunActive) openInitialPromptReferenceStep();
-    return () =>
+    let fallbackTimer: number | undefined;
+    if (!firstRunActive) {
+      openInitialPrompt();
+    } else {
+      // A landing link can open in a tab where the first-run marker exists but
+      // the onboarding surface is not mounted. Do not leave the prompt waiting
+      // forever in that case, while still giving the real onboarding overlay
+      // time to load and dispatch its completion event.
+      fallbackTimer = window.setTimeout(() => {
+        const firstRunSurface = document.querySelector(
+          "[data-onboarding-screen], [data-onboarding-loading]",
+        );
+        if (!firstRunSurface) openInitialPrompt();
+      }, 2500);
+    }
+    return () => {
       window.removeEventListener(
         "agent-native:first-run-completed",
         handleFirstRunCompleted,
       );
-  }, [initialPrompt, openInitialPromptReferenceStep]);
+      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+    };
+  }, [initialPrompt, onboardingPreview, openInitialPrompt]);
 
   const setDeckFilter = useCallback(
     (value: string) => {
@@ -504,7 +555,7 @@ export default function Index() {
   const handleCreateDeckWithPrompt = async (
     prompt: string,
     files: UploadedFile[],
-    referenceSelection: Partial<NewDeckReferenceSelection> = {},
+    referenceSelection: NewDeckReferenceSelection = {},
   ) => {
     // Pre-flight auth check. The add-deck action returns 403 silently
     // when unauthenticated, leaving the user stuck on a deck page that
@@ -520,22 +571,18 @@ export default function Index() {
       newDeckRetryFiles,
       files,
     );
-    const resolvedSelection = resolveNewDeckReferenceSelection({
-      designSystemAuto: designSystemAutoRef.current,
-      selectedDesignSystemId,
-      defaultDesignSystemId: initialDesignSystemId,
-      referenceDeckAuto: referenceDeckAutoRef.current,
-      selectedReferenceDeckId,
-      defaultReferenceDeckId: workspaceReferenceDeckId,
-    });
     const designSystemId =
       referenceSelection.designSystemId !== undefined
         ? referenceSelection.designSystemId
-        : resolvedSelection.designSystemId;
+        : selectedDesignSystemId && selectedDesignSystemId !== "none"
+          ? selectedDesignSystemId
+          : null;
     const referenceDeckId =
       referenceSelection.referenceDeckId !== undefined
         ? referenceSelection.referenceDeckId
-        : resolvedSelection.referenceDeckId;
+        : selectedReferenceDeckId && selectedReferenceDeckId !== "none"
+          ? selectedReferenceDeckId
+          : null;
     const selectedDesignSystem = designSystemId
       ? designSystems.find((ds) => ds.id === designSystemId)
       : undefined;
@@ -551,14 +598,39 @@ export default function Index() {
     setNewDeckPromptOpen(false);
 
     const persisted = await ensureDeckPersisted(deck.id);
-    if (!persisted) {
+    if (!persisted.persisted) {
       if (!savePromptForRetry(prompt)) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), {
-        description: t("home.generationStartFailedDescription"),
+        description: describeDeckPersistenceFailure(
+          persisted,
+          t("home.generationStartFailedDescription"),
+        ),
+      });
+      setShowNewDeckPrompt(true);
+      return;
+    }
+
+    let importedSourceDeck: ImportedSourceDeck | null = null;
+    try {
+      importedSourceDeck = await importUploadedDeckIntoDeck(
+        filesForGeneration,
+        deckId,
+      );
+    } catch (error) {
+      if (!savePromptForRetry(prompt)) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
+      setNewDeckRetryFiles(filesForGeneration);
+      deleteDeck(deckId);
+      toast.error(t("home.generationStartFailed"), {
+        description:
+          error instanceof Error
+            ? error.message
+            : t("home.generationStartFailedDescription"),
       });
       setShowNewDeckPrompt(true);
       return;
@@ -577,6 +649,7 @@ export default function Index() {
     const fileContext = describeUploadedFilesForAgent(
       filesForGeneration,
       deckId,
+      importedSourceDeck,
     );
     const googleDocContext =
       googleDocUrls.length > 0
@@ -606,31 +679,79 @@ export default function Index() {
       : [
           "",
           "Design system selection:",
-          "- None selected. Do not apply a design system unless the user asks for one.",
+          "- No design system was selected in the picker.",
+          "- Before generating a bare or on-brand deck, call `get-workspace-defaults`. If it returns a usable design system, patch this deck with that designSystemId, call `get-design-system`, and follow its exact tokens, assets, and custom instructions.",
+          "- If no workspace default exists, report the missing configuration instead of inventing a generic Builder-like palette.",
+        ].join("\n");
+    const referenceSource = referenceSelection.referenceSource;
+    const referenceSourceContext = referenceSource
+      ? [
+          "",
+          "Additional reference source selected in the reference step:",
+          `- ${referenceSource.kind}: ${referenceSource.value}`,
+          referenceSource.kind === "google-docs"
+            ? "Call `import-google-doc` before generating and use the returned text as source material."
+            : referenceSource.kind === "website"
+              ? "Call `import-from-url` before generating and use the returned page context as a reference."
+              : "Use the Figma source as the design reference. If Builder or Figma access is required, report the exact connection step instead of guessing.",
+        ].join("\n")
+      : "";
+    const sourceDeckContext = importedSourceDeck
+      ? [
+          "",
+          "Source-preserving improvement mode:",
+          `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
+          "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
+          "- Read `get-deck` before editing, load the linked design system with `get-design-system`, then use one `update-slide` call per existing slide ID for bounded visual improvements. Keep every original `<img>` source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+          "- Do not call `add-slide`, delete slides, reorder slides, or replace source images with generic cards. Do not claim success until `get-deck` verifies the same slide IDs and count after the edits.",
+          "- If `get-deck` reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
+        ].join("\n")
+      : "";
+    const sourceModeInstructions = importedSourceDeck
+      ? [
+          "The request is an in-place visual improvement of an imported source deck. Make a coherent style pass across every existing slide while preserving all source content and media.",
+          "Do not use the new-deck add-slide workflow for this source-preserving request.",
+        ].join("\n")
+      : [
+          "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
+          "After reading any requested or imported source material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Call `patch-deck` with `deckId: \"" +
+            deckId +
+            '\"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder.',
+          "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
+          "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions.",
+          "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
+            deckId +
+            ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
+          "Use create-deck and add-slide for this already-created deck. Do not call the legacy generate-slides-ai action: it returns Markdown drafts rather than persisted rendered slide HTML. Treat each successful add-slide result as confirmation to continue with the next planned slide.",
         ].join("\n");
 
     const context = [
-      `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
+      importedSourceDeck
+        ? `The user uploaded a source presentation into target deck (id: "${deckId}") and wants a reliable visual improvement.`
+        : `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
       referenceDeckContext,
       designSystemContext,
+      referenceSourceContext,
+      sourceDeckContext,
       "",
       "Before generating, if the request or selected references leave a meaningful choice unresolved, use the `ask-question` tool to ask one concise, prompt-specific question in the inline guided-question flow. Generate the question wording and 2 to 4 options from the user's request and selected references, like Claude's design-question flow; do not use a fixed generic questionnaire. Ask only a choice that materially affects the deck, such as audience, tone, structure, or length. If the prompt already makes the choice clear, do not ask it again. Wait for the user's answer or skip before adding slides.",
-      "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
-      "After reading any requested or imported source material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Call `patch-deck` with `deckId: \"" +
-        deckId +
-        '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder.',
-      "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
-      "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
-        deckId +
-        ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
-      "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
+      sourceModeInstructions,
+      "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you. If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
+
+    // See the matching comment in create-deck-generation.ts: clear any
+    // guided-question card left over from the previous deck's still-finishing
+    // run so it can't surface on top of the deck we're navigating to now.
+    deleteClientAppState(
+      appStateKeyForBrowserTab("guided-questions", TAB_ID),
+    ).catch(() => {});
+    deleteClientAppState("guided-questions").catch(() => {});
 
     navigate(`/deck/${deck.id}?generating=1`, {
       replace: true,
@@ -652,68 +773,34 @@ export default function Index() {
     [setNewDeckPromptOpen],
   );
 
-  const handleReferenceDesignSystemSelect = useCallback(
-    (designSystemId: string | null) => {
-      designSystemAutoRef.current = false;
-      setSelectedDesignSystemId(designSystemId);
-      if (designSystemId) {
-        rememberReference({ id: designSystemId, kind: "design-system" });
-      }
-    },
-    [rememberReference],
-  );
-
-  const handleReferenceDeckSelect = useCallback(
-    (referenceDeckId: string | null) => {
-      referenceDeckAutoRef.current = false;
-      setSelectedReferenceDeckId(referenceDeckId);
-      if (referenceDeckId) {
-        rememberReference({ id: referenceDeckId, kind: "deck" });
-      }
-    },
-    [rememberReference],
-  );
-
-  const handleGoogleSlidesImported = useCallback(
-    async ({ id, title }: { id: string; title: string }) => {
-      await reloadDecks();
-      rememberReference({ id, kind: "deck" });
-      referenceDeckAutoRef.current = false;
-      setSelectedReferenceDeckId(id);
-      toast.success(t("editorToolbar.importComplete"), {
-        description: title,
-      });
-    },
-    [reloadDecks, rememberReference, t],
-  );
-
-  const handleReferenceContinue = useCallback(() => {
-    const pending = pendingDeck;
-    if (!pending) return;
-    setShowNewDeckReferenceStep(false);
-    setPendingDeck(null);
-    const selection = resolveNewDeckReferenceSelection({
-      designSystemAuto: designSystemAutoRef.current,
-      selectedDesignSystemId,
-      defaultDesignSystemId: initialDesignSystemId,
-      referenceDeckAuto: referenceDeckAutoRef.current,
-      selectedReferenceDeckId,
-      defaultReferenceDeckId: workspaceReferenceDeckId,
-    });
-    void handleCreateDeckWithPrompt(pending.prompt, pending.files, selection);
-  }, [
-    handleCreateDeckWithPrompt,
-    initialDesignSystemId,
-    pendingDeck,
-    selectedDesignSystemId,
-    selectedReferenceDeckId,
-    workspaceReferenceDeckId,
-  ]);
-
-  const handleReferenceImport = useCallback(
-    async (files: File[]) => {
+  const handleReferenceSelect = useCallback(
+    async (selection: NewDeckReferenceSelection) => {
       const pending = pendingDeck;
       if (!pending) return;
+      if (selection.designSystemId) {
+        rememberReference({
+          id: selection.designSystemId,
+          kind: "design-system",
+        });
+      }
+      if (selection.referenceDeckId) {
+        rememberReference({ id: selection.referenceDeckId, kind: "deck" });
+      }
+      setShowNewDeckReferenceStep(false);
+      setPendingDeck(null);
+      await handleCreateDeckWithPrompt(
+        pending.prompt,
+        pending.files,
+        selection,
+      );
+    },
+    [handleCreateDeckWithPrompt, pendingDeck, rememberReference],
+  );
+
+  const handleReferenceImport = useCallback(
+    async (files: File[]): Promise<ImportedReference | null> => {
+      const pending = pendingDeck;
+      if (!pending) return null;
       setReferenceImporting(true);
       try {
         const uploaded = await uploadPromptFiles(files);
@@ -723,26 +810,48 @@ export default function Index() {
         const pdfReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".pdf"),
         );
+        let importedReference: ImportedReference | null = null;
+        let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction("import-pptx", {
             filePath: pptxReference.path,
-          })) as { id?: unknown };
-          if (typeof imported.id !== "string" || !imported.id) {
+          })) as {
+            id?: unknown;
+            imported?: unknown;
+            slideCount?: unknown;
+            title?: unknown;
+          };
+          if (
+            typeof imported.id !== "string" ||
+            !imported.id ||
+            imported.imported !== true ||
+            typeof imported.slideCount !== "number" ||
+            imported.slideCount < 1
+          ) {
             throw new Error("The imported presentation did not create a deck.");
           }
-          await reloadDecks();
-          rememberReference({ id: imported.id, kind: "deck" });
-          referenceDeckAutoRef.current = false;
-          setSelectedReferenceDeckId(imported.id);
-        }
-        if (!pptxReference && pdfReference) {
+          importedReference = {
+            id: imported.id,
+            title:
+              typeof imported.title === "string" && imported.title
+                ? imported.title
+                : t("home.importedReferenceDeck"),
+            source: "pptx",
+          };
+          generationFiles = uploaded.filter((file) => file !== pptxReference);
+        } else if (pdfReference) {
           const referenceDeck = createDeck(undefined, {
             noDefaultSlides: true,
           });
           const persisted = await ensureDeckPersisted(referenceDeck.id);
-          if (!persisted) {
+          if (!persisted.persisted) {
             deleteDeck(referenceDeck.id);
-            throw new Error("The PDF reference deck could not be saved.");
+            throw new Error(
+              describeDeckPersistenceFailure(
+                persisted,
+                "The PDF reference deck could not be saved.",
+              ),
+            );
           }
           try {
             const imported = (await callAction("import-file", {
@@ -750,39 +859,45 @@ export default function Index() {
               format: "pdf",
               deckId: referenceDeck.id,
               importIntoDeck: true,
-            })) as { imported?: unknown; deckId?: unknown };
+            })) as {
+              imported?: unknown;
+              deckId?: unknown;
+              pageCount?: unknown;
+              title?: unknown;
+            };
             if (
               imported.imported !== true ||
-              imported.deckId !== referenceDeck.id
+              imported.deckId !== referenceDeck.id ||
+              typeof imported.pageCount !== "number" ||
+              imported.pageCount < 1
             ) {
               throw new Error("The PDF reference deck could not be imported.");
             }
-            await reloadDecks();
-            rememberReference({ id: referenceDeck.id, kind: "deck" });
-            referenceDeckAutoRef.current = false;
-            setSelectedReferenceDeckId(referenceDeck.id);
+            importedReference = {
+              id: referenceDeck.id,
+              title:
+                typeof imported.title === "string" && imported.title
+                  ? imported.title
+                  : t("home.importedReferenceDeck"),
+              source: "pdf",
+            };
+            generationFiles = uploaded.filter((file) => file !== pdfReference);
           } catch (error) {
             deleteDeck(referenceDeck.id);
             throw error;
           }
         }
-        const importedReference = pptxReference ?? pdfReference;
-        const generationFiles = uploaded.filter(
-          (file) => file !== importedReference,
+        setPendingDeck((current) =>
+          current
+            ? { ...current, files: [...current.files, ...generationFiles] }
+            : current,
         );
-        if (generationFiles.length > 0) {
-          setPendingDeck((current) =>
-            current
-              ? {
-                  ...current,
-                  files: mergeUploadedFilesForRetry(
-                    current.files,
-                    generationFiles,
-                  ),
-                }
-              : current,
-          );
+        if (importedReference) {
+          await reloadDecks();
+          rememberReference({ id: importedReference.id, kind: "deck" });
+          setSelectedReferenceDeckId(importedReference.id);
         }
+        return importedReference;
       } catch (error) {
         toast.error(t("editorToolbar.uploadFailed"), {
           description:
@@ -790,6 +905,7 @@ export default function Index() {
               ? error.message
               : t("editorToolbar.importFailedDescription"),
         });
+        return null;
       } finally {
         setReferenceImporting(false);
       }
@@ -804,6 +920,59 @@ export default function Index() {
       rememberReference,
       t,
     ],
+  );
+
+  const handleReferenceSourceImport = useCallback(
+    async (
+      source: NewDeckReferenceSource,
+    ): Promise<ImportedReference | null> => {
+      if (source.kind !== "google-docs") return null;
+      setReferenceImporting(true);
+      try {
+        const imported = (await callAction("import-google-slides-reference", {
+          presentationUrl: source.value,
+        })) as {
+          id?: unknown;
+          imported?: unknown;
+          slideCount?: unknown;
+          title?: unknown;
+        };
+        if (
+          typeof imported.id !== "string" ||
+          !imported.id ||
+          imported.imported !== true ||
+          typeof imported.slideCount !== "number" ||
+          imported.slideCount < 1
+        ) {
+          throw new Error(
+            "The Google Slides presentation did not create a deck.",
+          );
+        }
+        const importedReference: ImportedReference = {
+          id: imported.id,
+          title:
+            typeof imported.title === "string" && imported.title
+              ? imported.title
+              : t("home.importedReferenceDeck"),
+          source: "google-slides",
+        };
+        await reloadDecks();
+        rememberReference({ id: importedReference.id, kind: "deck" });
+        setSelectedReferenceDeckId(importedReference.id);
+        return importedReference;
+      } catch (error) {
+        toast.error(t("editorToolbar.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("editorToolbar.importFailedDescription"),
+        });
+        return null;
+      } finally {
+        setReferenceImporting(false);
+      }
+    },
+    [callAction, reloadDecks, rememberReference, t],
   );
 
   const handleReferenceSkip = useCallback(() => {
@@ -918,7 +1087,16 @@ export default function Index() {
     (id: string) => {
       let copy: ReturnType<typeof duplicateDeck> | undefined;
       flushSync(() => {
-        copy = duplicateDeck(id, `deck-${nanoid()}`);
+        copy = duplicateDeck(id, `deck-${nanoid()}`, undefined, () => {
+          // The background duplicate-deck action failed after we already
+          // navigated to the optimistic copy's route. If the user is still
+          // there, send them back to the deck list instead of stranding them
+          // on a "Deck unavailable" screen for a deck that no longer exists.
+          if (deckIdFromPathname(window.location.pathname) === copy?.id) {
+            navigate("/");
+          }
+          toast.error(t("home.duplicateFailed"));
+        });
       });
       // The context refuses a second copy of the same deck while the first
       // one's action is still in flight.
@@ -950,8 +1128,8 @@ export default function Index() {
     <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-10">
       {loading ? (
         <>
-          <div className="flex items-center justify-end mb-4">
-            <div className="h-3 w-16 rounded bg-muted animate-pulse" />
+          <div className="mb-4 flex items-center justify-end">
+            <div className="h-3 w-16 animate-pulse rounded bg-muted" />
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -1135,6 +1313,7 @@ export default function Index() {
         onSkip={handleCreateDeckBlank}
         skipLabel={t("home.skipPrompt")}
         onSubmit={handlePromptSubmit}
+        importingLabel={t("editorToolbar.importing")}
         onBeforeUpload={(prompt, files) => {
           if (session) return true;
           preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
@@ -1150,45 +1329,36 @@ export default function Index() {
       <NewDeckReferenceStep
         open={showNewDeckReferenceStep}
         onOpenChange={(open) => {
-          if (!open) handleReferenceSkip();
+          if (!open) {
+            const prompt = pendingDeck?.prompt;
+            setShowNewDeckReferenceStep(false);
+            setPendingDeck(null);
+            if (prompt) {
+              setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+              setShowNewDeckPrompt(true);
+            }
+          }
         }}
         designSystems={designSystems}
         decks={decks}
         defaultDesignSystemId={initialDesignSystemId}
         defaultReferenceDeckId={workspaceReferenceDeckId}
-        selectedDesignSystemId={selectedDesignSystemId}
-        selectedReferenceDeckId={selectedReferenceDeckId}
-        onSelectDesignSystem={handleReferenceDesignSystemSelect}
-        onSelectReferenceDeck={handleReferenceDeckSelect}
+        recentReferences={recentReferences}
+        onSelect={(selection) => void handleReferenceSelect(selection)}
         onImport={handleReferenceImport}
-        onGoogleSlidesImported={handleGoogleSlidesImported}
-        onContinue={handleReferenceContinue}
+        onImportSource={handleReferenceSourceImport}
         onSkip={handleReferenceSkip}
         importing={referenceImporting}
-        title={t("home.referenceReviewTitle")}
-        description={t("home.referenceReviewDescription")}
+        title={t("home.newDeckPromptTitle")}
         designSystemLabel={t("home.designSystem")}
         referenceDeckLabel={t("home.referenceDeck")}
-        noneLabel={t("home.none")}
-        importFileLabel={t("editorToolbar.importFile")}
+        chooseDeckLabel={t("home.referenceDeckPlaceholder")}
         importingLabel={t("editorToolbar.importing")}
-        continueLabel={t("designSystemSetup.continueToGeneration")}
-        skipLabel={t("home.skipReferences")}
-        defaultSuffix={t("home.defaultSuffix")}
+        skipLabel={t("home.referenceDeckNone")}
         starredLabel={t("home.referenceDeckStarredGroup")}
         otherDecksLabel={t("home.referenceDeckOtherGroup")}
         searchDecksLabel={t("root.searchDecks")}
-        chooseAnotherDeckLabel={t("home.chooseAnotherDeck")}
-        noMatchingDecksLabel={t("home.noMatchingDecks")}
-        googleSlidesTitle={t("home.googleSlidesReferenceTitle")}
-        googleSlidesConnectLabel={t("home.googleSlidesReferenceConnect")}
-        googleSlidesChooseLabel={t("home.googleSlidesReferenceChoose")}
-        googleSlidesPickingLabel={t("home.googleSlidesReferencePicking")}
-        googleSlidesConnectedLabel={t("home.googleSlidesReferenceConnected")}
-        googleSlidesUnavailableLabel={t(
-          "home.googleSlidesReferenceUnavailable",
-        )}
-        promptNote={pendingDeck?.prompt}
+        promptSummary={pendingDeck?.prompt}
       />
 
       {/* Sign-in required to create a deck. Shown when an unauthenticated
@@ -1227,23 +1397,17 @@ function EmptyState({
 }) {
   const t = useT();
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconStack2 className="w-7 h-7 text-[#609FF8]" />
-      </div>
-      <h2 className="text-xl font-semibold text-foreground mb-2">
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-5 text-center">
+      <h2 className="text-xl font-semibold text-foreground">
         {t("home.emptyTitle")}
       </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        {t("home.emptyDescription")}
-      </p>
       <Button
         onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
           onCreateDeck(e as React.MouseEvent<HTMLElement>)
         }
       >
-        <IconPlus className="w-4 h-4" />
-        {t("home.newDeck")}
+        <IconPlus className="size-4" />
+        {t("home.createFirstDeck")}
       </Button>
     </div>
   );

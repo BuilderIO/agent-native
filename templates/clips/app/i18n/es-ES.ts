@@ -466,6 +466,10 @@ const messages = {
     agentLinkUnavailable: "No se pudo crear el enlace para agentes.",
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
+    copyEmailPreview: "Copiar vista previa del correo electrónico",
+    emailPreviewCopied: "Vista previa del correo electrónico copiada",
+    emailPreviewCopyFailed:
+      "No se pudo copiar la vista previa del correo electrónico",
     openPlayer: "jugador abierto",
     chooseFile: "Elige el archivo",
     remove: "Eliminar",
@@ -691,12 +695,12 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Builder.io es la ruta principal de almacenamiento para las subidas de Clips. S3 está disponible si necesitas usar tu propio bucket.",
     checkingBuilder: "Comprobando Builder.io",
     builderConnected: "Builder.io conectado",
-    connectBuilder: "Usar Builder.io (gratis)",
+    connectBuilder: "Usar Builder.io",
     builderConnectedFor: "Usando Builder.io para {{orgName}}.",
     builderConnectedGeneric:
       "Los clips nuevos usan el proveedor Builder.io conectado.",
     builderIncludes:
-      "Incluye almacenamiento de objetos, subidas y transcripción gestionada para clips nuevos.",
+      "El nivel gratuito de Builder.io incluye almacenamiento de objetos, subidas y transcripción gestionada para clips nuevos.",
     s3Title: "Almacenamiento compatible con S3",
     secondary: "Secundario",
     active: "Activo",
@@ -722,8 +726,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "El nombre del bucket debe tener 3–63 letras minúsculas, números o guiones",
     s3RegionInvalid: 'Debe ser una región válida (p. ej. us-east-1) o "auto"',
     apiSetup: "Configuración de IA",
-    apiSetupDescription:
-      "Conecta IA con créditos gratis de Builder.io o tus propias claves LLM.",
+    apiSetupDescription: "Elige cómo Clips se conecta a la IA.",
     builderEasySetup: "Créditos gratis de Builder.io",
     builderAiAvailable:
       "Los créditos de IA incluidos y la transcripción gestionada están disponibles para Clips.",
@@ -731,8 +734,13 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Usa Builder.io primero para créditos de IA incluidos, almacenamiento de objetos, subidas y transcripción gestionada.",
     providerKeyTitle: "Usar tu propia clave de proveedor",
     providerKeyDescription:
-      "Añade claves de Anthropic, OpenAI, Gemini, Groq u OpenRouter para uso facturado por proveedor.",
+      "Elige Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere u Ollama para uso facturado por proveedor.",
     providerKeysSet: "{{count}} configuradas",
+    providerActionTitle: "Proveedor de IA",
+    providerActionDescription:
+      "Builder.io incluye un nivel gratuito, o usa claves propias.",
+    providerManage: "Gestionar",
+    providerCustomKeys: "Claves propias",
     checkingProviderKeys: "Comprobando claves de proveedor…",
     keySet: "Configurada",
     keyCleared: "Credenciales de almacenamiento borradas",
@@ -1170,7 +1178,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
-    connectBuilder: "Usar Builder.io (gratis)",
+    connectBuilder: "Usar Builder.io",
     free: "Gratis",
     configureS3: "configurar almacenamiento compatible con S3",
     whyPrompt: "¿Por qué veo esto?",

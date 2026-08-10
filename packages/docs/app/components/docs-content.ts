@@ -9,6 +9,8 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../../lib/docs-source";
+import { hasDocBlockSyntax } from "./doc-block-detection";
+import { preloadDocBlocksContent } from "./doc-block-renderer";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -50,6 +52,7 @@ export interface DocEntry {
   title: string;
   description: string;
   search: string;
+  draft?: boolean;
   body: string; // markdown body (without frontmatter)
   headings: { id: string; label: string; level: number }[];
 }
@@ -150,6 +153,7 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
     title: data.title || slug,
     description: data.description || "",
     search: data.search || "",
+    draft: data.draft === "true" || undefined,
     body,
     headings,
   };
@@ -245,6 +249,44 @@ export async function loadDoc(
     });
   localizedDocPromises.set(key, promise);
   return promise;
+}
+
+/**
+ * Loads a doc and applies draft visibility, checking the canonical
+ * (default-locale) entry's draft status even when serving a localized
+ * translation. A translation's frontmatter can drift from the canonical
+ * page it was translated from, so gating on the localized doc alone lets a
+ * draft leak through any locale whose translator forgot `draft: true`.
+ */
+export async function loadDocRespectingDraftVisibility(
+  slug: string,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+): Promise<DocEntry | undefined> {
+  const doc = await loadDoc(slug, locale);
+  if (!doc) return undefined;
+
+  const docsLocale = normalizeDocsLocale(locale);
+  const canonical =
+    docsLocale === DEFAULT_DOCS_LOCALE
+      ? doc
+      : await loadDoc(slug, DEFAULT_DOCS_LOCALE);
+  const isDraft = Boolean(doc.draft || canonical?.draft);
+
+  if (isDraft && import.meta.env.VITE_SHOW_DRAFTS !== "true") return undefined;
+  // Normalize `draft` to the resolved status so callers that render a draft
+  // banner off this flag stay correct for translations whose frontmatter
+  // omits `draft: true` even though the canonical page is a draft.
+  const visibleDoc =
+    isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+
+  // Route loaders run before both SSR and client-side navigations render. Keep
+  // the optional block module out of ordinary docs requests, but resolve it
+  // before a block page can paint the Markdown fallback and then reflow.
+  if (hasDocBlockSyntax(visibleDoc.body)) {
+    await preloadDocBlocksContent();
+  }
+
+  return visibleDoc;
 }
 
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {

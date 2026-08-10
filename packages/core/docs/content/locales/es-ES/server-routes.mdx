@@ -1,0 +1,199 @@
+---
+title: "Rutas"
+description: "Rutas de servidor Nitro basadas en archivos, el catch-all de SSR, convenciones de nomenclatura y cómo delimitar rutas personalizadas al usuario autenticado."
+---
+
+# Rutas
+
+El enrutamiento de servidor en una aplicación nativa del agente se divide en dos superficies.
+
+**Rutas del marco** en `/_agent-native/*`, gestionadas por el marco. Exponen el bucle de chat del agente, el polling de sincronización, los endpoints de actions y otras capacidades centrales. Usted no crea ni modifica estas rutas.
+
+**Rutas de archivo personalizadas** en `server/routes/`, donde usted agrega sus propios endpoints. Nitro las recoge automáticamente según su ubicación en el árbol de directorios: no se necesita registro ni configuración. El nombre del archivo define el método HTTP, la ruta de directorio se convierte en la ruta URL, y cada archivo exporta un único manejador.
+
+## Rutas Montadas por el Marco {#framework-routes}
+
+El marco reserva el espacio de nombres `/_agent-native/` para sus propios endpoints. Nunca ponga rutas personalizadas aquí. Esta tabla es representativa, no exhaustiva.
+
+| Prefijo de ruta                  | Propósito                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Endpoints HTTP de actions                                                                            |
+| `/_agent-native/agent-chat`      | Bucle de chat del agente                                                                             |
+| `/_agent-native/poll`            | Sincronización de UI respaldada por SQL                                                              |
+| `/_agent-native/runs`            | Primitiva de progreso. `RunsTray` sondea este endpoint; consulte [Progreso](/docs/progress)          |
+| `/_agent-native/resources/*`     | Recursos del espacio de trabajo                                                                      |
+| `/_agent-native/extensions/*`    | Extensiones en tiempo de ejecución y proxy de extensiones (alias heredado: `/_agent-native/tools/*`) |
+| `/_agent-native/integrations/*`  | Integraciones de mensajería/webhooks                                                                 |
+| `/_agent-native/a2a`             | JSON-RPC de agente a agente                                                                          |
+| `/mcp`                           | Endpoint MCP                                                                                         |
+| `/_agent-native/onboarding/*`    | Lista de verificación de configuración                                                               |
+| `/_agent-native/observability/*` | Trazas, feedback, evals, experimentos                                                                |
+| `/_agent-native/file-upload`     | Endpoint del proveedor de carga de archivos                                                          |
+
+Las rutas de aplicación personalizadas van en `/api/*` o en otra ruta que no colisione con `/_agent-native/`.
+
+## Cuándo Usar una Ruta Personalizada {#when-custom-routes}
+
+Las actions cubren la gran mayoría de las operaciones de la aplicación. Recurra a una ruta de archivo en `server/routes/` solo cuando necesite algo que una action no pueda expresar.
+
+<Comparison>
+
+### Use una ruta personalizada {#use-custom-route}
+
+- Cargas de archivos o datos de formulario multipart
+- Respuestas en streaming o eventos enviados por el servidor (SSE)
+- Webhooks entrantes que necesitan verificación del cuerpo sin procesar
+- Callbacks de OAuth
+- Páginas públicas sin autenticación
+- Contratos REST externos que requieren una ruta URL o una forma de respuesta específica
+
+### Use una action en su lugar {#use-action-instead}
+
+- Operaciones que tanto la UI como el agente necesitan
+- Lectura o escritura de datos de la aplicación
+- Endpoints con forma HTTP (use la opción `http` en [Actions](/docs/actions))
+- Cualquier cosa que deba ser una herramienta del agente, una herramienta MCP o un comando de CLI
+- APIs estándar de solicitud/respuesta JSON
+
+</Comparison>
+
+### Ejemplo: webhook entrante {#example-webhook}
+
+Los webhooks son un caso claro para una ruta personalizada. Los servicios externos envían un cuerpo HTTP sin procesar que debe leerse como bytes antes de analizarlo, para poder verificar la firma de la solicitud. Las actions reciben JSON ya analizado y no pueden acceder al cuerpo sin procesar, lo que hace imposible la verificación de firma dentro de una de ellas.
+
+La ruta siguiente gestiona un webhook entrante en `POST /api/webhooks/events`. Lee el cuerpo sin procesar, verifica una firma HMAC y luego procesa el payload.
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro asigna este archivo automáticamente a `POST /api/webhooks/events`. La variable de entorno `WEBHOOK_SECRET` debe configurarse con el secreto de firma proporcionado por el servicio externo.
+
+## Rutas Basadas en Archivos {#file-based-routes}
+
+La ruta de directorio se convierte en la ruta URL, y el sufijo del nombre de archivo define el método HTTP. Un archivo en `server/routes/api/items/[id].get.ts` se asigna a `GET /api/items/:id`: `items/` proviene del directorio, `[id]` se convierte en el parámetro `:id`, y `.get` define el método.
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR catch-all for public pages
+```
+
+`defineEventHandler` es la primitiva de H3 para escribir una ruta. Envuelve su función manejadora y le da acceso al objeto `event`, que lleva la solicitud, la respuesta, los parámetros del enrutador, la cadena de consulta, las cabeceras y el cuerpo. Devolver un valor desde el manejador lo envía como respuesta: un objeto simple se convierte en JSON automáticamente. Lanzar un `createError` envía el estado de error HTTP correspondiente.
+
+Los parámetros de ruta como `[id]` se leen desde `event` con `getRouterParam`:
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### Convenciones de nomenclatura {#naming-conventions}
+
+| Ruta de archivo (relativa a `server/routes/`) | Método HTTP | Ruta URL         |
+| --------------------------------------------- | ----------- | ---------------- |
+| `api/items/index.get.ts`                      | GET         | `/api/items`     |
+| `api/items/index.post.ts`                     | POST        | `/api/items`     |
+| `api/items/[id].get.ts`                       | GET         | `/api/items/:id` |
+| `api/items/[id].patch.ts`                     | PATCH       | `/api/items/:id` |
+| `api/items/[id].delete.ts`                    | DELETE      | `/api/items/:id` |
+| `api/items/[...slug].get.ts`                  | GET         | `/api/items/*`   |
+
+## Contexto de Solicitud y Acceso {#request-context}
+
+Las actions montadas por el marco se ejecutan automáticamente con contexto de solicitud. Las rutas personalizadas no. Si una ruta personalizada lee o escribe recursos ownable, cargue la sesión y envuelva el trabajo:
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="Delimitar una ruta personalizada al usuario de la solicitud"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "Las rutas personalizadas no tienen contexto automático",
+      note: "A diferencia de las actions, una ruta de archivo debe cargar la sesión por sí misma y fallar de forma cerrada cuando no hay un usuario autenticado.",
+    },
+    {
+      lines: "13",
+      label: "Establecer el contexto de la solicitud",
+      note: "`runWithRequestContext` pone el usuario/organización a disposición de los ayudantes de delimitación durante la duración del trabajo.",
+    },
+    {
+      lines: "17-20",
+      label: "Delimitar lecturas ownable",
+      note: "`accessFilter` restringe la consulta a las filas que el llamante puede ver. Nunca ejecute aquí un `db.select().from(ownableTable)` sin delimitar.",
+    },
+  ]}
+/>
+
+`getDb` se crea por aplicación mediante `createGetDb(schema)` en `server/db/index.ts`, por lo que las rutas personalizadas lo importan desde la ruta de la plantilla (`../../db/index.js`), no desde `@agent-native/core/db`. Consulte [Base de datos](/docs/server-database#db-client).
+
+<Callout tone="warning">
+  No ejecute `db.select().from(ownableTable)` sin delimitar en rutas
+  personalizadas. Establezca siempre el contexto de la solicitud con
+  `runWithRequestContext` antes de consultar datos ownable.
+</Callout>
+
+## Catch-All de SSR {#ssr-catch-all}
+
+La ruta `[...page].get.ts` en la raíz de `server/routes/` gestiona el renderizado del lado del servidor para las páginas de cara al público. Usa `createH3SSRHandler` para delegar en el build de React Router:
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+Cada respuesta SSR es un shell impersonal y público, cacheado en el CDN. Nunca lea cookies, estado de sesión ni ramas de autenticación en este manejador. La personalización ocurre del lado del cliente después de la hidratación.
+
+## ¿Qué sigue? {#whats-next}
+
+- [**Actions**](/docs/actions): la superficie preferida para las operaciones de la aplicación; recurra a una ruta solo cuando no encaje
+- [**Plugins**](/docs/server-plugins): plugins de inicio y su comportamiento de inicialización
+- [**Middleware**](/docs/server-middleware): guardias de autenticación que protegen todas las rutas, incluida `/api/*`
+- [**Seguridad**](/docs/security#access-guards): `accessFilter`/`assertAccess` y el modelo completo de delimitación de datos
