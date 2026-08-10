@@ -214,6 +214,16 @@ interface ChatFirstEmbedSessionInput {
   chrome: "minimal";
 }
 
+interface ChatFirstGrantedAppSummary {
+  id: string;
+  name: string;
+  url?: string | null;
+}
+
+interface ChatFirstGrantedAppsResult {
+  apps: ChatFirstGrantedAppSummary[];
+}
+
 export function buildChatFirstEmbedSessionInput(
   appId: string,
   path: string,
@@ -1300,21 +1310,38 @@ export function Layout({
     { includeAgentCards: false },
     { enabled: chatFirstMode },
   );
+  const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
+    "list_apps",
+    {},
+    { enabled: chatFirstMode },
+  );
   const chatFirstWorkspaceApps = useMemo(
     () => mergeChatFirstWorkspaceApps(chatFirstAppsQuery.data),
     [chatFirstAppsQuery.data],
   );
-  const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(
-    () =>
-      chatFirstWorkspaceApps.map((app) => ({
+  const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
+    const registrations = new Map<string, ChatFirstAppRegistration>();
+    for (const app of chatFirstWorkspaceApps) {
+      registrations.set(app.id.toLowerCase(), {
         id: app.id,
         name: app.name,
         path: app.path,
         url: app.url,
         enabled: app.status !== "pending" && app.archived !== true,
-      })),
-    [chatFirstWorkspaceApps],
-  );
+      });
+    }
+    for (const app of chatFirstGrantedAppsQuery.data?.apps ?? []) {
+      const id = app.id.trim();
+      if (!id || registrations.has(id.toLowerCase())) continue;
+      registrations.set(id.toLowerCase(), {
+        id,
+        name: app.name,
+        url: app.url,
+        enabled: true,
+      });
+    }
+    return [...registrations.values()];
+  }, [chatFirstGrantedAppsQuery.data?.apps, chatFirstWorkspaceApps]);
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
       chatFirstWorkspaceApps.map((app) => ({
@@ -1371,18 +1398,24 @@ export function Layout({
       ) ?? null,
     [chatFirstSurfaceTabs],
   );
-  const chatFirstAppTakesMain =
-    chatFirstMode && isChatRoute && activeChatFirstSurfaceTab?.kind === "app";
-  const activeChatFirstApp = useMemo(
+  const activeChatFirstAppRegistration = useMemo(
     () =>
       activeChatFirstSurfaceTab?.kind === "app" &&
       activeChatFirstSurfaceTab.appId
-        ? (chatFirstWorkspaceApps.find(
+        ? (chatFirstAppRegistrations.find(
             (app) => app.id === activeChatFirstSurfaceTab.appId,
           ) ?? null)
         : null,
-    [activeChatFirstSurfaceTab, chatFirstWorkspaceApps],
+    [activeChatFirstSurfaceTab, chatFirstAppRegistrations],
   );
+  const activeChatFirstApp = activeChatFirstAppRegistration
+    ? {
+        id: activeChatFirstAppRegistration.id,
+        name:
+          activeChatFirstAppRegistration.name ??
+          activeChatFirstAppRegistration.id,
+      }
+    : null;
   const chatFirstAgentActivities = useMemo<ChatFirstAgentActivity[]>(
     () =>
       (chatFirstAgentsQuery.data?.threads ?? []).map((thread) => ({
@@ -1399,7 +1432,8 @@ export function Layout({
     activeChatFirstSurfaceTab?.kind === "app"
       ? (activeChatFirstSurfaceTab.path ??
         chatFirstPane?.path ??
-        activeChatFirstApp?.path)
+        activeChatFirstAppRegistration?.path ??
+        "/")
       : null;
   useEffect(() => {
     if (!chatFirstMode || !isChatRoute || !activeChatFirstApp) {
@@ -1527,7 +1561,7 @@ export function Layout({
   );
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
-      if (chatFirstAppsQuery.isLoading) {
+      if (chatFirstAppsQuery.isLoading || chatFirstGrantedAppsQuery.isLoading) {
         pendingChatFirstOpenAppRef.current = detail;
         return;
       }
@@ -1558,6 +1592,7 @@ export function Layout({
       chatFirstAppRegistrations,
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
+      chatFirstGrantedAppsQuery.isLoading,
       openChatFirstPane,
     ],
   );
@@ -1769,12 +1804,19 @@ export function Layout({
 
   useEffect(() => {
     const pending = pendingChatFirstOpenAppRef.current;
-    if (!pending || chatFirstAppsQuery.isLoading) return;
+    if (
+      !pending ||
+      chatFirstAppsQuery.isLoading ||
+      chatFirstGrantedAppsQuery.isLoading
+    )
+      return;
     resolveChatFirstOpenApp(pending);
   }, [
     chatFirstAppsQuery.data,
     chatFirstAppsQuery.isError,
     chatFirstAppsQuery.isLoading,
+    chatFirstGrantedAppsQuery.data,
+    chatFirstGrantedAppsQuery.isLoading,
     resolveChatFirstOpenApp,
   ]);
 
@@ -2081,31 +2123,32 @@ export function Layout({
       </main>
     </div>
   );
-  const chatFirstSurfaceTabsBar = (
-    <ChatFirstSurfaceTabs
-      tabs={chatFirstSurfaceTabs.tabs}
-      activeTabId={chatFirstSurfaceTabs.activeTabId}
-      onActivate={activateChatFirstSurfaceTab}
-      onClose={closeChatFirstSurfaceTab}
-      onCloseOthers={(tab) => {
-        activateChatFirstSurfaceTab(tab);
-        chatFirstSurfaceTabsStore.closeOthers(tab.id);
-      }}
-      onCloseToRight={(tab) => {
-        const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
-          (candidate) => candidate.id === tab.id,
-        );
-        const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
-          (candidate) => candidate.id === chatFirstSurfaceTabs.activeTabId,
-        );
-        if (activeIndex > targetIndex) activateChatFirstSurfaceTab(tab);
-        chatFirstSurfaceTabsStore.closeToRight(tab.id);
-      }}
-      onCloseAll={closeAllChatFirstSurfaceTabs}
-      onOpenSurface={openChatFirstSurface}
-      copy={chatFirstCopy}
-    />
-  );
+  const chatFirstSurfaceTabsBar =
+    activeChatFirstSurfaceTab?.kind === "app" ? null : (
+      <ChatFirstSurfaceTabs
+        tabs={chatFirstSurfaceTabs.tabs}
+        activeTabId={chatFirstSurfaceTabs.activeTabId}
+        onActivate={activateChatFirstSurfaceTab}
+        onClose={closeChatFirstSurfaceTab}
+        onCloseOthers={(tab) => {
+          activateChatFirstSurfaceTab(tab);
+          chatFirstSurfaceTabsStore.closeOthers(tab.id);
+        }}
+        onCloseToRight={(tab) => {
+          const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
+            (candidate) => candidate.id === tab.id,
+          );
+          const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
+            (candidate) => candidate.id === chatFirstSurfaceTabs.activeTabId,
+          );
+          if (activeIndex > targetIndex) activateChatFirstSurfaceTab(tab);
+          chatFirstSurfaceTabsStore.closeToRight(tab.id);
+        }}
+        onCloseAll={closeAllChatFirstSurfaceTabs}
+        onOpenSurface={openChatFirstSurface}
+        copy={chatFirstCopy}
+      />
+    );
   const chatFirstSurfaceContent =
     chatFirstSurfaceTabs.tabs.length > 0 ? (
       <ChatFirstSurfaceContent
@@ -2121,29 +2164,17 @@ export function Layout({
         chatFirstMode && "dispatch-chat-first-surface",
       )}
     >
-      {chatFirstAppTakesMain ? (
-        <div
-          className="flex min-w-0 flex-1 flex-col overflow-hidden"
-          data-dispatch-chat-first-main-app
+      {appContent}
+      {chatFirstMode && chatFirstSurfacePanel.open ? (
+        <ChatFirstSurfacePanel
+          width={chatFirstSurfaceResize.width}
+          onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
+          copy={chatFirstCopy}
         >
           {chatFirstSurfaceTabsBar}
           {chatFirstSurfaceContent}
-        </div>
-      ) : (
-        <>
-          {appContent}
-          {chatFirstMode && chatFirstSurfacePanel.open ? (
-            <ChatFirstSurfacePanel
-              width={chatFirstSurfaceResize.width}
-              onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
-              copy={chatFirstCopy}
-            >
-              {chatFirstSurfaceTabsBar}
-              {chatFirstSurfaceContent}
-            </ChatFirstSurfacePanel>
-          ) : null}
-        </>
-      )}
+        </ChatFirstSurfacePanel>
+      ) : null}
     </div>
   ) : isWorkspaceAppRoute ? (
     appContent
