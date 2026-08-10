@@ -287,6 +287,7 @@ export default function DeckEditor() {
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
+    generationStarted: newDeckGenerationStarted.current,
   });
   const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
     deck?.designSystemId,
@@ -326,7 +327,9 @@ export default function DeckEditor() {
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
   const generatingSlideVisible =
-    canEdit && !showQuestionFlow && (isNewDeckGenerating || addSlideGenerating);
+    canEdit &&
+    !showQuestionFlow &&
+    (isNewDeckGenerating || addSlideGenerating || showNewDeckGeneratingOverlay);
   const showCurrentSlideEditor =
     !generatingSlideSelected &&
     !showNewDeckGeneratingOverlay &&
@@ -354,12 +357,35 @@ export default function DeckEditor() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const previousSlideCountRef = useRef(slideCount);
+  const previousSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
-    if (previousSlideCountRef.current === slideCount) return;
-    previousSlideCountRef.current = slideCount;
-    setGeneratingSlideSelected(false);
-  }, [slideCount]);
+    const currentSlideIds = deck?.slides.map((slide) => slide.id) ?? [];
+    const previousSlideIds = previousSlideIdsRef.current;
+    const addedSlide = deck?.slides.find(
+      (slide) => !previousSlideIds.includes(slide.id),
+    );
+    const slideWasAdded = currentSlideIds.length > previousSlideIds.length;
+
+    if (
+      slideWasAdded &&
+      addedSlide &&
+      (generating ||
+        isNewDeckGenerating ||
+        addSlideGenerating ||
+        generatingSlideSelected)
+    ) {
+      setActiveSlideId(addedSlide.id);
+    }
+
+    previousSlideIdsRef.current = currentSlideIds;
+    if (slideWasAdded) setGeneratingSlideSelected(false);
+  }, [
+    addSlideGenerating,
+    deck,
+    generating,
+    generatingSlideSelected,
+    isNewDeckGenerating,
+  ]);
 
   useEffect(() => {
     if (
@@ -1139,14 +1165,6 @@ export default function DeckEditor() {
                     setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);
                     if (window.innerWidth < 768) setSidebarOpen(false);
-                  }}
-                  onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
-                  onDeleteSlide={(slideId) => {
-                    const idx = deck.slides.findIndex((s) => s.id === slideId);
-                    const nextSlide =
-                      deck.slides[idx + 1] || deck.slides[idx - 1];
-                    deleteSlideWithUndo(id, slideId);
-                    if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                   readOnly={!canEdit}
                   slidePresence={slidePresence}

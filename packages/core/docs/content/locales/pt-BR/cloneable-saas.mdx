@@ -302,7 +302,7 @@ Se você estiver montando um andaime agora, o comando CLI é:
 npx @agent-native/core@latest create my-platform
 ```
 
-Você receberá um seletor de seleção múltipla. Escolha um aplicativo (autônomo) ou vários (espaço de trabalho — os aplicativos compartilham autenticação, marca, configuração do agente e banco de dados). Cada app escolhido é estruturado em `apps/<name>/` com todos os arquivos que você precisa. Para uma automação sem UI no navegador em vez de uma UI de app, use `npx @agent-native/core@latest create my-agent --headless`.
+A CLI pergunta primeiro **Como você quer começar?** Escolha **Chat** para um workspace mínimo com Chat e Dispatch, ou **First-party template(s)** para abrir o seletor múltiplo. Community e Headless são as opções para um app independente. Os apps do workspace compartilham autenticação, marca, configuração do agente e banco de dados; cada app é estruturado em `apps/<name>/` com todos os arquivos necessários. Para uma automação sem UI no navegador em vez de uma UI de app, use `npx @agent-native/core@latest create my-agent --headless`.
 
 Preencha `.env` (principalmente `ANTHROPIC_API_KEY` e `DATABASE_URL`), `pnpm install`, `pnpm dev` e funciona. Sem "TODO: implementar login", sem rotas de espaço reservado.
 

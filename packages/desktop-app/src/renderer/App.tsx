@@ -224,13 +224,14 @@ export default function App() {
     setActiveSidebarAppId((prev) => {
       if (prev === CODE_AGENTS_SURFACE_ID && showCodeAgentsTab) return prev;
       if (prev && enabledApps.find((a) => a.id === prev)) return prev;
+      if (showCodeAgentsTab && chatFirstMode) return CODE_AGENTS_SURFACE_ID;
       // Pick from `appDefs` (AppDefinition) so the placeholder check works —
       // `enabledApps` is AppConfig[] and has no `placeholder` field, so the
       // old `"placeholder" in a` check was a no-op.
       const def = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
       return def?.id ?? "";
     });
-  }, [enabledAppIdsKey, showCodeAgentsTab]);
+  }, [chatFirstMode, enabledAppIdsKey, showCodeAgentsTab]);
 
   useEffect(() => {
     if (!activeSidebarAppId) return;

@@ -393,7 +393,13 @@
   border-radius: var(--radius);
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  box-shadow: 0 10px 30px hsl(var(--background) / 0.28);
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: 0 10px 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+}
+
+.dark .an-chat-history-row__menu-content {
+  --agent-shadow-o: 0.08;
 }
 
 .an-chat-history-row__menu-item {

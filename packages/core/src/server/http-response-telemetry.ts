@@ -22,6 +22,8 @@ import { getAppName } from "./app-name.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
+// Provider delivery posts back to these collectors. Recording the collector
+// response would feed another `http.response` event into the same collector.
 const TRACKING_INGEST_PATHS = new Set([
   "/track",
   "/api/analytics/track",
@@ -89,6 +91,11 @@ function sampleRate(): number {
 
 function shouldDisableTelemetry(): boolean {
   return boolEnv("AGENT_NATIVE_HTTP_TELEMETRY_DISABLED");
+}
+
+function isTrackingIngestPath(pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  return TRACKING_INGEST_PATHS.has(normalized);
 }
 
 function requestPath(event: H3Event): string {
@@ -167,7 +174,7 @@ function shouldTrack(
   state: HttpRequestTelemetryState,
 ): boolean {
   if (shouldDisableTelemetry()) return false;
-  if (TRACKING_INGEST_PATHS.has(pathname)) return false;
+  if (isTrackingIngestPath(pathname)) return false;
   if (pathname.startsWith("/api/analytics/replay")) return false;
   if (statusCode >= 500) return true;
   if (

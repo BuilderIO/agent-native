@@ -19,6 +19,13 @@ read the relevant skill before changing that area.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - On every response, consider whether the chat title still matches the work.
+- Do the work instead of asking whether to do it. If a step is inside the task
+  you were given and is not destructive, irreversible, or a spend/send/publish
+  action, run it and report the result — deploys, database reads and writes,
+  scripts, and browser checks included. Ask only for a missing credential, a
+  decision only the user can make, or a destructive action. On long runs, post
+  a progress note at each milestone and at least every ~15 minutes; if the user
+  has to ask "still going?", that is a miss.
 - Use sub-agents liberally for complex independent work when Agent Teams are
   available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current
@@ -65,7 +72,9 @@ The words after the icon are a short, task-specific status written for this
 response; never use the placeholder text `Brief status` literally. Use `🟢`
 when the requested coding/work unit is finished on the current branch, even if
 routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a manual
-step is still pending. Use `🔴` only when blocked on user input.
+step is still pending. Use `🔴` only when blocked on user input. When you use
+`🟡`, the pending item must be legible from that one line alone — the user
+should never have to reply asking what is not done.
 
 ## Checks
 

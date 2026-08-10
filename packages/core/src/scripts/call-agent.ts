@@ -312,7 +312,7 @@ function formatDownstreamLlmCredentialFailure(
 
 export const tool: ActionTool = {
   description:
-    "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
     'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
@@ -340,12 +340,12 @@ export const tool: ActionTool = {
       action: {
         type: "string",
         description:
-          "Optional exact read-only action for an explicitly known bounded operation. Prefer message when the target agent must interpret data, choose sources or tools, synthesize, mutate, or do multi-step work. Never guess the action schema or send receiver-owned SQL.",
+          "Optional exact read-only action for an explicitly known bounded operation. This field is never for creates, updates, deletes, sends, saves, publishes, or any other side effect. Prefer message when the target agent must interpret data, choose sources or tools, synthesize, mutate, or do multi-step work. Never guess the action schema or send receiver-owned SQL.",
       },
       input: {
         type: "object",
         description:
-          "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations.",
+          "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations. For a mutating request, omit action and use message.",
         additionalProperties: true,
       },
       approvedActions: {

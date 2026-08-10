@@ -47,7 +47,7 @@ export default function GeneratingSlidePreview({
   return (
     <div
       className={cn(
-        "relative w-full overflow-hidden rounded-lg border border-border/60 bg-muted/20",
+        "relative w-full overflow-hidden rounded-lg border border-primary/70",
         className,
       )}
       style={{ aspectRatio: cssRatio }}
@@ -65,6 +65,10 @@ export default function GeneratingSlidePreview({
       ) : (
         <SlideLoadingArtwork />
       )}
+      <div className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1.5 rounded-full border border-primary/70 px-2 py-1 text-[11px] font-medium text-primary">
+        <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+        {t("raw.aiEditing")}
+      </div>
       <div className="absolute right-2 top-2 rounded-full bg-background/80 p-1.5 text-muted-foreground shadow-sm backdrop-blur">
         <IconLoader2 className="size-3.5 animate-spin" aria-hidden="true" />
       </div>

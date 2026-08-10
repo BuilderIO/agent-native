@@ -62,6 +62,7 @@ describe("createTiptapComposerExtensions", () => {
     expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
     expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
+    expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
     expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
     expect(compactComposerReasoningEffortLabel("xhigh")).toBe("XHigh");

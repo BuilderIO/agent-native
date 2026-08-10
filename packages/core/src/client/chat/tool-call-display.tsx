@@ -165,6 +165,7 @@ export function ToolCallStackMotion({
 }) {
   const stackRef = useRef<HTMLDivElement>(null);
   const previousRef = useRef<Map<string, ToolStackMotionSnapshot>>(new Map());
+  const previousStructureRef = useRef<string[]>([]);
   const activeMotionsRef = useRef<Map<string, ToolStackActiveMotion>>(
     new Map(),
   );
@@ -203,6 +204,14 @@ export function ToolCallStackMotion({
         "[data-agent-tool-call-id], [data-agent-tool-summary]",
       ),
     );
+    const structure = elements.map((element, index) =>
+      toolStackMotionKey(element, index),
+    );
+    const previousStructure = previousStructureRef.current;
+    const structureChanged =
+      structure.length !== previousStructure.length ||
+      structure.some((key, index) => key !== previousStructure[index]);
+    previousStructureRef.current = structure;
     const current = new Map<string, ToolStackMotionSnapshot>();
     for (const [index, element] of elements.entries()) {
       const rect = element.getBoundingClientRect();
@@ -216,7 +225,14 @@ export function ToolCallStackMotion({
     }
 
     previousRef.current = current;
-    if (previous.size === 0 || prefersReducedMotionForToolStack()) return;
+    // Entry motion changes the measured transform without changing the stack
+    // structure. Do not turn that animation's cleanup into a second FLIP pass.
+    if (
+      previous.size === 0 ||
+      !structureChanged ||
+      prefersReducedMotionForToolStack()
+    )
+      return;
 
     const summary = elements.find(
       (element) => element.dataset.agentToolSummary !== undefined,
@@ -331,9 +347,25 @@ export function ToolCallStackMotion({
  * provided, and "Always allow" only renders when `onAlwaysAllow` is provided
  * — both are additive so existing action-approval consumers are unaffected.
  */
+export type ApprovalResolution = "approved" | "denied";
+
 export type ApprovalContextValue = {
   /** Re-issue the turn so the server runs the approved call. */
   onApprove: (approvalKey: string) => void;
+  /**
+   * Keep the visible resolution stable while the chat repository refreshes or
+   * remounts the message containing this approval card.
+   */
+  onApprovalResolved?: (
+    approvalKey: string,
+    resolution: ApprovalResolution,
+    toolCallId?: string,
+  ) => void;
+  /** Read a resolution retained by the owning chat surface. */
+  getApprovalResolution?: (
+    approvalKey: string,
+    toolCallId?: string,
+  ) => ApprovalResolution | null;
   /**
    * Optional host hook invoked in addition to the local "denied" state, e.g.
    * so a Code session can also resolve its own pending approval as denied.
@@ -383,14 +415,6 @@ export function ToolActivityPresentation({
   // Presentation follows the active chat tail rather than execution state so
   // that newly revealed completed tools still get their entrance motion.
   const [animateEntry, setAnimateEntry] = useState(isActiveTail);
-  const previousActiveTailRef = useRef(isActiveTail);
-
-  useEffect(() => {
-    if (isActiveTail && !previousActiveTailRef.current) {
-      setAnimateEntry(true);
-    }
-    previousActiveTailRef.current = isActiveTail;
-  }, [isActiveTail]);
 
   useEffect(() => {
     if (!animateEntry) return;
@@ -778,18 +802,26 @@ export function AnimatedCollapse({
  */
 function ApprovalAffordance({
   toolName,
+  toolCallId,
   approval,
 }: {
   toolName: string;
+  toolCallId?: string;
   approval: { approvalKey: string; dismissed?: boolean };
 }) {
   const ctx = React.useContext(ApprovalContext);
-  const [approved, setApproved] = useState(false);
-  const [denied, setDenied] = useState(false);
+  const [localResolution, setLocalResolution] =
+    useState<ApprovalResolution | null>(null);
+  const retainedResolution =
+    ctx?.getApprovalResolution?.(approval.approvalKey, toolCallId) ?? null;
+  const resolution =
+    retainedResolution ??
+    localResolution ??
+    (approval.dismissed === true ? "denied" : null);
 
-  // Once approved, the turn is re-issued; collapse to a quiet note so the user
-  // can't double-fire the approval.
-  if (approved) {
+  // Once resolved, collapse to a quiet note so a repository refresh cannot
+  // restore the action buttons while the continuation is running.
+  if (resolution === "approved") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
         Approved. Re-running {toolName}...
@@ -799,7 +831,7 @@ function ApprovalAffordance({
   // Deny defaults to local-only (the action simply stays un-run). When the
   // host also provided `onDeny` (e.g. a Code session resolving its own
   // pending approval), it fires alongside the local state.
-  if (denied) {
+  if (resolution === "denied") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
         Denied. {toolName} did not run.
@@ -816,7 +848,12 @@ function ApprovalAffordance({
         <button
           type="button"
           onClick={() => {
-            setApproved(true);
+            setLocalResolution("approved");
+            ctx.onApprovalResolved?.(
+              approval.approvalKey,
+              "approved",
+              toolCallId,
+            );
             ctx.onApprove(approval.approvalKey);
           }}
           className={cn(
@@ -832,7 +869,12 @@ function ApprovalAffordance({
         <button
           type="button"
           onClick={() => {
-            setApproved(true);
+            setLocalResolution("approved");
+            ctx.onApprovalResolved?.(
+              approval.approvalKey,
+              "approved",
+              toolCallId,
+            );
             ctx.onAlwaysAllow?.(approval.approvalKey);
           }}
           title="Approve and always allow this exact command"
@@ -848,7 +890,8 @@ function ApprovalAffordance({
       <button
         type="button"
         onClick={() => {
-          setDenied(true);
+          setLocalResolution("denied");
+          ctx?.onApprovalResolved?.(approval.approvalKey, "denied", toolCallId);
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
@@ -951,6 +994,7 @@ export function ToolCallDisplay({
   return wrapToolDisplay(
     <ToolCallDisplayGeneric
       toolName={toolName}
+      toolCallId={toolCallId}
       argsText={argsText}
       args={args}
       result={result}
@@ -968,6 +1012,7 @@ export function ToolCallDisplay({
 
 function ToolCallDisplayGeneric({
   toolName,
+  toolCallId,
   argsText,
   args,
   result,
@@ -981,6 +1026,7 @@ function ToolCallDisplayGeneric({
   repeatCount,
 }: {
   toolName: string;
+  toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
@@ -1238,7 +1284,11 @@ function ToolCallDisplayGeneric({
         </p>
       )}
       {approval && (
-        <ApprovalAffordance toolName={toolName} approval={approval} />
+        <ApprovalAffordance
+          toolName={toolName}
+          toolCallId={toolCallId}
+          approval={approval}
+        />
       )}
     </div>
   );

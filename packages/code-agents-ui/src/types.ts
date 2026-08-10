@@ -25,6 +25,8 @@ export interface CodeAgentModelOption {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface CodeAgentModelListResult {

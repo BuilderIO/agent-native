@@ -4345,6 +4345,7 @@ export default function SlideEditor({
                           edits={activeSlideEdits}
                           resolveRect={resolveCanvasRect}
                           containerRef={slideCanvasRef}
+                          outlineOnly
                         />
                       )}
                       {(agentActive || passivePresentUsers.length > 0) && (

@@ -66,7 +66,12 @@ workspace audit after every edit.
 | A guard/lint script (`scripts/guard-*.{mjs,ts}`) | Run it directly against a case that should now pass and one that should still fail | `pnpm guard:<name>` (name matches the `package.json` script); `pnpm guards` for the full sweep |
 | `packages/core` or another publishable package | Run that package's actual tests, not just typecheck | `pnpm --filter @agent-native/core exec vitest --run <changed.spec.ts>`, or `pnpm test:core-integration` for cross-cutting paths |
 | Cross-cutting change, or unsure which area | Workspace-wide pass | `pnpm run prep` (fmt + typecheck + `test:fast` + `guards`, run in parallel) |
+| Anything you deployed | The deploy succeeding is not the check. Exercise the live path itself | Hit the real URL or replay the real request against the deployed environment, then read that environment's logs; a green deploy with a still-broken path is the single most repeated false "done" |
 | Docs only (`.md`, `AGENTS.md`, `SKILL.md`) | Nothing to run | Say "docs-only, no runtime check applies" — don't invent a verification step |
+
+For any user-visible change, put the proof in the reply: a screenshot of the
+surface you just drove, or the actual query result / log line for backend work.
+"Show me screenshots" is a standing expectation, not a special request.
 
 `pnpm test:fast` excludes `.db.test.ts` / `.integration.*` / `.e2e.*` /
 `.live.*` / `.perf.*` suites. If your change touches one of those, name and

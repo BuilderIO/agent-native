@@ -67,25 +67,45 @@ describe("new deck generation flow", () => {
   });
 
   it("turns an imported PPTX into a reusable reference deck", () => {
-    expect(flow).toMatch(/callAction\(\s*"import-pptx"/);
-    expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
-    expect(flow).toContain("const generationFiles = uploaded.filter");
-    expect(flow).toContain("referenceSelection = {");
-    expect(flow).toContain("referenceDeckId: imported.id");
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    // Whitespace-tolerant: passing the extended import timeout wraps the call
+    // across lines, and this asserts the call exists, not how it is formatted.
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(referenceImportFlow).toContain("importedReference = {");
+    expect(referenceImportFlow).toContain('source: "pptx"');
+    expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
+    expect(referenceImportFlow).toContain("return importedReference");
+    expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
   });
 
   it("imports an uploaded PDF into a reusable reference deck", () => {
-    expect(flow).toMatch(/callAction\(\s*"import-file"/);
-    expect(flow).toContain('format: "pdf"');
-    expect(flow).toContain("importIntoDeck: true");
-    expect(flow).toContain("The PDF reference deck could not be imported.");
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-file"/);
+    expect(referenceImportFlow).toContain('format: "pdf"');
+    expect(referenceImportFlow).toContain("importIntoDeck: true");
+    expect(referenceImportFlow).toContain(
+      "The PDF reference deck could not be imported.",
+    );
   });
 
-  it("supports direct imports from the new-deck prompt", () => {
-    expect(flow).toContain("const handleDirectImport");
-    expect(flow).toContain("presentationUrl: selection.url");
-    expect(flow).toMatch(/callAction\(\s*"import-pptx"/);
-    expect(flow).toMatch(/callAction\(\s*"import-file"/);
-    expect(source).toContain('importFromLabel={t("home.importFrom")}');
+  it("imports a pasted Google Slides URL before selecting the reference deck", () => {
+    const referenceSourceImportFlow = source.slice(
+      source.indexOf("const handleReferenceSourceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceSourceImportFlow).toContain(
+      'callAction("import-google-slides-reference"',
+    );
+    expect(referenceSourceImportFlow).toContain("return importedReference");
+    expect(source).toContain("onImportSource={handleReferenceSourceImport}");
   });
 });
