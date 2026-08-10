@@ -475,7 +475,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onPrimitiveCreated,
   onPrimitiveReparent,
   onCreateScreenFrame,
-  frameToolDraws = "screen",
+  frameToolDraws = "frame",
   onDeleteSelection,
   onNudgeSelection,
   onZoomChange,
@@ -2990,6 +2990,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const viewportWidth = iframe?.clientWidth || metadata.width;
           const viewportHeight = iframe?.clientHeight || metadata.height;
           const infos = await requestSelectableElementInfos(entry.id);
+          // entry.geometry.height trails the measured auto-height, and an
+          // independent y-scale off it squashes every child rect.
+          const contentScale =
+            entry.geometry.width / Math.max(1, viewportWidth);
+          const renderedFrame = {
+            ...entry.geometry,
+            height: viewportHeight * contentScale,
+          };
           return infos.map((info) => ({
             screenId: entry.id,
             info,
@@ -3000,7 +3008,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 width: info.boundingRect.width,
                 height: info.boundingRect.height,
               },
-              entry.geometry,
+              renderedFrame,
               { width: viewportWidth, height: viewportHeight },
             ),
             frameGeometry: entry.geometry,

@@ -148,6 +148,7 @@ import {
   IconBrush,
   IconPlus,
   IconLayoutGrid,
+  IconDevices,
   IconFrame,
   IconX,
   IconPin,
@@ -1889,28 +1890,36 @@ function DesignBottomToolbar({
     {
       key: "frame",
       active: activeTool === "frame",
-      label: t("designEditor.tools.frame"),
-      icon: <IconFrame className="size-[18px]" />,
+      label:
+        frameToolDraws === "screen"
+          ? t("designEditor.tools.screen")
+          : t("designEditor.tools.frame"),
+      icon:
+        frameToolDraws === "screen" ? (
+          <IconDevices className="size-[18px]" />
+        ) : (
+          <IconFrame className="size-[18px]" />
+        ),
       onClick: onFrame,
       options: [
-        {
-          key: "screen",
-          label: t("designEditor.tools.screen"),
-          icon: <IconFrame className="size-4" />,
-          shortcut: "F",
-          active: activeTool === "frame" && frameToolDraws === "screen",
-          onSelect: () => {
-            onFrameToolDrawsChange("screen");
-            onFrame();
-          },
-        },
         {
           key: "frame",
           label: t("designEditor.tools.frame"),
           icon: <IconFrame className="size-4" />,
+          shortcut: "F",
           active: activeTool === "frame" && frameToolDraws === "frame",
           onSelect: () => {
             onFrameToolDrawsChange("frame");
+            onFrame();
+          },
+        },
+        {
+          key: "screen",
+          label: t("designEditor.tools.screen"),
+          icon: <IconDevices className="size-4" />,
+          active: activeTool === "frame" && frameToolDraws === "screen",
+          onSelect: () => {
+            onFrameToolDrawsChange("screen");
             onFrame();
           },
         },
@@ -2214,7 +2223,7 @@ function DesignEditor() {
   // The frame tool draws a top-level SCREEN or a plain FRAME container. Made
   // explicit because deciding it from where the drag started is unguessable.
   const [frameToolDraws, setFrameToolDraws] = useState<"screen" | "frame">(
-    "screen",
+    "frame",
   );
   // The persisted pin round-trips through the server, but content measurement
   // fires as soon as the iframe loads. Without a synchronous local pin the
@@ -23882,7 +23891,14 @@ function DesignEditor() {
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
-    onFrameTool: canEditDesign ? handleFrameTool : undefined,
+    // F always means Frame; without forcing the mode it would reuse whichever
+    // sub-tool the dropdown last selected.
+    onFrameTool: canEditDesign
+      ? () => {
+          setFrameToolDraws("frame");
+          handleFrameTool();
+        }
+      : undefined,
     onRectangleTool: canEditDesign ? handleRectTool : undefined,
     onLineTool: canEditDesign ? handleLineTool : undefined,
     onArrowTool: canEditDesign ? handleArrowTool : undefined,
