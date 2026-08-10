@@ -1398,6 +1398,8 @@ export function Layout({
       ) ?? null,
     [chatFirstSurfaceTabs],
   );
+  const chatFirstAppTakesMain =
+    chatFirstMode && isChatRoute && activeChatFirstSurfaceTab?.kind === "app";
   const activeChatFirstAppRegistration = useMemo(
     () =>
       activeChatFirstSurfaceTab?.kind === "app" &&
@@ -2176,17 +2178,28 @@ export function Layout({
         chatFirstMode && "dispatch-chat-first-surface",
       )}
     >
-      {appContent}
-      {chatFirstMode && chatFirstSurfacePanel.open ? (
-        <ChatFirstSurfacePanel
-          width={chatFirstSurfaceResize.width}
-          onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
-          copy={chatFirstCopy}
+      {chatFirstAppTakesMain ? (
+        <div
+          className="flex min-w-0 flex-1 flex-col overflow-hidden"
+          data-dispatch-chat-first-main-app
         >
-          {chatFirstSurfaceTabsBar}
           {chatFirstSurfaceContent}
-        </ChatFirstSurfacePanel>
-      ) : null}
+        </div>
+      ) : (
+        <>
+          {appContent}
+          {chatFirstMode && chatFirstSurfacePanel.open ? (
+            <ChatFirstSurfacePanel
+              width={chatFirstSurfaceResize.width}
+              onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
+              copy={chatFirstCopy}
+            >
+              {chatFirstSurfaceTabsBar}
+              {chatFirstSurfaceContent}
+            </ChatFirstSurfacePanel>
+          ) : null}
+        </>
+      )}
     </div>
   ) : isWorkspaceAppRoute ? (
     appContent
