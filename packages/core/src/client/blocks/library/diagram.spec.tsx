@@ -136,6 +136,38 @@ describe("DiagramBlock expand affordance", () => {
     expect(frame?.querySelector(".diagram-box")).toBeTruthy();
   });
 
+  it("turns diagram arrow glyphs into directional drawing metadata", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-arrows"
+          ctx={{ sanitizeHtml: (html: string) => html }}
+          data={{
+            html: [
+              "<span class='diagram-arrow diagram-muted'>&rarr;</span>",
+              "<span class='diagram-arrow diagram-muted'>&darr;</span>",
+              "<span class='diagram-arrow diagram-muted'>&harr;</span>",
+              "<span class='diagram-arrow diagram-muted'>&#10145;&#65039;</span>",
+              "<span class='diagram-arrow diagram-muted'>&#8635;</span>",
+            ].join(""),
+          }}
+        />,
+      );
+    });
+
+    const arrows = Array.from(
+      container.querySelectorAll<HTMLElement>(".diagram-arrow"),
+    );
+    expect(arrows.map((arrow) => arrow.dataset.arrow)).toEqual([
+      "right",
+      "down",
+      "both",
+      "right",
+      "refresh",
+    ]);
+    expect(arrows.every((arrow) => arrow.textContent === "")).toBe(true);
+  });
+
   it("shows the diagram frame by default", () => {
     act(() => {
       root.render(

@@ -3444,7 +3444,13 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
+    // Tolerate escaped quotes inside the command. Every template's build
+    // command now contains `\"` (the release-migration step's CONTEXT test),
+    // and a naive [^"]* stops at the first one — which silently dropped the
+    // NETLIFY_DATABASE_URL_UNPOOLED override for the four templates that use it.
+    const originalCommand = content.match(
+      /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
+    )?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
@@ -3456,7 +3462,22 @@ function rewriteNetlifyToml(
     const buildDatabasePrefix = usesUnpooledDatabase
       ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
       : "";
-    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}`;
+    const releaseDatabasePrefix = usesUnpooledDatabase
+      ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
+      : "";
+    // Migrate at RELEASE, never on the request path. On serverless "migrate on
+    // first use" means migrate on every cold start; a production incident
+    // traced a multi-hour outage to schema introspection running concurrently
+    // on requests. Generated for every app so a fresh `create` + Netlify
+    // connect just works, with no flag to remember.
+    const releaseMigrations =
+      ' && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then ' +
+      releaseDatabasePrefix +
+      (mode === "workspace"
+        ? `pnpm --filter ${appName} migrate:production`
+        : "pnpm migrate:production") +
+      "; fi";
+    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}${releaseMigrations}`;
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
     const functionsPath =
       mode === "workspace"

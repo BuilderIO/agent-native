@@ -9,6 +9,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createSlackReader } from "../server/triage/slack-client.js";
 
 const MAX_THREAD_PAGES = 5;
@@ -70,6 +71,25 @@ export default defineAction({
       if (hasMore) break;
       cursor = result.next_cursor;
     }
+
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "get-slack-feedback-context",
+        kind: "read",
+        itemId,
+        source: "slack",
+        sourceUrl: item.sourceUrl,
+        summary: `Read the Slack thread (${messages.length} message${messages.length === 1 ? "" : "s"}).`,
+        details: {
+          channelId: item.channelId,
+          threadTs: item.threadTs,
+          coverage: hasMore ? "partial" : "complete",
+          messageCount: messages.length,
+        },
+      },
+    );
 
     return {
       ok: true,

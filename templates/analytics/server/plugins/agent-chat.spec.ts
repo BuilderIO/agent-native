@@ -163,22 +163,22 @@ describe("Analytics agent Plan mode policy", () => {
       expect(pluginActions[name]).not.toHaveProperty("allowInPlanMode", false);
     }
   });
-  it("keeps corpus tools discoverable without loading them initially", () => {
+  it("keeps bulk corpus tools on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
         "bigquery",
         "search-analytics-query-catalog",
         "search-bigquery-schema",
         "list-data-dictionary",
+        "provider-api-request",
+        "provider-corpus-job",
+        "query-staged-dataset",
       ]),
     );
     expect(INITIAL_TOOL_NAMES).not.toEqual(
       expect.arrayContaining([
         "provider-api-catalog",
         "provider-api-docs",
-        "provider-api-request",
-        "provider-corpus-job",
-        "query-staged-dataset",
         "run-code",
         "get-code-execution",
         "account-deep-dive",
@@ -233,6 +233,9 @@ describe("Analytics agent Plan mode policy", () => {
     const context = await extraContext?.();
     expect(context).toContain("EXECUTION CONTINUITY");
     expect(context).toContain("Do not ask 'want me to proceed?'");
+    expect(context).toContain("APPROVED MUTATION CONTINUITY");
+    expect(context).toContain("saved: true");
+    expect(context).toContain("changed: true");
   });
 
   it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {

@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,7 +101,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -116,7 +116,7 @@ Identifizieren Sie einen Benutzer anhand von Merkmalen. Weiterleitung an Anbiete
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Benötigen Sie ein benutzerdefiniertes Backend, die Anbieterregistrierung API oder die Batch-/Singleton-Interna? Siehe [Advanced: custom providers & internals](#advanced) am Ende.
@@ -358,5 +358,5 @@ Das Framework verfolgt auch `builder connect clicked` von Connect Builder-CTAs u
 ## Was kommt als nächstes?
 
 - [**Actions**](/docs/actions) – woher die meisten Tracking-Aufrufe kommen
-- [**Server Plugins**](/docs/server#server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
+- [**Server Plugins**](/docs/server-plugins) – `registerBuiltinProviders()` wird beim Start im Core-Routes-Plugin ausgeführt
 - [**Sicherheit – Geheimnisverwaltung**](/docs/security#secrets) – API-Schlüssel für Tracking-Anbieter verwalten

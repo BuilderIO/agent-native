@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -235,14 +235,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 Cada función tiene un alcance de propietario: no hay lecturas ni escrituras entre usuarios.
@@ -371,4 +371,4 @@ Las automatizaciones pueden encadenar esto, p. _"si se activa una notificación 
 
 - [**Automations**](/docs/automations): la persona que llama más comúnmente a `notify()`
 - [**Security**](/docs/security): la sustitución de `${keys.NAME}` que impulsa el canal webhook
-- [**Server plugins**](/docs/server): donde se registran los canales personalizados al inicio
+- [**Server plugins**](/docs/server-overview): donde se registran los canales personalizados al inicio

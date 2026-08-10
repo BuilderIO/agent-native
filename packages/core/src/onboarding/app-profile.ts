@@ -6,7 +6,7 @@ const LLM_CAPABILITY: OnboardingCapability = {
   required: true,
   builderIncluded: true,
   keySummary:
-    "One model key: Anthropic, OpenAI, Gemini, Groq, Mistral, or Cohere",
+    "One model key or local connection: Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere, or Ollama",
   why: "The agent uses a language model to understand requests and produce answers.",
 };
 

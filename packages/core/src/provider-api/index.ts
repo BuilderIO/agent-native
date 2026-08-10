@@ -135,6 +135,8 @@ export interface ProviderApiRequestArgs {
   body?: unknown;
   auth?: "default" | "none";
   timeoutMs?: number;
+  /** Internal cancellation signal for trusted server-side callers. */
+  signal?: AbortSignal;
   maxBytes?: number;
   connectionId?: string | null;
   accountId?: string | null;
@@ -1950,6 +1952,7 @@ export async function executeProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
+        signal: args.signal,
         secretValues: auth.secretValues,
         quota: {
           identity: quotaIdentity,
@@ -2008,6 +2011,7 @@ export async function executeProviderApiRequest(
     body,
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
+    signal: args.signal,
     secretValues: auth.secretValues,
     quota: {
       identity: quotaIdentity,
@@ -2921,6 +2925,7 @@ async function executeCustomProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
+        signal: args.signal,
         secretValues: auth.secretValues,
         quota: {
           identity: quotaIdentity,
@@ -2975,6 +2980,7 @@ async function executeCustomProviderApiRequest(
     body,
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
+    signal: args.signal,
     secretValues: auth.secretValues,
     quota: {
       identity: quotaIdentity,
@@ -5142,6 +5148,7 @@ async function fetchWithTimeout(
     headers?: Record<string, string>;
     body?: BodyInit;
     timeoutMs?: number;
+    signal?: AbortSignal;
     maxBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
@@ -5159,7 +5166,9 @@ async function fetchWithTimeout(
         method,
         headers: options.headers,
         body: options.body,
-        signal: controller.signal,
+        signal: options.signal
+          ? AbortSignal.any([options.signal, controller.signal])
+          : controller.signal,
         redirect: "manual",
       };
       if (dispatcher) fetchOptions.dispatcher = dispatcher;

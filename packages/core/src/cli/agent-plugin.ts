@@ -2,8 +2,9 @@
  * Import and validate the portable Agent Plugin format.
  *
  * The importer intentionally handles only local plugin directories. Skills are
- * copied as inert files, and remote Streamable HTTP MCP entries are translated
- * to the Agent-Native `mcp.config.json` shape without copying package headers.
+ * copied as inert files into the workspace's agent-visible `.agents/skills`
+ * tree, and remote Streamable HTTP MCP entries are translated to the
+ * Agent-Native `mcp.config.json` shape without copying package headers.
  * A plugin package is not a credential store and this command never executes
  * a plugin's scripts or stdio servers.
  */
@@ -107,6 +108,8 @@ export interface LoadedAgentPlugin {
 
 export interface AgentPluginImportOptions {
   targetDir?: string;
+  /** Optional skills root used by hosts whose agent cwd is a child workspace. */
+  skillsTargetDir?: string;
   force?: boolean;
   dryRun?: boolean;
 }
@@ -169,7 +172,7 @@ Usage:
 Commands:
   import   Import a standard Agent Plugin's Skills and remote MCP servers into an Agent-Native workspace.
 
-The importer copies Skills into a namespaced skills/<plugin>/<skill> path and
+The importer copies Skills into a namespaced .agents/skills/<plugin>/<skill> path and
 maps Streamable HTTP MCP servers into mcp.config.json. Package headers are
 never imported as credentials; configure authentication through the app's
 normal Connections flow. Stdio and SSE servers are reported and skipped.`;
@@ -968,18 +971,12 @@ function planMcpServers(
 
 function planSkills(
   plugin: LoadedAgentPlugin,
-  targetDir: string,
-  targetPluginSlug: string,
+  skillsRoot: string,
   force: boolean,
 ): PlannedSkill[] {
   return plugin.skills.map((skill) => {
-    const destination = path.join(
-      targetDir,
-      "skills",
-      targetPluginSlug,
-      skill.name,
-    );
-    assertPathInside(targetDir, destination, "Imported skill destination");
+    const destination = path.join(skillsRoot, skill.name);
+    assertPathInside(skillsRoot, destination, "Imported skill destination");
     assertPathOutside(
       plugin.rootDir,
       destination,
@@ -1231,7 +1228,20 @@ export function importAgentPlugin(
   assertNoSymlinkInExistingPath(targetDir, "Agent-Native import target");
 
   const slug = pluginSlug(plugin.manifest.name);
-  const skillsRoot = path.join(targetDir, "skills", slug);
+  const skillsTargetDir = canonicalPathForComparison(
+    options.skillsTargetDir ?? path.join(targetDir, ".agents", "skills"),
+  );
+  if (
+    pathExists(skillsTargetDir) &&
+    !fs.statSync(skillsTargetDir).isDirectory()
+  ) {
+    throw new Error(
+      `Agent-Native skills target must be a directory: ${skillsTargetDir}`,
+    );
+  }
+  assertPathOutside(plugin.rootDir, skillsTargetDir, "Imported skills target");
+  assertNoSymlinkInExistingPath(skillsTargetDir, "Imported skills target");
+  const skillsRoot = path.join(skillsTargetDir, slug);
   const metadataFile = path.join(
     targetDir,
     ".agent-native",
@@ -1239,9 +1249,9 @@ export function importAgentPlugin(
     `${slug}.json`,
   );
   const mcpFile = path.join(targetDir, "mcp.config.json");
-  assertPathInside(targetDir, skillsRoot, "Imported skills root");
   assertPathInside(targetDir, metadataFile, "Imported metadata path");
   assertPathInside(targetDir, mcpFile, "Imported MCP config path");
+  assertPathInside(skillsTargetDir, skillsRoot, "Imported skills root");
   assertPathOutside(plugin.rootDir, skillsRoot, "Imported skills root");
   assertPathOutside(plugin.rootDir, metadataFile, "Imported metadata path");
   assertPathOutside(plugin.rootDir, mcpFile, "Imported MCP config path");
@@ -1254,7 +1264,7 @@ export function importAgentPlugin(
   const force = options.force ?? false;
   const dryRun = options.dryRun ?? false;
   const existingMcp = readExistingMcpConfig(mcpFile);
-  const skillPlans = planSkills(plugin, targetDir, slug, force);
+  const skillPlans = planSkills(plugin, skillsRoot, force);
   const mcpPlans = planMcpServers(plugin, existingMcp, force);
   const existingMetadata = readExistingMetadata(metadataFile);
   const metadataIsSame = metadataMatches(existingMetadata, plugin);

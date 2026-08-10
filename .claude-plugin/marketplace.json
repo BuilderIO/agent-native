@@ -36,7 +36,7 @@
     {
       "name": "agent-native-turn-into-app",
       "displayName": "Turn Into App",
-      "description": "Turn a proven thread, skill, or workflow into a runnable Agent-Native app with a focused UI, visible agent handoffs, local verification, and deployment guidance.",
+      "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
       "source": "./.agents/plugins/agent-native-turn-into-app",
       "autoUpdate": true,
       "homepage": "https://dispatch.agent-native.com",

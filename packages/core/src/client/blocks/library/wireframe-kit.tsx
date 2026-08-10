@@ -1544,6 +1544,19 @@ function elementStroke(node: Element, fallback: string): string {
   const explicit = readVar(node, "--rough-stroke");
   if (explicit) return explicit;
   const cs = getComputedStyle(node);
+  if (node.classList.contains("diagram-arrow")) {
+    const color = cs.color;
+    const normalizedColor = color.replace(/\s+/g, "").toLowerCase();
+    const isTransparent =
+      normalizedColor === "transparent" ||
+      normalizedColor.endsWith("/0)") ||
+      (normalizedColor.startsWith("rgb") &&
+        normalizedColor.split(",").length === 4 &&
+        normalizedColor.endsWith(",0)"));
+    if (color && !isTransparent) {
+      return color;
+    }
+  }
   for (const side of [
     "borderTopColor",
     "borderLeftColor",
@@ -1652,6 +1665,107 @@ function build(
     preserveVertices: true,
   });
 
+  const drawRoughArrow = (
+    direction: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    stroke: string,
+    sw: number,
+    seedBase: string | number,
+  ) => {
+    let lineIndex = 0;
+    const drawLine = (x1: number, y1: number, x2: number, y2: number) => {
+      push(
+        gen.line(
+          x1,
+          y1,
+          x2,
+          y2,
+          makeOpts(stroke, sw, seedFrom(seedBase, "line", lineIndex++)),
+        ),
+        stroke,
+        sw,
+      );
+    };
+    const drawDirectional = (
+      fromX: number,
+      fromY: number,
+      toX: number,
+      toY: number,
+    ) => {
+      const angle = Math.atan2(toY - fromY, toX - fromX);
+      const length = Math.hypot(toX - fromX, toY - fromY);
+      const head = Math.min(7, Math.max(4, length * 0.28));
+      const shaftEndX = toX - Math.cos(angle) * head;
+      const shaftEndY = toY - Math.sin(angle) * head;
+      drawLine(fromX, fromY, shaftEndX, shaftEndY);
+      const spread = Math.PI / 6;
+      drawLine(
+        toX,
+        toY,
+        toX - Math.cos(angle - spread) * head,
+        toY - Math.sin(angle - spread) * head,
+      );
+      drawLine(
+        toX,
+        toY,
+        toX - Math.cos(angle + spread) * head,
+        toY - Math.sin(angle + spread) * head,
+      );
+    };
+
+    const centerX = x + w / 2;
+    const centerY = y + h / 2;
+    const pad = Math.min(3, w / 5, h / 5);
+    const horizontalFrom = x + pad;
+    const horizontalTo = x + w - pad;
+    const verticalFrom = y + pad;
+    const verticalTo = y + h - pad;
+
+    if (direction === "refresh") {
+      const diameter = Math.max(8, Math.min(w, h) - pad * 2);
+      const start = -Math.PI * 0.8;
+      const stop = Math.PI * 1.15;
+      push(
+        gen.arc(
+          centerX,
+          centerY,
+          diameter,
+          diameter,
+          start,
+          stop,
+          false,
+          makeOpts(stroke, sw, seedFrom(seedBase, "arc")),
+        ),
+        stroke,
+        sw,
+      );
+      drawDirectional(x + w - pad - 5, y + pad + 1, x + w - pad, y + pad + 1);
+      return;
+    }
+
+    if (direction === "down") {
+      drawDirectional(centerX, verticalFrom, centerX, verticalTo);
+      return;
+    }
+    if (direction === "up") {
+      drawDirectional(centerX, verticalTo, centerX, verticalFrom);
+      return;
+    }
+    if (direction === "left") {
+      drawDirectional(horizontalTo, centerY, horizontalFrom, centerY);
+      return;
+    }
+    if (direction === "both") {
+      drawDirectional(horizontalFrom, centerY, horizontalTo, centerY);
+      drawDirectional(horizontalTo, centerY, horizontalFrom, centerY);
+      return;
+    }
+    drawDirectional(horizontalFrom, centerY, horizontalTo, centerY);
+  };
+
   if (opts.drawFrame && hasDrawableRoughBounds(layoutW, layoutH, 2)) {
     const sw = 2;
     push(
@@ -1692,6 +1806,13 @@ function build(
       Math.round(h),
       index++,
     );
+    const arrow = node.classList.contains("diagram-arrow")
+      ? node.getAttribute("data-arrow")
+      : null;
+    if (arrow) {
+      drawRoughArrow(arrow, x, y, w, h, stroke, sw, seedFrom("arrow", seed));
+      return;
+    }
     const o = makeOpts(stroke, sw, seed);
     let drawable: unknown;
     if (kind === "ellipse") {

@@ -36,7 +36,8 @@ Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
 To bring an older workspace current, run `pnpm upgrade:agent-native` or
 `npx @agent-native/core@latest upgrade` from the workspace root. That bumps
 `@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
-Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+Do **not** run `pnpm patch` / `pnpm patch-commit`, add
+`pnpm.patchedDependencies`, commit dependency patches, or edit
 `node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
 See the `upgrade-agent-native` and `self-modifying-code` skills.
 After a manual core bump only, `pnpm skills:update` (or
@@ -50,6 +51,11 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
   work, including hidden `context` and `submit: false` prefill/review flows.
+  Keep actions deterministic and focused. If a workflow is framed as research,
+  analysis, generation, recommendation, or synthesis, use
+  `sendToAgentChat({ openSidebar: true })` to open the AgentSidebar and let the
+  agent orchestrate its provider/data actions. Keep follow-ups in the same
+  thread, not a second freeform textbox.
   Only use `useAgentChatContext`, `setAgentChatContextItem`,
   `listAgentChatContext`, `removeAgentChatContextItem`, and
   `clearAgentChatContext` when UI needs two-way sync with staged context chips.
@@ -64,6 +70,9 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 - Keep the first viewport focused: one primary action, progressive disclosure,
   concise copy, and domain-specific navigation. Never use sparkle, wand,
   magic, or robot icons as AI affordances.
+- Page and section data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
 - Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
   type for content previews. Give the AgentSidebar a subtle surface/divider
   boundary, and stack original/generated review vertically by default.

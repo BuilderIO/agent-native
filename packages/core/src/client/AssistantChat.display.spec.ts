@@ -2751,6 +2751,25 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
   });
 
+  it("keeps a visible recovery state when no fallback is provided", () => {
+    function BrokenComposer() {
+      throw new Error("tapClientLookup: Index 4 out of bounds (length: 3)");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantUiStaleIndexErrorBoundary,
+          { resetKey: "thread-1", componentName: "AssistantChat" },
+          React.createElement(BrokenComposer),
+        ),
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.textContent).toContain("Updating chat...");
+  });
+
   it("remounts any assistant-ui subtree after a React fiber unmount error", async () => {
     let renders = 0;
     function FlakyComposer() {

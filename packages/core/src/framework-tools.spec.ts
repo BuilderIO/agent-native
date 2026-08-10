@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CORE_ACTION_GROUPS,
   filterFrameworkToolGroups,
   FRAMEWORK_TOOL_GROUPS,
   frameworkGroupEnabled,
@@ -147,8 +148,57 @@ describe("filterFrameworkToolGroups", () => {
 
 describe("isFrameworkGroupedAction", () => {
   it("separates framework kits from app actions", () => {
-    expect(isFrameworkGroupedAction({ frameworkGroup: "audit" })).toBe(true);
-    expect(isFrameworkGroupedAction({})).toBe(false);
+    expect(isFrameworkGroupedAction("list-audit-events", {})).toBe(true);
+    expect(
+      isFrameworkGroupedAction("anything", { frameworkGroup: "audit" }),
+    ).toBe(true);
+    expect(isFrameworkGroupedAction("create-form", {})).toBe(false);
+  });
+});
+
+describe("group membership resolves by name, not only by tag", () => {
+  // The guard this file was missing. Every test above stamped `frameworkGroup`
+  // by hand, so the filter looked correct while the tag was reaching almost no
+  // real registry: it is written only by `mergeCoreSharingActions`, which runs
+  // against the ungated `httpActions`. Apps loading core kits through
+  // `loadActionsFromStaticRegistry` or their own actions directory therefore
+  // held untagged entries, and eight `frameworkTools` switches silently did
+  // nothing. Build the fixtures the way those apps do — no tag — so a
+  // regression here fails instead of passing on hand-tagged inputs.
+  const untagged = Object.fromEntries(
+    Object.keys(CORE_ACTION_GROUPS).map((name) => [
+      name,
+      { run: async () => ({}) },
+    ]),
+  );
+
+  it("drops every core action of a disabled group when nothing is tagged", () => {
+    for (const group of FRAMEWORK_TOOL_GROUPS) {
+      const names = Object.entries(CORE_ACTION_GROUPS)
+        .filter(([, g]) => g === group)
+        .map(([name]) => name);
+      if (names.length === 0) continue;
+
+      const filtered = filterFrameworkToolGroups(untagged, new Set([group]));
+      for (const name of names) {
+        expect(
+          Object.hasOwn(filtered, name),
+          `${name} survived \`${group}: false\``,
+        ).toBe(false);
+      }
+      // Only that group goes; the rest of the catalog is untouched.
+      expect(Object.keys(filtered).length).toBe(
+        Object.keys(untagged).length - names.length,
+      );
+    }
+  });
+
+  it("leaves app actions that merely resemble a kit name alone", () => {
+    const filtered = filterFrameworkToolGroups(
+      { "share-portfolio": { run: async () => ({}) } },
+      new Set(["sharing"]),
+    );
+    expect(Object.keys(filtered)).toEqual(["share-portfolio"]);
   });
 });
 

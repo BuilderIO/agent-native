@@ -1,3 +1,9 @@
+import {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "@agent-native/core/blocks";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
   PlanDiagramBlock,
@@ -32,12 +38,6 @@ import {
   RUNTIME_SENTINEL_ATTR,
   mountPrototypeRuntime,
 } from "./prototype-runtime";
-import {
-  sanitizeDiagramHtml,
-  sanitizeWireframeCss,
-  sanitizeWireframeHtml,
-  scopeDesignCss,
-} from "./sanitize-html";
 import { toggleWireframeStyle, useWireframeStyle } from "./use-wireframe-style";
 import { renderWireframeIconHtml } from "./wireframe-icons";
 
@@ -360,7 +360,7 @@ function HtmlArtboard({
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
   // Sanitize model-authored HTML at the render point (defense-in-depth against
-  // stored XSS) — see sanitize-html.ts. Memoized so it only re-runs when the
+  // stored XSS) — see the Core block sanitizer. Memoized so it only re-runs when the
   // html changes, not on every theme/zoom re-render.
   const renderMode = data.renderMode ?? "wireframe";
   const designMode = renderMode === "design";

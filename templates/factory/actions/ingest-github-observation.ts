@@ -7,6 +7,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { pullRequestSnapshotToEnvelope } from "../server/triage/github-ingestion.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import type {
@@ -89,6 +90,26 @@ export default defineAction({
           updatedAt: now,
         },
       });
+
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "ingest-github-observation",
+        kind: "observed",
+        itemId: id,
+        source: envelope.source,
+        sourceUrl: envelope.sourceUrl,
+        summary: envelope.title,
+        details: {
+          repository: envelope.repository,
+          pullRequestNumber: envelope.pullRequestNumber,
+          coverage: envelope.coverage,
+          reviewCount: input.reviews.length,
+          checkCount: input.checks.length,
+        },
+      },
+    );
 
     return {
       ok: true,

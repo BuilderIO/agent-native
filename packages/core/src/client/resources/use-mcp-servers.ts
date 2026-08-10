@@ -9,6 +9,12 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  createContext,
+  createElement,
+  useContext,
+  type ReactNode,
+} from "react";
 
 import { agentNativePath } from "../api-path.js";
 
@@ -41,14 +47,135 @@ export interface McpServersList {
 const ENDPOINT = agentNativePath("/_agent-native/mcp/servers");
 const LIST_KEY = ["mcp-servers"] as const;
 
+export interface McpServersApi {
+  list: () => Promise<McpServersList>;
+  create: (args: CreateMcpServerArgs) => Promise<McpServer>;
+  delete: (args: { id: string; scope: McpServerScope }) => Promise<void>;
+  reconnect: (args: ReconnectMcpServerArgs) => Promise<void>;
+  test: (
+    url: string,
+    headers?: Record<string, string>,
+  ) => Promise<TestMcpUrlResult>;
+  testExisting: (args: {
+    id: string;
+    scope: McpServerScope;
+  }) => Promise<TestMcpUrlResult>;
+}
+
+const McpServersApiContext = createContext<McpServersApi | null>(null);
+
+export function McpServersApiProvider({
+  api,
+  children,
+}: {
+  api: McpServersApi;
+  children: ReactNode;
+}) {
+  return createElement(McpServersApiContext.Provider, { value: api }, children);
+}
+
+export function useMcpServersApi(): McpServersApi {
+  return useContext(McpServersApiContext) ?? defaultMcpServersApi;
+}
+
+async function listMcpServers(): Promise<McpServersList> {
+  const res = await fetch(ENDPOINT, { credentials: "include" });
+  if (!res.ok) throw new Error(`Failed to load (${res.status})`);
+  return (await res.json()) as McpServersList;
+}
+
+async function createMcpServer(args: CreateMcpServerArgs): Promise<McpServer> {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  const body = (await res.json().catch((error: unknown) => {
+    throw new Error("MCP create returned invalid JSON.", { cause: error });
+  })) as {
+    ok?: boolean;
+    error?: string;
+    server?: McpServer;
+  };
+  if (!res.ok || !body.ok) {
+    throw new Error(body.error || `Create failed (${res.status})`);
+  }
+  return body.server!;
+}
+
+async function deleteMcpServer(args: {
+  id: string;
+  scope: McpServerScope;
+}): Promise<void> {
+  const res = await fetch(
+    `${ENDPOINT}/${encodeURIComponent(args.id)}?scope=${args.scope}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  const body = (await res.json().catch((error: unknown) => {
+    throw new Error("MCP delete returned invalid JSON.", { cause: error });
+  })) as {
+    ok?: boolean;
+    error?: string;
+  };
+  if (!res.ok || !body.ok) {
+    throw new Error(body.error || `Delete failed (${res.status})`);
+  }
+}
+
+async function reconnectMcpServer(args: ReconnectMcpServerArgs): Promise<void> {
+  const res = await fetch(reconnectMcpServerUrl(args), {
+    method: "POST",
+    credentials: "include",
+  });
+  const body = await readMcpMutationBody(res);
+  const error =
+    typeof body?.error === "string" && body.error.trim()
+      ? body.error.trim()
+      : undefined;
+  if (!res.ok || body?.ok !== true) {
+    throw new Error(error || `Reconnect failed (${res.status})`);
+  }
+}
+
+async function testExistingMcpServer(args: {
+  id: string;
+  scope: McpServerScope;
+}): Promise<TestMcpUrlResult> {
+  const res = await fetch(
+    agentNativePath(
+      `/_agent-native/mcp/servers/${encodeURIComponent(args.id)}/test?scope=${args.scope}`,
+    ),
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  const body = (await res.json().catch((error: unknown) => {
+    throw new Error("MCP test returned invalid JSON.", { cause: error });
+  })) as TestMcpUrlResult;
+  return res.ok ? body : { ok: false, error: body.error };
+}
+
+const defaultMcpServersApi: McpServersApi = {
+  list: listMcpServers,
+  create: createMcpServer,
+  delete: deleteMcpServer,
+  reconnect: reconnectMcpServer,
+  test: testMcpServerUrl,
+  testExisting: testExistingMcpServer,
+};
+
 export function useMcpServers() {
+  const api = useMcpServersApi();
   return useQuery<McpServersList>({
     queryKey: LIST_KEY,
-    queryFn: async () => {
-      const res = await fetch(ENDPOINT, { credentials: "include" });
-      if (!res.ok) throw new Error(`Failed to load (${res.status})`);
-      return (await res.json()) as McpServersList;
-    },
+    queryFn: api.list,
     staleTime: 10_000,
   });
 }
@@ -63,24 +190,9 @@ export interface CreateMcpServerArgs {
 
 export function useCreateMcpServer() {
   const qc = useQueryClient();
+  const api = useMcpServersApi();
   return useMutation({
-    mutationFn: async (args: CreateMcpServerArgs) => {
-      const res = await fetch(ENDPOINT, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(args),
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        server?: McpServer;
-      };
-      if (!res.ok || !body.ok) {
-        throw new Error(body.error || `Create failed (${res.status})`);
-      }
-      return body.server!;
-    },
+    mutationFn: api.create,
     onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
   });
 }
@@ -92,24 +204,9 @@ export interface ReconnectMcpServerArgs {
 
 export function useDeleteMcpServer() {
   const qc = useQueryClient();
+  const api = useMcpServersApi();
   return useMutation({
-    mutationFn: async (args: { id: string; scope: McpServerScope }) => {
-      const res = await fetch(
-        `${ENDPOINT}/${encodeURIComponent(args.id)}?scope=${args.scope}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-      const body = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-      };
-      if (!res.ok || !body.ok) {
-        throw new Error(body.error || `Delete failed (${res.status})`);
-      }
-    },
+    mutationFn: api.delete,
     onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
   });
 }
@@ -136,24 +233,9 @@ function reconnectMcpServerUrl(args: ReconnectMcpServerArgs): string {
 
 export function useReconnectMcpServer() {
   const qc = useQueryClient();
+  const api = useMcpServersApi();
   return useMutation({
-    mutationFn: async (args: ReconnectMcpServerArgs) => {
-      const res = await fetch(reconnectMcpServerUrl(args), {
-        method: "POST",
-        credentials: "include",
-      });
-      const body = await readMcpMutationBody(res);
-      const error =
-        typeof body?.error === "string" && body.error.trim()
-          ? body.error.trim()
-          : undefined;
-      if (!res.ok) {
-        throw new Error(error || `Reconnect failed (${res.status})`);
-      }
-      if (body?.ok !== true) {
-        throw new Error(error || "Reconnect failed");
-      }
-    },
+    mutationFn: api.reconnect,
     onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
   });
 }

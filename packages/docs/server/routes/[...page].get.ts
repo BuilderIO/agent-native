@@ -34,7 +34,7 @@ export default async function docsPageHandler(event: H3Event) {
     return agentWebAsset.content;
   }
 
-  const markdown = readMarkdownForRequest(event);
+  const markdown = await readMarkdownForRequest(event);
   if (markdown) {
     for (const [name, value] of Object.entries(
       buildMarkdownResponseHeaders({
@@ -128,9 +128,11 @@ function readAgentWebAssetForRequest(
   };
 }
 
-function readMarkdownForRequest(
+async function readMarkdownForRequest(
   event: H3Event,
-): { content: string; pagePath: string; relativePath: string } | undefined {
+): Promise<
+  { content: string; pagePath: string; relativePath: string } | undefined
+> {
   const requestUrl = getRequestURL(event);
   const acceptsMarkdown =
     getRequestHeader(event, "accept")?.includes("text/markdown") ?? false;
@@ -141,14 +143,34 @@ function readMarkdownForRequest(
   const relativePath = markdownRelativePathForRequest(pathname, isMarkdownPath);
   if (!relativePath) return undefined;
 
-  const absolutePath = findPublicFile(relativePath);
-  if (!absolutePath) return undefined;
+  const content = await readMarkdownContent(relativePath, event);
+  if (content === undefined) return undefined;
 
   return {
-    content: fs.readFileSync(absolutePath, "utf8"),
+    content,
     pagePath: pagePathForMarkdownRequest(pathname, relativePath),
     relativePath,
   };
+}
+
+async function readMarkdownContent(
+  relativePath: string,
+  event: H3Event,
+): Promise<string | undefined> {
+  const absolutePath = findPublicFile(relativePath);
+  if (absolutePath) return fs.readFileSync(absolutePath, "utf8");
+
+  // Netlify publishes markdown mirrors as static files, but does not mount the
+  // publish directory beside every serverless function. Read the same mirror
+  // when the function bundle cannot see the local build output.
+  const staticUrl = new URL(`/${relativePath}`, getRequestURL(event));
+  const response = await fetch(staticUrl, {
+    headers: { accept: "text/markdown" },
+  });
+  if (!response.ok) return undefined;
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("text/markdown")) return undefined;
+  return response.text();
 }
 
 function markdownRelativePathForRequest(

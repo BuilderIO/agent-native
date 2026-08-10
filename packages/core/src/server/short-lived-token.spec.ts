@@ -3,9 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   signGatewayAccessToken,
   signRealtimeSubscribeToken,
+  signRealtimeVoiceCapability,
   signShortLivedToken,
   verifyGatewayAccessToken,
   verifyRealtimeSubscribeToken,
+  verifyRealtimeVoiceCapability,
   verifyShortLivedToken,
 } from "./short-lived-token.js";
 
@@ -111,6 +113,103 @@ describe("short-lived-token", () => {
   });
 });
 
+describe("realtime voice capability", () => {
+  const originalEnv = { ...process.env };
+  const CALLER = {
+    userEmail: "person@example.com",
+    orgId: "org-1",
+    browserTabId: "tab-1",
+  };
+
+  beforeEach(() => {
+    process.env.OAUTH_STATE_SECRET = "test-secret-do-not-use-in-prod";
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it("round-trips the manifest and discovered names for the same caller", () => {
+    const token = signRealtimeVoiceCapability(
+      {
+        ...CALLER,
+        toolNames: ["navigate", "view-screen"],
+        discoveredToolNames: ["rare-action"],
+      },
+      600,
+    );
+    expect(verifyRealtimeVoiceCapability(token, CALLER)).toEqual({
+      ok: true,
+      userEmail: "person@example.com",
+      orgId: "org-1",
+      browserTabId: "tab-1",
+      toolNames: ["navigate", "view-screen"],
+      discoveredToolNames: ["rare-action"],
+    });
+  });
+
+  it("rejects a capability replayed by another user, org, or tab", () => {
+    const token = signRealtimeVoiceCapability(
+      { ...CALLER, toolNames: ["navigate"] },
+      600,
+    );
+    for (const impostor of [
+      { ...CALLER, userEmail: "someone-else@example.com" },
+      { ...CALLER, orgId: "org-2" },
+      { ...CALLER, browserTabId: "tab-2" },
+    ]) {
+      expect(verifyRealtimeVoiceCapability(token, impostor)).toEqual({
+        ok: false,
+        reason: "identity_mismatch",
+      });
+    }
+  });
+
+  it("rejects a tool name appended to the payload without re-signing", () => {
+    const token = signRealtimeVoiceCapability(
+      { ...CALLER, toolNames: ["navigate"] },
+      600,
+    );
+    const [payload, sig] = token.split(".");
+    const decoded = JSON.parse(
+      Buffer.from(payload!, "base64url").toString("utf8"),
+    );
+    decoded.toolNames.push("delete-everything");
+    const forged = `${Buffer.from(JSON.stringify(decoded), "utf8").toString(
+      "base64url",
+    )}.${sig}`;
+    expect(verifyRealtimeVoiceCapability(forged, CALLER)).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+  });
+
+  it("rejects an expired capability", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T12:00:00.000Z"));
+    const token = signRealtimeVoiceCapability(
+      { ...CALLER, toolNames: ["navigate"] },
+      600,
+    );
+    vi.advanceTimersByTime(601_000);
+    expect(verifyRealtimeVoiceCapability(token, CALLER)).toEqual({
+      ok: false,
+      reason: "expired",
+    });
+  });
+
+  it("reports a missing capability as malformed rather than throwing", () => {
+    expect(verifyRealtimeVoiceCapability(undefined, CALLER)).toEqual({
+      ok: false,
+      reason: "malformed",
+    });
+  });
+});
+
 describe("realtime subscribe token", () => {
   const KEY_A = "project-a-hmac-secret";
   const KEY_B = "project-b-hmac-secret";
@@ -184,6 +283,55 @@ describe("realtime subscribe token", () => {
         KEY_A,
       ),
     ).not.toThrow();
+  });
+
+  it("rejects a token past its absolute ceiling even when exp is live", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    // exp deliberately outlives the ceiling: the ceiling must be what stops it.
+    const absExp = Math.floor(Date.now() / 1000) + 60;
+    const token = signRealtimeSubscribeToken(
+      {
+        projectId: "proj_a",
+        owner: "alice@example.com",
+        ttlSeconds: 600,
+        absExp,
+      },
+      KEY_A,
+    );
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toMatchObject({ ok: true, absExp });
+
+    vi.advanceTimersByTime(61_000);
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toEqual({ ok: false, reason: "session_expired" });
+  });
+
+  it("rejects at the exact ceiling instant, not one tick after", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const absExp = Math.floor(Date.now() / 1000) + 60;
+    const token = signRealtimeSubscribeToken(
+      {
+        projectId: "proj_a",
+        owner: "alice@example.com",
+        ttlSeconds: 600,
+        absExp,
+      },
+      KEY_A,
+    );
+
+    vi.setSystemTime(absExp * 1000 - 1);
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toMatchObject({ ok: true });
+
+    vi.setSystemTime(absExp * 1000);
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toEqual({ ok: false, reason: "session_expired" });
   });
 });
 

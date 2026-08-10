@@ -79,7 +79,7 @@ const navCommands = [
   {
     labelKey: "settings.openAgentSettings",
     icon: IconHierarchy2,
-    route: "/agent",
+    route: "/settings/agent",
   },
 ];
 

@@ -52,6 +52,24 @@ export const CODE_MAX_FILES = 20;
 /** Maximum total bytes accepted in import-code. */
 export const CODE_MAX_TOTAL_BYTES = 500 * 1024;
 
+export interface CodeAnalysisFile {
+  filename: string;
+  content: string;
+}
+
+export interface CodeAnalysisResult {
+  source: "code";
+  fileCount: number;
+  filesAnalyzed: string[];
+  colors: Record<string, string>;
+  cssCustomProperties: Record<string, string>;
+  fonts: CodeAnalysisState["fonts"];
+  spacing: CodeAnalysisState["spacing"];
+  borderRadius: CodeAnalysisState["borderRadius"];
+  stylingFramework: CodeAnalysisState["stylingFramework"];
+  rawExtracts: CodeAnalysisState["rawExtracts"];
+}
+
 /** Regex for hex colors (3-8 digit, including alpha). */
 export const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{3,4}){1,2}\b/g;
 
@@ -804,6 +822,43 @@ export function analyzeCodeFile(
       state.stylingFramework = name.endsWith(".less") ? "less" : "sass";
     }
   }
+}
+
+/** Analyze the bounded code-file payload accepted by the import-code actions. */
+export function analyzeCodeFiles(
+  files: CodeAnalysisFile[],
+): CodeAnalysisResult {
+  const truncated = files.slice(0, CODE_MAX_FILES);
+  let totalBytes = 0;
+  const accepted: CodeAnalysisFile[] = [];
+  for (const file of truncated) {
+    const size = new TextEncoder().encode(file.content).byteLength;
+    if (totalBytes + size > CODE_MAX_TOTAL_BYTES) break;
+    totalBytes += size;
+    accepted.push(file);
+  }
+
+  const state = createCodeAnalysisState();
+  const filesAnalyzed: string[] = [];
+  for (const file of accepted) {
+    filesAnalyzed.push(file.filename);
+    analyzeCodeFile(state, file.filename, file.content);
+  }
+
+  return {
+    source: "code",
+    fileCount: accepted.length,
+    filesAnalyzed,
+    colors: Object.fromEntries(Object.entries(state.colors).slice(0, 60)),
+    cssCustomProperties: Object.fromEntries(
+      Object.entries(state.cssCustomProperties).slice(0, 80),
+    ),
+    fonts: state.fonts.slice(0, 20),
+    spacing: state.spacing,
+    borderRadius: state.borderRadius,
+    stylingFramework: state.stylingFramework,
+    rawExtracts: state.rawExtracts,
+  };
 }
 
 // ---------------------------------------------------------------------------

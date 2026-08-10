@@ -238,6 +238,18 @@ const requiredActionGuidance = [
   },
 ];
 
+const requiredAgentWorkflowGuidance = [
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+  "templates/chat/AGENTS.md",
+].map((rel) => ({
+  rel,
+  pattern:
+    /Keep actions deterministic and focused[\s\S]*AgentSidebar[\s\S]*same\s+thread/,
+}));
+
 const requiredToolkitDiscoveryGuidance = [
   "packages/core/src/templates/default/AGENTS.md",
   "packages/core/src/templates/headless/AGENTS.md",
@@ -256,6 +268,7 @@ const requiredRegistryConventionSkills = [
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
   "babysit-pr",
+  "chat-first-workbench",
   "concurrent-agents",
   "delegating-work",
   "fix-at-the-boundary",
@@ -449,6 +462,20 @@ function checkGeneratedInstructionPhrases() {
     const content = readFileSync(file, "utf-8");
     if (!pattern.test(content)) {
       findings.push(`${rel}: missing canonical action-first guidance`);
+    }
+  }
+
+  for (const { rel, pattern } of requiredAgentWorkflowGuidance) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required agent-workflow guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (!pattern.test(content)) {
+      findings.push(
+        `${rel}: missing deterministic-action versus AgentSidebar guidance`,
+      );
     }
   }
 

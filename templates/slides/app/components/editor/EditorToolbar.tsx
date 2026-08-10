@@ -96,7 +96,10 @@ interface EditorToolbarProps {
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
   currentSlide?: Slide;
-  onUpdateSlide?: (updates: Partial<Omit<Slide, "id">>) => void;
+  onUpdateSlide?: (
+    updates: Partial<Omit<Slide, "id">>,
+    slideIdOverride?: string,
+  ) => void;
   /** Active users on the current slide (from collab awareness) */
   activeUsers?: CollabUser[];
   /** Whether the agent has a durable presence entry on this slide */
@@ -352,7 +355,7 @@ export default function EditorToolbar({
   // That row rides on SlideEditor, which only mounts for a real slide, so an
   // empty deck must keep this fallback or it has no way to add one.
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
-  const { undo, redo, canUndo, canRedo } = useDecks();
+  const { undo, redo, canUndo, canRedo, getDeck } = useDecks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
@@ -553,7 +556,7 @@ export default function EditorToolbar({
           >
             <div className="py-1.5">
               {/* Layout section */}
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.layout")}
               </div>
               {slideLayoutOptions.map((opt) => (
@@ -573,7 +576,7 @@ export default function EditorToolbar({
 
               {/* Background section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.background")}
               </div>
               <div className="px-3 pb-2">
@@ -619,7 +622,7 @@ export default function EditorToolbar({
 
               {/* Image & Assets section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.media")}
               </div>
               <button
@@ -647,27 +650,46 @@ export default function EditorToolbar({
 
               {/* Diagrams section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.diagrams")}
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!onUpdateSlide || !currentSlide) return;
-                  const mermaidTemplate = `<div class="fmd-slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:60px 80px;font-family:'Poppins',sans-serif;">
-<div class="mermaid">
-graph TD
+                  // Pin the slide this insert targets before the async
+                  // import/parse below, so navigating to another slide in the
+                  // meantime can't redirect where the diagram lands.
+                  const targetSlideId = currentSlide.id;
+                  const defaultMermaidDefinition = `graph TD
     A[Start] --> B{Decision}
     B -->|Yes| C[Action A]
     B -->|No| D[Action B]
     C --> E[End]
-    D --> E
-</div>
-</div>`;
-                  onUpdateSlide({
-                    content: mermaidTemplate,
-                    layout: "blank",
-                  });
-                  setLayoutOpen(false);
+    D --> E`;
+                  try {
+                    const { convertMermaidToExcalidraw } =
+                      await import("./MermaidToExcalidrawPanel");
+                    const data = await convertMermaidToExcalidraw(
+                      defaultMermaidDefinition,
+                    );
+                    // The target slide may have been deleted while the import/
+                    // parse above was in flight — patch-deck rejects the whole
+                    // batch for a missing slide id, so re-check with the live
+                    // deck (not the stale `currentSlide` this closure captured)
+                    // and drop the result instead of enqueueing a dead op.
+                    const stillExists = getDeck(deckId)?.slides.some(
+                      (s) => s.id === targetSlideId,
+                    );
+                    if (!stillExists) return;
+                    onUpdateSlide({ excalidrawData: data }, targetSlideId);
+                    setLayoutOpen(false);
+                  } catch (err) {
+                    console.error("Insert Mermaid diagram failed:", err);
+                    toast.error(t("editorToolbar.insertMermaidFailed"), {
+                      description:
+                        err instanceof Error ? err.message : undefined,
+                    });
+                  }
                 }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
@@ -696,6 +718,8 @@ graph TD
                   <button
                     onClick={async () => {
                       if (!onUpdateSlide || !currentSlide) return;
+                      // Same pinning as the insert handler above.
+                      const targetSlideId = currentSlide.id;
                       try {
                         const match = currentSlide.content.match(
                           /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
@@ -706,13 +730,22 @@ graph TD
                         const data = await convertMermaidToExcalidraw(
                           match[1].trim(),
                         );
-                        onUpdateSlide({ excalidrawData: data });
+                        // Same stale-target guard as the insert handler above.
+                        const stillExists = getDeck(deckId)?.slides.some(
+                          (s) => s.id === targetSlideId,
+                        );
+                        if (!stillExists) return;
+                        onUpdateSlide({ excalidrawData: data }, targetSlideId);
                         setLayoutOpen(false);
-                      } catch (err: any) {
+                      } catch (err) {
                         console.error("Mermaid to Excalidraw failed:", err);
+                        toast.error(t("editorToolbar.convertMermaidFailed"), {
+                          description:
+                            err instanceof Error ? err.message : undefined,
+                        });
                       }
                     }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))]/80 hover:text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
                   >
                     <IconTransform className="w-3 h-3" />
                     {t("editorToolbar.convertMermaidToExcalidraw")}
@@ -734,7 +767,7 @@ graph TD
 
               {/* Transitions section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.transition")}
               </div>
               <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -767,7 +800,7 @@ graph TD
               {onSetAspectRatio && (
                 <>
                   <div className="mx-2 my-1.5 border-t border-border" />
-                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                     {t("editorToolbar.aspectRatio")}
                   </div>
                   <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">

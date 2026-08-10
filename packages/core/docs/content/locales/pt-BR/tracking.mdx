@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,7 +101,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -116,7 +116,7 @@ Identifique um usuário com características. Encaminhado para provedores que o 
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Precisa de um back-end personalizado, o registro do provedor API ou os componentes internos de lote/singleton? Veja [Advanced: custom providers & internals](#advanced) no final.
@@ -358,5 +358,5 @@ A estrutura também rastreia `builder connect clicked` de CTAs do Connect Builde
 ## O que vem a seguir
 
 - [**Actions**](/docs/actions) — onde se origina a maioria das chamadas de rastreamento
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
 - [**Segurança — Gerenciamento de segredos**](/docs/security#secrets) — gerencie chaves API para provedores de rastreamento

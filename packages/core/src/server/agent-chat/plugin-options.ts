@@ -9,6 +9,7 @@ import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
+import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 
 /** Shape of a Nitro plugin function: receives the Nitro app instance at
  * startup and may register routes/hooks synchronously or asynchronously. */
@@ -69,21 +70,24 @@ export interface AgentChatPluginOptions {
         | Promise<Record<string, MentionProvider>>);
   /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
-  /** Optional MCP server branding surfaced during the initialize handshake. */
+  /**
+   * Everything about this app's MCP mount — whether it is mounted, which tools
+   * external callers see, and the branding sent during the `initialize`
+   * handshake. See `AgentChatMcpOptions`.
+   *
+   * Replaces the top-level `disableMcp`, `mcpServerInfo`, `connectorCatalog`,
+   * and `externalAgents`, which stay accepted for one minor. Setting both
+   * forms to disagreeing values throws at plugin init rather than silently
+   * picking one.
+   */
+  mcp?: AgentChatMcpOptions;
+
+  /** @deprecated Use `mcp.title` / `mcp.description` / `mcp.websiteUrl` / `mcp.icons`. */
   mcpServerInfo?: {
-    /** Human-facing title. Defaults to the capitalized app id/name. */
     title?: string;
-    /** Host-facing description. Defaults to "Agent-native <app> agent". */
     description?: string;
-    /** Canonical app URL. Relative URLs are resolved against the request origin. */
     websiteUrl?: string;
-    /** App icons. Relative `src` values are resolved against the request origin. */
-    icons?: Array<{
-      src: string;
-      mimeType?: string;
-      sizes?: string[];
-      theme?: "light" | "dark";
-    }>;
+    icons?: AgentChatMcpIcon[];
   };
   /**
    * Optional callback to resolve the org ID for the current request.
@@ -359,16 +363,11 @@ export interface AgentChatPluginOptions {
    * claim in their connect-minted JWT) or the deployment-wide
    * `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
    *
-   * Declare here rather than in MCPConfig directly; the plugin copies it through.
+   * @deprecated Use `mcp.connectorCatalog`.
    */
   connectorCatalog?: string[];
 
-  /**
-   * Default authenticated external-agent policy. In `auto` read mode, every
-   * action explicitly marked as GET + readOnly + publicAgent.requiresAuth is
-   * added to the connector surface automatically. Writes remain ask_app-only
-   * unless `writes: "allowlisted"` is explicitly selected.
-   */
+  /** @deprecated Use `mcp.externalAgents`. */
   externalAgents?: ExternalAgentPolicy;
 
   /**
@@ -392,14 +391,7 @@ export interface AgentChatPluginOptions {
     maxToolResultChars?: number;
   };
 
-  /**
-   * Skip mounting the remote MCP protocol route.
-   *
-   * Most apps should leave this off so agent chat, A2A, and MCP share one
-   * runtime. Hosted apps with a dedicated early MCP plugin can set this to
-   * true so their external connector does not depend on the heavier chat
-   * plugin initialization path.
-   */
+  /** @deprecated Use `mcp: { enabled: false }`. */
   disableMcp?: boolean;
 
   /**

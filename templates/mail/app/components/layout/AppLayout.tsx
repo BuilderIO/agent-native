@@ -149,6 +149,7 @@ function AccountAvatar({
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/settings" ||
+    pathname.startsWith("/settings/") ||
     pathname === "/agent" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
@@ -201,7 +202,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <AgentSidebar
       position="right"
       defaultOpen={false}
-      agentPageHref="/agent"
+      agentPageHref="/settings/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[
         t("agent.suggestionSummarize"),
@@ -2042,7 +2043,12 @@ function StandardLayout({ children }: AppLayoutProps) {
 
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return t("settings.title");
-    if (location.pathname === "/agent") return t("settings.agentTitle");
+    if (
+      location.pathname === "/agent" ||
+      location.pathname.startsWith("/settings/agent")
+    ) {
+      return t("settings.agentTitle");
+    }
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");

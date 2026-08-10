@@ -43,6 +43,8 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Explicit browser target for the chat-first with-chrome surface. */
+  sourceUrl?: string;
   /** Changes when the same URL should be opened again. */
   urlOpenNonce?: number;
   /** Safe app-relative path to load inside this app's origin. */
@@ -51,6 +53,8 @@ interface AppWebviewProps {
   urlOpenSoft?: boolean;
   /** Query parameters to merge into the resolved app URL. */
   urlParams?: Record<string, string | null | undefined>;
+  /** Optional explicit Electron partition for preview or other isolated flows. */
+  partitionKey?: string;
   /** Increment to trigger a webview reload (Cmd+R) */
   refreshKey?: number;
   /** Emits the guest page's document title so the shell tab can stay current. */
@@ -216,6 +220,18 @@ function canSoftOpenWebview(
   }
 }
 
+export function resolveAppWebviewPartition(input: {
+  appId: string;
+  sourceUrl?: string;
+  partitionKey?: string;
+}): string {
+  const explicitPartition = input.partitionKey?.trim();
+  if (explicitPartition) return explicitPartition;
+  return input.sourceUrl?.trim()
+    ? "persist:chat-first-browser"
+    : `persist:app-${input.appId}`;
+}
+
 function buildSoftOpenScript(path: string): string {
   return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
 }
@@ -239,10 +255,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app,
       appConfig,
       isActive,
+      sourceUrl,
       urlOpenNonce,
       urlPath,
       urlOpenSoft,
       urlParams,
+      partitionKey,
       refreshKey = 0,
       onTitleChange,
       onAppsChanged,
@@ -254,16 +272,15 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const url = withUrlParams(
-      withUrlPath(resolveUrl(app, appConfig), urlPath),
-      {
-        ...(appConfig?.mode === "dev" && appConfig.localPath
-          ? { _agentNativeDesktopCode: "1" }
-          : {}),
-        ...urlParams,
-      },
-    );
-    const isDevMode = appConfig?.mode === "dev";
+    const url = sourceUrl?.trim()
+      ? withUrlParams(sourceUrl.trim(), urlParams)
+      : withUrlParams(withUrlPath(resolveUrl(app, appConfig), urlPath), {
+          ...(appConfig?.mode === "dev" && appConfig.localPath
+            ? { _agentNativeDesktopCode: "1" }
+            : {}),
+          ...urlParams,
+        });
+    const isDevMode = !sourceUrl && appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
@@ -702,7 +719,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
                 "webpreferences",
                 "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=false",
               );
-              wv.setAttribute("partition", `persist:app-${app.id}`);
+              wv.setAttribute(
+                "partition",
+                resolveAppWebviewPartition({
+                  appId: app.id,
+                  sourceUrl,
+                  partitionKey,
+                }),
+              );
               wv.setAttribute("src", url);
               container.appendChild(wv);
               webviewRef.current = wv;

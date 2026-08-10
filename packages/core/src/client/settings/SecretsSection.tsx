@@ -43,6 +43,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
 const Button = React.forwardRef<
   HTMLButtonElement,
@@ -138,12 +139,7 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
     );
   }
   if (secrets === null) {
-    return (
-      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <IconLoader2 size={10} className="animate-spin" />
-        Loading…
-      </div>
-    );
+    return <SettingsSkeleton lines={2} />;
   }
   if (secrets.length === 0) {
     return (
@@ -923,10 +919,7 @@ function AdHocKeysSection({
       )}
 
       {loading ? (
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <IconLoader2 size={10} className="animate-spin" />
-          Loading...
-        </div>
+        <SettingsSkeleton lines={2} />
       ) : keys.length === 0 && !showForm && showEmptyState ? (
         <p className="text-[10px] text-muted-foreground">No keys added yet.</p>
       ) : keys.length > 0 ? (

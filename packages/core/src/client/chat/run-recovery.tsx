@@ -21,14 +21,11 @@ import {
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 
-import {
-  saveAgentEngineApiKey,
-  type AgentEngineProvider,
-} from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import { isProviderAuthenticationError } from "../error-format.js";
 import { useT } from "../i18n.js";
+import { AgentProviderSetupForm } from "../settings/ProviderSetupForm.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 
@@ -296,114 +293,13 @@ export function BuilderConnectCta({
 
 // ─── ApiKeyConnect ────────────────────────────────────────────────────────────
 
-const API_KEY_PROVIDERS: Array<{
-  value: AgentEngineProvider;
-  label: string;
-  placeholder: string;
-}> = [
-  { value: "anthropic", label: "Anthropic", placeholder: "sk-ant-…" },
-  { value: "openai", label: "OpenAI", placeholder: "sk-…" },
-];
-
 export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
-  const t = useT();
-  const [provider, setProvider] = useState<AgentEngineProvider>("anthropic");
-  const [apiKey, setApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const active = API_KEY_PROVIDERS.find((p) => p.value === provider)!;
-
-  const handleSave = useCallback(async () => {
-    if (!apiKey.trim() || saving) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await saveAgentEngineApiKey({ provider, apiKey });
-      setApiKey("");
-      onConnected?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the key.");
-    } finally {
-      setSaving(false);
-    }
-  }, [apiKey, onConnected, provider, saving]);
-
   return (
-    <div className="rounded-md border border-border bg-background/60 p-3">
-      <div className="mb-2 text-[11px] font-medium text-foreground">
-        {t("agentPanel.addOwnKeys", { defaultValue: "Add your own keys" })}
-      </div>
-      <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
-        Stored securely for this app only.
-      </p>
-      <div
-        role="tablist"
-        aria-label="API key provider"
-        className="mb-2 inline-flex rounded-md border border-border bg-muted/40 p-0.5"
-      >
-        {API_KEY_PROVIDERS.map((option) => {
-          const selected = option.value === provider;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              onClick={() => {
-                setProvider(option.value);
-                setError(null);
-              }}
-              className={cn(
-                "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
-                selected
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="password"
-          value={apiKey}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={active.placeholder}
-          onChange={(e) => {
-            setApiKey(e.target.value);
-            if (error) setError(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void handleSave();
-            }
-          }}
-          className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"
-        />
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!apiKey.trim() || saving}
-          className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? (
-            <>
-              <IconLoader2 size={11} className="animate-spin" />
-              Saving…
-            </>
-          ) : (
-            "Save"
-          )}
-        </button>
-      </div>
-      {error ? (
-        <p className="mt-2 text-[11px] text-destructive">{error}</p>
-      ) : null}
-    </div>
+    <AgentProviderSetupForm
+      onConnected={() => onConnected?.()}
+      layout="compact"
+      showTitle={false}
+    />
   );
 }
 
@@ -441,8 +337,7 @@ export function BuilderSetupContent({
           </h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
             {t("agentPanel.builderOrOwnKeys", {
-              defaultValue:
-                "Use Builder.io (free credits), or add your own provider keys.",
+              defaultValue: "Choose Builder.io or custom keys.",
             })}
           </p>
         </div>
@@ -467,7 +362,7 @@ export function BuilderSetupContent({
             aria-expanded={keyOpen}
           >
             {t("agentPanel.addOwnKeys", {
-              defaultValue: "Add your own keys",
+              defaultValue: "Custom keys",
             })}
           </button>
         </div>

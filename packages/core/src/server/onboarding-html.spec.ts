@@ -30,6 +30,55 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("__an_auth_redirect");
   });
 
+  it("keeps the local-dev CTA hidden in cached HTML and reveals it only for loopback hosts", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain('id="local-dev-signin" hidden');
+    expect(html).toContain('id="local-dev-btn"');
+    expect(html).toContain('class="btn-local-dev btn-primary"');
+    expect(html).toContain('id="local-dev-full-options" hidden');
+    expect(html).toContain('id="full-auth-options" class="full-auth-options"');
+    expect(html).toContain("Continue as local dev");
+    expect(html).toContain("Show full sign in options");
+    expect(html).toContain("Only works in local development on this computer.");
+    expect(html).toContain('id="local-dev-help"');
+    expect(html).toContain(
+      'href="https://www.agent-native.com/docs/authentication#local-development-sign-in"',
+    );
+    expect(html).toContain("Learn about local development sign-in");
+    expect(html).toContain('class="local-dev-help-glyph"');
+    expect(html).toContain("width: 1.5rem;");
+    expect(html).toContain("width: 0.625rem;");
+    expect(html).toContain("height: 0.625rem;");
+    expect(html).toContain(".full-auth-options { margin-top: 1rem; }");
+    expect(html).toContain("function __anIsLoopbackHostname()");
+    expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
+    expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");
+    expect(html).toContain("hostname.indexOf('127.') === 0");
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
+    expect(html).not.toContain("NODE_ENV");
+  });
+
+  it("enables the local-dev CTA on Builder previews only with explicit opt-in", () => {
+    vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = true;",
+    );
+    expect(html).toContain("function __anIsBuilderPreviewHost()");
+    expect(html).toContain("function __anCanUseLocalDevSignin()");
+    expect(html).toContain("hostname.endsWith('.builder.my')");
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(getOnboardingHtml()).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
+  });
+
   describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
     it("env unset → login HTML is byte-for-byte identical (no SSO button, no residue)", () => {
       // Capture baseline with the env unequivocally absent.
@@ -195,7 +244,10 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
     );
-    expect(html).toContain("var initial = 'signup';");
+    expect(html).toContain(
+      "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",
+    );
+    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm();");
     expect(html).toContain('class="tabs" id="auth-tabs"');
     expect(html).not.toContain('class="tabs" id="auth-tabs" hidden');
     expect(html).toContain(

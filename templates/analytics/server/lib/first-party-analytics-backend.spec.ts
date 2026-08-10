@@ -5,6 +5,7 @@ const putScopedSettingRecord = vi.hoisted(() => vi.fn());
 const getBigQueryProjectId = vi.hoisted(() => vi.fn());
 const runQuery = vi.hoisted(() => vi.fn());
 const getAccessToken = vi.hoisted(() => vi.fn());
+const fetchGoogleWithRetry = vi.hoisted(() => vi.fn());
 const execute = vi.hoisted(() => vi.fn());
 
 vi.mock("./scoped-settings.js", () => ({
@@ -15,7 +16,7 @@ vi.mock("./bigquery.js", () => ({
   getBigQueryProjectId,
   runQuery,
 }));
-vi.mock("./gcloud.js", () => ({ getAccessToken }));
+vi.mock("./gcloud.js", () => ({ fetchGoogleWithRetry, getAccessToken }));
 vi.mock("@agent-native/core/db", () => ({ getDbExec: () => ({ execute }) }));
 vi.mock("./credentials-context.js", () => ({
   requireRequestCredentialContext: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("./credentials-context.js", () => ({
 
 import {
   backfillFirstPartyAnalyticsBatch,
+  createFirstPartyAnalyticsInserter,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
@@ -37,6 +39,7 @@ beforeEach(() => {
   getBigQueryProjectId.mockReset();
   runQuery.mockReset();
   getAccessToken.mockReset();
+  fetchGoogleWithRetry.mockReset();
   execute.mockReset();
   resetFirstPartyAnalyticsBackendCacheForTests();
   getScopedSettingRecord.mockResolvedValue({
@@ -46,6 +49,7 @@ beforeEach(() => {
   putScopedSettingRecord.mockResolvedValue(undefined);
   getBigQueryProjectId.mockResolvedValue("builder-3b0a2");
   getAccessToken.mockResolvedValue("test-token");
+  fetchGoogleWithRetry.mockImplementation((url, init) => fetch(url, init));
 });
 
 describe("first-party BigQuery backend", () => {
@@ -122,6 +126,7 @@ describe("first-party BigQuery backend", () => {
         null,
         25,
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        { now: () => "2026-08-08T00:00:00.000Z" },
       ),
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
@@ -130,12 +135,23 @@ describe("first-party BigQuery backend", () => {
     const [personalQuery] = execute.mock.calls[1] ?? [];
     for (const query of [orgQuery, personalQuery]) {
       expect(query.sql).toContain("SELECT id, received_at");
+      expect(query.sql).toContain(
+        "event_name IS DISTINCT FROM 'http.response'",
+      );
       expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
       expect(query.sql).not.toContain("SELECT *");
       expect(query.sql).not.toContain("UNION ALL");
     }
-    expect(orgQuery.args).toEqual(["org_builder", 25]);
-    expect(personalQuery.args).toEqual(["owner@example.com", 25]);
+    expect(orgQuery.args).toEqual([
+      "org_builder",
+      "2026-06-09T00:00:00.000Z",
+      25,
+    ]);
+    expect(personalQuery.args).toEqual([
+      "owner@example.com",
+      "2026-06-09T00:00:00.000Z",
+      25,
+    ]);
   });
 
   it("applies the tuple cursor after the initial backfill batch", async () => {
@@ -150,24 +166,25 @@ describe("first-party BigQuery backend", () => {
         }),
         25,
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        { now: () => "2026-08-08T00:00:00.000Z" },
       ),
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
     expect(execute).toHaveBeenCalledTimes(2);
     const [orgQuery] = execute.mock.calls[0] ?? [];
     const [personalQuery] = execute.mock.calls[1] ?? [];
-    expect(orgQuery.sql).toContain("received_at > ?");
-    expect(personalQuery.sql).toContain("received_at > ?");
+    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(personalQuery.sql).toContain("(received_at, id) > (?, ?)");
     expect(orgQuery.args).toEqual([
       "org_builder",
-      "2026-07-25T11:01:33.023Z",
+      "2026-06-09T00:00:00.000Z",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
       25,
     ]);
     expect(personalQuery.args).toEqual([
       "owner@example.com",
-      "2026-07-25T11:01:33.023Z",
+      "2026-06-09T00:00:00.000Z",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
       25,
@@ -186,8 +203,8 @@ describe("first-party BigQuery backend", () => {
 
     const [orgQuery] = execute.mock.calls[0] ?? [];
     const [personalQuery] = execute.mock.calls[1] ?? [];
-    expect(orgQuery.args.at(-1)).toBe(5_000);
-    expect(personalQuery.args.at(-1)).toBe(5_000);
+    expect(orgQuery.args.at(-1)).toBe(750);
+    expect(personalQuery.args.at(-1)).toBe(750);
   });
 
   it("keeps BigQuery streaming requests bounded", async () => {
@@ -211,6 +228,36 @@ describe("first-party BigQuery backend", () => {
     expect(
       JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).rows,
     ).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("reuses the table resolver and bounds dedicated BigQuery concurrency", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const insertRows = await createFirstPartyAnalyticsInserter(
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      { maxRowsPerRequest: 500, maxConcurrentRequests: 2 },
+    );
+    await expect(
+      insertRows(
+        Array.from({ length: 1_001 }, (_, index) => ({
+          id: `event-${index}`,
+        })),
+      ),
+    ).resolves.toBe(1_001);
+
+    expect(getBigQueryProjectId).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(maxInFlight).toBe(2);
     vi.unstubAllGlobals();
   });
 
@@ -305,13 +352,12 @@ describe("first-party BigQuery backend", () => {
         901,
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
       ),
-    ).resolves.toMatchObject({ copied: 901 });
+    ).resolves.toMatchObject({ copied: 750 });
 
-    expect(execute).toHaveBeenCalledTimes(4);
-    const [firstHydration, secondHydration] = execute.mock.calls.slice(2);
-    expect(firstHydration?.[0].args).toHaveLength(900);
-    expect(secondHydration?.[0].args).toEqual(["event-900"]);
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(execute).toHaveBeenCalledTimes(3);
+    const [firstHydration] = execute.mock.calls.slice(2);
+    expect(firstHydration?.[0].args).toHaveLength(750);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     vi.unstubAllGlobals();
   });
 

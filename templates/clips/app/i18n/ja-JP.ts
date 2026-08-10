@@ -687,12 +687,12 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "Builder.io は Clips アップロードの主要な保存先です。独自バケットが必要な場合は S3 も利用できます。",
     checkingBuilder: "Builder.io を確認中",
     builderConnected: "Builder.io 接続済み",
-    connectBuilder: "Builder.io を使用 (無料)",
+    connectBuilder: "Builder.io を使用",
     builderConnectedFor: "{{orgName}} で Builder.io を使用中です。",
     builderConnectedGeneric:
       "新しいクリップは接続済みの Builder.io プロバイダーを使用します。",
     builderIncludes:
-      "新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしを含みます。",
+      "Builder.io の無料プランには、新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしが含まれます。",
     s3Title: "S3 互換ストレージ",
     secondary: "セカンダリ",
     active: "有効",
@@ -719,8 +719,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     s3RegionInvalid:
       '有効なリージョン（例: us-east-1）または "auto" を入力してください',
     apiSetup: "AI 設定",
-    apiSetupDescription:
-      "Builder.io の無料クレジット、または自分の LLM キーで AI を接続します。",
+    apiSetupDescription: "Clips の AI 接続方法を選択します。",
     builderEasySetup: "Builder.io 無料クレジット",
     builderAiAvailable:
       "Clips では付属の AI クレジットとマネージド文字起こしを利用できます。",
@@ -728,8 +727,13 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "含まれる AI クレジット、オブジェクトストレージ、アップロード、管理された文字起こしには、まず Builder.io を使用します。",
     providerKeyTitle: "独自のプロバイダーキーを使用",
     providerKeyDescription:
-      "プロバイダー課金で使用する Anthropic、OpenAI、Gemini、Groq、OpenRouter のキーを追加します。",
+      "プロバイダー課金で使用する Anthropic、OpenAI、OpenRouter、Gemini、Groq、Mistral、Cohere、Ollama を選択します。",
     providerKeysSet: "{{count}} 件設定済み",
+    providerActionTitle: "AI プロバイダー",
+    providerActionDescription:
+      "Builder.io には無料プランがあります。カスタムキーも使用できます。",
+    providerManage: "管理",
+    providerCustomKeys: "カスタムキー",
     checkingProviderKeys: "プロバイダーキーを確認中…",
     keySet: "設定済み",
     keyCleared: "ストレージ認証情報をクリアしました",
@@ -1158,7 +1162,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    connectBuilder: "Builder.io を使用 (無料)",
+    connectBuilder: "Builder.io を使用",
     free: "無料",
     configureS3: "S3 互換ストレージを設定",
     whyPrompt: "なぜこれが表示されていますか？",

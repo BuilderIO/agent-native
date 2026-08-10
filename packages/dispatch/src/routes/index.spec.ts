@@ -31,7 +31,8 @@ describe("Dispatch route registration", () => {
     const admin = routes.find((route) => route.path === "admin");
     const adminPaths = admin?.children?.map((route) => route.path) ?? [];
     expect(adminPaths).toContain("operations");
-    expect(adminPaths).toContain("apps/:appId");
+    expect(adminPaths).not.toContain("apps");
+    expect(adminPaths).not.toContain("apps/:appId");
     expect(adminPaths.indexOf("operations")).toBeGreaterThanOrEqual(0);
   });
 });

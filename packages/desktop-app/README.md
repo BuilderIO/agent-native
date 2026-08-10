@@ -219,6 +219,14 @@ Shortcuts live in the advanced settings panel under **Customize per app → Keyb
 agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
 ```
 
+## Quick Prompt
+
+Quick Prompt is an opt-in global command bar for the native Agent chat. Enable
+it in Desktop Settings, then press Cmd+Space from any app to bring the bar
+above other windows. Submitting creates the same native coding chat as the
+Agent surface and returns focus to that run. The preference is off by default
+and is stored locally with the desktop settings.
+
 ## Authenticated Design previews
 
 Desktop can render one focused, URL-backed Design screen as a native

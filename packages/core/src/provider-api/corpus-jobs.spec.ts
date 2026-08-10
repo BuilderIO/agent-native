@@ -280,6 +280,11 @@ describe("provider corpus jobs", () => {
     expect(second.job.status).toBe("completed");
     expect(second.coverage.pagesProcessed).toBe(2);
     expect(second.coverage.totalHits).toBe(2);
+    expect(second.coverage).toMatchObject({
+      paginationComplete: false,
+      paginationStopReason: "max-pages",
+    });
+    expect(second.nextAction).toContain("exhaustive");
     expect((calls[0] as any).query.page).toBe(1);
     expect((calls[1] as any).query.page).toBe(2);
 
@@ -408,6 +413,40 @@ describe("provider corpus jobs", () => {
     expect(second.coverage.totalHits).toBe(1);
   });
 
+  it("distinguishes a max-pages cap from complete pagination", async () => {
+    const action = createProviderCorpusJobAction({
+      appId: "analytics",
+      getRuntime: () => ({
+        executeRequest: async () =>
+          providerEnvelope({
+            items: [{ id: "m1", text: "Figma MCP" }],
+            next: "page-2",
+          }),
+      }),
+    });
+
+    const capped = (await action.run({
+      operation: "start",
+      mode: "paginated-search",
+      request: { provider: "fake", path: "/messages" },
+      pagination: {
+        itemsPath: "items",
+        nextCursorPath: "next",
+        cursorParam: "cursor",
+        maxPages: 1,
+      },
+      search: { query: "Figma MCP", textPaths: ["text"] },
+    })) as any;
+
+    expect(capped.job.status).toBe("completed");
+    expect(capped.coverage).toMatchObject({
+      paginationComplete: false,
+      paginationStopReason: "max-pages",
+    });
+    expect(capped.nextAction).toContain("Start a new job");
+    expect(capped.nextAction).not.toContain("Read all stored hits");
+  });
+
   it("exposes read-only job status and results for UI surfaces", async () => {
     const action = createProviderCorpusJobAction({
       appId: "analytics",
@@ -440,6 +479,8 @@ describe("provider corpus jobs", () => {
       itemsProcessed: 1,
       matchedItems: 1,
       totalHits: 1,
+      paginationComplete: true,
+      paginationStopReason: "single-page",
     });
 
     const results = (await readAction.run({

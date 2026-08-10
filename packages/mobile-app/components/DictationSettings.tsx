@@ -121,7 +121,7 @@ export default function DictationSettings() {
   if (!preferences) {
     return (
       <View className="m-4 p-7 rounded-2xl bg-card-dark items-center justify-center">
-        <ActivityIndicator color="#c7f36b" />
+        <ActivityIndicator color="#d4d4d8" />
       </View>
     );
   }
@@ -134,7 +134,7 @@ export default function DictationSettings() {
   return (
     <View className="px-4 pt-5 gap-3">
       <View className="flex-row items-start gap-2.5">
-        <IconLanguage color="#c7f36b" size={20} strokeWidth={1.8} />
+        <IconLanguage color="#d4d4d8" size={20} strokeWidth={1.8} />
         <View className="flex-1">
           <Text className="text-white text-lg font-bold">Dictation</Text>
           <Text className="text-text-muted text-xs leading-4 mt-0.5">
@@ -300,7 +300,7 @@ export default function DictationSettings() {
           </Text>
         ) : null}
         {loadingVocabulary ? (
-          <ActivityIndicator color="#c7f36b" className="my-4.5" />
+          <ActivityIndicator color="#d4d4d8" className="my-4.5" />
         ) : vocabulary.length === 0 && !vocabularyError ? (
           <Text className="text-text-muted text-xs leading-4 text-center px-2.5 py-4.5">
             No terms yet. Add a name or spelling that transcription should
@@ -379,7 +379,7 @@ export default function DictationSettings() {
                       </View>
                       {selected ? (
                         <IconCheck
-                          color="#c7f36b"
+                          color="#d4d4d8"
                           size={18}
                           strokeWidth={2.2}
                         />

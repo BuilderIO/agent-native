@@ -174,7 +174,11 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
       ) {
         throw this.state.error;
       }
-      return this.props.fallback ?? null;
+      return this.props.fallback === undefined ? (
+        <AssistantUiRecoverableRenderFallback />
+      ) : (
+        this.props.fallback
+      );
     }
 
     const fragmentKey =

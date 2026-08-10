@@ -23,7 +23,7 @@ import { NavLink } from "react-router";
 import { cn } from "../lib/utils";
 import { useDispatchExtensions, type DispatchNavItem } from "./layout/Layout";
 
-interface AdminNavGroup {
+export interface AdminNavGroup {
   id: string;
   label: string;
   labelKey: string;
@@ -210,21 +210,7 @@ export function AdminShell({
   onNavigate?: () => void;
 }) {
   const t = useT();
-  const extensions = useDispatchExtensions();
-  const extensionItems = (extensions?.navItems ?? []).filter(
-    (item) => item.section === "operations",
-  );
-  const groups = extensionItems.length
-    ? [
-        ...BUILT_IN_ADMIN_NAV_GROUPS,
-        {
-          id: "workspace-extensions",
-          label: "Workspace extensions",
-          labelKey: "dispatch.pages.adminWorkspaceExtensions",
-          items: extensionItems,
-        },
-      ]
-    : BUILT_IN_ADMIN_NAV_GROUPS;
+  const groups = useAdminNavGroups();
 
   return (
     <div
@@ -276,3 +262,22 @@ export function AdminShell({
 }
 
 export { BUILT_IN_ADMIN_NAV_GROUPS };
+
+export function useAdminNavGroups(): readonly AdminNavGroup[] {
+  const extensions = useDispatchExtensions();
+  const extensionItems = (extensions?.navItems ?? []).filter(
+    (item) => item.section === "operations",
+  );
+
+  return extensionItems.length
+    ? [
+        ...BUILT_IN_ADMIN_NAV_GROUPS,
+        {
+          id: "workspace-extensions",
+          label: "Workspace extensions",
+          labelKey: "dispatch.pages.adminWorkspaceExtensions",
+          items: extensionItems,
+        },
+      ]
+    : BUILT_IN_ADMIN_NAV_GROUPS;
+}
