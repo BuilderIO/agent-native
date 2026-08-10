@@ -52,12 +52,15 @@ export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
   chat: "https://chat.agent-native.com",
   clips: "https://clips.agent-native.com",
   content: "https://content.agent-native.com",
+  crm: "https://crm.agent-native.com",
   design: "https://design.agent-native.com",
   dispatch: "https://dispatch.agent-native.com",
   forms: "https://forms.agent-native.com",
+  macros: "https://macros.agent-native.com",
   mail: "https://mail.agent-native.com",
   plan: "https://plan.agent-native.com",
   slides: "https://slides.agent-native.com",
+  tasks: "https://tasks.agent-native.com",
 } as const;
 
 export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = Object.values(

@@ -158,6 +158,11 @@ describe("isAllowedRedirectUri — the critical open-redirect guard", () => {
 
   it("default allowlist contains exact registered app origins", () => {
     expect(DEFAULT_ALLOWED_ORIGINS).toContain("https://mail.agent-native.com");
+    expect(DEFAULT_ALLOWED_ORIGINS).toContain("https://tasks.agent-native.com");
+    expect(DEFAULT_ALLOWED_ORIGINS).toContain("https://crm.agent-native.com");
+    expect(DEFAULT_ALLOWED_ORIGINS).toContain(
+      "https://macros.agent-native.com",
+    );
     expect(DEFAULT_ALLOWED_ORIGINS).not.toContain(
       "https://unknown.agent-native.com",
     );

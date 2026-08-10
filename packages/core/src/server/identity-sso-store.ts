@@ -43,12 +43,15 @@ const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://chat.agent-native.com",
   "https://clips.agent-native.com",
   "https://content.agent-native.com",
+  "https://crm.agent-native.com",
   "https://design.agent-native.com",
   "https://dispatch.agent-native.com",
   "https://forms.agent-native.com",
+  "https://macros.agent-native.com",
   "https://mail.agent-native.com",
   "https://plan.agent-native.com",
   "https://slides.agent-native.com",
+  "https://tasks.agent-native.com",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -117,7 +120,7 @@ export function isCanonicalAgentNativeAppRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,
 ): boolean {
-  if (!host || (forwardedProtocol && forwardedProtocol !== "https")) {
+  if (!host || forwardedProtocol !== "https") {
     return false;
   }
   return isCanonicalAgentNativeAppOrigin(`https://${host}`);

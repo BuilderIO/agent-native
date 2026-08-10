@@ -177,6 +177,12 @@ describe("Desktop SSO Canary request classifiers", () => {
     expect(
       store.isCanonicalAgentNativeAppRequest("mail.agent-native.com", "http"),
     ).toBe(false);
+    expect(
+      store.isCanonicalAgentNativeAppRequest(
+        "mail.agent-native.com",
+        undefined,
+      ),
+    ).toBe(false);
   });
 });
 

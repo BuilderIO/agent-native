@@ -1392,6 +1392,7 @@ describe("server/auth", () => {
               path,
               headers: {
                 host: "mail.agent-native.com",
+                "x-forwarded-proto": "https",
                 "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
               },
             }),
@@ -1405,6 +1406,7 @@ describe("server/auth", () => {
             path: "/_agent-native/identity/login",
             headers: {
               host: "untrusted.example",
+              "x-forwarded-proto": "https",
               "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
             },
           }),

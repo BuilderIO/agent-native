@@ -160,6 +160,7 @@ function ev(opts: {
     method: opts.method ?? "GET",
     headers: {
       host: opts.host ?? "mail.agent-native.com",
+      "x-forwarded-proto": "https",
       "user-agent": opts.userAgent,
     },
     node: { req: { url: path } },
