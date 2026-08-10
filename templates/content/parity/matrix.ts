@@ -323,6 +323,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "add-database-item",
+      "update-database-item",
       "upsert-database-item-by-key",
       "remove-database-items",
       "duplicate-database-items",
@@ -338,6 +339,7 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
+      "actions/upsert-database-item-by-key.db.test.ts",
       "actions/migrate-content-database-rows.db.test.ts",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],

@@ -10,7 +10,7 @@ import {
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
-import { isAgentActionStopError } from "../action.js";
+import { isActionContractError, isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
@@ -679,7 +679,15 @@ export function mountActionRoutes(
                 isAgentActionStopError(err) ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return { error: msg };
+                return isActionContractError(err)
+                  ? {
+                      error: msg,
+                      errorCode: err.errorCode,
+                      ...(err.details === undefined
+                        ? {}
+                        : { details: err.details }),
+                    }
+                  : { error: msg };
               }
               const requestId = getHttpRequestTelemetryId(event);
               const captureId = captureError(err, {

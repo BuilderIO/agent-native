@@ -116,6 +116,16 @@ export default defineAction({
         .delete(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
+      if (database.naturalKeyPropertyId === propertyId) {
+        await tx
+          .update(schema.contentDatabases)
+          .set({
+            naturalKeyPropertyId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.contentDatabases.id, database.id));
+      }
+
       if (isBlocks) {
         await tx
           .delete(schema.documentBlockFieldContents)

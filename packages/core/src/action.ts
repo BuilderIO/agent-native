@@ -161,6 +161,49 @@ export interface AgentActionStopOptions {
   toolResult?: string;
 }
 
+export interface ActionContractErrorOptions {
+  /** Stable machine-readable code safe to expose on every action transport. */
+  errorCode: string;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
+  /** HTTP status for the action route. Contract conflicts normally use 409. */
+  statusCode?: number;
+}
+
+/**
+ * A deterministic, caller-correctable action contract failure.
+ *
+ * Unlike an ordinary Error, its code and explicitly safe details survive the
+ * framework HTTP transport. Internal failures remain generic 500 responses.
+ */
+export class ActionContractError extends Error {
+  readonly actionContractError = true;
+  readonly errorCode: string;
+  readonly details?: Record<string, unknown>;
+  readonly statusCode: number;
+
+  constructor(message: string, options: ActionContractErrorOptions) {
+    super(message);
+    this.name = "ActionContractError";
+    this.errorCode = options.errorCode;
+    this.details = options.details;
+    this.statusCode = options.statusCode ?? 409;
+  }
+}
+
+export function isActionContractError(
+  error: unknown,
+): error is ActionContractError {
+  return (
+    error instanceof ActionContractError ||
+    (!!error &&
+      typeof error === "object" &&
+      (error as { actionContractError?: unknown }).actionContractError ===
+        true &&
+      typeof (error as { errorCode?: unknown }).errorCode === "string")
+  );
+}
+
 /**
  * Throw from an action when the agent should stop the current turn instead of
  * feeding the failure back to the model for another retry.
