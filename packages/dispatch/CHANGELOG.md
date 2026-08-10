@@ -1,5 +1,19 @@
 # @agent-native/dispatch
 
+## 0.22.0
+
+### Minor Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- 061896a: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- 061896a: Use the Toolkit header store and mobile hook through Dispatch compatibility paths.
+- 061896a: Improve Thread Debug with diagnosis-first failure triage and retained run evidence.
+- Updated dependencies [061896a]
+  - @agent-native/toolkit@0.13.7
+
 ## 0.21.0
 
 ### Minor Changes
