@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { legacyBlocksFieldIdentity } from "./blocks-field-identity";
 import {
   buildDocumentExport,
   exportFilename,
@@ -8,6 +9,56 @@ import {
 import { KATEX_STYLESHEET_URL } from "./math-rendering";
 
 describe("document export", () => {
+  it("carries ordered Blocks fields in a non-rendering identity manifest", () => {
+    const markdown = "Alpha\nBeta";
+    const blocksFields = [
+      {
+        propertyId: "content",
+        name: "Content",
+        position: 0,
+        markdown,
+        identity: legacyBlocksFieldIdentity({
+          documentId: "doc_123",
+          propertyId: "content",
+          markdown,
+        }),
+      },
+      {
+        propertyId: "notes",
+        name: "Notes",
+        position: 1,
+        markdown: "Private notes",
+        identity: legacyBlocksFieldIdentity({
+          documentId: "doc_123",
+          propertyId: "notes",
+          markdown: "Private notes",
+        }),
+      },
+    ];
+    const exported = buildDocumentExport({
+      id: "doc_123",
+      title: "Identity export",
+      content: markdown,
+      format: "markdown",
+      blocksFields,
+    });
+
+    expect(exported.blocksFields).toEqual(blocksFields);
+    expect(exported.content).toContain("<!-- agent-native-blocks:");
+    expect(exported.content).toContain('"propertyId":"notes"');
+
+    const html = buildDocumentExport({
+      id: "doc_123",
+      title: "Identity export",
+      content: markdown,
+      format: "html",
+      blocksFields,
+    });
+    expect(html.content).toContain(
+      '<script type="application/json" id="agent-native-blocks">',
+    );
+    expect(html.content).not.toContain("agent-native-blocks:</article>");
+  });
   it("creates stable filenames from page titles", () => {
     expect(exportFilename("Q2 Launch / PRD", "markdown")).toBe(
       "q2-launch-prd.md",

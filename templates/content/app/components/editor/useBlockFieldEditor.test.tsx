@@ -11,7 +11,12 @@ import { useBlockFieldEditor } from "./DocumentBlockFields";
 // A save record we can assert against: which (documentId, propertyId) each
 // write targeted, and with what value. Resolves immediately so single-flight +
 // trailing logic settles within an act().
-type SaveCall = { documentId: string; propertyId: string; value: string };
+type SaveCall = {
+  documentId: string;
+  propertyId: string;
+  value: string;
+  expectedBlocksFieldRevision: number;
+};
 
 describe("useBlockFieldEditor (identity-safe save wiring)", () => {
   let container: HTMLDivElement | null = null;
@@ -50,6 +55,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       documentId,
       propertyId,
       initialContent,
+      initialRevision: 0,
       save,
     });
     onReady(onChange);
@@ -116,6 +122,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       documentId: "doc-new",
       propertyId: "summary",
       value: "new doc text",
+      expectedBlocksFieldRevision: 0,
     });
     // The new field's write never leaked to the old field.
     expect(
@@ -182,6 +189,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       documentId: "doc-old",
       propertyId: "outline",
       value: "unsaved old-field edit",
+      expectedBlocksFieldRevision: 0,
     });
     // It did NOT get misrouted to the new field.
     expect(calls.some((c) => c.documentId === "doc-new")).toBe(false);
@@ -452,6 +460,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       documentId: "doc",
       propertyId: "field",
       value: "saved value",
+      expectedBlocksFieldRevision: 0,
     });
 
     // REMOUNT while the server query has NOT yet refetched — initialContent is
@@ -631,7 +640,12 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     expect(seenContent).toBe("agent edit");
     // Only the original local save happened; adopting never saves.
     expect(calls).toEqual([
-      { documentId: "doc", propertyId: "field", value: "mine" },
+      {
+        documentId: "doc",
+        propertyId: "field",
+        value: "mine",
+        expectedBlocksFieldRevision: 0,
+      },
     ]);
   });
 

@@ -6,7 +6,7 @@ name: "Blocks fields"
 user_promise: "Every editable rich-content body uses one Blocks-field grammar and keeps its own stable revision boundary."
 primary_user_job: "Write rich content in Pages and collaboration surfaces without each body inventing incompatible editing and history rules."
 kind: "primitive"
-state: "approved_shape"
+state: "in_progress"
 publicness: "public"
 availability: "universal"
 dependencies: ["content.object.block"]
@@ -24,9 +24,14 @@ proof_requirements:
     "Owner-scoped access and typed rendering including unavailable content",
     "Shared Action/UI behavior for concurrency, history, and portable output",
   ]
-evidence: []
+evidence:
+  [
+    "server/db/schema.ts",
+    "actions/_blocks-field-identity.ts",
+    "actions/blocks-seeding.db.test.ts",
+  ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-08-10"
 ---
 
 # Blocks fields
@@ -65,7 +70,7 @@ Given a Page with two Blocks fields, when an authorized editor restores one fiel
 
 ## Current evidence
 
-The document editor proves rich Page-body editing and comments provide collaboration substrate. The repository does not yet prove one generalized Blocks-field grammar or independent field history across all owners; this remains `approved_shape`.
+Primary and additional database Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, shared mutation actions, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 

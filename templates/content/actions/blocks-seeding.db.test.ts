@@ -29,6 +29,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let propertyUtils: typeof import("./_property-utils.js");
+let identityUtils: typeof import("./_blocks-field-identity.js");
 let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
@@ -38,6 +39,7 @@ let getContentDatabaseAction: typeof import("./get-content-database.js").default
 let getDocumentAction: typeof import("./get-document.js").default;
 let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
+let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
 
 const OWNER = "owner@example.com";
 
@@ -47,6 +49,7 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   propertyUtils = await import("./_property-utils.js");
+  identityUtils = await import("./_blocks-field-identity.js");
   databaseUtils = await import("./_database-utils.js");
   createInlineContentDatabaseAction = (
     await import("./create-inline-content-database.js")
@@ -61,6 +64,8 @@ beforeAll(async () => {
     await import("./configure-document-property.js")
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
+  removeDatabaseItemsAction = (await import("./remove-database-items.js"))
+    .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
@@ -658,6 +663,274 @@ describe("writeBlockFieldContent — upsert race (finding 4)", () => {
     expect(
       await propertyUtils.readBlockFieldContent(documentId, propertyId),
     ).toBe("v2");
+  });
+});
+
+describe("database Blocks field identity sidecar", () => {
+  it("preserves ordered IDs, independent revisions, and bounded recovery", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const primaryPropertyId = `primary_${documentId}`;
+    const additionalPropertyId = `additional_${documentId}`;
+
+    async function save(args: {
+      propertyId: string;
+      previousMarkdown: string;
+      markdown: string;
+      expectedRevision: number;
+    }) {
+      const now = new Date().toISOString();
+      return db.transaction(async (tx: any) => {
+        const state = await identityUtils.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId,
+          propertyId: args.propertyId,
+          previousMarkdown: args.previousMarkdown,
+          markdown: args.markdown,
+          expectedRevision: args.expectedRevision,
+          now,
+        });
+        if (args.propertyId === primaryPropertyId) {
+          await tx
+            .update(schema.documents)
+            .set({ content: args.markdown, updatedAt: now })
+            .where(eq(schema.documents.id, documentId));
+        }
+        return state;
+      });
+    }
+
+    const edited = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "body text",
+      markdown: "Alpha\nBeta",
+      expectedRevision: 0,
+    });
+    const [alphaId, betaId] = edited.blocks
+      .filter((block) => block.state === "live")
+      .map((block) => block.id);
+    expect(edited.revision).toBe(1);
+
+    const reordered = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "Alpha\nBeta",
+      markdown: "Beta\nAlpha edited",
+      expectedRevision: 1,
+    });
+    expect(
+      reordered.blocks
+        .filter((block) => block.state === "live")
+        .map((block) => block.id),
+    ).toEqual([betaId, alphaId]);
+
+    const deleted = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "Beta\nAlpha edited",
+      markdown: "Alpha edited",
+      expectedRevision: 2,
+    });
+    expect(deleted.blocks.find((block) => block.id === betaId)).toEqual(
+      expect.objectContaining({ state: "deleted", deletedAtRevision: 3 }),
+    );
+
+    const recovered = await save({
+      propertyId: primaryPropertyId,
+      previousMarkdown: "Alpha edited",
+      markdown: "Alpha edited\nBeta",
+      expectedRevision: 3,
+    });
+    expect(
+      recovered.blocks
+        .filter((block) => block.state === "live")
+        .map((block) => block.id),
+    ).toContain(betaId);
+
+    const additional = await save({
+      propertyId: additionalPropertyId,
+      previousMarkdown: "",
+      markdown: "Alpha edited\nBeta",
+      expectedRevision: 0,
+    });
+    expect(additional.fieldId).not.toBe(recovered.fieldId);
+    expect(additional.revision).toBe(1);
+    expect(additional.blocks.map((block) => block.id)).not.toEqual(
+      recovered.blocks.map((block) => block.id),
+    );
+
+    const reloaded = await identityUtils.readBlocksFieldIdentity({
+      documentId,
+      propertyId: primaryPropertyId,
+      markdown: "Alpha edited\nBeta",
+    });
+    expect(reloaded.revision).toBe(4);
+    expect(reloaded.identityStatus).toBe("materialized");
+    expect(reloaded.blocks.map((block) => block.id)).toEqual(
+      recovered.blocks
+        .filter((block) => block.state === "live")
+        .map((block) => block.id),
+    );
+  });
+
+  it("rejects a stale field revision without changing canonical Markdown", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const propertyId = `conflict_${documentId}`;
+    const now = new Date().toISOString();
+    await identityUtils.persistBlocksFieldIdentity({
+      db,
+      ownerEmail: OWNER,
+      documentId,
+      propertyId,
+      previousMarkdown: "body text",
+      markdown: "Current",
+      expectedRevision: 0,
+      now,
+    });
+    await db
+      .update(schema.documents)
+      .set({ content: "Current", updatedAt: now })
+      .where(eq(schema.documents.id, documentId));
+
+    await expect(
+      db.transaction(async (tx: any) => {
+        await tx
+          .update(schema.documents)
+          .set({ content: "Stale overwrite" })
+          .where(eq(schema.documents.id, documentId));
+        await identityUtils.persistBlocksFieldIdentity({
+          db: tx,
+          ownerEmail: OWNER,
+          documentId,
+          propertyId,
+          previousMarkdown: "Current",
+          markdown: "Stale overwrite",
+          expectedRevision: 0,
+          now: new Date().toISOString(),
+        });
+      }),
+    ).rejects.toThrow("Blocks field revision conflict");
+
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document.content).toBe("Current");
+  });
+
+  it("allows only one concurrent first materialization", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const propertyId = `first_${documentId}`;
+    const attempts = await Promise.allSettled(
+      ["First", "Second"].map((markdown) =>
+        db.transaction((tx: any) =>
+          identityUtils.persistBlocksFieldIdentity({
+            db: tx,
+            ownerEmail: OWNER,
+            documentId,
+            propertyId,
+            previousMarkdown: "body text",
+            markdown,
+            expectedRevision: 0,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+
+    expect(
+      attempts.filter((attempt) => attempt.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      attempts.filter((attempt) => attempt.status === "rejected"),
+    ).toHaveLength(1);
+    const [field] = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.propertyId, propertyId));
+    expect(field.revision).toBe(1);
+  });
+
+  it("revisions every primary membership and cleans up only the removed database", async () => {
+    const first = await createDatabaseRow();
+    const second = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const firstPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: first.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const secondPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: second.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `multi_membership_${counter}`;
+    const firstItemId = `item_first_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Shared row",
+      content: "Before",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: firstItemId,
+        ownerEmail: OWNER,
+        databaseId: first.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `item_second_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: second.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: rowDocumentId, content: "After" }),
+    );
+    const beforeRemoval = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
+    expect(
+      new Map(
+        beforeRemoval.map((field: any) => [field.propertyId, field.revision]),
+      ),
+    ).toEqual(
+      new Map([
+        [firstPropertyId, 1],
+        [secondPropertyId, 1],
+      ]),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      removeDatabaseItemsAction.run({
+        databaseId: first.databaseId,
+        itemIds: [firstItemId],
+      }),
+    );
+    const afterRemoval = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
+    expect(afterRemoval).toEqual([
+      expect.objectContaining({ propertyId: secondPropertyId, revision: 1 }),
+    ]);
   });
 });
 

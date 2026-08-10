@@ -19,6 +19,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
@@ -521,6 +522,38 @@ export default defineAction({
             .update(schema.documents)
             .set(updates)
             .where(eq(schema.documents.id, id));
+        }
+
+        if (contentChanged && content !== undefined) {
+          const primaryBlocksFields = await tx
+            .select({
+              propertyId: schema.contentDatabases.primaryBlocksPropertyId,
+            })
+            .from(schema.contentDatabaseItems)
+            .innerJoin(
+              schema.contentDatabases,
+              eq(
+                schema.contentDatabases.id,
+                schema.contentDatabaseItems.databaseId,
+              ),
+            )
+            .where(eq(schema.contentDatabaseItems.documentId, id));
+          const primaryPropertyIds = new Set(
+            primaryBlocksFields.flatMap((field) =>
+              field.propertyId ? [field.propertyId] : [],
+            ),
+          );
+          for (const propertyId of primaryPropertyIds) {
+            await persistBlocksFieldIdentity({
+              db: tx as unknown as ReturnType<typeof getDb>,
+              ownerEmail,
+              documentId: id,
+              propertyId,
+              previousMarkdown: existing.content,
+              markdown: content,
+              now: updates.updatedAt as string,
+            });
+          }
         }
 
         if (titleChanged || contentChanged) {
