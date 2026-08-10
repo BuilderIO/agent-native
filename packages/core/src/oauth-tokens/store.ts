@@ -49,6 +49,18 @@ function oauthTokensTable(): string {
   return isPostgres() ? "public.oauth_tokens" : "oauth_tokens";
 }
 
+function isDuplicateColumnError(err: unknown): boolean {
+  const code = String((err as { code?: unknown })?.code ?? "");
+  const message = String((err as { message?: unknown })?.message ?? err)
+    .toLowerCase()
+    .trim();
+  return (
+    code === "42701" ||
+    message.includes("duplicate column") ||
+    message.includes("already exists")
+  );
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -113,23 +125,23 @@ async function ensureTable(): Promise<void> {
       // Migration: add owner column to existing tables
       try {
         await client.execute(`ALTER TABLE ${table} ADD COLUMN owner TEXT`);
-      } catch {
-        // Column already exists
+      } catch (err) {
+        if (!isDuplicateColumnError(err)) throw err;
       }
       // Migration: add display_name column
       try {
         await client.execute(
           `ALTER TABLE ${table} ADD COLUMN display_name TEXT`,
         );
-      } catch {
-        // Column already exists
+      } catch (err) {
+        if (!isDuplicateColumnError(err)) throw err;
       }
       try {
         await client.execute(
           `ALTER TABLE ${table} ADD COLUMN revision INTEGER`,
         );
-      } catch {
-        // Column already exists
+      } catch (err) {
+        if (!isDuplicateColumnError(err)) throw err;
       }
       // Backfill: set owner = account_id for existing rows without an owner
       await client.execute(
@@ -170,6 +182,7 @@ export interface OAuthTokenSnapshot {
   owner: string | null;
   revision: number;
   legacyRevision: number;
+  storageVersion: string;
 }
 
 /**
@@ -194,6 +207,7 @@ export async function getOAuthTokenSnapshot(
     owner: (rows[0].owner as string) ?? null,
     revision: Number(rows[0].revision ?? 0),
     legacyRevision: Number(rows[0].updated_at),
+    storageVersion: rows[0].tokens as string,
   };
 }
 
@@ -208,6 +222,7 @@ export async function replaceOAuthTokensIfRevision(
   owner: string,
   expectedRevision: number,
   expectedLegacyRevision: number,
+  expectedStorageVersion: string,
   tokens: Record<string, unknown>,
 ): Promise<boolean> {
   await ensureTable();
@@ -215,7 +230,7 @@ export async function replaceOAuthTokensIfRevision(
   const table = oauthTokensTable();
   const nextRevision = Math.max(Date.now(), expectedRevision + 1);
   const result = await client.execute({
-    sql: `UPDATE ${table} SET tokens = ?, revision = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ?`,
+    sql: `UPDATE ${table} SET tokens = ?, revision = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ? AND tokens = ?`,
     args: [
       serializeTokens(tokens),
       nextRevision,
@@ -225,6 +240,7 @@ export async function replaceOAuthTokensIfRevision(
       owner,
       expectedRevision,
       expectedLegacyRevision,
+      expectedStorageVersion,
     ],
   });
   return result.rowsAffected === 1;
@@ -237,18 +253,20 @@ export async function deleteOAuthTokensIfRevision(
   owner: string,
   expectedRevision: number,
   expectedLegacyRevision: number,
+  expectedStorageVersion: string,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
   const result = await client.execute({
-    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ?`,
+    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ? AND tokens = ?`,
     args: [
       provider,
       accountId,
       owner,
       expectedRevision,
       expectedLegacyRevision,
+      expectedStorageVersion,
     ],
   });
   return result.rowsAffected === 1;
@@ -355,8 +373,8 @@ export async function saveOAuthTokens(
 
   const result = await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(${table}.revision + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner`
-      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=excluded.updated_at, revision=MAX(${table}.revision + 1, excluded.revision) WHERE ${table}.owner = excluded.owner`,
+      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner`
+      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=excluded.updated_at, revision=MAX(COALESCE(${table}.revision, 0) + 1, excluded.revision) WHERE ${table}.owner = excluded.owner`,
     args: [
       provider,
       accountId,

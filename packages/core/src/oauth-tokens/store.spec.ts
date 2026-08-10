@@ -17,6 +17,7 @@ let existingOwner: string | null = null;
 let existingTokens: Record<string, unknown> | null = null;
 let existingRevision = 100;
 let existingLegacyRevision = 100;
+let existingStorageVersion = JSON.stringify({});
 let mockPostgres = false;
 let conflictOwnerAfterUpsert: string | null = null;
 let upsertAttempted = false;
@@ -54,9 +55,9 @@ const mockDb = {
           ? [
               {
                 owner: existingOwner,
-                tokens: JSON.stringify(existingTokens ?? {}),
+                tokens: existingStorageVersion,
                 revision: existingRevision,
-                updated_at: existingRevision,
+                updated_at: existingLegacyRevision,
               },
             ]
           : [],
@@ -88,8 +89,9 @@ const mockDb = {
         rows: [],
         rowsAffected:
           existingOwner &&
-          args.at(-2) === existingRevision &&
-          args.at(-1) === existingLegacyRevision
+          args.at(-3) === existingRevision &&
+          args.at(-2) === existingLegacyRevision &&
+          args.at(-1) === existingStorageVersion
             ? 1
             : 0,
       };
@@ -100,8 +102,9 @@ const mockDb = {
         rows: [],
         rowsAffected:
           existingOwner &&
-          args.at(-2) === existingRevision &&
-          args.at(-1) === existingLegacyRevision
+          args.at(-3) === existingRevision &&
+          args.at(-2) === existingLegacyRevision &&
+          args.at(-1) === existingStorageVersion
             ? 1
             : 0,
       };
@@ -143,6 +146,7 @@ describe("oauth token store", () => {
     existingTokens = null;
     existingRevision = 100;
     existingLegacyRevision = 100;
+    existingStorageVersion = JSON.stringify({});
     mockPostgres = false;
     conflictOwnerAfterUpsert = null;
     upsertAttempted = false;
@@ -211,10 +215,14 @@ describe("oauth token store", () => {
   it("reads and conditionally replaces one exact owner-bound revision", async () => {
     existingOwner = "user:alice@example.com";
     existingTokens = { access_token: "old-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
 
-    await expect(
-      getOAuthTokenSnapshot("builder", "managed-ai", "user:alice@example.com"),
-    ).resolves.toMatchObject({
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
+    expect(snapshot).toMatchObject({
       owner: "user:alice@example.com",
       revision: 100,
       tokens: { access_token: "old-access" },
@@ -227,6 +235,7 @@ describe("oauth token store", () => {
         "user:alice@example.com",
         100,
         100,
+        snapshot!.storageVersion,
         { access_token: "new-access", refresh_token: "new-refresh" },
       ),
     ).resolves.toBe(true);
@@ -236,12 +245,14 @@ describe("oauth token store", () => {
     );
     expect(conditionalUpdate?.sql).toContain("COALESCE(revision, 0) = ?");
     expect(conditionalUpdate?.sql).toContain("AND updated_at = ?");
-    expect(conditionalUpdate?.args.slice(-5)).toEqual([
+    expect(conditionalUpdate?.sql).toContain("AND tokens = ?");
+    expect(conditionalUpdate?.args.slice(-6)).toEqual([
       "builder",
       "managed-ai",
       "user:alice@example.com",
       100,
       100,
+      snapshot!.storageVersion,
     ]);
     const encrypted = conditionalUpdate?.args[0] as string;
     expect(isEncryptedSecretValue(encrypted)).toBe(true);
@@ -253,6 +264,11 @@ describe("oauth token store", () => {
 
   it("conditionally deletes only the revision and owner that were inspected", async () => {
     existingOwner = "user:alice@example.com";
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
 
     await expect(
       deleteOAuthTokensIfRevision(
@@ -261,6 +277,7 @@ describe("oauth token store", () => {
         "user:alice@example.com",
         100,
         100,
+        snapshot!.storageVersion,
       ),
     ).resolves.toBe(true);
 
@@ -269,18 +286,21 @@ describe("oauth token store", () => {
     );
     expect(conditionalDelete?.sql).toContain("COALESCE(revision, 0) = ?");
     expect(conditionalDelete?.sql).toContain("AND updated_at = ?");
+    expect(conditionalDelete?.sql).toContain("AND tokens = ?");
     expect(conditionalDelete?.args).toEqual([
       "builder",
       "managed-ai",
       "user:alice@example.com",
       100,
       100,
+      snapshot!.storageVersion,
     ]);
   });
 
   it("rejects replace and delete after a legacy writer advances updated_at", async () => {
     existingOwner = "user:alice@example.com";
     existingTokens = { access_token: "old-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
     const snapshot = await getOAuthTokenSnapshot(
       "builder",
       "managed-ai",
@@ -297,6 +317,7 @@ describe("oauth token store", () => {
         "user:alice@example.com",
         snapshot!.revision,
         snapshot!.legacyRevision,
+        snapshot!.storageVersion,
         { access_token: "stale-replacement" },
       ),
     ).resolves.toBe(false);
@@ -307,6 +328,43 @@ describe("oauth token store", () => {
         "user:alice@example.com",
         snapshot!.revision,
         snapshot!.legacyRevision,
+        snapshot!.storageVersion,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("rejects replace and delete when a legacy writer changes tokens without advancing either revision", async () => {
+    existingOwner = "user:alice@example.com";
+    existingTokens = { access_token: "old-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
+
+    existingTokens = { access_token: "newer-legacy-access" };
+    existingStorageVersion = JSON.stringify(existingTokens);
+
+    await expect(
+      replaceOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+        snapshot!.storageVersion,
+        { access_token: "stale-replacement" },
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      deleteOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+        snapshot!.storageVersion,
       ),
     ).resolves.toBe(false);
   });
@@ -368,7 +426,23 @@ describe("oauth token store", () => {
     );
 
     expect(lastInsert().sql).toContain(
-      "revision=MAX(oauth_tokens.revision + 1, excluded.revision)",
+      "revision=MAX(COALESCE(oauth_tokens.revision, 0) + 1, excluded.revision)",
+    );
+  });
+
+  it("advances a null legacy revision atomically on Postgres", async () => {
+    mockPostgres = true;
+    existingOwner = "user:alice@example.com";
+
+    await saveOAuthTokens(
+      "builder",
+      "managed-ai",
+      { access_token: "new-access" },
+      "user:alice@example.com",
+    );
+
+    expect(lastInsert().sql).toContain(
+      "revision=GREATEST(COALESCE(public.oauth_tokens.revision, 0) + 1, EXCLUDED.revision)",
     );
   });
 

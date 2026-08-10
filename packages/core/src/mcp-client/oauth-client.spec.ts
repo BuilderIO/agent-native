@@ -23,7 +23,15 @@ vi.mock("../oauth-tokens/store.js", () => ({
   getOAuthTokenSnapshot: vi.fn(
     async (provider: string, accountId: string, owner: string) => {
       const tokens = await getOAuthTokensMock(provider, accountId, owner);
-      return tokens ? { tokens, owner, revision: 1, legacyRevision: 1 } : null;
+      return tokens
+        ? {
+            tokens,
+            owner,
+            revision: 1,
+            legacyRevision: 1,
+            storageVersion: "test-storage-version",
+          }
+        : null;
     },
   ),
   replaceOAuthTokensIfRevision: replaceOAuthTokensIfRevisionMock,
@@ -101,6 +109,7 @@ beforeEach(() => {
       _owner: string,
       _revision: number,
       _legacyRevision: number,
+      _storageVersion: string,
       tokens: Record<string, unknown>,
     ) => {
       getOAuthTokensMock.mockResolvedValue(tokens);

@@ -53,6 +53,12 @@ interface CredentialSnapshot<T extends OAuthCredential> {
   legacyRevision: number;
 }
 
+interface StoredCredentialSnapshot<
+  T extends OAuthCredential,
+> extends CredentialSnapshot<T> {
+  storageVersion: string;
+}
+
 export type OAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
   | { kind: "missing" }
   | {
@@ -64,6 +70,19 @@ export type OAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
   | ({
       kind: "connected" | "expired" | "reconnect_required";
     } & CredentialSnapshot<T>);
+
+type StoredOAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
+  | { kind: "missing" }
+  | {
+      kind: "malformed";
+      revision: number;
+      legacyRevision: number;
+      storageVersion: string;
+      reason: "structure" | "identity" | "validation";
+    }
+  | ({
+      kind: "connected" | "expired" | "reconnect_required";
+    } & StoredCredentialSnapshot<T>);
 
 export interface OAuthCredentialAccessResult<
   T extends OAuthCredential = OAuthCredential,
@@ -268,7 +287,7 @@ export async function saveOAuthCredential<T extends OAuthCredential>(
   );
 }
 
-export async function readOAuthCredentialState<
+async function readStoredOAuthCredentialState<
   T extends OAuthCredential = OAuthCredential,
 >(
   identity: OAuthCredentialIdentity,
@@ -278,7 +297,7 @@ export async function readOAuthCredentialState<
     now?: number;
     validateCredential?: (credential: T) => boolean;
   } = {},
-): Promise<OAuthCredentialState<T>> {
+): Promise<StoredOAuthCredentialState<T>> {
   assertIdentity(identity);
   const stored = await getOAuthTokenSnapshot(
     identity.provider,
@@ -292,6 +311,7 @@ export async function readOAuthCredentialState<
       kind: "malformed",
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageVersion: stored.storageVersion,
       reason: "structure",
     };
   }
@@ -304,6 +324,7 @@ export async function readOAuthCredentialState<
       kind: "malformed",
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageVersion: stored.storageVersion,
       reason: "identity",
     };
   }
@@ -313,6 +334,7 @@ export async function readOAuthCredentialState<
       kind: "malformed",
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageVersion: stored.storageVersion,
       reason: "validation",
     };
   }
@@ -322,6 +344,7 @@ export async function readOAuthCredentialState<
       credential,
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageVersion: stored.storageVersion,
     };
   }
   const now = options.now ?? Date.now();
@@ -334,6 +357,7 @@ export async function readOAuthCredentialState<
       credential,
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageVersion: stored.storageVersion,
     };
   }
   return {
@@ -341,12 +365,49 @@ export async function readOAuthCredentialState<
     credential,
     revision: stored.revision,
     legacyRevision: stored.legacyRevision,
+    storageVersion: stored.storageVersion,
   };
+}
+
+function publicCredentialState<T extends OAuthCredential>(
+  state: StoredOAuthCredentialState<T>,
+): OAuthCredentialState<T> {
+  if (state.kind === "missing") return state;
+  if (state.kind === "malformed") {
+    return {
+      kind: state.kind,
+      revision: state.revision,
+      legacyRevision: state.legacyRevision,
+      reason: state.reason,
+    };
+  }
+  return {
+    kind: state.kind,
+    credential: state.credential,
+    revision: state.revision,
+    legacyRevision: state.legacyRevision,
+  };
+}
+
+export async function readOAuthCredentialState<
+  T extends OAuthCredential = OAuthCredential,
+>(
+  identity: OAuthCredentialIdentity,
+  options: {
+    allowLegacy?: boolean;
+    legacyAccountKey?: boolean;
+    now?: number;
+    validateCredential?: (credential: T) => boolean;
+  } = {},
+): Promise<OAuthCredentialState<T>> {
+  return publicCredentialState(
+    await readStoredOAuthCredentialState<T>(identity, options),
+  );
 }
 
 async function markReconnectRequired<T extends OAuthCredential>(
   identity: OAuthCredentialIdentity,
-  snapshot: CredentialSnapshot<T>,
+  snapshot: StoredCredentialSnapshot<T>,
   legacyAccountKey: boolean,
 ): Promise<void> {
   await replaceOAuthTokensIfRevision(
@@ -355,6 +416,7 @@ async function markReconnectRequired<T extends OAuthCredential>(
     ownerKey(identity.owner),
     snapshot.revision,
     snapshot.legacyRevision,
+    snapshot.storageVersion,
     withLifecycle(identity, snapshot.credential, "refresh_failed"),
   );
 }
@@ -382,7 +444,7 @@ export async function resolveOAuthCredentialAccess<
   const waitMs = options.waitMs ?? DEFAULT_WAIT_MS;
   const maxWaitMs = options.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
   const startedAt = dependencies.now();
-  let state = await readOAuthCredentialState<T>(identity, {
+  let state = await readStoredOAuthCredentialState<T>(identity, {
     allowLegacy: options.allowLegacy,
     legacyAccountKey: options.legacyAccountKey,
     now: startedAt,
@@ -429,7 +491,7 @@ export async function resolveOAuthCredentialAccess<
         state,
         options.legacyAccountKey === true,
       );
-      const reconnect = await readOAuthCredentialState<T>(identity, {
+      const reconnect = await readStoredOAuthCredentialState<T>(identity, {
         allowLegacy: options.allowLegacy,
         legacyAccountKey: options.legacyAccountKey,
         now: dependencies.now(),
@@ -445,7 +507,7 @@ export async function resolveOAuthCredentialAccess<
     }
     if (lease === "held") {
       await dependencies.sleep(waitMs);
-      state = await readOAuthCredentialState<T>(identity, {
+      state = await readStoredOAuthCredentialState<T>(identity, {
         allowLegacy: options.allowLegacy,
         legacyAccountKey: options.legacyAccountKey,
         now: dependencies.now(),
@@ -470,7 +532,7 @@ export async function resolveOAuthCredentialAccess<
     }
 
     try {
-      state = await readOAuthCredentialState<T>(identity, {
+      state = await readStoredOAuthCredentialState<T>(identity, {
         allowLegacy: options.allowLegacy,
         legacyAccountKey: options.legacyAccountKey,
         now: dependencies.now(),
@@ -526,9 +588,10 @@ export async function resolveOAuthCredentialAccess<
           ownerKey(identity.owner),
           state.revision,
           state.legacyRevision,
+          state.storageVersion,
           refreshed,
         );
-        const latest = await readOAuthCredentialState<T>(identity, {
+        const latest = await readStoredOAuthCredentialState<T>(identity, {
           allowLegacy: options.allowLegacy,
           legacyAccountKey: options.legacyAccountKey,
           now: dependencies.now(),
@@ -560,7 +623,7 @@ export async function resolveOAuthCredentialAccess<
           await dependencies.sleep(waitMs);
           continue;
         }
-        const latest = await readOAuthCredentialState<T>(identity, {
+        const latest = await readStoredOAuthCredentialState<T>(identity, {
           allowLegacy: options.allowLegacy,
           legacyAccountKey: options.legacyAccountKey,
           now: dependencies.now(),
@@ -578,7 +641,7 @@ export async function resolveOAuthCredentialAccess<
             latest,
             options.legacyAccountKey === true,
           );
-          const reconnect = await readOAuthCredentialState<T>(identity, {
+          const reconnect = await readStoredOAuthCredentialState<T>(identity, {
             allowLegacy: options.allowLegacy,
             legacyAccountKey: options.legacyAccountKey,
             now: dependencies.now(),
@@ -593,7 +656,7 @@ export async function resolveOAuthCredentialAccess<
     }
   }
 
-  state = await readOAuthCredentialState<T>(identity, {
+  state = await readStoredOAuthCredentialState<T>(identity, {
     allowLegacy: options.allowLegacy,
     legacyAccountKey: options.legacyAccountKey,
     now: dependencies.now(),
@@ -617,7 +680,7 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
     validateCredential?: (credential: T) => boolean;
   } = {},
 ): Promise<OAuthRevocationResult> {
-  const state = await readOAuthCredentialState<T>(identity, {
+  const state = await readStoredOAuthCredentialState<T>(identity, {
     allowLegacy: options.allowLegacy,
     legacyAccountKey: options.legacyAccountKey,
     validateCredential: options.validateCredential,
@@ -649,6 +712,7 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
     ownerKey(identity.owner),
     state.revision,
     state.legacyRevision,
+    state.storageVersion,
   );
   return { remote, local: deleted ? "deleted" : "replaced" };
 }
