@@ -62,7 +62,7 @@ describe("WorkspaceAppCard", () => {
     });
 
     const appLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/analytics"]',
+      'a[href="/apps/analytics"]',
     );
     expect(appLink).not.toBeNull();
     expect(appLink?.textContent).toContain("Open app");
@@ -70,25 +70,13 @@ describe("WorkspaceAppCard", () => {
     expect(appLink?.getAttribute("target")).toBeNull();
     expect(appLink?.getAttribute("rel")).toBeNull();
     expect(appLink?.querySelector("svg")).toBeNull();
-    expect(container.textContent).not.toContain("/analytics");
+    expect(container.textContent).not.toContain("/apps/analytics");
 
-    const openOptionsButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open options for Analytics"]',
-    );
-    expect(openOptionsButton).not.toBeNull();
-    await act(async () => {
-      openOptionsButton?.dispatchEvent(
-        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
-    });
-    const openInlineItem = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Open inline"));
-    const openNewTabLink = Array.from(
-      document.querySelectorAll<HTMLAnchorElement>('[role="menu"] a'),
-    ).find((anchor) => anchor.textContent?.includes("Open in new tab"));
-    expect(openInlineItem).toBeDefined();
-    expect(openNewTabLink?.getAttribute("target")).toBe("_blank");
+    expect(
+      container.querySelector(
+        'button[aria-label="Open options for Analytics"]',
+      ),
+    ).toBeNull();
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Settings for Analytics"]',

@@ -5,11 +5,7 @@ import {
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconChevronDown,
-  IconClockHour4,
-  IconPlus,
-} from "@tabler/icons-react";
+import { IconChevronDown, IconClockHour4, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -183,9 +179,7 @@ function AppsPanel({
         action={
           <div className="flex items-center gap-1.5">
             <Button variant="outline" size="sm" asChild>
-              <Link to="/apps">
-                View all
-              </Link>
+              <Link to="/apps">View all</Link>
             </Button>
             <CreateAppPopover
               align="end"

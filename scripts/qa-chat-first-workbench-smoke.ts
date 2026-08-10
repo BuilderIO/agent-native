@@ -905,6 +905,15 @@ async function runElectronSmoke(): Promise<void> {
       "Chat-first app creation should stay in the chat instead of opening a separate workbench",
     );
 
+    // App-only panes intentionally hide the tab strip. Reset the surface store
+    // before exercising the tabbed side-surface picker below.
+    await page.evaluate(() => {
+      localStorage.removeItem("agent-native:chat-first-surface-tabs:v1");
+      localStorage.removeItem("agent-native:chat-first-surface-panel:v1");
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(5_000);
+    await openElectronAgentSurface(page);
     const closePreview = page.getByRole("button", { name: "Close browser" });
     if (await closePreview.count()) await closePreview.click();
     const electronToggle = page.locator("[data-chat-first-surface-toggle]");

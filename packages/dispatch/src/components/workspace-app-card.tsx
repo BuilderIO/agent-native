@@ -277,6 +277,7 @@ function WorkspaceAppOpenActions({
 }) {
   const navigate = useNavigate();
   const openInNewTab = isPendingBuilderHref(app);
+  const appRoute = workspaceAppRoute(app.id);
 
   if (!href) {
     return (
@@ -289,14 +290,14 @@ function WorkspaceAppOpenActions({
   return (
     <AppOpenActions
       name={app.name}
-      href={href}
+      href={openInNewTab ? href : appRoute}
       target={openInNewTab ? "_blank" : undefined}
       rel={openInNewTab ? "noreferrer" : undefined}
-      showInlineOption
+      showInlineOption={openInNewTab}
       onOpenInline={() => {
-        navigate(workspaceAppRoute(app.id));
+        navigate(appRoute);
       }}
-      showNewTabOption
+      showNewTabOption={openInNewTab}
     />
   );
 }
