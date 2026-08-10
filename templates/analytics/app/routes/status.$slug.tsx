@@ -1,4 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { data, useLoaderData, useParams } from "react-router";
@@ -43,15 +44,16 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
       { name: "robots", content: "noindex" },
     ];
   }
+  const pageTitle = normalizeDocumentTitle(page.title, "Status page");
   const description =
     page.description ||
     (page.overall === "operational"
       ? "All systems operational."
       : "Current service status.");
   return [
-    { title: `${page.title} · Status` },
+    { title: `${pageTitle} · Status` },
     { name: "description", content: description },
-    { property: "og:title", content: `${page.title} · Status` },
+    { property: "og:title", content: `${pageTitle} · Status` },
     { property: "og:description", content: description },
     { property: "og:type", content: "website" },
   ];

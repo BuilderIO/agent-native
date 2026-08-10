@@ -9,7 +9,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 
 처음부터 에이전트 네이티브를 구축할 필요는 없습니다. 상담원 채팅, 에이전트 리소스 탭, CLI 터미널, 음성 입력 및 모든 관련 인프라는 앱에 드롭하는 소수의 React 구성 요소로 제공됩니다.
 
-> **전제 조건:** 서버는 `agent-chat-plugin`를 실행해야 합니다(모든 템플릿에 자동으로 마운트됨). 처음부터 시작하는 경우 [Server](/docs/server)를 참조하세요.
+> **전제 조건:** 서버는 `agent-chat-plugin`를 실행해야 합니다(모든 템플릿에 자동으로 마운트됨). 처음부터 시작하는 경우 [Server](/docs/server-overview)를 참조하세요.
 >
 > 튜토리얼 대신 공개 API 지도가 필요합니까? [Component API](/docs/components)를 참조하세요.
 
@@ -136,11 +136,11 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
   ]}
 />
 
-그렇습니다. 이제 사용자는 채팅 기록, 에이전트 리소스 탭, CLI 터미널, 음성 입력 및 전체 화면 모드를 포함하여 모든 페이지에 전환 가능한 에이전트를 갖게 됩니다. `localStorage`를 통해 다시 로드해도 상태가 유지됩니다.
+그렇습니다. 이제 사용자는 채팅 기록, 에이전트 리소스 탭, CLI 터미널, 음성 입력 및 더 넓은 드로어를 포함하여 모든 페이지에 전환 가능한 에이전트를 갖게 됩니다. `localStorage`를 통해 다시 로드해도 상태가 유지됩니다.
 
 ### 소품
 
-- **`children`** — 앱의 일반 레이아웃 및 경로입니다. 주요 영역에서 렌더링됩니다. 상담사 패널은 데스크톱에서는 옆에, 모바일/전체 화면에서는 그 위에 설치됩니다.
+- **`children`** — 앱의 일반 레이아웃 및 경로입니다. 주요 영역에서 렌더링됩니다. 상담사 패널은 데스크톱에서는 옆에, 모바일에서는 그 위에 설치됩니다.
 - **`emptyStateText`** — 채팅에 메시지가 없을 때 표시되는 인사말입니다. 기본값: `"How can I help you?"`.
 - **`suggestions`** — 비어 있으면 클릭 가능한 칩으로 렌더링되는 시작 프롬프트.
 - **`dynamicSuggestions`** — 상황 인식 프롬프트 칩이 `suggestions`와 병합되었습니다. 기본적으로 활성화되어 있습니다. 정적 제안만 표시하려면 `false`를 전달하고, 맞춤설정하려면 `{ max, includeStatic, getSuggestions }`를 전달하세요.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` 또는 `"cli"`. 기본값: `"chat"`.
 - **`className`** — 외부 컨테이너의 CSS 클래스.
 - **`onCollapse`** — 제공된 경우 헤더에 축소 버튼이 나타납니다.
-- **`isFullscreen`** / **`onToggleFullscreen`** — Claude 스타일 중앙 열을 원하는 경우 외부 전체 화면 상태를 연결합니다.
+- **`isFullscreen`** — 페이지 또는 사용자 지정 패널에서 Claude 스타일의 중앙 열을 원할 때 설정합니다. 사이드바는 대신 더 넓은 드로어를 사용합니다.
 - **`storageKey`** — `localStorage` 키의 네임스페이스입니다. 동일한 페이지에서 여러 패널(다른 앱 인스턴스 또는 작업 공간)을 렌더링할 때 유용합니다.
 
 전체 소품: `@agent-native/core/client`의 `AgentPanelProps`.

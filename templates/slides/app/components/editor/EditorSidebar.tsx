@@ -38,6 +38,8 @@ import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
 
+import type { DesignSystemData } from "../../../shared/api";
+
 interface EditorSidebarProps {
   slides: Slide[];
   activeSlideId: string;
@@ -53,6 +55,8 @@ interface EditorSidebarProps {
   recentEdits?: AttributedRecentEdit[];
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** Active deck design system used by slide content tokens. */
+  designSystem?: DesignSystemData;
   /** The next slide while the agent is preparing its HTML. */
   generatingSlide?: { index: number; content?: string | null };
   generatingSlideSelected?: boolean;
@@ -154,6 +158,7 @@ function SortableSlideThumb({
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
+  designSystem,
   onOverflowChange,
   readOnly = false,
 }: {
@@ -167,6 +172,7 @@ function SortableSlideThumb({
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
   onOverflowChange: (info: SlideOverflowInfo) => void;
 }) {
   const t = useT();
@@ -234,6 +240,7 @@ function SortableSlideThumb({
             <SlideRenderer
               slide={slide}
               aspectRatio={aspectRatio}
+              designSystem={designSystem}
               onOverflowChange={onOverflowChange}
             />
           </div>
@@ -290,12 +297,14 @@ function SortableSlideThumb({
 function GeneratingSlideSkeleton({
   index,
   aspectRatio,
+  designSystem,
   content,
   selected,
   onSelect,
 }: {
   index: number;
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
   content?: string | null;
   selected?: boolean;
   onSelect?: () => void;
@@ -319,6 +328,7 @@ function GeneratingSlideSkeleton({
           <GeneratingSlidePreview
             content={content}
             aspectRatio={aspectRatio}
+            designSystem={designSystem}
             thumbnail
           />
         </div>
@@ -338,6 +348,7 @@ export default function EditorSidebar({
   slidePresence,
   recentEdits,
   aspectRatio,
+  designSystem,
   generatingSlide,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
@@ -508,6 +519,7 @@ export default function EditorSidebar({
               registerButtonRef={registerSlideButton}
               presenceUsers={slidePresence?.get(slide.id) ?? []}
               aspectRatio={aspectRatio}
+              designSystem={designSystem}
               onOverflowChange={(info) =>
                 handleSlideOverflowChange(slide, info)
               }
@@ -518,6 +530,7 @@ export default function EditorSidebar({
           <GeneratingSlideSkeleton
             index={generatingSlide.index}
             aspectRatio={aspectRatio}
+            designSystem={designSystem}
             content={generatingSlide.content}
             selected={generatingSlideSelected}
             onSelect={onSelectGeneratingSlide}

@@ -2,6 +2,7 @@ import {
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
+  withMigrationRuntime,
 } from "@agent-native/core/db";
 import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 
@@ -33,7 +34,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
-const runAnalyticsMigrations = runMigrations(
+export const runAnalyticsMigrations = runMigrations(
   [
     {
       version: 1,
@@ -1491,6 +1492,90 @@ const runAnalyticsMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
       },
     },
+    {
+      version: 139,
+      name: "analytics-bigquery-backfill-jobs",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_jobs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (now()::text),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
+      ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_jobs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
+      ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
+      },
+    },
+    {
+      version: 140,
+      name: "analytics-events-backfill-filtered-cursor-indexes",
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS DISTINCT FROM 'http.response'; CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS NOT 'http.response'; CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS NOT 'http.response'`,
+      },
+    },
+    {
+      version: 141,
+      name: "analytics-event-volume-usage",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_event_volume_usage (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      window_start TEXT NOT NULL,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      event_limit INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
+      ON analytics_event_volume_usage (tenant_key, window_start);
+    CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
+      ON analytics_event_volume_usage (updated_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_event_volume_usage (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      window_start TEXT NOT NULL,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      event_limit INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
+      ON analytics_event_volume_usage (tenant_key, window_start);
+    CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
+      ON analytics_event_volume_usage (updated_at)`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1536,9 +1621,19 @@ export default async (nitroApp: any): Promise<void> => {
   }
   // The schema must exist before the first query. Measured cost on this
   // database (180 tables): ~5.5s for the version check alone, which is why the
-  // serverless runtime never runs it on cold starts.
+  // serverless runtime never runs it on cold starts. The scheduled worker is
+  // the one serverless exception and claims migration duty explicitly.
   // guard:allow-boot-data-work — schema must exist before the first query
-  await runAnalyticsMigrations(nitroApp);
+  if (isScheduledRollupRuntime) {
+    // guard:allow-boot-data-work — scheduled worker owns the release migration
+    await withMigrationRuntime(async () => {
+      // guard:allow-boot-data-work — scheduled worker owns the release migration
+      await runAnalyticsMigrations(nitroApp);
+    });
+  } else {
+    // guard:allow-boot-data-work — long-lived local runtime owns the migration
+    await runAnalyticsMigrations(nitroApp);
+  }
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

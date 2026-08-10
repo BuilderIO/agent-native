@@ -21,6 +21,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Switch } from "../../components/ui/switch";
 import {
@@ -32,6 +39,7 @@ import {
   automationStatus,
   automationTarget,
   automationTroubleshootPath,
+  belongsToDispatch,
   sortAutomations,
   type AutomationStatusTone,
 } from "../../lib/automation-display";
@@ -179,14 +187,25 @@ function CreateAutomationButton() {
 }
 
 export default function AutomationsRoute() {
+  const [view, setView] = useState<"dispatch" | "all">("dispatch");
   const [detailsTarget, setDetailsTarget] =
     useState<DispatchAutomationItem | null>(null);
   const automationsQuery = useAutomations();
   const toggleAutomation = useToggleAutomation();
   const automations = automationsQuery.data ?? [];
-  const ordered = useMemo(() => sortAutomations(automations), [automations]);
-  const enabledCount = automations.filter((item) => item.enabled).length;
-  const errorCount = automations.filter(
+  const visibleAutomations = useMemo(
+    () =>
+      view === "all"
+        ? automations
+        : automations.filter((item) => belongsToDispatch(item)),
+    [automations, view],
+  );
+  const ordered = useMemo(
+    () => sortAutomations(visibleAutomations),
+    [visibleAutomations],
+  );
+  const enabledCount = visibleAutomations.filter((item) => item.enabled).length;
+  const errorCount = visibleAutomations.filter(
     (item) =>
       item.enabled &&
       (item.lastStatus === "error" || item.lastStatus === "skipped"),
@@ -211,7 +230,26 @@ export default function AutomationsRoute() {
               {errorCount > 0 ? ` · ${errorCount} errors` : ""}
             </span>
           </div>
-          <CreateAutomationButton />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Select
+              value={view}
+              onValueChange={(value) => {
+                if (value === "dispatch" || value === "all") setView(value);
+              }}
+            >
+              <SelectTrigger
+                className="h-8 w-[10.5rem] text-xs"
+                aria-label="Automation view"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dispatch">Dispatch automations</SelectItem>
+                <SelectItem value="all">All apps</SelectItem>
+              </SelectContent>
+            </Select>
+            <CreateAutomationButton />
+          </div>
         </div>
 
         <div className="divide-y rounded-lg bg-card">
@@ -306,8 +344,9 @@ export default function AutomationsRoute() {
             })
           ) : (
             <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-              No automations yet. Create one here, or ask Dispatch to set up a
-              scheduled or event-triggered job.
+              {view === "all"
+                ? "No automations yet. Create one here, or ask Dispatch to set up a scheduled or event-triggered job."
+                : "No Dispatch automations yet. Switch to All apps to inspect workspace automations."}
             </div>
           )}
         </div>

@@ -10,6 +10,8 @@ const clipboardMock = vi.hoisted(() => ({
 
 const agentEngineKeyMock = vi.hoisted(() => ({
   saveAgentEngineApiKey: vi.fn(),
+  saveAgentEngineProviderSettings: vi.fn(),
+  setAgentEngineProvider: vi.fn(),
 }));
 
 vi.mock("../clipboard.js", () => ({
@@ -18,6 +20,9 @@ vi.mock("../clipboard.js", () => ({
 
 vi.mock("../agent-engine-key.js", () => ({
   saveAgentEngineApiKey: agentEngineKeyMock.saveAgentEngineApiKey,
+  saveAgentEngineProviderSettings:
+    agentEngineKeyMock.saveAgentEngineProviderSettings,
+  setAgentEngineProvider: agentEngineKeyMock.setAgentEngineProvider,
 }));
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
@@ -43,7 +48,13 @@ describe("run recovery surfaces", () => {
     root = createRoot(container);
     clipboardMock.writeClipboardText.mockReset();
     agentEngineKeyMock.saveAgentEngineApiKey.mockReset();
+    agentEngineKeyMock.saveAgentEngineProviderSettings.mockReset();
+    agentEngineKeyMock.setAgentEngineProvider.mockReset();
     agentEngineKeyMock.saveAgentEngineApiKey.mockResolvedValue(undefined);
+    agentEngineKeyMock.saveAgentEngineProviderSettings.mockResolvedValue(
+      undefined,
+    );
+    agentEngineKeyMock.setAgentEngineProvider.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -89,17 +100,16 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Copy failed");
   });
 
-  it("keeps the AI setup prompt icon-free while disclosing API keys", async () => {
+  it("shows the searchable provider setup while disclosing API keys", async () => {
     await act(async () => {
       root.render(<BuilderSetupContent />);
     });
 
     expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Connect Builder.io");
-    expect(container.querySelector("svg")).toBeNull();
 
     const apiKeyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Add your own keys"),
+      (button) => button.textContent?.includes("Custom keys"),
     );
     expect(apiKeyButton).toBeDefined();
 
@@ -107,8 +117,19 @@ describe("run recovery surfaces", () => {
       apiKeyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(container.textContent).toContain("Add your own keys");
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.textContent).toContain("Custom keys");
+    expect(container.textContent).toContain("Choose a provider");
+
+    const providerButton = container.querySelector(
+      'button[aria-label="Choose a provider"]',
+    );
+    await act(async () => {
+      providerButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("OpenRouter");
+    expect(document.body.textContent).toContain("Ollama");
   });
 
   it("shows the AI setup flow and retry for a rejected provider key", async () => {
@@ -129,7 +150,7 @@ describe("run recovery surfaces", () => {
     });
 
     expect(container.textContent).toContain("Connect Builder.io");
-    expect(container.textContent).toContain("Add your own keys");
+    expect(container.textContent).toContain("Custom keys");
     expect(container.textContent).toContain("Retry");
   });
 
@@ -152,7 +173,7 @@ describe("run recovery surfaces", () => {
     });
 
     const addKeysButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Add your own keys"),
+      (button) => button.textContent?.includes("Custom keys"),
     );
     await act(async () => {
       addKeysButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -178,9 +199,17 @@ describe("run recovery surfaces", () => {
       await Promise.resolve();
     });
 
-    expect(agentEngineKeyMock.saveAgentEngineApiKey).toHaveBeenCalledWith({
+    expect(
+      agentEngineKeyMock.saveAgentEngineProviderSettings,
+    ).toHaveBeenCalledWith({
       provider: "anthropic",
+      key: "ANTHROPIC_API_KEY",
       apiKey: "sk-test",
+      scope: "user",
+    });
+    expect(agentEngineKeyMock.setAgentEngineProvider).toHaveBeenCalledWith({
+      provider: "anthropic",
+      model: expect.any(String),
     });
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });

@@ -143,7 +143,7 @@ function isDashboardMutationActionName(name: string): boolean {
 // dashboard construction, distinct from an analytics-result question. Turns
 // like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
-  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;

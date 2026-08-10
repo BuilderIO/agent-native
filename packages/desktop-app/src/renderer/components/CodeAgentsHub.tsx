@@ -1,13 +1,51 @@
 import {
   CodeAgentsApp,
+  SessionWatchPanel,
   type CodeAgentComputerSetupAction,
   type CodeAgentModelListResult,
   type CodeAgentPermissionMode,
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptRequest,
+  type CodeAgentRun,
   type CodeAgentsHost,
   type CodeAgentsNewSessionExtension,
 } from "@agent-native/code-agents-ui";
+import {
+  ChatFirstSurfacePanelToggle,
+  chatFirstSurfaceTabId,
+  closeChatFirstSessionWatch,
+  emitChatFirstOpenApp,
+  emitChatFirstSessionWatch,
+  getChatFirstSurfaceTabsStore,
+  resolveChatFirstAppTarget,
+  resolveChatFirstBrowserTarget,
+  subscribeChatFirstOpenBrowser,
+  subscribeChatFirstOpenApp,
+  useChatFirstSessionWatch,
+  useChatFirstSurfaceResize,
+  useChatFirstSurfacePanel,
+  useChatFirstSurfaceTabs,
+  type ChatFirstAppRegistration,
+  type ChatFirstAppResolution,
+  type ChatFirstOpenAppDetail,
+  type ChatFirstOpenBrowserDetail,
+  type ChatFirstAgentActivity,
+  type ChatFirstSurfaceKind,
+  type ChatFirstSurfaceTab,
+} from "@agent-native/core/client/agent-chat";
+import {
+  ChatFirstAgentsPane,
+  ChatFirstAppPane,
+  ChatFirstAppsRail,
+  ChatFirstBrowserPane,
+  ChatFirstSessionWatchPane,
+  ChatFirstSurfacePanel,
+  ChatFirstSurfaceContent,
+  ChatFirstSurfaceTabs,
+  defaultChatFirstCopy,
+  type ChatFirstAppItem,
+  type ChatFirstEmbedTarget,
+} from "@agent-native/core/client/chat-first";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
   Select,
@@ -16,9 +54,18 @@ import {
   SelectTrigger,
 } from "@agent-native/toolkit/ui/select";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
+import { IconSettings } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
+import type { DesktopCreateAppResult } from "../../../shared/ipc-channels.js";
 import type {
   MultiFrontierIpcEvent,
   MultiFrontierProviderId,
@@ -26,6 +73,8 @@ import type {
 } from "../../../shared/multi-frontier-ipc.js";
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import AppWebview from "./AppWebview.js";
+import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
+import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import {
   initialMultiFrontierRunAutoContinue,
   locksMultiFrontierMode,
@@ -70,12 +119,56 @@ const MULTI_FRONTIER_RUN_MODES = [
   },
 ] as const;
 
+function chatFirstResolutionMessage(
+  reason: Exclude<ChatFirstAppResolution, { status: "ready" }>["reason"],
+): string {
+  switch (reason) {
+    case "empty-detail":
+      return "The agent did not provide an app target to open.";
+    case "invalid-url":
+      return "The requested app route is not registered for this app.";
+    case "unknown-app":
+      return "That app is not enabled in the desktop workspace.";
+  }
+  return "The requested app could not be opened.";
+}
+
+function chatFirstBrowserResolutionMessage(
+  reason: "empty-detail" | "invalid-url",
+): string {
+  return reason === "empty-detail"
+    ? "The agent did not provide a browser URL to open."
+    : "The requested browser URL is not a safe HTTP(S) address.";
+}
+
+export function isChatFirstSurfaceTabActive(input: {
+  surfaceActive: boolean;
+  tabId: string;
+  activeTabId?: string | null;
+}): boolean {
+  return input.surfaceActive && input.tabId === input.activeTabId;
+}
+
+export function chatFirstPreviewPartitionKey(
+  appId: string | undefined,
+): string {
+  return appId?.trim()
+    ? `persist:app-${appId.trim()}`
+    : "persist:chat-first-browser";
+}
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
+  chatFirstPreviewRequest?: { appId: string; nonce: number };
+  chatFirstPreviewStatus?: "starting" | "ready" | "error";
+  chatFirstPreviewStatusMessage?: string;
   refreshKey?: number;
   onOpenSettings?: () => void;
+  onCreateApp?: () => void;
+  onChatFirstAppCreated?: (result: DesktopCreateAppResult) => void;
+  chatFirstMode?: boolean;
 }
 
 type CodeAgentTranscriptSubscriptionBatch = {
@@ -99,9 +192,51 @@ export default function CodeAgentsHub({
   apps,
   isActive = true,
   openRequest,
+  chatFirstPreviewRequest,
+  chatFirstPreviewStatus,
+  chatFirstPreviewStatusMessage,
   refreshKey = 0,
   onOpenSettings,
+  onCreateApp,
+  onChatFirstAppCreated,
+  chatFirstMode = false,
 }: CodeAgentsHubProps) {
+  const emitChatFirstOpenAppStable = useCallback(
+    (detail: ChatFirstOpenAppDetail) => emitChatFirstOpenApp(detail),
+    [],
+  );
+  const chatFirstSurfaceTabs = useChatFirstSurfaceTabs("desktop");
+  const chatFirstSurfaceTabsStore = getChatFirstSurfaceTabsStore("desktop");
+  const chatFirstSurfaceResize = useChatFirstSurfaceResize("desktop");
+  const chatFirstSurfacePanel = useChatFirstSurfacePanel("desktop");
+  const { setOpen: setChatFirstSurfacePanelOpen } = chatFirstSurfacePanel;
+  const chatFirstSessionWatch = useChatFirstSessionWatch();
+  const [chatFirstWatchedRun, setChatFirstWatchedRun] =
+    useState<CodeAgentRun | null>(null);
+  const [chatFirstWatchedSourceRunId, setChatFirstWatchedSourceRunId] =
+    useState<string | null>(null);
+  const [chatFirstAgentActivities, setChatFirstAgentActivities] = useState<
+    ChatFirstAgentActivity[]
+  >([]);
+  const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
+  const activeChatFirstSurfaceTab = useMemo(
+    () =>
+      chatFirstSurfaceTabs.tabs.find(
+        (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
+      ) ?? null,
+    [chatFirstSurfaceTabs],
+  );
+  const [chatFirstAppSelection, setChatFirstAppSelection] = useState<{
+    appId: string;
+    path?: string;
+    view?: string;
+  } | null>(null);
+  const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
+    url: string;
+    title?: string;
+  } | null>(null);
+  const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
+  const handledChatFirstPreviewNonceRef = useRef<number | null>(null);
   const [multiFrontierMode, setMultiFrontierMode] = useState(false);
   const [multiFrontierState, setMultiFrontierState] =
     useState<MultiFrontierRendererState>();
@@ -130,6 +265,297 @@ export default function CodeAgentsHub({
   const activeMultiFrontierCollaborationId =
     multiFrontierState?.collaborationId;
   const multiFrontierModeLocked = locksMultiFrontierMode(multiFrontierState);
+
+  const openChatFirstApp = useCallback(
+    (appId: string, path?: string, view?: string) => {
+      const app = apps.find(
+        (candidate) => candidate.id === appId && candidate.enabled,
+      );
+      if (!app) {
+        setChatFirstNotice("That app is not enabled in the desktop workspace.");
+        return;
+      }
+      window.electronAPI?.setActiveApp?.(app.id);
+      setChatFirstNotice(null);
+      setChatFirstBrowserSelection(null);
+      closeChatFirstSessionWatch();
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId("app", `${app.id}:${path ?? view ?? "/"}`),
+        kind: "app",
+        title: app.name,
+        appId: app.id,
+        ...(path ? { path } : {}),
+        ...(view ? { view } : {}),
+      });
+      setChatFirstAppSelection({ appId: app.id, path, view });
+    },
+    [apps, chatFirstSurfaceTabsStore],
+  );
+
+  const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(
+    () =>
+      apps.map((app) => ({
+        id: app.id,
+        name: app.name,
+        url: app.url,
+        devUrl: app.devUrl,
+        enabled: app.enabled,
+      })),
+    [apps],
+  );
+  const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
+    () =>
+      apps
+        .filter((app) => app.enabled && app.id !== "agent")
+        .map((app) => ({
+          id: app.id,
+          name: app.name,
+          ...(app.icon ? { icon: app.icon } : {}),
+          ...(app.color ? { color: app.color } : {}),
+        })),
+    [apps],
+  );
+
+  const resolveChatFirstOpenApp = useCallback(
+    (detail: ChatFirstOpenAppDetail) => {
+      const resolution = resolveChatFirstAppTarget(
+        detail,
+        chatFirstAppRegistrations,
+      );
+      if (resolution.status === "unresolved") {
+        setChatFirstNotice(chatFirstResolutionMessage(resolution.reason));
+        return;
+      }
+      openChatFirstApp(
+        resolution.target.appId,
+        resolution.target.path,
+        resolution.target.view,
+      );
+    },
+    [chatFirstAppRegistrations, openChatFirstApp],
+  );
+
+  const resolveChatFirstOpenBrowser = useCallback(
+    (detail: ChatFirstOpenBrowserDetail) => {
+      const resolution = resolveChatFirstBrowserTarget(detail);
+      if (resolution.status === "unresolved") {
+        setChatFirstNotice(
+          chatFirstBrowserResolutionMessage(resolution.reason),
+        );
+        return;
+      }
+      setChatFirstAppSelection(null);
+      setChatFirstNotice(null);
+      closeChatFirstSessionWatch();
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId("browser", resolution.target.url),
+        kind: "browser",
+        title: resolution.target.title ?? "Browser",
+        url: resolution.target.url,
+      });
+      setChatFirstBrowserSelection(resolution.target);
+    },
+    [chatFirstSurfaceTabsStore],
+  );
+
+  useEffect(() => {
+    const request = chatFirstPreviewRequest;
+    if (
+      !chatFirstMode ||
+      !request ||
+      handledChatFirstPreviewNonceRef.current === request.nonce
+    ) {
+      return;
+    }
+    const app = apps.find(
+      (candidate) => candidate.id === request.appId && candidate.enabled,
+    );
+    if (!app) return;
+    handledChatFirstPreviewNonceRef.current = request.nonce;
+    if (!app.devUrl?.trim()) {
+      setChatFirstNotice(
+        `${app.name} is building locally, but it has not published a preview URL yet.`,
+      );
+      return;
+    }
+    resolveChatFirstOpenBrowser({
+      url: app.devUrl,
+      title: `${app.name} preview`,
+    });
+  }, [
+    apps,
+    chatFirstMode,
+    chatFirstPreviewRequest,
+    resolveChatFirstOpenBrowser,
+  ]);
+
+  useEffect(() => {
+    if (!chatFirstMode) {
+      setChatFirstAppSelection(null);
+      setChatFirstBrowserSelection(null);
+      setChatFirstNotice(null);
+      chatFirstSurfaceTabsStore.closeAll();
+      return;
+    }
+    const unsubscribeApp = subscribeChatFirstOpenApp(resolveChatFirstOpenApp);
+    const unsubscribeBrowser = subscribeChatFirstOpenBrowser(
+      resolveChatFirstOpenBrowser,
+    );
+    return () => {
+      unsubscribeApp();
+      unsubscribeBrowser();
+    };
+  }, [
+    chatFirstMode,
+    chatFirstSurfaceTabsStore,
+    resolveChatFirstOpenApp,
+    resolveChatFirstOpenBrowser,
+  ]);
+
+  useEffect(() => {
+    const target = chatFirstSessionWatch.target;
+    if (!chatFirstMode || !target) return;
+    setChatFirstAppSelection(null);
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.open({
+      id: chatFirstSurfaceTabId("side-chat", target.sessionId),
+      kind: "side-chat",
+      title: target.title ? `Watch · ${target.title}` : "Watched session",
+      session: target,
+    });
+  }, [chatFirstMode, chatFirstSessionWatch.target, chatFirstSurfaceTabsStore]);
+
+  useEffect(() => {
+    const tabCount = chatFirstSurfaceTabs.tabs.length;
+    const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
+    if (!chatFirstMode) {
+      setChatFirstSurfacePanelOpen(false);
+    } else if (
+      tabCount > 0 &&
+      (previousTabCount === null || previousTabCount === 0)
+    ) {
+      setChatFirstSurfacePanelOpen(true);
+    } else if (
+      tabCount === 0 &&
+      previousTabCount !== null &&
+      previousTabCount > 0
+    ) {
+      setChatFirstSurfacePanelOpen(false);
+    }
+    previousChatFirstSurfaceTabCountRef.current = tabCount;
+  }, [
+    chatFirstMode,
+    setChatFirstSurfacePanelOpen,
+    chatFirstSurfaceTabs.tabs.length,
+  ]);
+
+  useEffect(() => {
+    const activeTab = activeChatFirstSurfaceTab;
+    if (
+      !chatFirstMode ||
+      activeTab?.kind !== "side-chat" ||
+      !activeTab.session ||
+      chatFirstSessionWatch.target
+    ) {
+      return;
+    }
+    emitChatFirstSessionWatch(activeTab.session);
+  }, [activeChatFirstSurfaceTab, chatFirstMode, chatFirstSessionWatch.target]);
+
+  const activateChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      chatFirstSurfaceTabsStore.activate(tab.id);
+      if (tab.kind === "app" && tab.appId) {
+        closeChatFirstSessionWatch();
+        setChatFirstBrowserSelection(null);
+        setChatFirstAppSelection({
+          appId: tab.appId,
+          ...(tab.path ? { path: tab.path } : {}),
+          ...(tab.view ? { view: tab.view } : {}),
+        });
+        return;
+      }
+      if (tab.kind === "browser" && tab.url) {
+        closeChatFirstSessionWatch();
+        setChatFirstAppSelection(null);
+        setChatFirstBrowserSelection({ url: tab.url, title: tab.title });
+        return;
+      }
+      if (tab.kind === "side-chat" && tab.session) {
+        setChatFirstAppSelection(null);
+        setChatFirstBrowserSelection(null);
+        emitChatFirstSessionWatch(tab.session);
+      }
+    },
+    [chatFirstSurfaceTabsStore],
+  );
+
+  const closeChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      const isActive = chatFirstSurfaceTabs.activeTabId === tab.id;
+      if (tab.kind === "app") setChatFirstAppSelection(null);
+      if (tab.kind === "browser") setChatFirstBrowserSelection(null);
+      if (tab.kind === "side-chat" && isActive) {
+        closeChatFirstSessionWatch();
+      }
+      chatFirstSurfaceTabsStore.close(tab.id);
+    },
+    [chatFirstSurfaceTabs, chatFirstSurfaceTabsStore],
+  );
+
+  const closeAllChatFirstSurfaceTabs = useCallback(() => {
+    setChatFirstAppSelection(null);
+    setChatFirstBrowserSelection(null);
+    closeChatFirstSessionWatch();
+    chatFirstSurfaceTabsStore.closeAll();
+  }, [chatFirstSurfaceTabsStore]);
+
+  const openChatFirstSurface = useCallback(
+    (kind: ChatFirstSurfaceKind) => {
+      if (kind !== "agents") return;
+      closeChatFirstSessionWatch();
+      chatFirstSurfaceTabsStore.open({
+        id: chatFirstSurfaceTabId(kind, "activity"),
+        kind,
+        title: "Agents",
+      });
+    },
+    [chatFirstSurfaceTabsStore],
+  );
+
+  const watchChatFirstAgent = useCallback(
+    (activity: ChatFirstAgentActivity) => {
+      emitChatFirstSessionWatch({
+        sessionId: activity.sessionId,
+        title: activity.title,
+        kind: "code-agent",
+        ...(activity.goalId ? { goalId: activity.goalId } : {}),
+      });
+    },
+    [],
+  );
+
+  const handleChatFirstRunsChange = useCallback((runs: CodeAgentRun[]) => {
+    setChatFirstAgentActivities(
+      runs.map((run) => ({
+        sessionId: run.id,
+        title: run.title || "Untitled agent session",
+        subtitle: run.subtitle || run.phase,
+        status: run.status,
+        updatedAt: run.updatedAt,
+        progressPercent: run.progress?.percent,
+        goalId: run.goalId,
+      })),
+    );
+  }, []);
+
+  const handleChatFirstWatchedRunChange = useCallback(
+    (run: CodeAgentRun | null, sourceRunId?: string | null) => {
+      setChatFirstWatchedRun(run);
+      setChatFirstWatchedSourceRunId(sourceRunId ?? null);
+    },
+    [],
+  );
 
   const appendMultiFrontierNotice = useCallback(
     (notice: MultiFrontierNotice) => {
@@ -908,30 +1334,321 @@ export default function CodeAgentsHub({
     [],
   );
 
+  const chatFirstPreviewApp = chatFirstPreviewRequest
+    ? apps.find(
+        (app) => app.id === chatFirstPreviewRequest.appId && app.enabled,
+      )
+    : undefined;
+  const chatFirstPreviewUrl = chatFirstPreviewApp?.devUrl?.trim();
+  const renderChatFirstSurfaceTab = useCallback(
+    (tab: ChatFirstSurfaceTab) => {
+      if (tab.kind === "side-chat") {
+        const target =
+          tab.session ??
+          (tab.id === chatFirstSurfaceTabs.activeTabId
+            ? chatFirstSessionWatch.target
+            : null);
+        if (!target) return null;
+        const watchedRunForTab =
+          chatFirstWatchedRun?.id === target.sessionId
+            ? chatFirstWatchedRun
+            : null;
+        return (
+          <ChatFirstSessionWatchPane
+            target={target}
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderChat={(session) =>
+              watchedRunForTab ? (
+                <SessionWatchPanel
+                  host={host}
+                  run={watchedRunForTab}
+                  sourceRunId={chatFirstWatchedSourceRunId}
+                  onClose={closeChatFirstSessionWatch}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+                  {session.kind === "agent-chat"
+                    ? "Agent chat sessions are available in Dispatch."
+                    : session.kind === "external"
+                      ? "This session is only available in its source app."
+                      : session.title || "Selected session is unavailable."}
+                </div>
+              )
+            }
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "browser" && tab.url) {
+        const isPreviewTab = tab.url === chatFirstPreviewUrl;
+        const isTabActive = isChatFirstSurfaceTabActive({
+          surfaceActive: isActive,
+          tabId: tab.id,
+          activeTabId: activeChatFirstSurfaceTab?.id,
+        });
+        return (
+          <ChatFirstBrowserPane
+            url={tab.url}
+            title={tab.title}
+            status={
+              isPreviewTab && tab.id === activeChatFirstSurfaceTab?.id
+                ? chatFirstPreviewStatus
+                : undefined
+            }
+            statusMessage={
+              isPreviewTab && tab.id === activeChatFirstSurfaceTab?.id
+                ? chatFirstPreviewStatusMessage
+                : undefined
+            }
+            onClose={() => closeChatFirstSurfaceTab(tab)}
+            renderEmbed={({ url, key }: ChatFirstEmbedTarget) => (
+              <AppWebview
+                key={key}
+                app={{
+                  id: "chat-first-browser",
+                  name: "Browser",
+                  icon: "Globe",
+                  description: "Browser surface",
+                  devPort: 0,
+                }}
+                sourceUrl={url}
+                isActive={isTabActive}
+                partitionKey={
+                  isPreviewTab
+                    ? chatFirstPreviewPartitionKey(chatFirstPreviewApp?.id)
+                    : undefined
+                }
+                refreshKey={isPreviewTab ? refreshKey : 0}
+              />
+            )}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "app" && tab.appId) {
+        const app = apps.find((candidate) => candidate.id === tab.appId);
+        if (!app) return null;
+        const isTabActive = isChatFirstSurfaceTabActive({
+          surfaceActive: isActive,
+          tabId: tab.id,
+          activeTabId: activeChatFirstSurfaceTab?.id,
+        });
+        return (
+          <ChatFirstAppPane
+            app={app}
+            status="ready"
+            embedUrl={tab.path ?? "/"}
+            renderEmbed={() => (
+              <AppWebview
+                app={toAppDefinition(app)}
+                appConfig={app}
+                isActive={isTabActive}
+                urlPath={tab.path}
+                urlParams={{ embedded: "1", chatFirst: "1" }}
+              />
+            )}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      if (tab.kind === "agents") {
+        return (
+          <ChatFirstAgentsPane
+            activities={chatFirstAgentActivities}
+            onWatch={watchChatFirstAgent}
+            copy={defaultChatFirstCopy}
+          />
+        );
+      }
+      return null;
+    },
+    [
+      activeChatFirstSurfaceTab?.id,
+      apps,
+      chatFirstAgentActivities,
+      chatFirstPreviewStatus,
+      chatFirstPreviewStatusMessage,
+      chatFirstPreviewUrl,
+      chatFirstSessionWatch.target,
+      chatFirstSurfaceTabs.activeTabId,
+      chatFirstWatchedRun,
+      chatFirstWatchedSourceRunId,
+      closeChatFirstSurfaceTab,
+      host,
+      isActive,
+      refreshKey,
+      watchChatFirstAgent,
+    ],
+  );
   return (
     <QueryClientProvider client={codeAgentsQueryClient}>
-      <CodeAgentsApp
-        apps={apps}
-        host={host}
-        isActive={isActive}
-        openRequest={openRequest}
-        refreshKey={refreshKey}
-        brandIconUrl={agentNativeIconUrl}
-        onOpenSettings={onOpenSettings}
-        newSessionExtension={multiFrontierExtension}
-        openDetailRequest={multiFrontierOpenDetailRequest}
-        renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
-          <div className="code-agents-embedded-app-surface">
-            <AppWebview
-              app={toAppDefinition(app)}
-              appConfig={app}
-              isActive={isActive}
-              urlParams={urlParams}
-              refreshKey={appRefreshKey}
+      <div
+        style={
+          {
+            "--chat-first-surface-width": `${chatFirstSurfaceResize.width}px`,
+          } as CSSProperties
+        }
+        className={[
+          "desktop-chat-first-hub",
+          chatFirstMode ? "desktop-chat-first-hub--enabled" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        <CodeAgentsApp
+          apps={apps}
+          host={host}
+          isActive={isActive}
+          openRequest={openRequest}
+          refreshKey={refreshKey}
+          brandIconUrl={agentNativeIconUrl}
+          onOpenSettings={onOpenSettings}
+          mainToolbarSlot={
+            chatFirstMode ? (
+              <ChatFirstSurfacePanelToggle
+                open={chatFirstSurfacePanel.open}
+                onToggle={chatFirstSurfacePanel.toggle}
+                className="static"
+              />
+            ) : undefined
+          }
+          activeChatFirstSurfaceKind={
+            chatFirstMode ? activeChatFirstSurfaceTab?.kind : undefined
+          }
+          chatFirstMode={chatFirstMode}
+          onRunsChange={handleChatFirstRunsChange}
+          onWatchedRunChange={handleChatFirstWatchedRunChange}
+          chatFirstNavigation={
+            chatFirstMode
+              ? {
+                  onOpenIntegrations: () =>
+                    openChatFirstApp("dispatch", "/admin/integrations"),
+                  onOpenScheduled: () =>
+                    openChatFirstApp("dispatch", "/admin/automations"),
+                }
+              : undefined
+          }
+          onChatFirstOpenApp={
+            chatFirstMode ? emitChatFirstOpenAppStable : undefined
+          }
+          railWorkspaceSlot={
+            chatFirstMode ? (
+              <>
+                {chatFirstNotice ? (
+                  <div
+                    className="flex items-start gap-1.5 border-b border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
+                    role="status"
+                    aria-live="polite"
+                    data-chat-first-notice
+                  >
+                    <span className="min-w-0 flex-1">{chatFirstNotice}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 font-semibold underline underline-offset-2"
+                      onClick={() => setChatFirstNotice(null)}
+                    >
+                      {defaultChatFirstCopy("dismiss")}
+                    </button>
+                  </div>
+                ) : null}
+                <ChatFirstAppsRail
+                  apps={chatFirstAppItems}
+                  activeAppId={
+                    activeChatFirstSurfaceTab?.kind === "app"
+                      ? activeChatFirstSurfaceTab.appId
+                      : undefined
+                  }
+                  createAppTrigger={
+                    onChatFirstAppCreated ? (
+                      <CreateAppPromptPopover
+                        onCreated={onChatFirstAppCreated}
+                      />
+                    ) : undefined
+                  }
+                  onCreateApp={onCreateApp}
+                  onOpenApp={(app) => openChatFirstApp(app.id)}
+                  onOpenAllApps={() => openChatFirstApp("dispatch", "/apps")}
+                  renderIcon={(app) => (
+                    <CodeAgentsAppIcon
+                      id={app.id}
+                      name={app.name}
+                      icon={app.icon}
+                    />
+                  )}
+                  copy={defaultChatFirstCopy}
+                />
+              </>
+            ) : undefined
+          }
+          railFooterSlot={
+            chatFirstMode && onOpenSettings ? (
+              <button
+                type="button"
+                className="code-agents-nav-link"
+                onClick={onOpenSettings}
+              >
+                <IconSettings size={15} strokeWidth={1.8} aria-hidden="true" />
+                <span>Settings</span>
+              </button>
+            ) : undefined
+          }
+          newSessionExtension={multiFrontierExtension}
+          openDetailRequest={multiFrontierOpenDetailRequest}
+          chatFirstMainKind="code"
+          renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
+            <div className="code-agents-embedded-app-surface">
+              <AppWebview
+                app={toAppDefinition(app)}
+                appConfig={app}
+                isActive={isActive}
+                urlParams={urlParams}
+                refreshKey={appRefreshKey}
+              />
+            </div>
+          )}
+        />
+        {chatFirstMode && chatFirstSurfacePanel.open ? (
+          <ChatFirstSurfacePanel
+            width={chatFirstSurfaceResize.width}
+            onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
+            copy={defaultChatFirstCopy}
+          >
+            <ChatFirstSurfaceTabs
+              tabs={chatFirstSurfaceTabs.tabs}
+              activeTabId={chatFirstSurfaceTabs.activeTabId}
+              onActivate={activateChatFirstSurfaceTab}
+              onClose={closeChatFirstSurfaceTab}
+              onCloseOthers={(tab) => {
+                activateChatFirstSurfaceTab(tab);
+                chatFirstSurfaceTabsStore.closeOthers(tab.id);
+              }}
+              onCloseToRight={(tab) => {
+                const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                  (candidate) => candidate.id === tab.id,
+                );
+                const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                  (candidate) =>
+                    candidate.id === chatFirstSurfaceTabs.activeTabId,
+                );
+                if (activeIndex > targetIndex) {
+                  activateChatFirstSurfaceTab(tab);
+                }
+                chatFirstSurfaceTabsStore.closeToRight(tab.id);
+              }}
+              onCloseAll={closeAllChatFirstSurfaceTabs}
+              onOpenSurface={openChatFirstSurface}
+              copy={defaultChatFirstCopy}
             />
-          </div>
-        )}
-      />
+            {chatFirstSurfaceTabs.tabs.length > 0 ? (
+              <ChatFirstSurfaceContent
+                tabs={chatFirstSurfaceTabs.tabs}
+                activeTabId={chatFirstSurfaceTabs.activeTabId}
+                renderTab={renderChatFirstSurfaceTab}
+              />
+            ) : null}
+          </ChatFirstSurfacePanel>
+        ) : null}
+      </div>
     </QueryClientProvider>
   );
 }

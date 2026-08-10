@@ -14,7 +14,7 @@ import {
 } from "../cron.js";
 import { classifyJobResource } from "../frontmatter.js";
 import { parseJobFrontmatter } from "../scheduler.js";
-import { authorizeJobMutation } from "../tools.js";
+import { authorizeJobMutation, jobBelongsToApp } from "../tools.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -96,6 +96,7 @@ export default defineAction({
       }
 
       const { meta, body } = parseJobFrontmatter(full.content);
+      if (!jobBelongsToApp(meta, ctx?.appId)) continue;
       const canUpdate =
         scope === "personal" || !(await authorizeJobMutation(owner, meta));
       jobs.push({

@@ -24,7 +24,9 @@ const analyticsDbMocks = vi.hoisted(() => {
   const getDb = vi.fn();
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
+  const insertOnConflictDoNothing = vi.fn();
   const updateWhere = vi.fn();
+  const updateReturning = vi.fn();
   const db: Record<string, any> = {};
   db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
     callback(db),
@@ -34,16 +36,28 @@ const analyticsDbMocks = vi.hoisted(() => {
       where: vi.fn(() => ({ limit: selectLimit })),
     })),
   }));
-  db.insert = vi.fn(() => ({ values: insertValues }));
+  db.insert = vi.fn(() => ({
+    values: (...args: unknown[]) => {
+      insertValues(...args);
+      return { onConflictDoNothing: insertOnConflictDoNothing };
+    },
+  }));
   db.update = vi.fn(() => ({
-    set: vi.fn(() => ({ where: updateWhere })),
+    set: vi.fn(() => ({
+      where: (...args: unknown[]) => {
+        updateWhere(...args);
+        return { returning: updateReturning };
+      },
+    })),
   }));
   getDb.mockReturnValue(db);
   return {
     getDb,
     selectLimit,
     insertValues,
+    insertOnConflictDoNothing,
     updateWhere,
+    updateReturning,
     db,
   };
 });
@@ -92,12 +106,18 @@ beforeEach(() => {
   analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
+  analyticsDbMocks.insertOnConflictDoNothing.mockReset();
   analyticsDbMocks.updateWhere.mockReset();
+  analyticsDbMocks.updateReturning.mockReset();
   analyticsDbMocks.selectLimit.mockResolvedValue([
     { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
   ]);
   analyticsDbMocks.insertValues.mockResolvedValue(undefined);
+  analyticsDbMocks.insertOnConflictDoNothing.mockResolvedValue(undefined);
   analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
+  analyticsDbMocks.updateReturning.mockResolvedValue([
+    { eventCount: 1, eventLimit: 1_000_000 },
+  ]);
   rollupMocks.upsert.mockReset();
   rollupMocks.upsert.mockResolvedValue({
     eventCount: 1,
@@ -350,6 +370,31 @@ describe("recordAnalyticsEvents", () => {
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
   });
 
+  it("enforces the Postgres volume limit during dual writes", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "dual",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: false,
+    });
+    analyticsDbMocks.selectLimit
+      .mockResolvedValueOnce([
+        { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
+      ])
+      .mockResolvedValueOnce([
+        { eventCount: 1_000_000, eventLimit: 1_000_000 },
+      ]);
+    analyticsDbMocks.updateReturning.mockResolvedValueOnce([]);
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("volume limit reached");
+
+    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
+    expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
   it("keeps derived exception issues in SQL after the event cutover", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
@@ -374,6 +419,36 @@ describe("recordAnalyticsEvents", () => {
       },
       [expect.objectContaining({ derived: expect.any(Object) })],
     );
+  });
+
+  it("preserves SQL exception issues when BigQuery fails after cutover", async () => {
+    const warehouseError = new Error("warehouse unavailable");
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+    backendMocks.insert.mockRejectedValueOnce(warehouseError);
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [
+        {
+          event: "$exception",
+          properties: { error: "boom", app: "analytics" },
+        },
+      ]),
+    ).rejects.toBe(warehouseError);
+
+    expect(exceptionMocks.ingest).toHaveBeenCalledWith(
+      {
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        publicKeyId: "apk_123",
+      },
+      [expect.objectContaining({ derived: expect.any(Object) })],
+    );
+    expect(analyticsDbMocks.updateWhere).toHaveBeenCalled();
   });
 });
 

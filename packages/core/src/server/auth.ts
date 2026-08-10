@@ -1859,6 +1859,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
+    // through the durable background function and authenticate with the same
+    // short-lived HMAC token as the other internal processors. They do not
+    // carry a browser session, so let the route perform its own token check.
+    if (p === "/_agent-native/jobs/_process-sweep") {
+      return;
+    }
+
     // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
     // a queued sub-agent in a fresh function invocation; authenticity is
     // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
@@ -2261,12 +2269,34 @@ function isHostedPreviewRequest(event: H3Event): boolean {
   const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
   return (
     host.endsWith(".agent-native.com") ||
+    isBuilderPreviewHost(host) ||
+    host.includes("deploy-preview")
+  );
+}
+
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewHost(host: string): boolean {
+  return (
     host.endsWith(".builderio.xyz") ||
     host.endsWith(".builderio.dev") ||
     host.endsWith(".builder.codes") ||
-    host.endsWith(".builder.my") ||
-    host.includes("deploy-preview")
+    host.endsWith(".builder.my")
   );
+}
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function isBuilderPreviewLocalDevRequest(event: H3Event): boolean {
+  if (!isBuilderPreviewLocalDevEnabled()) return false;
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return isBuilderPreviewHost(host);
 }
 
 export function isLocalDevAuthAllowed(event: H3Event): boolean {
@@ -2277,8 +2307,8 @@ export function isLocalDevAuthAllowed(event: H3Event): boolean {
     !deployPreview &&
     !isAuthDisabled() &&
     process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
-    !isHostedPreviewRequest(event) &&
-    isLoopbackRequest(event)
+    ((!isHostedPreviewRequest(event) && isLoopbackRequest(event)) ||
+      isBuilderPreviewLocalDevRequest(event))
   );
 }
 

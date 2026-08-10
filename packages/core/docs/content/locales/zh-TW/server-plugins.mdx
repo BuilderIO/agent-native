@@ -5,7 +5,7 @@ description: "server/plugins/ 中的啟動外掛——它們是什麼、每個�
 
 # 外掛
 
-外掛是啟動掛鉤（startup hooks）。`server/plugins/` 中的每個檔案都匯出一個函式，Nitro 會在伺服器初始化時、在任何路由被服務之前呼叫一次。它們是進行一次性設定的合適位置：設定驗證、掛載 agent 迴圈、執行資料庫遷移，或註冊任何其他需要在請求抵達前完成的初始化程式碼。
+外掛是啟動掛鉤。Nitro 會在伺服器初始化時載入 `server/plugins/` 中的每個檔案一次。它們適合進行一次性設定：設定驗證、掛載 agent 迴圈、執行資料庫遷移，或註冊其他初始化程式碼。框架輔助函式會協調非同步初始化；自訂外掛的工作在第一個請求抵達時可能仍在進行。
 
 Nitro 會自動從檔案系統中發現外掛。無需註冊或匯入。檔案依字母順序執行，因此執行順序由檔名前綴控制。
 
@@ -21,7 +21,7 @@ server/plugins/
 
 ```text
 server/plugins/
-  db.ts          -> 在啟動時執行遷移
+  db.ts          -> 註冊本機啟動時執行的應用程式自有遷移
 ```
 
 ## 驗證外掛 {#auth-plugin}
@@ -131,11 +131,17 @@ export default defineNitroPlugin((nitro) => {
 
 ## 啟動順序 {#startup-order}
 
-Nitro 依字母順序的檔名執行外掛。在單一外掛檔案內，其預設匯出會先被等待完成，才會啟動下一個外掛。典型的順序如下：
+Nitro 依檔名字母順序啟動外掛。檔案順序只控制外掛何時開始，不控制非同步工作何時完成；因此不要依賴前一個外掛在下一個外掛啟動前完成。典型的順序如下：
 
-1. `db.ts` — 在任何路由或外掛讀取資料庫之前，先完成遷移
+1. `db.ts` — 本機啟動時的應用程式自有遷移；在生產環境中作為發佈步驟執行
 2. `auth.ts` — 在請求抵達之前，先就位驗證設定
 3. `agent-chat.ts` — 在驗證設定完成後，才掛載 agent 路由
+
+<Callout tone="warning">
+  在生產或 serverless
+  部署中，請在發佈或部署步驟執行遷移，不要在第一次請求時執行。Chat 範本提供
+  `pnpm migrate:production`。
+</Callout>
 
 若您新增自訂外掛，請為其檔名加上前綴，以控制它們在順序中的位置。
 
@@ -143,6 +149,6 @@ Nitro 依字母順序的檔名執行外掛。在單一外掛檔案內，其預�
 
 - [**資料庫**](/docs/server-database)：外掛內部使用的架構幫手與 `getDb` 模式
 - [**中間件**](/docs/server-middleware)：強制執行驗證外掛設定的驗證守衛
-- [**路由**](/docs/server-routes)：在外掛完成後才被服務的自訂檔案路由
+- [**路由**](/docs/server-routes)：自訂檔案路由與使用時機
 - [**Writing Agent Instructions**](/docs/writing-agent-instructions)：如何在 agent-chat 外掛中撰寫 `systemPrompt`
 - [**Nitro 外掛文件**](https://nitro.build/guide/plugins)：完整的外掛 API 與生命週期掛鉤

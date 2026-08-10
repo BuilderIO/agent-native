@@ -1,8 +1,11 @@
 # Existing raw visible UI literals.
 # Keep this file sorted. Remove entries as surfaces move to i18n.
 # Format: relative/source/path.tsx|Visible string
+packages/docs/app/components/blocks/badge.tsx|A small status/label chip for the top of a page or section — Beta, Deprecated, v9.1+. Block-level only, not embeddable mid-sentence.
+packages/docs/app/components/blocks/banner.tsx|A compact, full-width, single-line announcement strip for the top of a page or section — beta, deprecated, moved. Tones: info, decision, risk, warning, success.
 packages/docs/app/components/blocks/cards.tsx|Feature name
 packages/docs/app/components/blocks/comparison.tsx|A side-by-side comparison of two to four options, e.g. Before/After or Option A/Option B.
+packages/docs/app/components/blocks/notice.tsx|A bold, filled alert card with an icon and optional title, for something a reader must not skim past. Tones: info, decision, risk, warning, success.
 packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.
 packages/docs/app/components/blocks/steps.tsx|Step title
 packages/docs/app/components/docBlocks.tsx|| Extract

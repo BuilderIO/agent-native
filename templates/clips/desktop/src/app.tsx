@@ -7689,7 +7689,7 @@ function Setup({
                 className="secondary"
                 onClick={connectBuilder}
               >
-                Use Builder.io (free)
+                Use Builder.io
               </button>
             ) : null}
           </div>

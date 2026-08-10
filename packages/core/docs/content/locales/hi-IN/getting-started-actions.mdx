@@ -72,7 +72,7 @@ export default defineAction({
 });
 ```
 
-इसे terminal से चलाएं:
+इसे app directory से चलाएं:
 
 ```bash
 pnpm action analyze-text --text "Hello world. How are you today?"
@@ -82,12 +82,12 @@ pnpm action analyze-text --text "Hello world. How are you today?"
 
 > Run the analyze-text action on "Hello world. How are you today?"
 
-Built-in `data-chart` renderer structured result को transcript में chart में बदल
-देता है। कोई renderer file या `app/root.tsx` import जोड़ने की आवश्यकता नहीं है।
+जब agent इस action को chat में चलाता है, built-in `data-chart` renderer structured
+result को transcript में chart में बदल देता है। कोई renderer file या
+`app/root.tsx` import जोड़ने की आवश्यकता नहीं है।
 Custom native components के लिए [Native Chat UI](/docs/native-chat-ui) देखें।
 
 ## आगे बढ़ें
 
 [एक page जोड़ें](/docs/getting-started-pages) पर आगे बढ़ें और उसी action को
-transcript के बाहर इस्तेमाल करें। जब results conversations के बीच बने रहने
-चाहिए, तब [SQL में data persist करें](/docs/getting-started-database) पर लौटें।
+transcript के बाहर इस्तेमाल करें।

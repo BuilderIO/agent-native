@@ -78,6 +78,7 @@ export {
   buildMergedConfig,
   builtinMergedConfigKey,
   startMcpConfigRefresh,
+  McpConfigUnreadableError,
   type ClientBuiltinCapability,
 } from "./routes.js";
 

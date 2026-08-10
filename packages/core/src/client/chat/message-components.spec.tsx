@@ -330,13 +330,13 @@ describe("assistantMessageHasCustomUi", () => {
       assistantMessageHasCustomUi([
         {
           type: "tool-call",
-          toolName: "start-prospect-run",
-          result: "Awaiting human approval — did NOT execute.",
-          approval: { approvalKey: "start-prospect-run:{}" },
+          toolName: "create-builder-branch",
+          result: "Awaiting human approval. This action did NOT execute.",
+          approval: { approvalKey: "create-builder-branch:{}" },
         },
         {
           type: "text",
-          text: "Waiting for your approval to run start-prospect-run.",
+          text: "Waiting for your approval to run create-builder-branch.",
         },
       ]),
     ).toBe(true);
@@ -344,10 +344,10 @@ describe("assistantMessageHasCustomUi", () => {
       assistantMessageHasCustomUi([
         {
           type: "tool-call",
-          toolName: "start-prospect-run",
-          result: "Awaiting human approval — did NOT execute.",
+          toolName: "create-builder-branch",
+          result: "Awaiting human approval. This action did NOT execute.",
           approval: {
-            approvalKey: "start-prospect-run:{}",
+            approvalKey: "create-builder-branch:{}",
             dismissed: true,
           },
         },
@@ -685,16 +685,16 @@ describe("isCollapsibleAssistantWorkPart", () => {
     expect(
       isCollapsibleAssistantWorkPart({
         type: "tool-call",
-        toolName: "start-prospect-run",
-        approval: { approvalKey: "start-prospect-run:{}" },
+        toolName: "create-builder-branch",
+        approval: { approvalKey: "create-builder-branch:{}" },
       }),
     ).toBe(false);
     expect(
       isCollapsibleAssistantWorkPart({
         type: "tool-call",
-        toolName: "start-prospect-run",
+        toolName: "create-builder-branch",
         approval: {
-          approvalKey: "start-prospect-run:{}",
+          approvalKey: "create-builder-branch:{}",
           dismissed: true,
         },
       }),

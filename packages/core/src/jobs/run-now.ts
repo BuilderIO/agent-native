@@ -22,6 +22,7 @@ import {
 export interface RunAutomationNowInput {
   userEmail: string;
   orgId?: string | null;
+  appId?: string | null;
   scope: AutomationScope;
   name: string;
 }
@@ -98,12 +99,14 @@ export async function queueAutomationRunNow(
 
   // A manual-run request is a guaranteed app request even on hosts without a
   // durable timer. Use it to recover older rows before adding the new one.
-  await redispatchUnclaimedAutomationRuns().catch((error) => {
-    console.warn(
-      "[automations] Could not sweep queued runs before run-now:",
-      error,
-    );
-  });
+  await redispatchUnclaimedAutomationRuns({ appId: input.appId }).catch(
+    (error) => {
+      console.warn(
+        "[automations] Could not sweep queued runs before run-now:",
+        error,
+      );
+    },
+  );
 
   const historyId = await startAutomationRun({
     owner: resource.owner,
@@ -111,6 +114,7 @@ export async function queueAutomationRunNow(
     path: resource.path,
     scope: input.scope,
     orgId: input.scope === "organization" ? input.orgId : null,
+    appId: input.appId,
     dispatchPending: true,
   });
   try {
@@ -133,8 +137,10 @@ export async function queueAutomationRunNow(
  * This is intentionally a redelivery, not a second execution: the worker's
  * claim CAS decides which request owns the run.
  */
-export async function redispatchUnclaimedAutomationRuns(): Promise<number> {
-  const runs = await listUnclaimedAutomationRuns();
+export async function redispatchUnclaimedAutomationRuns(options?: {
+  appId?: string | null;
+}): Promise<number> {
+  const runs = await listUnclaimedAutomationRuns({ appId: options?.appId });
   let attempted = 0;
   for (const run of runs) {
     try {

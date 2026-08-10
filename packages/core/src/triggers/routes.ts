@@ -38,6 +38,7 @@ export interface AutomationRouteItem {
   name: string;
   path: string;
   owner: string;
+  appId?: string;
   scope: "personal" | "organization";
   canUpdate: boolean;
   triggerType: TriggerFrontmatter["triggerType"];
@@ -203,6 +204,7 @@ async function resourceToAutomationItem(
     name: automationName(resource.path),
     path: resource.path,
     owner: resource.owner,
+    appId: meta.appId,
     scope:
       resource.owner === userEmail && !meta.orgId ? "personal" : "organization",
     canUpdate: await currentUserCanUpdateAutomation(

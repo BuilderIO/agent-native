@@ -5,11 +5,11 @@ description: "建立一個呼叫動作並顯示其結果的 React 路由。"
 
 # 新增頁面
 
-這是入門指南系列的第三部分。在[新增動作](/docs/getting-started-actions)中，您建立了 `analyze-text`。這裡會從路由呼叫相同的動作。目前還不需要資料庫：Chat 已經包含 SQL 執行環境，供您在需要持久化領域資料時使用。
+這是入門指南系列的第三部分。在[新增動作](/docs/getting-started-actions)中，您建立了 `analyze-text`。這裡會從路由呼叫相同的動作。這個範例不需要新的資料庫資料表。Chat 已經將聊天記錄儲存在 SQL 中；只有在需要持久化領域資料時，才新增自己的資料表。
 
 ## 建立路由 {#add-a-page}
 
-`app/routes/` 中的路由檔案會自動載入。建立 `app/routes/text-analyses.tsx`；它會在 `http://localhost:8080/text-analyses` 提供服務。
+開發伺服器會在啟動時讀取路由檔案。建立 `app/routes/text-analyses.tsx`；如果 `pnpm dev` 已在執行，請建立檔案後重新啟動。路由會在 `http://localhost:8080/text-analyses` 提供服務。
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -62,4 +62,4 @@ export default function TextAnalysesRoute() {
 
 ## 繼續
 
-您已建立一個包含動作和頁面的聊天應用程式，頁面呼叫相同的真實資料來源。當結果需要持久化時，繼續閱讀[將資料持久化到 SQL](/docs/getting-started-database)，或探索[Key Concepts](/docs/key-concepts)和[Agent Surfaces](/docs/agent-surfaces)。
+您已建立一個包含動作和頁面的聊天應用程式，頁面呼叫相同的真實資料來源。繼續探索[Key Concepts](/docs/key-concepts)和[Agent Surfaces](/docs/agent-surfaces)。

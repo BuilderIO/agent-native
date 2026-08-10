@@ -38,4 +38,29 @@ describe("shouldDisableInProcessSweeps", () => {
       ).toBe(false);
     }
   });
+
+  it("disables in-process sweeps automatically in production functions", () => {
+    expect(
+      shouldDisableInProcessSweeps({
+        NODE_ENV: "production",
+        NETLIFY_FUNCTION_NAME: "analytics",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableInProcessSweeps({
+        NODE_ENV: "production",
+        AWS_LAMBDA_FUNCTION_VERSION: "1",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps local Netlify emulation eligible for its recovery timers", () => {
+    expect(
+      shouldDisableInProcessSweeps({
+        NODE_ENV: "production",
+        NETLIFY_FUNCTION_NAME: "analytics",
+        NETLIFY_LOCAL: "true",
+      }),
+    ).toBe(false);
+  });
 });

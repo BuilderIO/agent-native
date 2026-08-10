@@ -6,14 +6,15 @@ description: "एक React route बनाएं जो आपके action क�
 # एक Page जोड़ें
 
 यह Getting Started series का तीसरा भाग है। [एक Action जोड़ें](/docs/getting-started-actions)
-में आपने `analyze-text` बनाया। यहाँ आप उसी action को route से call करेंगे। अभी
-database की आवश्यकता नहीं है: domain data persist करने के लिए Chat में SQL runtime
-पहले से शामिल है।
+में आपने `analyze-text` बनाया। यहाँ आप उसी action को route से call करेंगे। इस
+example के लिए नई database table की आवश्यकता नहीं है। Chat chat history को SQL
+में पहले से store करता है; domain data persist करने के लिए अपनी tables तब जोड़ें।
 
 ## Route बनाएं {#add-a-page}
 
-`app/routes/` में route files अपने आप pick up हो जाती हैं।
-`app/routes/text-analyses.tsx` बनाएं; यह
+Dev server शुरू होने पर route files पढ़ता है। `app/routes/text-analyses.tsx`
+बनाएं और अगर `pnpm dev` पहले से चल रहा है, तो file बनाने के बाद उसे restart करें।
+यह
 `http://localhost:8080/text-analyses` पर उपलब्ध होगा।
 
 ```tsx filename="app/routes/text-analyses.tsx"
@@ -71,6 +72,5 @@ sidebar entry जोड़ें। पूरे `view-screen`, `navigate` औ�
 ## आगे बढ़ें
 
 आपने एक chat ऐप बनाया है जिसमें action और उसी source of truth को call करने वाला
-page है। Results को persist करने की आवश्यकता होने पर [SQL में Data Persist करें](/docs/getting-started-database)
-पर आगे बढ़ें, या [Key Concepts](/docs/key-concepts) और [Agent Surfaces](/docs/agent-surfaces)
+page है। [Key Concepts](/docs/key-concepts) और [Agent Surfaces](/docs/agent-surfaces)
 देखें।

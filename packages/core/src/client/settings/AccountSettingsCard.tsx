@@ -20,6 +20,7 @@ import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
 import { SchedulingTimezoneField } from "./SchedulingTimezoneField.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
 function profileInitials(name: string): string {
   return (
@@ -114,9 +115,7 @@ function PasswordSettings() {
   if (!session?.email) return null;
 
   const passwordForm = isLoading ? (
-    <p className="text-xs text-muted-foreground">
-      {t("settings.passwordStatusLoading")}
-    </p>
+    <SettingsSkeleton lines={2} />
   ) : authMethods.error ? (
     <p className="text-xs text-destructive">
       {t("settings.passwordSaveError")}

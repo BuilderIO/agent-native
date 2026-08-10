@@ -1267,8 +1267,7 @@ function ModelSelector({
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
                   {t("agentPanel.configureProviderKeys", {
-                    defaultValue:
-                      "Configure Anthropic, OpenAI, or another provider",
+                    defaultValue: "Choose a cloud, gateway, or local provider",
                   })}
                 </span>
               </span>

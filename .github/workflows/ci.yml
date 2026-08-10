@@ -618,18 +618,22 @@ jobs:
       - name: Build Content template (Cloudflare Pages preset)
         run: NITRO_PRESET=cloudflare_pages pnpm --filter content build
 
-      # Plan covers diagram-heavy SSR and Clips covers public-share SSR. Build
-      # both real Netlify function artifacts so a core runtime dependency cannot
-      # be missing from either deployment's server bundle.
-      - name: Build Plan and Clips templates (netlify preset)
-        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips build
+      # Three templates, one per size class, because building all 17 per PR is
+      # too slow: Plan covers diagram-heavy SSR, Clips covers public-share SSR,
+      # and Assets is the one that legitimately depends on creative-context — so
+      # it is the only build that exercises the browser-runtime size budget.
+      - name: Build Plan, Clips, and Assets templates (netlify preset)
+        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips --filter assets build
 
       - name: Import SSR handler — must not crash at cold-start
         # External timeout is a backstop against a pathological synchronous hang;
         # the script itself races module eval against a 30s window and force-exits.
         # Match the deployed Netlify environment so failed best-effort local
         # SQLite setup cannot call process.exit during this import-only probe.
-        run: NETLIFY=true timeout 120 node scripts/ssr-boot-smoke.mjs plan clips
+        # This lane intentionally probes the three built representatives above.
+        # The smoke script's optional `--report-uncovered` mode is fail-closed;
+        # use it only when the caller intends to gate on full template coverage.
+        run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs plan clips assets
 
       # Exercise the two other Node serverless presets as well. These import
       # their generated handlers, so an unresolved bare runtime dependency

@@ -236,7 +236,7 @@ function scheduleRecordingOrgIdBackfill(): void {
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
-const migrations = runMigrations(
+export const migrations = runMigrations(
   [
     // ---------------------------------------------------------------------------
     // Workspaces & members

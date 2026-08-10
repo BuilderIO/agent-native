@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.145.6",
+  "version": "0.148.1",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -111,6 +111,7 @@
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
     "./client": "./dist/client/index.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
+    "./client/chat-first": "./dist/client/chat-first/index.js",
     "./client/analytics": "./dist/client/analytics/index.js",
     "./client/automation": "./dist/client/automation/index.js",
     "./client/chat": "./dist/client/chat/index.js",
@@ -359,7 +360,7 @@
     "@assistant-ui/store": ">=0.2.9 <0.2.14",
     "@assistant-ui/tap": "^0.5.14",
     "@builder.io/ai-utils": "^0.84.0",
-    "@clack/prompts": "^1.4.0",
+    "@clack/prompts": "^1.7.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@libsql/client": "^0.15.0",

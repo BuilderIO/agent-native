@@ -10,7 +10,7 @@ Eine **Oberfläche** ist die Art und Weise, wie Benutzer (oder andere Systeme) m
 
 ## Wie Oberflächen miteinander zusammenhängen
 
-Die vier wichtigsten Produktformen liegen auf einem Spektrum von höchst interaktiv bis vollständig headless. Was sie kombinierbar macht, ist, dass das Fundament durchgehend gleich bleibt: dieselben Aktionen, dieselbe SQL-Datenbank und dieselbe Agentenschleife treiben jede Form an. Das Hinzufügen einer neuen Oberfläche bedeutet nicht, das Darunter liegende neu zu schreiben — Sie fügen lediglich einen neuen Weg hinzu, dieselben Operationen zu erreichen.
+Die vier wichtigsten Produktformen liegen auf einem Spektrum von höchst interaktiv bis vollständig headless. Was sie kombinierbar macht, ist, dass sie dieselben Aktionen und denselben SQL-gestützten App-Zustand teilen. Verwenden Sie die Agentenschleife, wenn eine Oberfläche einen Agenten benötigt. Das Hinzufügen einer neuen Oberfläche bedeutet nicht, das Darunterliegende neu zu schreiben — Sie fügen lediglich einen neuen Weg hinzu, dieselben Operationen zu erreichen.
 
 <Diagram id="doc-block-hvdxgh" title="Das Oberflächenspektrum" summary={"Eine Aktionsoberfläche, vier Produktformen, jede fügt UI hinzu, ohne die darunter liegende Operation zu verändern."}>
 
@@ -38,7 +38,10 @@ Die vier wichtigsten Produktformen liegen auf einem Spektrum von höchst interak
   </div>
 </div>
 <div class="diagram-base" data-rough>
-  <span class="diagram-muted">same actions · same SQL · same agent loop</span>
+  <span class="diagram-muted"
+    >gemeinsame Aktionen · SQL-gestützter Zustand · Agentenschleife bei
+    Bedarf</span
+  >
 </div>
 ```
 
@@ -192,7 +195,7 @@ Vollständige Apps fügen Produkt-UI um denselben Aktions- und Agentenvertrag he
 
 ### SQL-Zustand
 
-App-Daten, Navigation, Einstellungen und Chat-Verlauf sind alle dauerhaft. Der Agent liest und schreibt dieselben Zeilen wie die UI.
+App-Daten, Navigation, Einstellungen und Chat-Verlauf sind in SQL dauerhaft. Der Agent liest und schreibt dieselben Zeilen wie die UI.
 
 ### Kontextbewusstsein
 
@@ -200,7 +203,7 @@ Der Agent kennt die aktuelle Route, Auswahl und das fokussierte Objekt, sodass �
 
 ### Live-Sync
 
-Agentenänderungen aktualisieren die UI in Echtzeit, und UI-Änderungen aktualisieren den Kontext des Agenten. Kein Polling, kein Neu laden.
+Agentenänderungen aktualisieren die UI über die Live-Synchronisierung, und UI-Änderungen aktualisieren den Kontext des Agenten. Das Framework verwendet SSE mit Polling-Fallback, sodass Benutzer nicht manuell aktualisieren müssen.
 
 ### Deeplinks
 
@@ -224,9 +227,9 @@ eine vollständige Produktform möchten.
 
 Jede Agent-Native-App braucht früher oder später einen Ort, an dem Benutzer ihren Agenten konfigurieren können: dauerhafte Anweisungen festlegen, überprüfen was er getan hat, MCP-Server verbinden, Automatisierungen verwalten und den Zugriff steuern. Diese UI von Grund auf zu bauen ist viel Arbeit. Agent-Native liefert eine vorgefertigte ganzseitige Komponente, `AgentTabsPage`, die alles über zwölf Tabs abdeckt.
 
-Binden Sie sie unter `/agent` in Ihrer App ein. Aktuelle Templates kombinieren diese Route mit einem App-Navigationseintrag und übergeben `agentPageHref="/agent"` an `AgentSidebar`, sodass die Ressourcen- und Einstellungsmodi der Sidebar auf die vollständige Seite verlinken können, ohne diese Abläufe zu duplizieren.
+Binden Sie sie unter `/settings/agent` in Ihrer App ein. Aktuelle Templates verwenden dies als kanonische Route und übergeben `agentPageHref="/settings/agent"` an `AgentSidebar`. `/agent` bleibt als Legacy-Weiterleitung erhalten.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
@@ -480,7 +483,7 @@ await runAgentLoop({
 
 Für die meisten Apps rufen geplante Prompts und Integrations-Webhooks diese Schleife bereits
 für Sie auf. Greifen Sie direkt darauf zurück nur beim Bauen eines benutzerdefinierten No-Browser-Hosts, Eval-
-Runners oder einer serverseitigen Orchestrierungsoberfläche. Siehe [Server: Produktions-Agenten-Handler](/docs/server#agent-handler) für die vollständige Signatur.
+Runners oder einer serverseitigen Orchestrierungsoberfläche. Siehe [Server: Produktions-Agenten-Handler](/docs/server-plugins#agent-chat-plugin) für die vollständige Signatur.
 
 ### Gegen einen Ordner ausführen {#folder-loop}
 

@@ -58,10 +58,11 @@ async function handleListEvents(): Promise<string> {
 async function handleList(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   const scope = automationScope(args.scope);
   const definitions = await listAutomationDefinitions(
-    { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+    { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
     scope,
   );
   const automations = definitions
@@ -80,6 +81,7 @@ async function handleList(
       condition: meta.condition ?? null,
       mode: meta.mode,
       domain: meta.domain ?? null,
+      appId: meta.appId ?? null,
       enabled: meta.enabled,
       lastRun: meta.lastRun ?? null,
       lastStatus: meta.lastStatus ?? null,
@@ -114,6 +116,7 @@ function automationTriggerType(value: unknown): "schedule" | "event" {
 async function handleDefine(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   if (args.mode === "deterministic") {
     return (
@@ -125,7 +128,11 @@ async function handleDefine(
   const integration = getIntegrationRequestContext();
   try {
     const definition = await defineAutomation(
-      { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+      {
+        userEmail: getCurrentUser(),
+        orgId: getRequestOrgId(),
+        appId,
+      },
       {
         name: typeof args.name === "string" ? args.name : "",
         scope: automationScope(args.scope),
@@ -190,10 +197,11 @@ async function handleDefine(
 async function handleUpdate(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   try {
     const definition = await updateAutomation(
-      { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+      { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
       {
         name: typeof args.name === "string" ? args.name : "",
         scope: automationScope(args.scope),
@@ -253,11 +261,12 @@ async function handleUpdate(
 async function handleDelete(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   const name = typeof args.name === "string" ? args.name : "";
   try {
     await deleteAutomation(
-      { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+      { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
       automationScope(args.scope),
       name,
     );
@@ -294,6 +303,7 @@ async function handleFireTest(
 async function handleRunNow(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
   context?: ActionRunContext,
 ): Promise<string> {
   if (context?.caller === "automation") {
@@ -303,6 +313,7 @@ async function handleRunNow(
     const result = await queueAutomationRunNow({
       userEmail: getCurrentUser(),
       orgId: getRequestOrgId(),
+      appId,
       scope: automationScope(args.scope),
       name: typeof args.name === "string" ? args.name : "",
     });
@@ -328,6 +339,7 @@ const VALID_ACTIONS = [
 
 export function createAutomationToolEntries(
   getCurrentUser: () => string,
+  appId?: string,
 ): Record<string, ActionEntry> {
   return {
     "manage-automations": {
@@ -455,17 +467,17 @@ export function createAutomationToolEntries(
           case "list-events":
             return handleListEvents();
           case "list":
-            return handleList(args, getCurrentUser);
+            return handleList(args, getCurrentUser, appId);
           case "define":
-            return handleDefine(args, getCurrentUser);
+            return handleDefine(args, getCurrentUser, appId);
           case "update":
-            return handleUpdate(args, getCurrentUser);
+            return handleUpdate(args, getCurrentUser, appId);
           case "delete":
-            return handleDelete(args, getCurrentUser);
+            return handleDelete(args, getCurrentUser, appId);
           case "fire-test":
             return handleFireTest(args, getCurrentUser);
           case "run-now":
-            return handleRunNow(args, getCurrentUser, context);
+            return handleRunNow(args, getCurrentUser, appId, context);
           default:
             return `Error: unknown action "${action}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
         }

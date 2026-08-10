@@ -22,6 +22,7 @@ import {
 } from "../jobs/background-automation-runner.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   parseJobResource,
 } from "../jobs/frontmatter.js";
 import {
@@ -174,6 +175,7 @@ export async function refreshEventSubscriptions(): Promise<void> {
     for (const resource of jobResources) {
       if (!resource.path.endsWith(".md")) continue;
       const { meta } = parseTriggerFrontmatter(resource.content);
+      if (!jobBelongsToApp(meta, _deps?.appId)) continue;
       if (meta.triggerType === "event" && meta.event && meta.enabled) {
         eventNames.add(meta.event);
       }
@@ -205,7 +207,8 @@ async function handleEvent(
   payload: unknown,
   eventMeta: EventMeta,
 ): Promise<void> {
-  if (!_deps) return;
+  const deps = _deps;
+  if (!deps) return;
 
   try {
     const jobResources = await resourceListAllOwners("jobs/");
@@ -216,6 +219,7 @@ async function handleEvent(
         meta.triggerType === "event" &&
         meta.event === eventName &&
         meta.enabled &&
+        jobBelongsToApp(meta, deps.appId) &&
         !isBackgroundAutomationRunActive(meta)
       );
     });
@@ -262,7 +266,7 @@ async function handleEvent(
       // Resolve API key for condition evaluation
       const owner = identity.userEmail;
       const userApiKey = await getOwnerActiveApiKey(owner);
-      const apiKey = userApiKey || _deps.apiKey;
+      const apiKey = userApiKey || deps.apiKey;
       if (!apiKey) {
         await recordTriggerSkip(
           resource,
@@ -325,6 +329,12 @@ async function dispatchAgentic(
     return;
   }
   const latestTrigger = parseTriggerFrontmatter(latest.content);
+  if (!jobBelongsToApp(latestTrigger.meta, _deps.appId)) {
+    console.log(
+      `[triggers] "${resource.path}" belongs to a different app; dropping the event.`,
+    );
+    return;
+  }
   const runningMeta: TriggerFrontmatter = {
     ...latestTrigger.meta,
     lastRun: now.toISOString(),
