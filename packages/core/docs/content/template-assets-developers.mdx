@@ -363,11 +363,12 @@ this is tolerable today because every asset URL still checks access through
 its row, not the object key.
 
 The schema is strictly additive — hosted templates share their production
-database across every deploy context, so add columns via
-`ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...` in a new migration version in
-`server/plugins/db.ts`; never rename or drop a column, and never run
-`drizzle-kit push` against production. See [Database](/docs/database#migrations)
-for the full migration pattern.
+database across every deploy context, so add columns with dialect-compatible SQL
+in a new migration version in `server/plugins/db.ts` (Postgres supports
+`ADD COLUMN IF NOT EXISTS`; SQLite migrations should use plain `ADD COLUMN`
+because each entry is tracked and applied once). Never rename or drop a column,
+and never run `drizzle-kit push` against production. See
+[Database](/docs/database#migrations) for the full migration pattern.
 
 ## Customizing it
 

@@ -217,7 +217,7 @@ For local development, schema changes can run through a Nitro plugin in
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
