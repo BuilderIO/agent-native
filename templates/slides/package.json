@@ -10,6 +10,7 @@
     "test": "vitest --run",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "action": "agent-native action",
     "script": "agent-native script"
   },
@@ -53,6 +54,7 @@
     "nanoid": "^5.1.9",
     "p-limit": "^7.3.0",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "5.4.296",
     "pptxgenjs": "4.0.1",
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",

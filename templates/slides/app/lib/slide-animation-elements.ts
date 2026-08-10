@@ -118,6 +118,9 @@ export function animationElementKey(path: number[]): string {
 }
 
 export function findLegacyAnimationContainer(root: Element): Element | null {
+  const marked = root.querySelector(".fmd-animation-container");
+  if (marked && marked.children.length >= 1) return marked;
+
   const children = Array.from(root.children);
   for (let i = children.length - 1; i >= 0; i--) {
     if (children[i].children.length >= 2) return children[i];

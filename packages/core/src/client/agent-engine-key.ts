@@ -9,14 +9,27 @@
  * a fetch to framework routes.
  */
 
+import {
+  OLLAMA_BASE_URL_ENV_VAR,
+  PROVIDER_ENV_META,
+} from "../agent/engine/provider-env-vars.js";
+import {
+  getAgentProviderOption,
+  type AgentProviderId,
+} from "./agent-provider-catalog.js";
 import { agentNativePath } from "./api-path.js";
 
 /** Providers that can be configured with a single pasted API key. */
-export type AgentEngineProvider = "anthropic" | "openai";
+export type AgentEngineProvider = AgentProviderId;
 
-const PROVIDER_ENV_VAR: Record<AgentEngineProvider, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
+const PROVIDER_ENV_VAR: Partial<Record<AgentEngineProvider, string>> = {
+  ...Object.fromEntries(
+    Object.entries(PROVIDER_ENV_META).map(([provider, meta]) => [
+      provider,
+      meta.envVar,
+    ]),
+  ),
+  ollama: OLLAMA_BASE_URL_ENV_VAR,
 };
 
 /** Event other parts of the agent UI listen for to re-check the LLM gate. */
@@ -74,9 +87,9 @@ export async function saveAgentEngineApiKey({
 }
 
 /**
- * Persist provider-specific settings for the current owner. This intentionally
- * stays narrow: API keys for built-in BYOK providers, plus OpenAI's optional
- * compatible endpoint URL. Values are stored server-side in scoped secrets.
+ * Persist provider-specific settings for the current owner. This covers
+ * built-in BYOK provider keys plus optional OpenAI-compatible and Ollama
+ * endpoint URLs. Values are stored server-side in scoped secrets.
  */
 export async function saveAgentEngineProviderSettings({
   provider,
@@ -116,6 +129,63 @@ export async function saveAgentEngineProviderSettings({
         (res.status === 401
           ? "Sign in to save a key, or connect Builder with a free tier instead."
           : `Could not save provider settings (HTTP ${res.status}).`),
+    );
+  }
+  dispatchConfiguredChanged();
+}
+
+/**
+ * Select the provider and model for the next conversation. This is separate
+ * from saving credentials so keyless local providers such as Ollama can use
+ * the same setup surface as API-key providers.
+ */
+export async function setAgentEngineProvider({
+  provider,
+  model,
+}: {
+  provider: AgentEngineProvider;
+  model?: string;
+}): Promise<void> {
+  const option = getAgentProviderOption(provider);
+  const res = await fetch(
+    agentNativePath("/_agent-native/actions/manage-agent-engine"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "set",
+        engine: option.engine,
+        ...(model?.trim() ? { model: model.trim() } : {}),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const message = await res
+      .json()
+      .then((body: { error?: string; result?: unknown }) =>
+        typeof body?.error === "string"
+          ? body.error
+          : typeof body?.result === "string"
+            ? body.result
+            : undefined,
+      )
+      .catch(() => undefined);
+    throw new Error(message ?? `Could not select ${option.label}.`);
+  }
+  const body = await res
+    .json()
+    .catch(() => null as { error?: string; result?: unknown } | null);
+  const actionResult = body?.result;
+  if (
+    typeof body?.error === "string" ||
+    (typeof actionResult === "string" &&
+      /^(Error|Warning):/i.test(actionResult))
+  ) {
+    throw new Error(
+      body.error ??
+        (typeof actionResult === "string"
+          ? actionResult
+          : `Could not select ${option.label}.`),
     );
   }
   dispatchConfiguredChanged();

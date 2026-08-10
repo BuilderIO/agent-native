@@ -16,7 +16,9 @@ import {
   BUILDER_RELAY_TIMESTAMP_HEADER,
   BUILDER_SIGNUP_SOURCE_PARAM,
   BUILDER_STATE_PARAM,
+  createBuilderProject,
   createBuilderRelayRequest,
+  findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
@@ -819,6 +821,31 @@ describe("Builder callback CSRF state", () => {
       expect(body.userId).toBeUndefined();
     });
 
+    it("bounds a stalled agent run instead of leaving the MCP request hanging", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      const fetchSpy = vi
+        .fn()
+        .mockRejectedValue(
+          new DOMException("request timed out", "TimeoutError"),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "brent@builder.io",
+        }),
+      ).rejects.toThrow("Builder agent run timed out after 30000ms");
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+
     it("falls back to the credential user when the caller email is not a Space member", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
@@ -946,6 +973,113 @@ describe("Builder callback CSRF state", () => {
           userEmail: "dispatch+slack@integration.local",
         }),
       ).rejects.toThrow("Builder agent run returned a non-Builder url");
+    });
+  });
+
+  describe("Builder project API", () => {
+    beforeEach(() => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+      process.env.BUILDER_APP_HOST = "https://builder.io";
+    });
+
+    it("creates a project from a connected repository", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: "success",
+            project: {
+              id: "project-123",
+              name: "Agent-Native Workspace",
+              repoUrl:
+                "https://github.com/BuilderIO/builder-agent-native-workspace",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await createBuilderProject({
+        name: "Agent-Native Workspace",
+        repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
+      });
+
+      expect(result).toEqual({
+        projectId: "project-123",
+        name: "Agent-Native Workspace",
+        repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
+        browserUrl: "https://builder.io/app/projects/project-123",
+        created: true,
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+        "https://api.test.builder.io/projects/create?apiKey=pub-test",
+      );
+      expect(JSON.parse(fetchSpy.mock.calls[0]?.[1].body)).toEqual({
+        source: {
+          kind: "repo",
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        },
+        name: "Agent-Native Workspace",
+      });
+    });
+
+    it("reuses a project already connected to the workspace repository", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            status: "success",
+            projects: [
+              {
+                id: "project-other",
+                name: "Other",
+                repoUrl: "https://github.com/BuilderIO/other",
+              },
+              {
+                id: "project-123",
+                name: "Agent-Native Workspace",
+                repoUrl:
+                  "https://github.com/BuilderIO/builder-agent-native-workspace.git",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        findBuilderProjectForRepo({
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        }),
+      ).resolves.toMatchObject({
+        projectId: "project-123",
+        created: false,
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+        "https://api.test.builder.io/projects?apiKey=pub-test&includeHidden=true",
+      );
+    });
+
+    it("bounds a stalled project lookup instead of leaving provisioning hanging", async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockRejectedValue(new DOMException("request timed out", "AbortError"));
+      vi.stubGlobal("fetch", fetchSpy);
+
+      await expect(
+        findBuilderProjectForRepo({
+          repoUrl:
+            "https://github.com/BuilderIO/builder-agent-native-workspace",
+        }),
+      ).rejects.toThrow("Builder project lookup timed out after 30000ms");
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
   });
 });

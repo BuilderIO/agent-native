@@ -66,6 +66,7 @@ import {
   LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
   LEGACY_SIGNUPS_OVER_TIME_SQL,
   MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  FIRST_PARTY_TEMPLATE_NAMES,
   buildPanel,
 } from "./first-party-metric-catalog";
 import { UNBOUNDED_FIRST_PARTY_PANEL_FIXES } from "./first-party-unbounded-panel-repair";
@@ -444,6 +445,10 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
   });
 
   it("repairs the exact deployed bounded new-vs-recurring query", async () => {
+    const allowList = `IN (${FIRST_PARTY_TEMPLATE_NAMES.map((name) => `'${name}'`).join(", ")})`;
+    expect(DEPLOYED_NEW_VS_RECURRING_USERS_SQL.split(allowList)).toHaveLength(
+      3,
+    );
     const row = legacyRow({
       config: JSON.stringify({
         panels: [

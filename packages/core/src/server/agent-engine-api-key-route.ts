@@ -6,7 +6,9 @@ import {
 } from "h3";
 
 import { normalizeOpenAiBaseUrl } from "../agent/engine/openai-compatible-endpoint.js";
+import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";
 import {
+  OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
   PROVIDER_ENV_META,
 } from "../agent/engine/provider-env-vars.js";
@@ -23,6 +25,11 @@ const PROVIDER_TO_ENV_VAR = new Map(
   ]),
 );
 const PROVIDER_ENV_VAR_KEYS = new Set(PROVIDER_TO_ENV_VAR.values());
+const BASE_URL_KEYS = new Set([
+  OPENAI_BASE_URL_ENV_VAR,
+  OLLAMA_BASE_URL_ENV_VAR,
+]);
+const OPENAI_PROVIDER_KEY = PROVIDER_TO_ENV_VAR.get("openai") ?? "";
 
 type AgentEngineApiKeyScope = "user" | "org";
 
@@ -53,13 +60,16 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
     scope?: unknown;
   };
 
+  const provider = typeof raw.provider === "string" ? raw.provider.trim() : "";
   const key =
     typeof raw.key === "string"
       ? raw.key.trim()
-      : typeof raw.provider === "string"
-        ? (PROVIDER_TO_ENV_VAR.get(raw.provider.trim()) ?? "")
-        : "";
-  if (!key || !PROVIDER_ENV_VAR_KEYS.has(key)) {
+      : provider === "ollama"
+        ? OLLAMA_BASE_URL_ENV_VAR
+        : provider
+          ? (PROVIDER_TO_ENV_VAR.get(provider) ?? "")
+          : "";
+  if (!key || (!PROVIDER_ENV_VAR_KEYS.has(key) && !BASE_URL_KEYS.has(key))) {
     return {
       ok: false,
       statusCode: 400,
@@ -82,11 +92,11 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
         : "";
   let baseUrl: string | undefined;
   if (rawBaseUrl.trim()) {
-    if (key !== PROVIDER_TO_ENV_VAR.get("openai")) {
+    if (key !== OPENAI_PROVIDER_KEY && !BASE_URL_KEYS.has(key)) {
       return {
         ok: false,
         statusCode: 400,
-        error: "Endpoint URL is only supported for OpenAI.",
+        error: "Endpoint URL is only supported for OpenAI or Ollama.",
       };
     }
     try {
@@ -101,11 +111,11 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
   }
 
   const clearBaseUrl = raw.clearBaseUrl === true && baseUrl == null;
-  if (clearBaseUrl && key !== PROVIDER_TO_ENV_VAR.get("openai")) {
+  if (clearBaseUrl && key !== OPENAI_PROVIDER_KEY && !BASE_URL_KEYS.has(key)) {
     return {
       ok: false,
       statusCode: 400,
-      error: "Endpoint URL is only supported for OpenAI.",
+      error: "Endpoint URL is only supported for OpenAI or Ollama.",
     };
   }
 
@@ -196,6 +206,21 @@ export function createAgentEngineApiKeyHandler() {
       return { error: resolved.error };
     }
 
+    if (payload.baseUrl) {
+      try {
+        await validateProviderBaseUrl(payload.baseUrl, {
+          allowLocalOllama:
+            payload.key === OLLAMA_BASE_URL_ENV_VAR &&
+            process.env.NODE_ENV === "development",
+        });
+      } catch (err) {
+        setResponseStatus(event, 400);
+        return {
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
     if (payload.value) {
       await writeAppSecret({
         key: payload.key,
@@ -211,14 +236,20 @@ export function createAgentEngineApiKeyHandler() {
 
     if (payload.baseUrl) {
       await writeAppSecret({
-        key: OPENAI_BASE_URL_ENV_VAR,
+        key:
+          payload.key === OLLAMA_BASE_URL_ENV_VAR
+            ? OLLAMA_BASE_URL_ENV_VAR
+            : OPENAI_BASE_URL_ENV_VAR,
         value: payload.baseUrl,
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
     } else if (payload.clearBaseUrl) {
       await deleteAppSecret({
-        key: OPENAI_BASE_URL_ENV_VAR,
+        key:
+          payload.key === OLLAMA_BASE_URL_ENV_VAR
+            ? OLLAMA_BASE_URL_ENV_VAR
+            : OPENAI_BASE_URL_ENV_VAR,
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
@@ -228,7 +259,12 @@ export function createAgentEngineApiKeyHandler() {
       ok: true,
       key: payload.key,
       ...(payload.baseUrl || payload.clearBaseUrl
-        ? { baseUrlKey: OPENAI_BASE_URL_ENV_VAR }
+        ? {
+            baseUrlKey:
+              payload.key === OLLAMA_BASE_URL_ENV_VAR
+                ? OLLAMA_BASE_URL_ENV_VAR
+                : OPENAI_BASE_URL_ENV_VAR,
+          }
         : {}),
       scope: resolved.target.scope,
     };

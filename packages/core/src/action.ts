@@ -80,6 +80,8 @@ export interface ActionRunContext {
   requestHeaders?: Headers;
   /** Resolved org id, or `null` when the request has no org. */
   orgId?: string | null;
+  /** Hosting app/template id used for app-owned resource boundaries. */
+  appId?: string;
   /** How this action was invoked. */
   caller: ActionCaller;
   /** Present only for trigger-dispatched automation calls. */

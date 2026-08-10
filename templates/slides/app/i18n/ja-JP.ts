@@ -77,6 +77,7 @@ const messages = {
     zoomIn: "ズームイン",
     fitSlideToScreen: "スライドを画面に合わせる",
     fitToScreen: "画面に合わせる",
+    exitExcalidrawCanvas: "描画キャンバスを終了",
     agentWorking: "エージェントが作業中",
     openChat: "チャットを開く",
     cloudAuthToken: "認証トークン",
@@ -212,8 +213,10 @@ const messages = {
     assetLibrary: "アセットライブラリ",
     diagrams: "図表",
     insertMermaidDiagram: "Mermaid 図を挿入",
+    insertMermaidFailed: "図の挿入に失敗しました",
     excalidrawCanvas: "Excalidraw キャンバス",
     convertMermaidToExcalidraw: "Mermaid を Excalidraw に変換",
+    convertMermaidFailed: "図の変換に失敗しました",
     removeExcalidrawCanvas: "Excalidraw キャンバスを削除",
     transition: "トランジション",
     transition_instant: "即時",
@@ -681,6 +684,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides デッキをインポートするには Google Drive に接続してください。",
     googleSlidesReferenceChoose: "Google Slides デッキを選択",
+    googleSlidesReferenceUrl: "Google Slides のリンクを貼り付け",
     googleSlidesReferencePicking: "処理中...",
     googleSlidesReferenceConnected:
       "接続済みです。再利用可能なリファレンスとしてインポートする Google Slides デッキを選択してください。",

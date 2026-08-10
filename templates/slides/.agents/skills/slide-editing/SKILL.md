@@ -1,6 +1,9 @@
 ---
 name: slide-editing
-description: How to edit individual slides -- content formatting, HTML styling rules, updating slide content in the database.
+description: >-
+  Edit individual slides, including content formatting, HTML styling, and
+  bounded source and visual-fidelity checks. Use when changing an existing
+  slide rather than creating a new deck.
 ---
 
 # Slide Editing
@@ -23,7 +26,13 @@ Every slide uses this wrapper:
 
 ## Styling Rules
 
-All generated slides follow these conventions:
+These are fallback defaults only. When a design system is linked, its hydrated
+tokens control color, typography, spacing, borders, imagery, and slide defaults;
+a reference deck controls composition and markup idiom only. The generic
+Impeccable-inspired quality bar can flag hierarchy, contrast, density, and
+anti-pattern issues, but it cannot replace the active system.
+
+When no system is linked, generated slides may use these conventions:
 
 | Element | Style |
 |---------|-------|
@@ -66,6 +75,10 @@ To edit a slide's content:
    changes.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
+
+6. For factual edits, compare changed text against the retrieved source and
+   preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
+   or visual similarity is not proof of source fidelity.
 
 If retrieval produces a new immutable context pack, keep its `contextPackId`
 and reuse labels with the deck provenance. Existing slide HTML is not proof of

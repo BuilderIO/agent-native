@@ -46,11 +46,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "getting-started-actions",
           },
           {
-            id: "getting-started-database",
-            labelKey: "gettingStartedDatabase",
-            slug: "getting-started-database",
-          },
-          {
             id: "getting-started-pages",
             labelKey: "gettingStartedPages",
             slug: "getting-started-pages",

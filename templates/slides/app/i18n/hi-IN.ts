@@ -76,6 +76,7 @@ const messages = {
     zoomIn: "ज़ूम इन",
     fitSlideToScreen: "स्लाइड को स्क्रीन में फिट करें",
     fitToScreen: "स्क्रीन में फिट करें",
+    exitExcalidrawCanvas: "ड्रॉइंग कैनवास से बाहर निकलें",
     agentWorking: "एजेंट काम कर रहा है",
     openChat: "चैट खोलें",
     cloudAuthToken: "Token de autenticação",
@@ -211,8 +212,10 @@ const messages = {
     assetLibrary: "एसेट लाइब्रेरी",
     diagrams: "डायग्राम",
     insertMermaidDiagram: "Mermaid डायग्राम डालें",
+    insertMermaidFailed: "डायग्राम डालने में विफल",
     excalidrawCanvas: "Excalidraw कैनवास",
     convertMermaidToExcalidraw: "Mermaid को Excalidraw में बदलें",
+    convertMermaidFailed: "डायग्राम बदलने में विफल",
     removeExcalidrawCanvas: "Excalidraw कैनवास हटाएं",
     transition: "ट्रांज़िशन",
     transition_instant: "तुरंत",
@@ -676,6 +679,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides डेक इंपोर्ट करने के लिए Google Drive कनेक्ट करें।",
     googleSlidesReferenceChoose: "Google Slides डेक चुनें",
+    googleSlidesReferenceUrl: "Google Slides लिंक पेस्ट करें",
     googleSlidesReferencePicking: "काम हो रहा है...",
     googleSlidesReferenceConnected:
       "कनेक्ट हो गया। दोबारा उपयोग योग्य रेफरेंस के रूप में इंपोर्ट करने के लिए Google Slides डेक चुनें।",

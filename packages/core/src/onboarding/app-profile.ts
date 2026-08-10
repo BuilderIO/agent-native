@@ -6,8 +6,17 @@ const LLM_CAPABILITY: OnboardingCapability = {
   required: true,
   builderIncluded: true,
   keySummary:
-    "One model key: Anthropic, OpenAI, Gemini, Groq, Mistral, or Cohere",
+    "One model key or local connection: Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere, or Ollama",
   why: "The agent uses a language model to understand requests and produce answers.",
+};
+
+const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
+  id: "design-system-intelligence",
+  label: "Design system intelligence",
+  required: false,
+  builderIncluded: true,
+  keySummary: "Builder Design System Intelligence",
+  why: "Uses your brand and design-system guidance to keep generated work on brand.",
 };
 
 const PROFILES: Record<string, OnboardingAppProfile> = {
@@ -46,6 +55,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         keySummary: "Gemini for video, or OpenAI / Gemini for images",
         why: "These providers create the images and videos requested in the app.",
       },
+      DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
         id: "file-storage",
         label: "Media storage",
@@ -173,6 +183,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appName: "Design",
     capabilities: [
       LLM_CAPABILITY,
+      DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
         id: "assets-library",
         label: "Assets library",
@@ -318,6 +329,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appName: "Slides",
     capabilities: [
       LLM_CAPABILITY,
+      DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
         id: "image-generation",
         label: "Image generation",

@@ -763,7 +763,7 @@ export function ResourceTree({
                     aria-label={`About ${title}`}
                     className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-muted-foreground/40 hover:text-muted-foreground"
                   >
-                    <IconHelpCircle className="h-3 w-3" />
+                    <IconHelpCircle className="h-2.5 w-2.5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{titleTooltip}</TooltipContent>

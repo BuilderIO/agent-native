@@ -1,8 +1,8 @@
 import {
-  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
+  withMigrationRuntime,
 } from "@agent-native/core/db";
 import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 
@@ -10,8 +10,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { isHistoricalAnalyticsRollupBackfillComplete } from "../jobs/analytics-rollup-backfill.js";
-import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -35,7 +34,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
-const runAnalyticsMigrations = runMigrations(
+export const runAnalyticsMigrations = runMigrations(
   [
     {
       version: 1,
@@ -1407,11 +1406,9 @@ const runAnalyticsMigrations = runMigrations(
       version: 134,
       name: "analytics-rollups-historical-backfill-repair",
       sql: {},
-      run: async () => {
-        if (!(await isHistoricalAnalyticsRollupBackfillComplete())) {
-          return deferMigration();
-        }
-      },
+      // The historical rebuild is an out-of-band job. Do not defer this
+      // marker until it completes: a pending named migration is retried by
+      // every cold start and turns a recoverable backfill into a boot blocker.
     },
     {
       version: 135,
@@ -1420,6 +1417,164 @@ const runAnalyticsMigrations = runMigrations(
         ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_token TEXT;
         ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_expires_at TEXT;
       `,
+    },
+    {
+      version: 136,
+      name: "analytics-events-backfill-cursor-indexes",
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 137,
+      name: "dashboard-name-locks",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+      },
+    },
+    {
+      version: 138,
+      name: "analytics-dashboard-folders",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_folders (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text),
+          updated_at TEXT NOT NULL DEFAULT (now()::text),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          org_id TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private'
+        );
+        CREATE TABLE IF NOT EXISTS dashboard_folder_shares (
+          id TEXT PRIMARY KEY,
+          resource_id TEXT NOT NULL,
+          principal_type TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        );
+        ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS folder_id TEXT;
+        CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
+        CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
+        CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_folders (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          org_id TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private'
+        );
+        CREATE TABLE IF NOT EXISTS dashboard_folder_shares (
+          id TEXT PRIMARY KEY,
+          resource_id TEXT NOT NULL,
+          principal_type TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS folder_id TEXT;
+        CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
+        CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
+        CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
+      },
+    },
+    {
+      version: 139,
+      name: "analytics-bigquery-backfill-jobs",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_jobs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (now()::text),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
+      ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_jobs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
+      ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
+      },
+    },
+    {
+      version: 140,
+      name: "analytics-events-backfill-filtered-cursor-indexes",
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS DISTINCT FROM 'http.response'; CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS NOT 'http.response'; CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS NOT 'http.response'`,
+      },
+    },
+    {
+      version: 141,
+      name: "analytics-event-volume-usage",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_event_volume_usage (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      window_start TEXT NOT NULL,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      event_limit INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
+      ON analytics_event_volume_usage (tenant_key, window_start);
+    CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
+      ON analytics_event_volume_usage (updated_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_event_volume_usage (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      window_start TEXT NOT NULL,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      event_limit INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
+      ON analytics_event_volume_usage (tenant_key, window_start);
+    CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
+      ON analytics_event_volume_usage (updated_at)`,
+      },
     },
   ],
   { table: "analytics_migrations" },
@@ -1452,18 +1607,32 @@ export default async (nitroApp: any): Promise<void> => {
     );
     return;
   }
-  await runAnalyticsMigrations(nitroApp);
-  try {
-    if (await repairPersistedFirstPartyDashboardQueries()) {
-      console.info(
-        "[db] Repaired bounded recurring-user queries on the canonical first-party dashboard.",
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
-      err instanceof Error ? err.message : err,
+  const isNetlifyServerlessRuntime =
+    isProductionServerlessRuntime() ||
+    process.env.NETLIFY === "true" ||
+    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT);
+  if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {
+    console.info(
+      "[db] Skipping Analytics migrations in production serverless runtime",
     );
+    return;
+  }
+  // The schema must exist before the first query. Measured cost on this
+  // database (180 tables): ~5.5s for the version check alone, which is why the
+  // serverless runtime never runs it on cold starts. The scheduled worker is
+  // the one serverless exception and claims migration duty explicitly.
+  // guard:allow-boot-data-work — schema must exist before the first query
+  if (isScheduledRollupRuntime) {
+    // guard:allow-boot-data-work — scheduled worker owns the release migration
+    await withMigrationRuntime(async () => {
+      // guard:allow-boot-data-work — scheduled worker owns the release migration
+      await runAnalyticsMigrations(nitroApp);
+    });
+  } else {
+    // guard:allow-boot-data-work — long-lived local runtime owns the migration
+    await runAnalyticsMigrations(nitroApp);
   }
   try {
     const summary = await ensureAdditiveColumns({

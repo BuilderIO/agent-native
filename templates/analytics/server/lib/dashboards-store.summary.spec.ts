@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   where: null as unknown,
   rows: [] as Record<string, unknown>[],
   settings: {} as Record<string, Record<string, unknown>>,
+  settingsError: null as Error | null,
   insert: vi.fn(),
   accessFilter: vi.fn(),
 }));
@@ -22,7 +23,10 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: async () => state.settings,
+  getAllSettings: async () => {
+    if (state.settingsError) throw state.settingsError;
+    return state.settings;
+  },
   getOrgSetting: async () => null,
   getUserSetting: async () => null,
   deleteOrgSetting: async () => false,
@@ -107,7 +111,11 @@ vi.mock("../db/index.js", () => {
   return { schema, getDb: () => db };
 });
 
-const { listDashboardSummaries } = await import("./dashboards-store.js");
+const {
+  assertDashboardNameIsAvailable,
+  listDashboardSummaries,
+  normalizeDashboardName,
+} = await import("./dashboards-store.js");
 
 const ctx = { email: "alice@example.com", orgId: "org-1" };
 
@@ -116,6 +124,7 @@ beforeEach(() => {
   state.where = null;
   state.rows = [];
   state.settings = {};
+  state.settingsError = null;
   state.insert.mockReset();
   state.accessFilter.mockReset();
   state.accessFilter.mockReturnValue({ kind: "access" });
@@ -128,6 +137,7 @@ describe("listDashboardSummaries", () => {
         id: "child",
         kind: "sql",
         name: "Child dashboard",
+        description: "Used for catalog ranking",
         parentId: "parent",
         ownerEmail: ctx.email,
         orgId: undefined,
@@ -147,6 +157,7 @@ describe("listDashboardSummaries", () => {
 
     expect(state.projection).not.toHaveProperty("config");
     expect(state.projection?.name).toEqual({ name: "title" });
+    expect(state.projection).toHaveProperty("description");
     expect(state.projection).toHaveProperty("configName");
     expect(state.projection).toHaveProperty("catalogTemplateId");
     expect(state.projection).toHaveProperty("demoId");
@@ -154,6 +165,7 @@ describe("listDashboardSummaries", () => {
     expect(result[0]).toMatchObject({
       id: "child",
       name: "Child dashboard",
+      description: "Used for catalog ranking",
       parentId: "parent",
       orgId: null,
       archivedAt: null,
@@ -258,5 +270,66 @@ describe("listDashboardSummaries", () => {
         { kind: "isNull", target: { name: "hiddenAt" } },
       ],
     });
+  });
+
+  it("normalizes dashboard names consistently for matching", () => {
+    expect(normalizeDashboardName("  Revenue\nDashboard  ")).toBe(
+      "revenue dashboard",
+    );
+  });
+
+  it("rejects a name already used by a visible dashboard", async () => {
+    state.rows = [
+      {
+        id: "revenue",
+        kind: "sql",
+        name: "Revenue Dashboard",
+        ownerEmail: "bob@example.com",
+        orgId: ctx.orgId,
+        visibility: "org",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        archivedAt: null,
+        hiddenAt: null,
+        hiddenBy: null,
+      },
+    ];
+
+    await expect(
+      assertDashboardNameIsAvailable(" revenue  dashboard ", ctx),
+    ).rejects.toThrow(
+      'Dashboard name "revenue  dashboard" is already used by visible dashboard "Revenue Dashboard"',
+    );
+  });
+
+  it("allows the dashboard being updated to keep its current name", async () => {
+    state.rows = [
+      {
+        id: "revenue",
+        kind: "sql",
+        name: "Revenue Dashboard",
+        ownerEmail: ctx.email,
+        orgId: null,
+        visibility: "private",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        archivedAt: null,
+        hiddenAt: null,
+        hiddenBy: null,
+      },
+    ];
+
+    await expect(
+      assertDashboardNameIsAvailable("Revenue Dashboard", ctx, "revenue"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("fails closed when the legacy dashboard scan is unavailable", async () => {
+    const error = new Error("legacy settings unavailable");
+    state.settingsError = error;
+
+    await expect(
+      assertDashboardNameIsAvailable("New dashboard", ctx),
+    ).rejects.toBe(error);
   });
 });

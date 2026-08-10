@@ -518,6 +518,15 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(engine.preserveCustomModels).toBe(true);
   });
 
+  it("keeps arbitrary local Ollama model ids", async () => {
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("ollama", {
+      allowEnvFallback: false,
+    });
+
+    expect(engine.preserveCustomModels).toBe(true);
+  });
+
   // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
   // rejects `reasoning_effort` together with function tools on the legacy
   // Chat Completions surface — "Function tools with reasoning_effort are not

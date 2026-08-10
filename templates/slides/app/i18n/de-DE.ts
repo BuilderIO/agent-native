@@ -78,6 +78,7 @@ const messages = {
     zoomIn: "Vergrößern",
     fitSlideToScreen: "Folie an Bildschirm anpassen",
     fitToScreen: "An Bildschirm anpassen",
+    exitExcalidrawCanvas: "Zeichenfläche verlassen",
     agentWorking: "Agent arbeitet",
     openChat: "Chat öffnen",
     cloudAuthToken: "Auth-Token",
@@ -216,8 +217,10 @@ const messages = {
     assetLibrary: "Asset-Bibliothek",
     diagrams: "Diagramme",
     insertMermaidDiagram: "Mermaid-Diagramm einfügen",
+    insertMermaidFailed: "Diagramm konnte nicht eingefügt werden",
     excalidrawCanvas: "Excalidraw-Zeichenfläche",
     convertMermaidToExcalidraw: "Mermaid in Excalidraw umwandeln",
+    convertMermaidFailed: "Diagramm konnte nicht umgewandelt werden",
     removeExcalidrawCanvas: "Excalidraw-Zeichenfläche entfernen",
     transition: "Übergang",
     transition_instant: "Sofort",
@@ -697,6 +700,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Verbinde Google Drive, um ein Slides-Deck zu importieren.",
     googleSlidesReferenceChoose: "Google-Slides-Deck auswählen",
+    googleSlidesReferenceUrl: "Google-Slides-Link einfügen",
     googleSlidesReferencePicking: "Wird bearbeitet...",
     googleSlidesReferenceConnected:
       "Verbunden. Wähle ein Google-Slides-Deck als wiederverwendbare Referenz.",

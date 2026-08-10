@@ -18,9 +18,11 @@ import type {
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
   findLegacyAnimationContainer,
+  getElementPath,
   resolveSlideAnimationElement,
 } from "@/lib/slide-animation-elements";
 
+import type { DesignSystemData } from "../../../shared/api";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
 
 interface PresentationViewProps {
@@ -28,6 +30,7 @@ interface PresentationViewProps {
   deckId: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
 }
 
 // ─── Element animation helpers ────────────────────────────────────────────────
@@ -43,6 +46,31 @@ function getAnimationSteps(slide: Slide): SlideAnimation[] | null {
     const doc = new DOMParser().parseFromString(slide.content, "text/html");
     const root = doc.querySelector(".fmd-slide");
     if (!root) return null;
+
+    const paragraphs = Array.from(
+      root.querySelectorAll(".fmd-pptx-text p[data-pptx-paragraph]"),
+    ).filter((paragraph) => {
+      const textBox = paragraph.closest(".fmd-pptx-text");
+      return (
+        (textBox?.querySelectorAll("p[data-pptx-paragraph]").length ?? 0) > 1
+      );
+    });
+    if (paragraphs.length > 1) {
+      return paragraphs.flatMap((paragraph, index) => {
+        const elementPath = getElementPath(root, paragraph);
+        return elementPath
+          ? [
+              {
+                id: `auto-paragraph-${index}`,
+                elementIndex: index,
+                elementPath,
+                type: "slide-up" as AnimationType,
+              },
+            ]
+          : [];
+      });
+    }
+
     const container = findLegacyAnimationContainer(root);
     if (!container) return null;
     return Array.from(container.children).map((_, i) => ({
@@ -103,7 +131,7 @@ function annotateStepsForPresentation(
     })
     .join("\n");
 
-  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; }\n${styleLines}</style>`;
+  const styleTag = `<style>[data-pstep] { opacity: 0; pointer-events: none; visibility: visible !important; }\n${styleLines}</style>`;
   return styleTag + doc.body.innerHTML;
 }
 
@@ -156,6 +184,7 @@ export default function PresentationView({
   deckId,
   startIndex = 0,
   aspectRatio,
+  designSystem,
 }: PresentationViewProps) {
   const t = useT();
   const safeSlides = useMemo(
@@ -508,6 +537,7 @@ export default function PresentationView({
             slide={safeSlides[prevIndex]}
             thumbnail={false}
             aspectRatio={aspectRatio}
+            designSystem={designSystem}
           />
         </div>
       )}
@@ -522,6 +552,7 @@ export default function PresentationView({
           slide={displaySlide}
           thumbnail={false}
           aspectRatio={aspectRatio}
+          designSystem={designSystem}
         />
       </div>
 

@@ -63,7 +63,7 @@ interface TranscriptSearchError {
 
 function callLimitGuidance(limit: number, truncated: boolean): string {
   return truncated
-    ? `Returned the ${limit} most recent matching calls. If this coverage is insufficient for the analysis, increase the limit and page through more calls; for very large datasets prefer chunked background processing.`
+    ? `Coverage is incomplete: returned the ${limit} most recent matching calls and more Gong pages remain. Do not increase the limit or page this action for broad or exhaustive analysis. Switch to tracker staging with provider-api-request plus query-staged-dataset or a Data Program, or use provider-corpus-job when raw transcript bodies are required.`
     : `Returned ${limit} or fewer matching calls. Answer from these calls; expand limit if broader coverage is needed.`;
 }
 
@@ -719,7 +719,7 @@ export default defineAction({
           : {}),
         guidance: [
           transcriptSearch
-            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${result.calls.length} matching call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase transcriptScanLimit or narrow the window if coverage is incomplete.`
+            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${result.calls.length} matching call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
             : "",
           exhaustive
             ? shouldLoadTranscripts
@@ -854,7 +854,7 @@ export default defineAction({
         ...(transcripts ? { transcripts } : {}),
         guidance: [
           transcriptSearch
-            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${returnedCalls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase limit/transcriptScanLimit or narrow the window if coverage is incomplete.`
+            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${returnedCalls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
             : "",
           exhaustive
             ? `Exhaustive discovery returned ${returnedCalls.length} call(s) from the date window${truncated ? ", but Gong has more pages than this request covered" : ""}.`

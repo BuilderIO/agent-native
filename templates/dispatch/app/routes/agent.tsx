@@ -1,6 +1,5 @@
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
-import { DispatchShell } from "@agent-native/dispatch/components";
+import { buildLegacyAgentSettingsRoute } from "@agent-native/core/client/navigation";
+import { Navigate, useLocation } from "react-router";
 
 import { messagesByLocale } from "@/i18n-data";
 
@@ -9,11 +8,12 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  const t = useT();
+  const location = useLocation();
 
   return (
-    <DispatchShell title={t("settings.agentTitle")}>
-      <AgentTabsPage />
-    </DispatchShell>
+    <Navigate
+      to={buildLegacyAgentSettingsRoute(location.hash, location.search)}
+      replace
+    />
   );
 }

@@ -1,4 +1,9 @@
+import { loadDashboardSeed } from "./dashboard-seeds";
 import {
+  buildPanel,
+  FIRST_PARTY_DASHBOARD_ID,
+  FIRST_PARTY_TEMPLATE_SCOPED_METRIC_KEYS,
+  firstPartyTemplateFilter,
   LEGACY_SIGNUPS_OVER_TIME_SQL,
   LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
   SIGNUPS_OVER_TIME_SQL,
@@ -12,14 +17,18 @@ const LEGACY_NEW_VS_RECURRING_USERS_DESCRIPTION =
 const BOUNDED_NEW_VS_RECURRING_USERS_SQL = `WITH first_seen AS (SELECT NULLIF(user_key, '') AS user_key, MIN(event_date) AS first_date FROM analytics_events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'docs' AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') GROUP BY 1), activity AS (SELECT NULLIF(user_key, '') AS user_key, event_date FROM analytics_events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'docs' AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))), daily AS (SELECT a.event_date AS date, CASE WHEN a.event_date = f.first_date THEN 'New' ELSE 'Recurring' END AS user_type, COUNT(DISTINCT a.user_key) AS users FROM activity a JOIN first_seen f ON f.user_key = a.user_key GROUP BY 1, 2) SELECT date, user_type, users FROM daily ORDER BY date, CASE WHEN user_type = 'Recurring' THEN 0 ELSE 1 END`;
 const MARKETING_SITE_TEMPLATE_FILTER =
   "lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'www'";
+const NEW_VS_TEMPLATE_EXPRESSION =
+  "COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')";
+const FIRST_PARTY_NEW_VS_TEMPLATE_FILTER = firstPartyTemplateFilter(
+  NEW_VS_TEMPLATE_EXPRESSION,
+);
 export const DEPLOYED_NEW_VS_RECURRING_USERS_SQL =
-  BOUNDED_NEW_VS_RECURRING_USERS_SQL.replace(
-    " <> 'docs' AND ",
-    ` <> 'docs' AND ${MARKETING_SITE_TEMPLATE_FILTER} AND `,
+  BOUNDED_NEW_VS_RECURRING_USERS_SQL.split(" <> 'docs' AND ").join(
+    ` <> 'docs' AND ${FIRST_PARTY_NEW_VS_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND `,
   );
 // Keep cohort classification in one raw-table scan. Separate first-seen and
 // activity scans double the random heap reads on the growing event table.
-const NEW_VS_RECURRING_USERS_SQL = `WITH activity AS (SELECT NULLIF(user_key, '') AS user_key, event_date, MIN(event_date) OVER (PARTITION BY NULLIF(user_key, '')) AS first_date FROM analytics_events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'docs' AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')), daily AS (SELECT event_date AS date, CASE WHEN event_date = first_date THEN 'New' ELSE 'Recurring' END AS user_type, COUNT(DISTINCT user_key) AS users FROM activity WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) GROUP BY 1, 2) SELECT date, user_type, users FROM daily ORDER BY date, CASE WHEN user_type = 'Recurring' THEN 0 ELSE 1 END`;
+const NEW_VS_RECURRING_USERS_SQL = `WITH activity AS (SELECT NULLIF(user_key, '') AS user_key, event_date, MIN(event_date) OVER (PARTITION BY NULLIF(user_key, '')) AS first_date FROM analytics_events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'docs' AND ${FIRST_PARTY_NEW_VS_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')), daily AS (SELECT event_date AS date, CASE WHEN event_date = first_date THEN 'New' ELSE 'Recurring' END AS user_type, COUNT(DISTINCT user_key) AS users FROM activity WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD'))) GROUP BY 1, 2) SELECT date, user_type, users FROM daily ORDER BY date, CASE WHEN user_type = 'Recurring' THEN 0 ELSE 1 END`;
 const NEW_VS_RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors split by first active day observed in the previous 365 days (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs and marketing-site traffic are excluded.";
 
@@ -46,11 +55,38 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
     },
   ];
 
+const CANONICAL_CATALOG_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
+  (() => {
+    const seed = loadDashboardSeed(FIRST_PARTY_DASHBOARD_ID);
+    if (!seed || !Array.isArray(seed.panels)) return [];
+    const scopedMetricKeys = new Set<string>(
+      FIRST_PARTY_TEMPLATE_SCOPED_METRIC_KEYS,
+    );
+    return seed.panels.flatMap((rawPanel) => {
+      if (!rawPanel || typeof rawPanel !== "object") return [];
+      const panel = rawPanel as Record<string, unknown>;
+      const id = typeof panel.id === "string" ? panel.id : "";
+      const legacySql = typeof panel.sql === "string" ? panel.sql : "";
+      if (!scopedMetricKeys.has(id)) return [];
+      const catalogPanel = id ? buildPanel(id) : null;
+      if (!catalogPanel || !legacySql || catalogPanel.sql === legacySql) {
+        return [];
+      }
+      return [
+        {
+          id,
+          legacySql: [legacySql],
+          sql: catalogPanel.sql,
+        },
+      ];
+    });
+  })();
+
 export function repairCanonicalFirstPartyDashboardQueries(
   config: Record<string, unknown>,
 ) {
-  return repairFirstPartyObservedRetentionPanels(
-    config,
-    CANONICAL_CUSTOM_PANEL_REPLACEMENTS,
-  );
+  return repairFirstPartyObservedRetentionPanels(config, [
+    ...CANONICAL_CUSTOM_PANEL_REPLACEMENTS,
+    ...CANONICAL_CATALOG_PANEL_REPLACEMENTS,
+  ]);
 }

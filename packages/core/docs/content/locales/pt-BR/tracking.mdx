@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ Vários provedores podem estar ativos simultaneamente. Cada evento vai para todo
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 Dispare um evento de análise. Distribua para todos os fornecedores registrados.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` é o `ctx` de uma ação, repassado diretamente, ou um objeto meta `{ userId, anonymousId, sessionId }` para chamadas que não têm `ctx`.
+
+A sessão do navegador não precisa ser fornecida por quem chama: ela vem do contexto de requisição ambiente (`RequestContext.browserSessionId`, definido a partir do cabeçalho `X-Agent-Native-Session-Id` que o cliente de ações, o chat e o `track()` do navegador enviam), de modo que a mesma visita se correlaciona tanto se a interface quanto o agente disparou o evento. Cada provedor a mapeia para seu próprio campo de sessão: `$session_id` no PostHog, que liga o evento ao session replay; uma propriedade `session_id` no Mixpanel e no Amplitude; um `sessionId` de nível superior em webhooks e no Agent Native Analytics. Ela é ausente para chamadas sem navegador (cron, CLI, MCP, A2A), e um `sessionId` no objeto meta a sobrescreve.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ Identifique um usuário com características. Encaminhado para provedores que o 
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Precisa de um back-end personalizado, o registro do provedor API ou os componentes internos de lote/singleton? Veja [Advanced: custom providers & internals](#advanced) no final.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // Repasse ctx diretamente: o evento é atribuído a ctx.userEmail e se junta
+    // à sessão de navegador de onde veio a chamada.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -352,5 +358,5 @@ A estrutura também rastreia `builder connect clicked` de CTAs do Connect Builde
 ## O que vem a seguir
 
 - [**Actions**](/docs/actions) — onde se origina a maioria das chamadas de rastreamento
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
 - [**Segurança — Gerenciamento de segredos**](/docs/security#secrets) — gerencie chaves API para provedores de rastreamento

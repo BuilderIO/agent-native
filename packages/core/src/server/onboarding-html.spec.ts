@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
+import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -27,6 +28,55 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("window.location.replace(ret || __anResumeHref())");
     expect(html).not.toContain("__anWithAuthCacheBypass");
     expect(html).not.toContain("__an_auth_redirect");
+  });
+
+  it("keeps the local-dev CTA hidden in cached HTML and reveals it only for loopback hosts", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain('id="local-dev-signin" hidden');
+    expect(html).toContain('id="local-dev-btn"');
+    expect(html).toContain('class="btn-local-dev btn-primary"');
+    expect(html).toContain('id="local-dev-full-options" hidden');
+    expect(html).toContain('id="full-auth-options" class="full-auth-options"');
+    expect(html).toContain("Continue as local dev");
+    expect(html).toContain("Show full sign in options");
+    expect(html).toContain("Only works in local development on this computer.");
+    expect(html).toContain('id="local-dev-help"');
+    expect(html).toContain(
+      'href="https://www.agent-native.com/docs/authentication#local-development-sign-in"',
+    );
+    expect(html).toContain("Learn about local development sign-in");
+    expect(html).toContain('class="local-dev-help-glyph"');
+    expect(html).toContain("width: 1.5rem;");
+    expect(html).toContain("width: 0.625rem;");
+    expect(html).toContain("height: 0.625rem;");
+    expect(html).toContain(".full-auth-options { margin-top: 1rem; }");
+    expect(html).toContain("function __anIsLoopbackHostname()");
+    expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
+    expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");
+    expect(html).toContain("hostname.indexOf('127.') === 0");
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
+    expect(html).not.toContain("NODE_ENV");
+  });
+
+  it("enables the local-dev CTA on Builder previews only with explicit opt-in", () => {
+    vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = true;",
+    );
+    expect(html).toContain("function __anIsBuilderPreviewHost()");
+    expect(html).toContain("function __anCanUseLocalDevSignin()");
+    expect(html).toContain("hostname.endsWith('.builder.my')");
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(getOnboardingHtml()).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
   });
 
   describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
@@ -141,6 +191,18 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("renders the policy password minimum in signup and reset forms", () => {
+    const html = getOnboardingHtml();
+    const resetHtml = getResetPasswordHtml();
+
+    expect(html).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(html).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
+    expect(html).not.toContain('minlength="8"');
+    expect(resetHtml).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(resetHtml).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
+    expect(resetHtml).not.toContain('minlength="8"');
+  });
+
   it("keeps the password flow unchanged by default", () => {
     const html = getOnboardingHtml();
 
@@ -158,26 +220,61 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="magic-link-submit"');
     expect(html).toContain('class="magic-link-submit"');
     expect(html).toContain(".magic-link-submit { display: none; }");
+    expect(html).toContain('id="magic-link-success"');
+    expect(html).toContain('id="magic-link-success-email"');
+    expect(html).toContain("function showMagicLinkSuccess(email)");
     expect(html).toContain("button.classList.toggle('is-visible', isValid)");
+    expect(html).toContain(
+      "googleButton.classList.toggle('magic-link-secondary', isValid)",
+    );
+    expect(html).toContain(".btn-google.magic-link-secondary");
+    expect(html).toContain("margin-top: 0.375rem;");
+    expect(html).toContain("margin-bottom: 0.875rem;");
+    expect(html).toContain("text-align: start;");
     expect(html).toContain(
       "magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState)",
     );
     expect(html).toContain('id="use-password-link"');
     expect(html).toContain('class="link-button auth-mode-link"');
+    expect(html).toContain(
+      'style="margin-top:0.75rem;font-size:0.75rem;text-align:start"',
+    );
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain("/_agent-native/auth/magic-link");
     expect(html).toContain(
       "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
     );
-    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm()");
-    expect(html).toContain('class="tabs" id="auth-tabs" hidden');
     expect(html).toContain(
-      '<h1 id="heading" data-i18n="magicLinkTitle">Welcome</h1>',
+      "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",
+    );
+    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm();");
+    expect(html).toContain('class="tabs" id="auth-tabs"');
+    expect(html).not.toContain('class="tabs" id="auth-tabs" hidden');
+    expect(html).toContain(
+      '<h1 id="heading" data-i18n="welcomeTitle">Welcome</h1>',
     );
     expect(html).toContain("Create an account or sign in");
     expect(html).not.toContain("Email me a sign-in link");
     expect(html).toContain("magicLinkTitle");
     expect(html).toContain("magicLinkSubtitle");
+  });
+
+  it("renders a quiet centered auth surface for an initial prompt", () => {
+    const html = getOnboardingHtml({
+      authMode: "magic-link",
+      initialPrompt: true,
+      marketing: {
+        appName: "Slides",
+        tagline: "Build presentations alongside your agent.",
+      },
+    });
+
+    expect(html).toContain('<body class="simplified-auth">');
+    expect(html).toContain("body.simplified-auth { background: #141414; }");
+    expect(html).toContain("box-shadow: none;");
+    expect(html).not.toContain('id="starfield"');
+    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).not.toContain('class="app-name"');
   });
 
   it("localizes the magic-link copy through the existing auth catalogs", () => {

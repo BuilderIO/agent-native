@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   defineAgentNativeConfig,
+  mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
   resolveAgentNativeConfig,
   type AgentNativeConfigContext,
@@ -74,4 +75,81 @@ describe("agent-native app config", () => {
       }),
     ).toThrow('must be "off", "connect", or "connect-and-integrations"');
   });
+
+  it("deep merges runtime and diagnostics config from JSON and typed overrides", () => {
+    expect(
+      mergeAgentNativeConfigs(
+        {
+          runtime: {
+            auth: { enabled: true },
+            environment: { required: ["NOTION_API_KEY"] },
+          },
+          diagnostics: { failOnBuild: false },
+        },
+        {
+          runtime: {
+            database: { required: false },
+            environment: { required: ["GOOGLE_CLIENT_ID"] },
+          },
+          diagnostics: { failOnBuild: true },
+        },
+      ),
+    ).toEqual({
+      runtime: {
+        auth: { enabled: true },
+        database: { required: false },
+        environment: { required: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"] },
+      },
+      diagnostics: { failOnBuild: true },
+    });
+  });
+
+  it("validates non-secret runtime requirements", () => {
+    expect(() =>
+      normalizeAgentNativeConfig({
+        runtime: { environment: { required: ["not valid"] } },
+      }),
+    ).toThrow("must contain valid environment variable names");
+  });
+
+  it("normalizes audience-specific instruction paths", () => {
+    expect(
+      normalizeAgentNativeConfig({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    ).toEqual({
+      instructions: {
+        runtime: "app-agent/AGENTS.md",
+        development: "DEVELOPING.md",
+      },
+    });
+  });
+
+  it("deep-merges instruction paths", () => {
+    expect(
+      mergeAgentNativeConfigs(
+        { instructions: { runtime: "AGENTS.md" } },
+        { instructions: { development: "DEVELOPING.md" } },
+      ),
+    ).toEqual({
+      instructions: {
+        runtime: "AGENTS.md",
+        development: "DEVELOPING.md",
+      },
+    });
+  });
+
+  it.each(["/tmp/AGENTS.md", "../AGENTS.md", "", "C:\\AGENTS.md"])(
+    "rejects unsafe instruction path %s",
+    (instructionPath) => {
+      expect(() =>
+        normalizeAgentNativeConfig({
+          instructions: { runtime: instructionPath },
+        }),
+      ).toThrow("must be a non-empty relative file path inside the app root");
+    },
+  );
 });

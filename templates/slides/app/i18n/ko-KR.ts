@@ -77,6 +77,7 @@ const messages = {
     zoomIn: "확대",
     fitSlideToScreen: "슬라이드를 화면에 맞추기",
     fitToScreen: "화면에 맞추기",
+    exitExcalidrawCanvas: "그리기 캔버스 나가기",
     agentWorking: "에이전트 작업 중",
     openChat: "채팅 열기",
     cloudAuthToken: "認証トークン",
@@ -212,8 +213,10 @@ const messages = {
     assetLibrary: "에셋 라이브러리",
     diagrams: "다이어그램",
     insertMermaidDiagram: "Mermaid 다이어그램 삽입",
+    insertMermaidFailed: "다이어그램 삽입 실패",
     excalidrawCanvas: "Excalidraw 캔버스",
     convertMermaidToExcalidraw: "Mermaid를 Excalidraw로 변환",
+    convertMermaidFailed: "다이어그램 변환 실패",
     removeExcalidrawCanvas: "Excalidraw 캔버스 제거",
     transition: "전환",
     transition_instant: "즉시",
@@ -674,6 +677,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides 덱을 가져오려면 Google Drive를 연결하세요.",
     googleSlidesReferenceChoose: "Google Slides 덱 선택",
+    googleSlidesReferenceUrl: "Google Slides 링크 붙여넣기",
     googleSlidesReferencePicking: "처리 중...",
     googleSlidesReferenceConnected:
       "연결되었습니다. 재사용 가능한 참조로 가져올 Google Slides 덱을 선택하세요.",

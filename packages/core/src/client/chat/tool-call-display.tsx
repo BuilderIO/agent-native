@@ -43,6 +43,7 @@ import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
 import {
   BashCell,
@@ -72,6 +73,255 @@ import {
 export const ChatRunningContext = React.createContext(false);
 export const ChatRunDurationContext = React.createContext<number | null>(null);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
+const TOOL_CALL_ENTRY_DURATION_MS = 220;
+const TOOL_CALL_STACK_MOTION_DURATION_MS = 220;
+const TOOL_CALL_STACK_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
+
+type ToolStackMotionSnapshot = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  clone: HTMLElement;
+};
+
+type ToolStackActiveMotion = {
+  element: HTMLElement;
+  animation: Animation;
+};
+
+function toolStackMotionKey(element: HTMLElement, index: number): string {
+  const toolCallId = element.dataset.agentToolCallId;
+  if (toolCallId) return `tool:${toolCallId}`;
+  const summaryId = element.dataset.agentToolSummary;
+  if (summaryId) return `summary:${summaryId}`;
+  return `anonymous:${index}`;
+}
+
+function prefersReducedMotionForToolStack(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+function startToolStackAnimation(
+  element: HTMLElement,
+  keyframes: Keyframe[],
+): Animation | null {
+  if (typeof element.animate !== "function") return null;
+  return element.animate(keyframes, {
+    duration: TOOL_CALL_STACK_MOTION_DURATION_MS,
+    easing: TOOL_CALL_STACK_EASING,
+    fill: "both",
+  });
+}
+
+function prepareToolStackExitClone(
+  clone: HTMLElement,
+  snapshot: ToolStackMotionSnapshot,
+): void {
+  clone.classList.remove(
+    "agent-tool-call--entering",
+    "agent-tool-call--stack-entering",
+  );
+  clone
+    .querySelectorAll<HTMLElement>(
+      ".agent-tool-call--entering, .agent-tool-call--stack-entering",
+    )
+    .forEach((element) => {
+      element.classList.remove(
+        "agent-tool-call--entering",
+        "agent-tool-call--stack-entering",
+      );
+    });
+  clone.classList.add("agent-tool-call-stack__exit");
+  clone.setAttribute("aria-hidden", "true");
+  clone.removeAttribute("data-agent-tool-call-id");
+  clone.removeAttribute("data-agent-tool-summary");
+  clone.removeAttribute("data-agent-tool-motion-token");
+  clone.style.left = `${snapshot.left}px`;
+  clone.style.top = `${snapshot.top}px`;
+  clone.style.width = `${snapshot.width}px`;
+  clone.style.height = `${snapshot.height}px`;
+  clone.style.transform = "translate3d(0, 0, 0)";
+  clone.style.transition = "none";
+  clone.style.animation = "none";
+  clone.style.opacity = "1";
+}
+
+/**
+ * Keeps the visible tool stack spatially continuous as streaming calls change
+ * which rows belong to the collapsed history bucket. The rendered data stays
+ * untouched; this only animates the DOM's before/after positions.
+ */
+export function ToolCallStackMotion({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const stackRef = useRef<HTMLDivElement>(null);
+  const previousRef = useRef<Map<string, ToolStackMotionSnapshot>>(new Map());
+  const activeMotionsRef = useRef<Map<string, ToolStackActiveMotion>>(
+    new Map(),
+  );
+  const exitAnimationsRef = useRef<Map<HTMLElement, Animation>>(new Map());
+
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    if (!stack) return;
+
+    const previous = previousRef.current;
+    const visualPrevious = new Map(previous);
+    for (const [key, activeMotion] of activeMotionsRef.current) {
+      if (stack.contains(activeMotion.element)) {
+        const previousSnapshot = previous.get(key);
+        if (previousSnapshot) {
+          const rect = activeMotion.element.getBoundingClientRect();
+          visualPrevious.set(key, {
+            ...previousSnapshot,
+            top: rect.top,
+            left: rect.left,
+          });
+        }
+      }
+      activeMotion.animation.cancel();
+    }
+    activeMotionsRef.current.clear();
+
+    for (const [ghost, animation] of exitAnimationsRef.current) {
+      animation.cancel();
+      ghost.remove();
+    }
+    exitAnimationsRef.current.clear();
+
+    const elements = Array.from(
+      stack.querySelectorAll<HTMLElement>(
+        "[data-agent-tool-call-id], [data-agent-tool-summary]",
+      ),
+    );
+    const current = new Map<string, ToolStackMotionSnapshot>();
+    for (const [index, element] of elements.entries()) {
+      const rect = element.getBoundingClientRect();
+      current.set(toolStackMotionKey(element, index), {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        clone: element.cloneNode(true) as HTMLElement,
+      });
+    }
+
+    previousRef.current = current;
+    if (previous.size === 0 || prefersReducedMotionForToolStack()) return;
+
+    const summary = elements.find(
+      (element) => element.dataset.agentToolSummary !== undefined,
+    );
+    const summaryRect = summary?.getBoundingClientRect();
+    const elementsByKey = new Map(
+      elements.map((element, index) => [
+        toolStackMotionKey(element, index),
+        element,
+      ]),
+    );
+
+    for (const [key, after] of current.entries()) {
+      const before = visualPrevious.get(key);
+      if (!before) {
+        const node = elementsByKey.get(key);
+        if (!node) continue;
+        if (node.dataset.agentToolSummary !== undefined) continue;
+        if (
+          node.dataset.agentToolCallId !== undefined &&
+          !node.classList.contains("agent-tool-call--entering")
+        ) {
+          node.classList.add("agent-tool-call--stack-entering");
+          window.setTimeout(() => {
+            node.classList.remove("agent-tool-call--stack-entering");
+          }, TOOL_CALL_ENTRY_DURATION_MS);
+        }
+        continue;
+      }
+
+      const dx = before.left - after.left;
+      const dy = before.top - after.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+
+      const node = elementsByKey.get(key);
+      if (!node) continue;
+      if (node.dataset.agentToolSummary !== undefined) continue;
+      const animation = startToolStackAnimation(node, [
+        { transform: `translate3d(${dx}px, ${dy}px, 0)` },
+        { transform: "translate3d(0, 0, 0)" },
+      ]);
+      if (!animation) continue;
+      activeMotionsRef.current.set(key, { element: node, animation });
+      const clearMotion = () => {
+        if (activeMotionsRef.current.get(key)?.animation === animation) {
+          activeMotionsRef.current.delete(key);
+        }
+      };
+      animation.onfinish = clearMotion;
+      animation.oncancel = clearMotion;
+    }
+
+    for (const [key, before] of visualPrevious.entries()) {
+      if (current.has(key) || !key.startsWith("tool:")) continue;
+
+      const ghost = before.clone;
+      prepareToolStackExitClone(ghost, before);
+      document.body?.appendChild(ghost);
+      if (!ghost.isConnected) continue;
+
+      const targetTop = summaryRect?.top ?? before.top - 8;
+      const targetLeft = summaryRect?.left ?? before.left;
+      const animation = startToolStackAnimation(ghost, [
+        { transform: "translate3d(0, 0, 0)", opacity: 1 },
+        {
+          transform: `translate3d(${targetLeft - before.left}px, ${targetTop - before.top}px, 0)`,
+          opacity: 0,
+        },
+      ]);
+      if (!animation) {
+        ghost.remove();
+        continue;
+      }
+      exitAnimationsRef.current.set(ghost, animation);
+      const clearExit = () => {
+        if (exitAnimationsRef.current.get(ghost) === animation) {
+          exitAnimationsRef.current.delete(ghost);
+        }
+        ghost.remove();
+      };
+      animation.onfinish = clearExit;
+      animation.oncancel = clearExit;
+    }
+  });
+
+  useEffect(() => {
+    return () => {
+      for (const { animation } of activeMotionsRef.current.values()) {
+        animation.cancel();
+      }
+      activeMotionsRef.current.clear();
+      for (const [ghost, animation] of exitAnimationsRef.current) {
+        animation.cancel();
+        ghost.remove();
+      }
+      exitAnimationsRef.current.clear();
+    };
+  }, []);
+
+  return (
+    <div ref={stackRef} className={cn("agent-tool-call-stack", className)}>
+      {children}
+    </div>
+  );
+}
 
 /**
  * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
@@ -117,12 +367,14 @@ export function ToolActivityPresentation({
   toolName,
   isRunning,
   isActiveTail,
+  toolCallId,
   suppressLongRunningHint = false,
   children,
 }: {
   toolName: string;
   isRunning: boolean;
   isActiveTail: boolean;
+  toolCallId?: string;
   suppressLongRunningHint?: boolean;
   children: React.ReactNode;
 }) {
@@ -130,7 +382,24 @@ export function ToolActivityPresentation({
   // A batched update can first reveal a tool with its result already attached.
   // Presentation follows the active chat tail rather than execution state so
   // that newly revealed completed tools still get their entrance motion.
-  const [animateEntry] = useState(isActiveTail);
+  const [animateEntry, setAnimateEntry] = useState(isActiveTail);
+  const previousActiveTailRef = useRef(isActiveTail);
+
+  useEffect(() => {
+    if (isActiveTail && !previousActiveTailRef.current) {
+      setAnimateEntry(true);
+    }
+    previousActiveTailRef.current = isActiveTail;
+  }, [isActiveTail]);
+
+  useEffect(() => {
+    if (!animateEntry) return;
+    const timeout = window.setTimeout(
+      () => setAnimateEntry(false),
+      TOOL_CALL_ENTRY_DURATION_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [animateEntry]);
 
   useEffect(() => {
     if (!isRunning || suppressLongRunningHint) {
@@ -150,14 +419,17 @@ export function ToolActivityPresentation({
         "agent-tool-call",
         animateEntry && "agent-tool-call--entering",
       )}
+      data-agent-tool-call-id={toolCallId}
       data-running={isRunning ? "true" : undefined}
     >
-      {children}
-      {isRunning && showLongRunningHint && (
-        <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
-          Still working. Large updates can take a minute or two.
-        </div>
-      )}
+      <div className="agent-tool-call__content">
+        {children}
+        {isRunning && showLongRunningHint && (
+          <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
+            Still working. Large updates can take a minute or two.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -295,28 +567,33 @@ type ToolIconComponent = React.ComponentType<{
 
 const brandIcons = new Map<string, ToolIconComponent>();
 
-function brandToolIcon(logoUrl: string, name: string): ToolIconComponent {
-  const cached = brandIcons.get(logoUrl);
+function brandToolIcon(
+  logoUrl: string,
+  name: string,
+  integrationId?: string,
+): ToolIconComponent {
+  const cacheKey = integrationId ? `${integrationId}:${logoUrl}` : logoUrl;
+  const cached = brandIcons.get(cacheKey);
   if (cached) return cached;
   const Icon: ToolIconComponent = ({ className, size }) => (
-    <img
-      src={logoUrl}
-      alt=""
-      aria-hidden
-      width={size}
-      height={size}
+    <McpIntegrationLogo
+      name={name}
+      logoUrl={logoUrl}
+      integrationId={integrationId}
+      className={cn("size-4 rounded-[3px] border-0", className)}
+      imageClassName="size-full"
+      style={size === undefined ? undefined : { width: size, height: size }}
       title={name}
-      className={cn("rounded-[3px] object-contain", className)}
     />
   );
-  brandIcons.set(logoUrl, Icon);
+  brandIcons.set(cacheKey, Icon);
   return Icon;
 }
 
 function resolveToolIcon(toolName: string): ToolIconComponent {
   const integration = findMcpIntegrationForToolName(toolName);
   if (integration) {
-    return brandToolIcon(integration.logoUrl, integration.name);
+    return brandToolIcon(integration.logoUrl, integration.name, integration.id);
   }
   const name = toolName.toLowerCase();
   if (name.includes("slack")) return IconBrandSlack;
@@ -590,6 +867,7 @@ function ApprovalAffordance({
 
 export function ToolCallDisplay({
   toolName,
+  toolCallId,
   argsText,
   args,
   result,
@@ -604,6 +882,7 @@ export function ToolCallDisplay({
   isActiveTail,
 }: {
   toolName: string;
+  toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
@@ -630,6 +909,7 @@ export function ToolCallDisplay({
       toolName={toolName}
       isRunning={isRunning}
       isActiveTail={showActiveTail}
+      toolCallId={toolCallId}
       suppressLongRunningHint={
         toolName === "call-agent" || toolName.startsWith("agent:")
       }
@@ -1141,6 +1421,7 @@ function AgentActivityToolCallRow({
       toolName={tool.name}
       isRunning={isRunning}
       isActiveTail={isActiveTail}
+      toolCallId={tool.id}
       suppressLongRunningHint
     >
       <div className="my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground">
@@ -1168,6 +1449,7 @@ function AgentActivityToolCallRow({
 
 export function ToolCallFallback({
   toolName,
+  toolCallId,
   args,
   argsText,
   result,
@@ -1193,6 +1475,7 @@ export function ToolCallFallback({
   return (
     <ToolCallDisplay
       toolName={toolName}
+      toolCallId={toolCallId}
       args={args as Record<string, unknown>}
       argsText={argsText}
       result={
@@ -1278,6 +1561,7 @@ export function ReconnectStreamMessage({
       <ToolCallDisplay
         key={`reconnect-tool-${i}`}
         toolName={part.toolName}
+        toolCallId={part.toolCallId}
         argsText={part.argsText}
         args={part.args}
         result={part.result}
@@ -1305,6 +1589,7 @@ export function ReconnectStreamMessage({
       <RanToolsSummary
         key={`reconnect-tool-summary-${summaryStartIndex}`}
         toolCount={summaryToolCount}
+        motionKey={`reconnect-${summaryStartIndex}`}
       >
         {content
           .slice(summaryStartIndex, endIndex)
@@ -1334,8 +1619,10 @@ export function ReconnectStreamMessage({
 
   return (
     <div className="flex justify-start">
-      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
-        {renderedParts}
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
+        <ToolCallStackMotion className="space-y-1">
+          {renderedParts}
+        </ToolCallStackMotion>
       </div>
     </div>
   );
@@ -1596,23 +1883,28 @@ export function WorkedForSummary({
 
 export function RanToolsSummary({
   toolCount,
+  motionKey = "summary",
   children,
 }: {
   toolCount: number;
+  motionKey?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const label = `Ran ${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
 
   return (
-    <div className="my-1 w-full">
+    <div
+      className="agent-tool-summary my-1 w-full"
+      data-agent-tool-summary={motionKey}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span>{label}</span>
+        <span className="agent-tool-summary__label">{label}</span>
         <IconChevronRight
           className={cn(
             "size-3.5 shrink-0 transition-transform",

@@ -1,5 +1,24 @@
 # @agent-native/creative-context
 
+## 0.6.3
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
+## 0.6.2
+
+### Patch Changes
+
+- e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
+
+## 0.6.1
+
+### Patch Changes
+
+- aa24c7e: Use the declared optional Playwright runtime through a literal import so Cloudflare deployments can apply their fail-closed browser stub.
+- 9d8ae68: Run website brand extraction in an isolated real browser through the SSRF-safe network proxy, with serverless Chromium support and an explicit static fallback.
+
 ## 0.6.0
 
 ### Minor Changes

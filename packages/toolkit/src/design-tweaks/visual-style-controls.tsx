@@ -500,10 +500,15 @@ export function VisualColorPicker({
         {glyph && variant === "swatch" ? (
           /* A real underline rather than a stacked bar: the browser places
              it against the glyph's baseline, so the pair cannot drift out of
-             alignment the way hand-positioned boxes do. */
+             alignment the way hand-positioned boxes do. The current color
+             can be anything (including near-white), so a plain colored
+             underline can vanish against this toolbar's own light
+             background — the four cardinal drop-shadows fake a thin outline
+             around the underline itself (a box-shadow/border can't reach a
+             text-decoration) that stays visible regardless of the color. */
           <span
             aria-hidden="true"
-            className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px]"
+            className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px] [filter:drop-shadow(0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(-0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(0_0.5px_0_rgba(0,0,0,0.25))_drop-shadow(0_-0.5px_0_rgba(0,0,0,0.25))]"
             style={mixed ? undefined : { textDecorationColor: value }}
           >
             {glyph}

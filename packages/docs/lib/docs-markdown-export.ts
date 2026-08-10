@@ -34,15 +34,101 @@ function fenced(language: string, code: unknown): string {
   return [`\`\`\`${language}`, String(code ?? "").trimEnd(), "```"].join("\n");
 }
 
+const ID_START = /[A-Za-z_]/;
+const ID_PART = /[A-Za-z0-9_-]/;
+
+/**
+ * Scans a quoted or brace-delimited attribute value starting at `i` (which
+ * must point at `"`, `'`, or `{`) and returns the index just past it, or
+ * `null` if it never closes. A single regex can't do this: quoted values can
+ * contain escaped quotes (`"a \"b\" c"`), and brace values can nest braces
+ * and strings arbitrarily (`{{ compact: true }}`, `{"}"}`).
+ */
+function skipJsxAttrValue(value: string, i: number): number | null {
+  const quote = value[i];
+  if (quote === '"' || quote === "'") {
+    i++;
+    while (i < value.length && value[i] !== quote) {
+      i += value[i] === "\\" ? 2 : 1;
+    }
+    return value[i] === quote ? i + 1 : null;
+  }
+  if (quote === "{") {
+    let depth = 0;
+    while (i < value.length) {
+      const ch = value[i];
+      if (ch === '"' || ch === "'") {
+        const end = skipJsxAttrValue(value, i);
+        if (end === null) return null;
+        i = end;
+        continue;
+      }
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) return i + 1;
+      }
+      i++;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** Scans one JSX-looking attribute (`name`, `name="value"`, `name={expr}`, or
+ * a bare spread `{...expr}`) starting at `i`, returning the index just past
+ * it, or `null` if `i` isn't the start of an attribute. */
+function skipJsxAttr(value: string, i: number): number | null {
+  if (value[i] === "{") return skipJsxAttrValue(value, i);
+  if (!ID_START.test(value[i] ?? "")) return null;
+  let j = i + 1;
+  while (ID_PART.test(value[j] ?? "")) j++;
+  if (value[j] !== "=") return j;
+  return skipJsxAttrValue(value, j + 1);
+}
+
+/**
+ * Finds the JSX tag (if any) starting at `value[start]`, returning its
+ * end index (exclusive) or `null`. Hand-written instead of a regex because a
+ * single pattern can't track attribute-value nesting (see
+ * {@link skipJsxAttrValue}); this walks the same grammar a JSX parser would.
+ */
+function matchJsxTagEnd(value: string, start: number): number | null {
+  if (value[start] !== "<") return null;
+  let i = start + 1;
+  if (value[i] === "/") i++;
+  if (!/[A-Z]/.test(value[i] ?? "")) return null;
+  i++;
+  while (/[A-Za-z0-9.]/.test(value[i] ?? "")) i++;
+
+  for (;;) {
+    const beforeSpace = i;
+    while (/\s/.test(value[i] ?? "")) i++;
+    if (value[i] === "/" && value[i + 1] === ">") return i + 2;
+    if (value[i] === ">") return i + 1;
+    if (i === beforeSpace) return null; // e.g. `<Foo bar` with no space
+    const end = skipJsxAttr(value, i);
+    if (end === null) return null;
+    i = end;
+  }
+}
+
 function protectInlineJsx(value: string): string {
-  return value.replace(
-    /<\/?[A-Z][A-Za-z0-9.]*\s*\/?>/g,
-    (match, offset, source: string) => {
-      const before = source[offset - 1];
-      const after = source[offset + match.length];
-      return before === "`" && after === "`" ? match : `\`${match}\``;
-    },
-  );
+  let result = "";
+  let i = 0;
+  while (i < value.length) {
+    const end = value[i] === "<" ? matchJsxTagEnd(value, i) : null;
+    if (end === null) {
+      result += value[i];
+      i++;
+      continue;
+    }
+    const tag = value.slice(i, end);
+    const alreadyProtected = value[i - 1] === "`" && value[end] === "`";
+    result += alreadyProtected ? tag : `\`${tag}\``;
+    i = end;
+  }
+  return result;
 }
 
 function headingForBlock(segment: BlockSegment, fallback: string): string[] {
@@ -60,6 +146,79 @@ function headingForBlock(segment: BlockSegment, fallback: string): string[] {
 
 function formatCallout(data: Record<string, unknown>): string {
   return asString(data.body) ?? "";
+}
+
+function formatNotice(
+  data: Record<string, unknown>,
+  segment: BlockSegment | undefined,
+): string {
+  const body = asString(data.body);
+  // A top-level Notice already gets its heading from headingForBlock via
+  // segment.title (toAttrs mirrors data.title into the MDX `title` attr).
+  // Nested Notices (inside Tabs/Columns) get no segment, so data.title is
+  // the only place their title survives — read it there instead of dropping it.
+  const title = !segment ? asString(data.title) : undefined;
+  return [
+    title ? `#### ${protectInlineJsx(title)}` : undefined,
+    body ? protectInlineJsx(body) : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function formatBanner(data: Record<string, unknown>): string {
+  const body = asString(data.body);
+  return body ? protectInlineJsx(body) : "";
+}
+
+function formatBadge(data: Record<string, unknown>): string {
+  return asString(data.label) ?? "";
+}
+
+function formatCards(data: Record<string, unknown>): string {
+  return asArray(data.cards)
+    .map((card) => {
+      const row = asRecord(card);
+      const title = protectInlineJsx(asString(row.title) ?? "Untitled");
+      const href = asString(row.href);
+      const heading = href ? `#### [${title}](${href})` : `#### ${title}`;
+      return [heading, asString(row.body)].filter(Boolean).join("\n\n");
+    })
+    .join("\n\n");
+}
+
+function formatSteps(data: Record<string, unknown>): string {
+  return asArray(data.steps)
+    .map((step, index) => {
+      const row = asRecord(step);
+      const title = protectInlineJsx(
+        asString(row.title) ?? `Step ${index + 1}`,
+      );
+      return [`#### ${index + 1}. ${title}`, asString(row.body)]
+        .filter(Boolean)
+        .join("\n\n");
+    })
+    .join("\n\n");
+}
+
+function formatComparison(data: Record<string, unknown>): string {
+  return asArray(data.sides)
+    .map((side) => {
+      const row = asRecord(side);
+      const label = protectInlineJsx(asString(row.label) ?? "Option");
+      return [`#### ${label}`, asString(row.body)].filter(Boolean).join("\n\n");
+    })
+    .join("\n\n");
+}
+
+function formatAccordion(data: Record<string, unknown>): string {
+  return asArray(data.items)
+    .map((item) => {
+      const row = asRecord(item);
+      const title = protectInlineJsx(asString(row.title) ?? "Untitled");
+      return [`#### ${title}`, asString(row.body)].filter(Boolean).join("\n\n");
+    })
+    .join("\n\n");
 }
 
 function formatChecklist(data: Record<string, unknown>): string {
@@ -340,6 +499,39 @@ function formatDiagram(data: Record<string, unknown>): string {
   return fenced("json", JSON.stringify(data, null, 2));
 }
 
+/**
+ * One formatter per block `type`. Keyed lookup instead of a type===chain so
+ * adding a block type is one line here, not a deeper ternary nest — the
+ * chain this replaced had grown to 21 levels before Notice/Banner/Badge/
+ * Cards/Steps/Comparison/Accordion were added.
+ */
+const blockFormatters: Record<
+  string,
+  (data: Record<string, unknown>, segment: BlockSegment | undefined) => string
+> = {
+  callout: formatCallout,
+  notice: formatNotice,
+  banner: formatBanner,
+  badge: formatBadge,
+  cards: formatCards,
+  steps: formatSteps,
+  comparison: formatComparison,
+  accordion: formatAccordion,
+  checklist: formatChecklist,
+  "file-tree": (data, segment) => formatFileTree(data, !segment),
+  table: formatTable,
+  "api-endpoint": formatApiEndpoint,
+  "data-model": formatDataModel,
+  "annotated-code": formatAnnotatedCode,
+  diff: formatDiff,
+  "json-explorer": formatJson,
+  "openapi-spec": formatOpenApi,
+  tabs: formatTabs,
+  columns: formatColumns,
+  wireframe: formatWireframe,
+  diagram: formatDiagram,
+};
+
 function formatBlockData(
   type: string,
   data: Record<string, unknown>,
@@ -350,36 +542,10 @@ function formatBlockData(
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
   const prefix = segment ? headingForBlock(segment, fallback) : [];
-  const body =
-    type === "callout"
-      ? formatCallout(data)
-      : type === "checklist"
-        ? formatChecklist(data)
-        : type === "file-tree"
-          ? formatFileTree(data, !segment)
-          : type === "table"
-            ? formatTable(data)
-            : type === "api-endpoint"
-              ? formatApiEndpoint(data)
-              : type === "data-model"
-                ? formatDataModel(data)
-                : type === "annotated-code"
-                  ? formatAnnotatedCode(data)
-                  : type === "diff"
-                    ? formatDiff(data)
-                    : type === "json-explorer"
-                      ? formatJson(data)
-                      : type === "openapi-spec"
-                        ? formatOpenApi(data)
-                        : type === "tabs"
-                          ? formatTabs(data)
-                          : type === "columns"
-                            ? formatColumns(data)
-                            : type === "wireframe"
-                              ? formatWireframe(data)
-                              : type === "diagram"
-                                ? formatDiagram(data)
-                                : fenced("json", JSON.stringify(data, null, 2));
+  const formatter = blockFormatters[type];
+  const body = formatter
+    ? formatter(data, segment)
+    : fenced("json", JSON.stringify(data, null, 2));
 
   return [...prefix, body].filter(Boolean).join("\n\n");
 }
@@ -413,7 +579,13 @@ export function docsBodyToMarkdownMirror(body: string): string {
     splitDocSegments(body)
       .map((segment) => {
         if (segment.kind === "markdown") return segment.text.trim();
-        if (segment.kind === "invalid-block") return segment.body.trim();
+        // A block can fail real MDX parsing for reasons a well-formed JSX
+        // tag matcher will never see (e.g. a backslash-escaped quote inside
+        // an attribute value, which isn't valid JSX either) — that raw body
+        // still gets emitted verbatim below, so protect it the same as any
+        // other title/body text rather than leaving it as live-looking tags.
+        if (segment.kind === "invalid-block")
+          return protectInlineJsx(segment.body.trim());
         if (segment.source === "fence") return fenceSegmentToMarkdown(segment);
         return formatBlockData(segment.type, asRecord(segment.data), segment);
       })

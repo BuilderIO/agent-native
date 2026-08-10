@@ -9,7 +9,7 @@ description: "Monte los recursos del agente y el chat del agente en cualquier ap
 
 No es necesario crear un agente nativo desde cero. El chat del agente, la pestaña de recursos del agente, el terminal CLI, la entrada de voz y toda la infraestructura relacionada se envían como un puñado de componentes React que se pueden colocar en cualquier aplicación.
 
-> **Requisito previo:** el servidor debe ejecutar `agent-chat-plugin` (se monta automáticamente en cada plantilla). Si estás empezando desde cero, consulta [Server](/docs/server).
+> **Requisito previo:** el servidor debe ejecutar `agent-chat-plugin` (se monta automáticamente en cada plantilla). Si estás empezando desde cero, consulta [Server](/docs/server-overview).
 >
 > ¿Necesita el mapa público API en lugar de un tutorial? Ver [Component API](/docs/components).
 
@@ -136,11 +136,11 @@ los niños permanecen en el área principal de la aplicación. El chat del agent
   ]}
 />
 
-Eso es todo. El usuario ahora tiene un agente alternable en cada página, con historial de chat, pestaña de recursos del agente, terminal CLI, entrada de voz y modo de pantalla completa. El estado persiste entre recargas a través de `localStorage`.
+Eso es todo. El usuario ahora tiene un agente alternable en cada página, con historial de chat, pestaña de recursos del agente, terminal CLI, entrada de voz y un panel más ancho. El estado persiste entre recargas a través de `localStorage`.
 
 ### Accesorios
 
-- **`children`**: el diseño y las rutas normales de tu aplicación. Representado en el área principal; el panel del agente se monta junto a él en el escritorio y encima en el móvil/pantalla completa.
+- **`children`**: el diseño y las rutas normales de tu aplicación. Representado en el área principal; el panel del agente se monta junto a él en el escritorio y encima en el móvil.
 - **`emptyStateText`**: saludo que se muestra cuando el chat no tiene mensajes. Valor predeterminado: `"How can I help you?"`.
 - **`suggestions`**: los mensajes de inicio se muestran como chips en los que se puede hacer clic cuando están vacíos.
 - **`dynamicSuggestions`**: chips de aviso contextuales fusionados con `suggestions`. Habilitado de forma predeterminada; pase `false` para mostrar solo sugerencias estáticas o `{ max, includeStatic, getSuggestions }` para personalizar.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` o `"cli"`. Valor predeterminado: `"chat"`.
 - **`className`** — Clase CSS para el contenedor exterior.
 - **`onCollapse`**: si se proporciona, aparece un botón para contraer en el encabezado.
-- **`isFullscreen`** / **`onToggleFullscreen`**: conecte el estado de pantalla completa externo si desea una columna centrada estilo Claude.
+- **`isFullscreen`**: actívelo si desea una columna centrada al estilo Claude en una superficie de página o panel personalizado. La barra lateral usa el panel más ancho.
 - **`storageKey`**: espacio de nombres para claves `localStorage`. Útil cuando renderizas varios paneles (diferentes instancias de aplicaciones o espacios de trabajo) en la misma página.
 
 Accesorios completos: `AgentPanelProps` en `@agent-native/core/client`.
@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,6 +204,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`**: crea un hilo de chat independiente para este mensaje.
 - **`background`** — con `newTab`, ejecute sin enfocar el nuevo hilo. La ejecución oculta se rastrea en `RunsTray`.
 - **`openSidebar`**: configurado en `false` para envíos en segundo plano/silenciosos. Predeterminado abre la barra lateral para que el usuario vea la respuesta.
+- **Para trabajo de IA visible iniciado por el usuario**, usa `openSidebar: true`. Usa `false` solo para trabajo de fondo o iniciado por el sistema que sea explícitamente silencioso, y mantén los seguimientos en el mismo hilo de AgentSidebar.
 - **`type`**: `"content"` (predeterminado) mantiene el trabajo en el agente integrado, que usa herramientas de la aplicación. `"code"` lo envía a un frame separado con capacidad de código para cambios en el repositorio; la escritura solo está disponible si el host concede intencionalmente herramientas de repository/workspace. Consulte [Frames](/docs/frames).
 
 `sendToAgentChat` devuelve un `tabId` estable que puedes utilizar para realizar un seguimiento de la ejecución del chat.
@@ -222,6 +224,7 @@ sendToAgentChat({
 
 Esto sigue siendo una ejecución completa del agente con herramientas, actions, estado del hilo y ejecución
 seguimiento. Simplemente no roba el foco del estado actual de la barra lateral del usuario.
+Mantén los mensajes de seguimiento y revisión en el hilo existente de la barra lateral. No añadas un segundo campo de texto libre junto al resultado; usa formularios locales solo para valores estructurados que la interfaz deba validar.
 
 Cuando la misma ruta está integrada como una aplicación MCP, enviada
 Las llamadas `sendToAgentChat()` se reenvían al chat del anfitrión cuando sea compatible; ver
@@ -258,6 +261,10 @@ Cualquiera que sea la capa que elija, mantenga el estado de la aplicación respa
 y evite publicar directamente en `/_agent-native/agent-chat` desde el producto UI. Si un
 Falta el ayudante con nombre para una superficie personalizada real, agregue ese ayudante primero
 El código del cliente no aprende un segundo transporte ad hoc.
+
+## Elegir entre el chat del agente y una acción {#agent-or-action}
+
+Usa `useActionQuery` o `useActionMutation` directamente para operaciones locales deterministas como CRUD, validación, lecturas del proveedor y persistencia. Si el usuario vive el flujo como investigación, análisis, generación, recomendación, síntesis u otro razonamiento de varios pasos, inícialo con `sendToAgentChat({ openSidebar: true })` y deja que el agente coordine acciones enfocadas. Que la implementación sea determinista no basta para ocultar un flujo parecido a la IA dentro de una acción opaca.
 
 ## actions con seguridad tipográfica desde UI: `useActionMutation()` {#use-action-mutation}
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

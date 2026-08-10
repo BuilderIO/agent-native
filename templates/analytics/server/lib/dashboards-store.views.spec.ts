@@ -10,6 +10,10 @@ type ViewRow = {
 };
 
 const state = vi.hoisted(() => ({
+  accessCalls: [] as unknown[][],
+  accessResult: null as unknown,
+  dashboardRow: null as Record<string, unknown> | null,
+  legacyDashboard: null as Record<string, unknown> | null,
   views: [] as ViewRow[],
 }));
 
@@ -131,7 +135,8 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("@agent-native/core/settings", () => ({
   getAllSettings: async () => ({}),
   getOrgSetting: async () => null,
-  getUserSetting: async () => null,
+  getUserSetting: async (_email: string, key: string) =>
+    key === "sql-dashboard-dashboard-a" ? state.legacyDashboard : null,
   deleteOrgSetting: async () => false,
   deleteUserSetting: async () => false,
 }));
@@ -139,7 +144,10 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ kind: "access" }),
   assertAccess: async () => ({ role: "owner" }),
-  resolveAccess: async () => ({ resource: dashboard, role: "owner" }),
+  resolveAccess: async (...args: unknown[]) => {
+    state.accessCalls.push(args);
+    return state.accessResult;
+  },
   roleSatisfies: () => true,
 }));
 
@@ -167,13 +175,23 @@ vi.mock("../db/index.js", () => ({
               state.views.filter((row) => matches(predicate, row)),
             );
           }
+          if (table === dashboards) {
+            return rowsResult(state.dashboardRow ? [state.dashboardRow] : []);
+          }
           return rowsResult([]);
         },
       }),
     }),
     insert: (table: unknown) => ({
-      values: async (row: ViewRow) => {
-        if (table === dashboardViews) state.views.push({ ...row });
+      values: (row: Record<string, unknown>) => {
+        if (table === dashboardViews) state.views.push({ ...row } as ViewRow);
+        return Object.assign(Promise.resolve(), {
+          onConflictDoNothing: async () => {
+            if (table === dashboards) {
+              state.dashboardRow = { ...dashboard, ...row };
+            }
+          },
+        });
       },
     }),
     update: (table: unknown) => ({
@@ -200,6 +218,10 @@ const { deleteDashboardView, saveDashboardView } =
   await import("./dashboards-store.js");
 
 beforeEach(() => {
+  state.accessCalls = [];
+  state.accessResult = { resource: dashboard, role: "owner" };
+  state.dashboardRow = null;
+  state.legacyDashboard = null;
   state.views = [
     {
       id: "existing",
@@ -221,6 +243,38 @@ beforeEach(() => {
 });
 
 describe("dashboard views", () => {
+  it("checks parent access without loading the dashboard config", async () => {
+    const { listDashboardViews } = await import("./dashboards-store.js");
+
+    await listDashboardViews("dashboard-a", ctx);
+
+    expect(state.accessCalls).toContainEqual([
+      "dashboard",
+      "dashboard-a",
+      { userEmail: "alice@example.com", orgId: undefined },
+      { skipResourceBody: true },
+    ]);
+  });
+
+  it("keeps legacy dashboards visible while materializing parent access", async () => {
+    state.accessResult = null;
+    state.legacyDashboard = {
+      name: "Legacy dashboard",
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    };
+
+    const { listDashboardViews } = await import("./dashboards-store.js");
+    const result = await listDashboardViews("dashboard-a", ctx);
+
+    expect(result.map(({ id }) => id)).toEqual(["existing"]);
+    expect(state.dashboardRow).toMatchObject({
+      id: "dashboard-a",
+      title: "Legacy dashboard",
+      ownerEmail: "alice@example.com",
+    });
+  });
+
   it("inserts a new view when the client supplies a new id", async () => {
     const result = await saveDashboardView(
       "dashboard-a",

@@ -6,6 +6,10 @@ import type {
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
 } from "./desktop-shortcuts";
+import type {
+  QuickPromptSettings,
+  QuickPromptPreferences,
+} from "./quick-prompt";
 
 export const IPC = {
   /** Window control channels (renderer → main) */
@@ -116,6 +120,12 @@ export const IPC = {
   SHORTCUTS_LOAD: "shortcuts:load",
   SHORTCUTS_UPSERT: "shortcuts:upsert",
   SHORTCUTS_REMOVE: "shortcuts:remove",
+
+  /** Global Quick Prompt overlay (renderer ↔ main) */
+  QUICK_PROMPT_LOAD: "quick-prompt:load",
+  QUICK_PROMPT_UPDATE: "quick-prompt:update",
+  QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
+  QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
 
 /** Auto-update status surfaced from electron-updater. */
@@ -819,8 +829,18 @@ export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
   requestId: string;
 }
 
+export interface QuickPromptSubmitRequest {
+  prompt: string;
+  cwd?: string;
+  attachments?: CodeAgentPromptAttachment[];
+}
+
+export type QuickPromptSubmitResult = CodeAgentCreateRunResult;
+
 export type {
   DesktopShortcutSettings,
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
+  QuickPromptPreferences,
+  QuickPromptSettings,
 };

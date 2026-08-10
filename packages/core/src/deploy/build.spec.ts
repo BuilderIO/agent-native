@@ -9,6 +9,11 @@ import {
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
 import {
+  DEFAULT_SSR_CACHE_HEADERS,
+  DISABLED_SSR_CACHE_HEADERS,
+  ssrCacheHeadersForPolicy,
+} from "../shared/cache-control.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
@@ -25,6 +30,7 @@ import {
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
   cloudflareWorkerStubAliasArgs,
   configureCloudflareModuleWorkerOutput,
+  copyInstalledBrowserRuntimePackages,
   copyDir,
   createCloudflareModuleStubPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
@@ -32,7 +38,9 @@ import {
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
   findInstalledFfmpegStaticPackage,
+  findInstalledPackageRoot,
   findInstalledResvgPackages,
+  findServerlessBrowserRuntimeConsumer,
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
@@ -42,11 +50,16 @@ import {
   isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
+  isKeepWarmBackgroundDeployEnabled,
+  isKeepWarmDeployEnabled,
+  resolveKeepWarmSchedule,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
   patchCloudflareModuleNitroEntry,
+  pruneServerlessFunctionDeadWeight,
   resolveNitroBundledYjsEntry,
+  resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
@@ -54,10 +67,6 @@ import {
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
-const DEFAULT_SSR_CACHE_CONTROL =
-  "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
-const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
@@ -72,6 +81,18 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("resolveNitroBuildReplacements", () => {
+  it("embeds release migration ownership into the Nitro server bundle", () => {
+    const replacements = resolveNitroBuildReplacements({
+      AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
+    });
+
+    expect(replacements["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"]).toBe(
+      JSON.stringify("1"),
+    );
   });
 });
 
@@ -220,13 +241,9 @@ describe("resolveNitroBundledYjsEntry", () => {
 });
 
 function expectDefaultWorkerSsrCacheHeaders(response: Response) {
-  expect(response.headers.get("cache-control")).toBe(DEFAULT_SSR_CACHE_CONTROL);
-  expect(response.headers.get("cdn-cache-control")).toBe(
-    DEFAULT_SSR_CDN_CACHE_CONTROL,
-  );
-  expect(response.headers.get("netlify-cdn-cache-control")).toBe(
-    DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
-  );
+  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+    expect(response.headers.get(name)).toBe(value);
+  }
 }
 
 function makeTempDir(): string {
@@ -633,26 +650,36 @@ export default (event) =>
     const source = generateWorkerEntry([], []);
 
     expect(source).toContain(
-      `const SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};`,
+      `const SSR_CACHE_HEADERS = ${JSON.stringify(DEFAULT_SSR_CACHE_HEADERS)};`,
     );
+  });
+
+  it("inlines the Netlify SSR cache-key policy in generated workers", async () => {
+    vi.stubEnv("NETLIFY", "true");
+
+    const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      `const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};`,
+      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
     );
-    expect(source).toContain(
-      `const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};`,
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox?utm_source=campaign"),
+      { APP_BASE_PATH: "/docs" },
+      {},
     );
+
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
 
     const source = generateWorkerEntry([], []);
-    expect(source).toContain('const SSR_CACHE_CONTROL = "no-store";');
-    expect(source).toContain('const SSR_CDN_CACHE_CONTROL = "no-store";');
     expect(source).toContain(
-      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "no-store";',
+      `const SSR_CACHE_HEADERS = ${JSON.stringify(DISABLED_SSR_CACHE_HEADERS)};`,
     );
-    expect(source).not.toContain(DEFAULT_SSR_CACHE_CONTROL);
+    expect(source).not.toContain(DEFAULT_SSR_CACHE_HEADERS["cache-control"]);
 
     const worker = await importGeneratedWorker(source);
     const response = await worker.fetch(
@@ -661,20 +688,34 @@ export default (event) =>
       {},
     );
 
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
-    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
-  it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", () => {
+  it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", async () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "30s");
 
     const source = generateWorkerEntry([], []);
+    const expectedHeaders = ssrCacheHeadersForPolicy({
+      kind: "maxAge",
+      seconds: 30,
+    });
 
     expect(source).toContain(
-      'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+      `const SSR_CACHE_HEADERS = ${JSON.stringify(expectedHeaders)};`,
     );
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox"),
+      {},
+      {},
+    );
+    for (const [name, value] of Object.entries(expectedHeaders)) {
+      expect(response.headers.get(name)).toBe(value);
+    }
   });
 
   it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {
@@ -1314,6 +1355,199 @@ describe("findInstalledFfmpegStaticPackage", () => {
   });
 });
 
+describe("copyInstalledBrowserRuntimePackages", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const directory of dirs.splice(0)) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  function setupBrowserRuntimeStore(appDependencies: Record<string, string>) {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-browser-runtime-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    const chromiumDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@sparticuz+chromium@149.0.0",
+      "node_modules",
+      "@sparticuz",
+      "chromium",
+    );
+    const chromiumDependenciesDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@sparticuz+chromium@149.0.0",
+      "node_modules",
+    );
+    const tarFsDir = path.join(chromiumDependenciesDir, "tar-fs");
+    const playwrightCoreDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "playwright-core@1.61.1",
+      "node_modules",
+      "playwright-core",
+    );
+    fs.mkdirSync(path.join(chromiumDir, "bin"), { recursive: true });
+    fs.mkdirSync(path.join(chromiumDir, "build"), { recursive: true });
+    fs.mkdirSync(tarFsDir, { recursive: true });
+    fs.mkdirSync(playwrightCoreDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(chromiumDir, "package.json"),
+      JSON.stringify({
+        name: "@sparticuz/chromium",
+        dependencies: { "tar-fs": "3.1.3" },
+        main: "build/index.js",
+      }),
+    );
+    fs.writeFileSync(path.join(chromiumDir, "bin", "chromium.br"), "binary");
+    fs.writeFileSync(path.join(chromiumDir, "build", "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(tarFsDir, "package.json"),
+      JSON.stringify({ name: "tar-fs", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(tarFsDir, "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(playwrightCoreDir, "package.json"),
+      JSON.stringify({ name: "playwright-core", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(playwrightCoreDir, "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "test-app", dependencies: appDependencies }),
+    );
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    return { root, nodeModules, chromiumDir, serverDir };
+  }
+
+  it("copies Chromium assets and its runtime dependencies from pnpm output", () => {
+    const { root, nodeModules, chromiumDir, serverDir } =
+      setupBrowserRuntimeStore({
+        "@agent-native/creative-context": "workspace:*",
+      });
+
+    expect(findInstalledPackageRoot("@sparticuz/chromium", [nodeModules])).toBe(
+      chromiumDir,
+    );
+    expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@sparticuz",
+          "chromium",
+          "bin",
+          "chromium.br",
+        ),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(serverDir, "node_modules", "tar-fs"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright-core")),
+    ).toBe(true);
+  });
+
+  it("skips the browser runtime for an app that cannot reach it", () => {
+    // The store still resolves Chromium through a sibling workspace package —
+    // that resolution is exactly what used to ship 80MB into every function.
+    const { root, nodeModules, chromiumDir, serverDir } =
+      setupBrowserRuntimeStore({ "some-unrelated-package": "1.0.0" });
+
+    expect(findInstalledPackageRoot("@sparticuz/chromium", [nodeModules])).toBe(
+      chromiumDir,
+    );
+    expect(findServerlessBrowserRuntimeConsumer(root)).toBeNull();
+    expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(0);
+    expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
+  });
+
+  it("copies the browser runtime for an app that declares a browser package directly", () => {
+    const { root, serverDir } = setupBrowserRuntimeStore({
+      "playwright-core": "1.61.1",
+    });
+
+    expect(findServerlessBrowserRuntimeConsumer(root)).toBe("playwright-core");
+    expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+  });
+});
+
+describe("pruneServerlessFunctionDeadWeight", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const directory of dirs.splice(0)) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  function writePackage(dir: string, bytes = 16) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "index.node"), "x".repeat(bytes));
+  }
+
+  function setupFunctionDir(): string {
+    const root = fs.mkdtempSync(path.join(process.cwd(), ".tmp-prune-test-"));
+    dirs.push(root);
+    const functionDir = path.join(root, "server");
+    const nodeModules = path.join(functionDir, "node_modules");
+    for (const name of [
+      "darwin-arm64",
+      "darwin-x64",
+      "win32-x64-msvc",
+      "linux-arm-gnueabihf",
+      "linux-arm-musleabihf",
+      "linux-x64-gnu",
+      "linux-arm64-musl",
+    ]) {
+      writePackage(path.join(nodeModules, "@libsql", name));
+    }
+    // sharp names its prebuilds without the gnu/musl suffix, so every one of
+    // them reads as dead to isServerlessNativePlatformPackage.
+    for (const name of ["sharp-linux-x64", "sharp-darwin-arm64"]) {
+      writePackage(path.join(nodeModules, "@img", name));
+    }
+    writePackage(path.join(nodeModules, "tar-fs"));
+    fs.mkdirSync(path.join(functionDir, "data"), { recursive: true });
+    fs.writeFileSync(path.join(functionDir, "data", "app.db"), "sqlite");
+    return functionDir;
+  }
+
+  it("drops prebuilds a serverless function cannot execute and the local dev database", () => {
+    const functionDir = setupFunctionDir();
+    const libsql = path.join(functionDir, "node_modules", "@libsql");
+
+    expect(pruneServerlessFunctionDeadWeight(functionDir)).toBeGreaterThan(0);
+
+    expect(fs.readdirSync(libsql).sort()).toEqual([
+      "linux-arm64-musl",
+      "linux-x64-gnu",
+    ]);
+    expect(fs.existsSync(path.join(functionDir, "data"))).toBe(false);
+    expect(
+      fs.existsSync(path.join(functionDir, "node_modules", "tar-fs")),
+    ).toBe(true);
+  });
+
+  it("leaves packages whose prebuilds it cannot classify alone", () => {
+    const functionDir = setupFunctionDir();
+
+    pruneServerlessFunctionDeadWeight(functionDir);
+
+    expect(
+      fs.readdirSync(path.join(functionDir, "node_modules", "@img")).sort(),
+    ).toEqual(["sharp-darwin-arm64", "sharp-linux-x64"]);
+  });
+});
+
 describe("sanitizeServerlessFunctionPackageManifest", () => {
   const dirs: string[] = [];
 
@@ -1900,6 +2134,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).not.toContain("includedFiles");
     expect(entry).toContain("await fetch(url");
     expect(entry).toContain("agent-native-netlify-keep-warm");
+    expect(entry).toContain("return new URL(request.url).origin");
     expect(entry).not.toMatch(/^\s*path:/m);
   });
 
@@ -1927,6 +2162,128 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain('createHmac("sha256", secret)');
     expect(entry).toContain("__agentNativeProcessorRoute");
     expect(entry).toContain("A2A_SECRET is required");
+    expect(entry).toContain("return new URL(request.url).origin");
+  });
+
+  describe("keep-warm opt-out and cadence", () => {
+    const KEEP_WARM_ENV_KEYS = [
+      "AGENT_NATIVE_DISABLE_KEEP_WARM",
+      "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND",
+      "AGENT_NATIVE_KEEP_WARM_SCHEDULE",
+    ] as const;
+    let saved: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      saved = {};
+      for (const key of KEEP_WARM_ENV_KEYS) {
+        saved[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of KEEP_WARM_ENV_KEYS) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    });
+
+    it("is ON BY DEFAULT, at the historical once-a-minute cadence", () => {
+      expect(isKeepWarmDeployEnabled()).toBe(true);
+      expect(isKeepWarmBackgroundDeployEnabled()).toBe(true);
+      expect(resolveKeepWarmSchedule()).toBe("* * * * *");
+    });
+
+    it("emits nothing when keep-warm is disabled, so the DB can autosuspend", () => {
+      process.env.AGENT_NATIVE_DISABLE_KEEP_WARM = "1";
+      const cwd = setupNetlifyOutput();
+
+      emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+      expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+    });
+
+    it("honours an overridden cron cadence", () => {
+      process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = "*/5 * * * *";
+      const cwd = setupNetlifyOutput();
+
+      emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+      const entry = fs.readFileSync(
+        path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+        "utf8",
+      );
+      expect(entry).toContain('schedule: "*/5 * * * *"');
+      expect(entry).not.toContain('schedule: "* * * * *"');
+    });
+
+    it("THROWS on an unparseable cadence instead of silently keeping 1/min", () => {
+      // Falling back would leave an operator who set this to stop burning
+      // database quota still burning it, with a green build and no warning.
+      process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = "every 5 minutes";
+      expect(() => resolveKeepWarmSchedule()).toThrow(
+        /must be a 5-field cron expression/,
+      );
+
+      const cwd = setupNetlifyOutput();
+      expect(() => emitSingleTemplateNetlifyKeepWarmFunction(cwd)).toThrow(
+        /AGENT_NATIVE_KEEP_WARM_SCHEDULE/,
+      );
+      // And it throws BEFORE wiping/writing the function dir, so a failed build
+      // never leaves a half-emitted artifact behind.
+      expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+    });
+
+    it("THROWS on a 5-token value whose fields are not cron fields", () => {
+      // Counting tokens is not parsing them: "not a cron expression here" is
+      // five whitespace-separated words and would otherwise ship to Netlify as
+      // a schedule, which is the same silent-wrong-cadence failure above.
+      for (const bad of [
+        "not a cron expression here",
+        "*/0 * * * *",
+        "60 * * * *",
+        "* * * * 9",
+      ]) {
+        process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = bad;
+        expect(() => resolveKeepWarmSchedule()).toThrow(
+          /must be a 5-field cron expression/,
+        );
+      }
+    });
+
+    it("accepts the cron syntax operators an operator would actually reach for", () => {
+      for (const good of [
+        "*/5 * * * *",
+        "0 */6 * * *",
+        "15,45 3 * * 1-5",
+        "0 0 1 JAN *",
+      ]) {
+        process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = good;
+        expect(resolveKeepWarmSchedule()).toBe(good);
+      }
+    });
+
+    it("drops the background warm independently of the server warm", () => {
+      // Warming `server` is one health request; warming `-background` is a
+      // fresh container that pays the whole schema-probe fan-out.
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+      process.env.AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1";
+      try {
+        const cwd = setupNetlifyOutput();
+        emitSingleTemplateNetlifyBackgroundFunction(cwd);
+        emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+        const entry = fs.readFileSync(
+          path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+          "utf8",
+        );
+        expect(entry).toContain("const BACKGROUND_WARM_PATH = null");
+        // The server warm is untouched.
+        expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
+      } finally {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      }
+    });
   });
 
   it("does not emit a keep-warm function without Nitro's server bundle", () => {
@@ -2204,6 +2561,31 @@ describe("durable-background Netlify function emit (single-template, default-on)
     prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("fails a function that ships more than the per-function size budget", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const chromiumDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "node_modules",
+      "@sparticuz",
+      "chromium",
+      "bin",
+    );
+    fs.mkdirSync(chromiumDir, { recursive: true });
+    // Sparse: getDirSize reports apparent size, which is what the deploy zip
+    // pays for, so the test costs no disk.
+    const fd = fs.openSync(path.join(chromiumDir, "chromium.br"), "w");
+    fs.ftruncateSync(fd, 130 * 1024 * 1024);
+    fs.closeSync(fd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /function server is 130\.0MB, over the 120\.0MB budget — largest: @sparticuz/,
+    );
   });
 
   it("passes workspace deploy output with client assets under the normalized app base path", () => {

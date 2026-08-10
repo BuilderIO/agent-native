@@ -3952,6 +3952,33 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("preserves the legacy MCP resource in its OAuth challenge", async () => {
+    process.env.ACCESS_TOKEN = "secret-token";
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 10, method: "tools/list", params: {} },
+      headers: { authorization: "Bearer wrong" },
+    });
+    const res = await handleMcpRequest(
+      event,
+      config as any,
+      "/_agent-native/mcp",
+    );
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=%2F_agent-native%2Fmcp"',
+    );
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        resourceMetadataUrl:
+          "https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=%2F_agent-native%2Fmcp",
+        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+      },
+    });
+  });
+
   it("challenges bare loopback MCP URLs so OAuth-native hosts can authenticate", async () => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;

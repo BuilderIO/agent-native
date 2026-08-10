@@ -12,6 +12,7 @@ const clientState = vi.hoisted(() => ({
   promptComposerProps: null as Record<string, unknown> | null,
   workspaceApps: [] as Array<Record<string, unknown>>,
   connectedApps: [] as Array<Record<string, unknown>>,
+  curatedTemplates: [] as Array<Record<string, unknown>>,
   useChatModels: vi.fn(() => ({
     availableModels: [],
     defaultModel: "auto",
@@ -56,7 +57,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     data:
       name === "list-connected-agents"
         ? clientState.connectedApps
-        : clientState.workspaceApps,
+        : name === "list-curated-workspace-templates"
+          ? clientState.curatedTemplates
+          : clientState.workspaceApps,
     isLoading: false,
     isError: false,
     error: null,
@@ -89,6 +92,7 @@ describe("DispatchControlPlane", () => {
     clientState.promptComposerProps = null;
     clientState.workspaceApps = [];
     clientState.connectedApps = [];
+    clientState.curatedTemplates = [];
     clientState.useChatModels.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -195,6 +199,22 @@ describe("DispatchControlPlane", () => {
         url: "https://duplicate.example.com",
       },
     ];
+    clientState.curatedTemplates = [
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Email client",
+        liveUrl: "https://mail.agent-native.com",
+        installed: false,
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        description: "Workspace insights",
+        liveUrl: "https://analytics.agent-native.com",
+        installed: false,
+      },
+    ];
 
     await act(async () => {
       root.render(
@@ -209,8 +229,15 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Onboarding");
     expect(container.textContent).toContain("Mail");
     expect(container.textContent).toContain("Clips");
+    expect(container.textContent).toContain("Analytics");
+    expect(container.textContent).toContain("Your apps");
+    expect(container.textContent).toContain("Other apps");
+    expect(container.textContent?.indexOf("Your apps")).toBeLessThan(
+      container.textContent?.indexOf("Other apps") ?? -1,
+    );
     expect(container.textContent).not.toContain("Archived app");
     expect(container.textContent).not.toContain("Duplicate onboarding");
+    expect(container.textContent).not.toContain("CRM");
     expect(
       Array.from(container.querySelectorAll("a")).filter((anchor) =>
         anchor.getAttribute("href")?.includes("onboarding"),

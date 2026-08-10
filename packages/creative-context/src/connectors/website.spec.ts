@@ -155,7 +155,7 @@ describe("website context connector", () => {
     ).rejects.toThrow(/SSRF blocked/i);
   });
 
-  it("disables arbitrary Chromium navigation and keeps the static fallback", async () => {
+  it("falls back explicitly when the browser capability is unavailable", async () => {
     const staticFetch = vi.fn(async (url: string) =>
       response(
         url,
@@ -176,7 +176,7 @@ describe("website context connector", () => {
       preferHosted: false,
     });
 
-    expect(loadPlaywright).not.toHaveBeenCalled();
+    expect(loadPlaywright).toHaveBeenCalledTimes(1);
     expect(staticFetch).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
       method: "static-html",
@@ -185,7 +185,7 @@ describe("website context connector", () => {
     });
     expect(result.warnings).toEqual(
       expect.arrayContaining([
-        expect.stringContaining("connect-time SSRF guard"),
+        expect.stringContaining("Playwright unavailable"),
         expect.stringContaining("SSRF-safe static HTML fallback"),
       ]),
     );

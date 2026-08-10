@@ -137,7 +137,7 @@ function AppContent() {
             {t("root.commandSearch")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => navigate("/agent")}
+            onSelect={() => navigate("/settings/agent")}
             keywords={[
               "agent",
               "context",

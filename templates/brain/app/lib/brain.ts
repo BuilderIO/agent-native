@@ -1050,7 +1050,9 @@ export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/review")) return "review";
   if (pathname.startsWith("/sources")) return "sources";
   if (pathname.startsWith("/ops")) return "ops";
-  if (pathname.startsWith("/agent")) return "agent";
+  if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
+    return "agent";
+  }
   if (pathname.startsWith("/settings")) return "settings";
   return "ask";
 }
@@ -1070,7 +1072,7 @@ export function pathFromView(view?: string): string {
     case "ops":
       return "/ops";
     case "agent":
-      return "/agent";
+      return "/settings/agent";
     case "settings":
       return "/settings";
     case "ask":

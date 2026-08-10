@@ -78,6 +78,7 @@ const messages = {
     zoomIn: "Zoomer",
     fitSlideToScreen: "Ajuster la diapositive à l’écran",
     fitToScreen: "Ajuster à l’écran",
+    exitExcalidrawCanvas: "Quitter le canevas de dessin",
     agentWorking: "L’agent travaille",
     openChat: "Ouvrir le chat",
     cloudAuthToken: "Jeton d’authentification",
@@ -220,8 +221,10 @@ const messages = {
     assetLibrary: "Bibliothèque de ressources",
     diagrams: "Diagrammes",
     insertMermaidDiagram: "Insérer un diagramme Mermaid",
+    insertMermaidFailed: "Échec de l'insertion du diagramme",
     excalidrawCanvas: "Canevas Excalidraw",
     convertMermaidToExcalidraw: "Convertir Mermaid en Excalidraw",
+    convertMermaidFailed: "Échec de la conversion du diagramme",
     removeExcalidrawCanvas: "Supprimer le canevas Excalidraw",
     transition: "Transition",
     transition_instant: "Instantanée",
@@ -707,6 +710,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Connectez Google Drive pour importer un deck Slides.",
     googleSlidesReferenceChoose: "Choisir un deck Google Slides",
+    googleSlidesReferenceUrl: "Collez un lien Google Slides",
     googleSlidesReferencePicking: "Traitement...",
     googleSlidesReferenceConnected:
       "Connecté. Choisissez un deck Google Slides à importer comme référence réutilisable.",

@@ -7,8 +7,10 @@ import { getSetting } from "../settings/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
+import { isFreeEmailProvider } from "./free-email-providers.js";
 import {
-  invalidateRequestMemberOrgIds,
+  cachedMemberships,
+  invalidateMemberOrgCaches,
   requestMemberOrgIds,
 } from "./request-org-cache.js";
 import type { OrgContext, OrgRole } from "./types.js";
@@ -256,9 +258,14 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   // signal. Recognizing the personal workspace by its *name* instead breaks the
   // moment the provider display name or the workspace name changes, which
   // strands an existing user in Personal with no way into their company org.
+  // `isFreeEmailProvider` short-circuits before the round trip rather than
+  // relying on the negative cache inside `autoJoinDomainMatchingOrgs`: a
+  // consumer-email domain can NEVER match (see `org/handlers.ts`, which refuses
+  // to set `allowed_domain` to a free provider), so it needs no TTL at all.
   const shouldTryDomainAutoJoin =
     !explicitPersonal &&
     emailDomain !== null &&
+    !isFreeEmailProvider(emailDomain) &&
     !memberships.some((m) => m.allowedDomain?.toLowerCase() === emailDomain);
 
   if (
@@ -388,6 +395,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
 
 async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
+  return cachedMemberships(email, () => loadMembershipsUncached(email));
+}
+
+async function loadMembershipsUncached(
+  email: string,
+): Promise<MembershipRow[] | null> {
   const rows = await queryOrgMembers({
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
                  o.allowed_domain AS "allowedDomain"
@@ -508,7 +521,7 @@ export async function createOrganization(
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
     args: [nanoid(), id, email, role, createdAt],
   });
-  invalidateRequestMemberOrgIds();
+  invalidateMemberOrgCaches();
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
 
@@ -693,7 +706,7 @@ async function tryCreateDefaultOrg(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), orgId, email, "owner", now],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "auto-created default organization");
 

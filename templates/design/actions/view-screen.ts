@@ -221,6 +221,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
+  readOnly: true,
   run: async (_, ctx) => {
     const [navigation, designSelection] = await Promise.all([
       readAppStateForCurrentTab("navigation"),

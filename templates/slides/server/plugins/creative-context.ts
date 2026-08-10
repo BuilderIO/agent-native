@@ -165,7 +165,7 @@ registerOnboardingStep({
       kind: "link",
       primary: true,
       label: "Open Library",
-      payload: { url: "/agent#library", external: false },
+      payload: { url: "/settings/library", external: false },
     },
   ],
   isComplete: async () => {

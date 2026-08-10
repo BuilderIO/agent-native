@@ -18,7 +18,10 @@ import {
   useBuilderStatus,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
+import {
+  CreativeContextSettingsLink,
+  createCreativeContextAgentTab,
+} from "@agent-native/creative-context/client";
 import {
   IconAlertCircle,
   IconCheck,
@@ -87,7 +90,9 @@ type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 export default function SettingsPage() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    agentAdditionalTabFactories: [createCreativeContextAgentTab],
+  });
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };

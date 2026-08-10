@@ -3191,7 +3191,7 @@ export function CreativeContextPanel({
                                   : t("creativeContext.applyBrandContext")}
                               </Button>
                               <Button asChild type="button" variant="outline">
-                                <a href="/agent">
+                                <a href="/settings/agent">
                                   {t("creativeContext.generateWithContext")}
                                   <IconArrowUpRight />
                                 </a>

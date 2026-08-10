@@ -9,13 +9,28 @@ import {
   imagePreviewMarkdown,
 } from "../server/lib/assets-image-delegation.js";
 import {
+  insertImageIntoSlideHtml,
+  slideHtmlContainsImageSource,
+} from "../server/lib/slide-image-insertion.js";
+import {
   DEFAULT_STYLE_REFERENCE_URLS,
   normalizeReferenceUrls,
 } from "../shared/api.js";
+import getDeckAction from "./get-deck.js";
+import updateSlideAction from "./update-slide.js";
 
 interface ReferenceImage {
   data: string; // base64
   mimeType: string;
+}
+
+interface DeckSlide {
+  id?: string;
+  content?: unknown;
+}
+
+interface DeckWithSlides {
+  slides?: DeckSlide[];
 }
 
 async function urlToReferenceImage(
@@ -33,6 +48,83 @@ async function urlToReferenceImage(
   }
 }
 
+function parseGeneratedImageUrl(url: string | undefined): string {
+  if (!url) {
+    throw new Error(
+      "Image generation did not return a parseable image URL for insertion",
+    );
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("unsupported protocol");
+    }
+    return parsed.toString();
+  } catch {
+    throw new Error(
+      "Image generation did not return a parseable image URL for insertion",
+    );
+  }
+}
+
+async function insertGeneratedImage({
+  deckId,
+  slideId,
+  prompt,
+  url,
+}: {
+  deckId: string | undefined;
+  slideId: string | undefined;
+  prompt: string;
+  url: string | undefined;
+}): Promise<{ inserted: true; url: string }> {
+  if (!deckId || !slideId) {
+    throw new Error(
+      "deckId and slideId are required when insertIntoSlide is true",
+    );
+  }
+
+  const imageUrl = parseGeneratedImageUrl(url);
+  const deck = (await getDeckAction.run({ id: deckId })) as DeckWithSlides;
+  const slide = deck.slides?.find((candidate) => candidate.id === slideId);
+  if (!slide || typeof slide.content !== "string") {
+    throw new Error(
+      `Slide ${slideId} was not found in deck ${deckId} for image insertion`,
+    );
+  }
+
+  const fullContent = insertImageIntoSlideHtml(slide.content, imageUrl, {
+    alt: prompt,
+  });
+  const update = await updateSlideAction.run({
+    deckId,
+    slideId,
+    fullContent,
+    preserveSource: true,
+  });
+  if (!update.ok || !("applied" in update) || !update.applied) {
+    throw new Error(`Image insertion was not applied to slide ${slideId}`);
+  }
+
+  const verifiedDeck = (await getDeckAction.run({
+    id: deckId,
+  })) as DeckWithSlides;
+  const verifiedSlide = verifiedDeck.slides?.find(
+    (candidate) => candidate.id === slideId,
+  );
+  if (
+    !verifiedSlide ||
+    typeof verifiedSlide.content !== "string" ||
+    !slideHtmlContainsImageSource(verifiedSlide.content, imageUrl)
+  ) {
+    throw new Error(
+      `Image insertion could not be verified on slide ${slideId}`,
+    );
+  }
+
+  return { inserted: true, url: imageUrl };
+}
+
 export default defineAction({
   description:
     "Generate a slide image. Delegates to the Assets app over A2A so generations use the brand library, presets, and audit log; falls back to a local Gemini/OpenAI key only when Assets is unreachable. Show the returned `url` to the user as an inline markdown image (![alt](url)) so it renders in chat, never as a bare link.",
@@ -46,6 +138,13 @@ export default defineAction({
       ),
     deckId: z.string().optional().describe("Deck the image is destined for"),
     slideId: z.string().optional().describe("Slide the image is destined for"),
+    insertIntoSlide: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Insert the generated image into deckId/slideId and verify it persisted",
+      ),
     slideContent: z
       .string()
       .optional()
@@ -60,6 +159,11 @@ export default defineAction({
     if (!prompt?.trim()) {
       throw new Error("Prompt is required");
     }
+    if (args.insertIntoSlide && (!args.deckId || !args.slideId)) {
+      throw new Error(
+        "deckId and slideId are required when insertIntoSlide is true",
+      );
+    }
 
     const delegation = await delegateImageGenerationToAssets({
       prompt,
@@ -73,6 +177,14 @@ export default defineAction({
       const url = extractAssetUrl(delegation.reply, {
         baseUrl: delegation.target,
       });
+      const insertion = args.insertIntoSlide
+        ? await insertGeneratedImage({
+            deckId: args.deckId,
+            slideId: args.slideId,
+            prompt,
+            url: url ?? undefined,
+          })
+        : {};
       return {
         source: "assets-a2a" as const,
         prompt,
@@ -80,6 +192,7 @@ export default defineAction({
         // rather than guessing at URLs it did not return.
         reply: delegation.reply,
         ...(url ? { url, showToUser: imagePreviewMarkdown(prompt, url) } : {}),
+        ...insertion,
       };
     }
 
@@ -128,6 +241,15 @@ export default defineAction({
       );
     }
 
+    const insertion = args.insertIntoSlide
+      ? await insertGeneratedImage({
+          deckId: args.deckId,
+          slideId: args.slideId,
+          prompt,
+          url: uploaded.url,
+        })
+      : {};
+
     return {
       source: "slides-fallback" as const,
       fallbackReason: delegation.reason,
@@ -135,6 +257,7 @@ export default defineAction({
       url: uploaded.url,
       model: result.model,
       prompt,
+      ...insertion,
     };
   },
 });

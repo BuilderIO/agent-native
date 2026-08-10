@@ -1,6 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
@@ -25,6 +25,7 @@ import {
   recordFirstPartyAnalyticsQueryPressure,
 } from "./first-party-analytics-health.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
+import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -179,6 +180,68 @@ export async function listAnalyticsPublicKeys(
     revokedAt: row.revokedAt ?? null,
     orgId: row.orgId ?? null,
   }));
+}
+
+/** How stale the last-used stamp must be before a request pays to refresh it. */
+const LAST_USED_AT_REFRESH_MS = 60_000;
+
+/**
+ * Refresh a public key's last-used stamp without serializing ingest behind it.
+ *
+ * This UPDATE used to sit inside the ingest transaction, so every concurrent
+ * request for one public key took an exclusive row lock on that key's row and
+ * held it until the transaction committed — which meant through the rollup
+ * upsert. Production stacked 36 writers on three hot rows waiting 38-57s each;
+ * that exhausted the connection pool, and the whole app stopped loading while
+ * Postgres reported "no server connection available, client being queued". The
+ * stamp is bookkeeping: it needs neither atomicity with the events nor
+ * second-precision, and losing one is harmless.
+ *
+ * The staleness predicate throttles in SQL rather than in the caller, because
+ * Postgres only locks rows an UPDATE actually matches — a request whose key was
+ * stamped seconds ago matches nothing and takes no lock at all. Doing the same
+ * check in JS would reintroduce the convoy, since every racing request would
+ * still issue its own unconditional write.
+ *
+ * `last_used_at` is TEXT holding ISO-8601 UTC (always `Z`-suffixed), so `lt` is
+ * a lexicographic comparison that happens to be chronological. Storing a local
+ * or offset-bearing timestamp here would silently break this ordering.
+ */
+export async function touchPublicKeyLastUsedAt(
+  keyId: string,
+  receivedAt: string,
+): Promise<void> {
+  const parsed = Date.parse(receivedAt);
+  if (!Number.isFinite(parsed)) {
+    console.warn(
+      "[first-party-analytics] Skipping last-used stamp: unparseable receivedAt",
+      receivedAt,
+    );
+    return;
+  }
+  const staleBefore = new Date(parsed - LAST_USED_AT_REFRESH_MS).toISOString();
+  try {
+    const db = await getDb();
+    await db
+      .update(schema.analyticsPublicKeys)
+      .set({ lastUsedAt: receivedAt })
+      .where(
+        and(
+          eq(schema.analyticsPublicKeys.id, keyId),
+          or(
+            isNull(schema.analyticsPublicKeys.lastUsedAt),
+            lt(schema.analyticsPublicKeys.lastUsedAt, staleBefore),
+          ),
+        ),
+      );
+  } catch (error) {
+    // Best-effort by design: a failed stamp must not reject an ingest whose
+    // events already committed. Loud enough to see if it starts failing always.
+    console.warn(
+      "[first-party-analytics] Failed to refresh key last-used stamp:",
+      error,
+    );
+  }
 }
 
 function parseReplayAllowedOrigins(value: unknown): string[] {
@@ -516,6 +579,7 @@ export async function recordAnalyticsEvents(
     orgId: key.orgId ?? null,
   });
 
+  let bigQueryInsertError: unknown = null;
   if (rows.length && (backend.sink === "dual" || backend.sink === "bigquery")) {
     try {
       await runWithRequestContext(
@@ -526,31 +590,50 @@ export async function recordAnalyticsEvents(
         () => insertFirstPartyAnalyticsRows(rows, backend.table),
       );
     } catch (error) {
-      if (backend.sink === "bigquery") throw error;
+      if (backend.sink === "bigquery") {
+        // Keep SQL-only exception issues, public-key metadata, and session
+        // replay links durable even when the warehouse is temporarily down.
+        // The request still fails below so callers do not mistake a warehouse
+        // outage for a successful BigQuery write.
+        bigQueryInsertError = error;
+      }
       // Dual-write mode keeps Postgres as the recoverable source until the
       // backfill has completed. A BigQuery outage must not lose live events.
-      console.error(
-        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-        error,
-      );
+      if (backend.sink === "dual") {
+        console.error(
+          "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+          error,
+        );
+      }
     }
   }
 
+  let postgresInsertError: unknown = null;
   if (rows.length && backend.sink !== "bigquery") {
-    await db.transaction(async (tx: any) => {
-      await tx.insert(schema.analyticsEvents).values(rows);
-      await tx
-        .update(schema.analyticsPublicKeys)
-        .set({ lastUsedAt: receivedAt })
-        .where(eq(schema.analyticsPublicKeys.id, key.id));
-      await upsertFirstPartyAnalyticsRollups(rows, tx);
-    });
+    try {
+      await db.transaction(async (tx: any) => {
+        if (backend.sink === "postgres" || backend.sink === "dual") {
+          await reserveFirstPartyPostgresEventVolume(
+            tx,
+            {
+              ownerEmail: key.ownerEmail,
+              orgId: key.orgId ?? null,
+              receivedAt,
+            },
+            rows.length,
+          );
+        }
+        await tx.insert(schema.analyticsEvents).values(rows);
+        await upsertFirstPartyAnalyticsRollups(rows, tx);
+      });
+    } catch (error) {
+      // Preserve SQL-only exception issues and public-key metadata below even
+      // when a Postgres volume reservation or insert rejects the batch.
+      postgresInsertError = error;
+    }
   }
-  if (rows.length && backend.sink === "bigquery") {
-    await db
-      .update(schema.analyticsPublicKeys)
-      .set({ lastUsedAt: receivedAt })
-      .where(eq(schema.analyticsPublicKeys.id, key.id));
+  if (rows.length) {
+    await touchPublicKeyLastUsedAt(key.id, receivedAt);
   }
 
   // Fork captured exceptions into the dedicated error-capture tables. This is
@@ -571,6 +654,9 @@ export async function recordAnalyticsEvents(
       console.warn("[first-party-analytics] Exception ingest failed:", error);
     }
   }
+
+  if (bigQueryInsertError) throw bigQueryInsertError;
+  if (postgresInsertError) throw postgresInsertError;
 
   return { accepted: rows.length, keyId: key.id };
 }
