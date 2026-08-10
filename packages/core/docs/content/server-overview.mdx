@@ -85,7 +85,7 @@ The `server/` directory is the infrastructure layer of an agent-native app. It h
 
 ## Where the Server Fits {#role}
 
-In a traditional web app, the server is where most logic lives. Business rules, data access, and presentation all happen inside route handlers. Agent-native apps work differently. Logic lives in actions, which the agent and UI share as equal partners. The server's job is coordination: run database migrations, configure authentication, mount the agent loop, and handle the narrow set of HTTP concerns that actions can't express on their own.
+In a traditional web app, the server is where most logic lives. Business rules, data access, and presentation all happen inside route handlers. Agent-native apps work differently. Logic lives in actions, which the agent and UI share as equal partners. The server's job is coordination: apply app-owned database migrations, configure authentication, mount the agent loop, and handle the narrow set of HTTP concerns that actions can't express on their own.
 
 <Diagram id="doc-block-server-overview-2" title="Traditional server vs. Agent Native">
 
@@ -194,19 +194,19 @@ Browser requests, the agent loop, and external API clients all route through the
 
 These are the directories and files inside `server/` that every agent-native app ships. Each corresponds to a specific piece of the server layer: what it does, when to reach for it, and how it connects to the rest of the framework.
 
-| Page                                      | What it covers                                                                      |
-| ----------------------------------------- | ----------------------------------------------------------------------------------- |
-| **[Database](/docs/server-database)**     | Schema definition with `table()` helpers, `getDb`, and ownable table patterns       |
-| **[Middleware](/docs/server-middleware)** | Auth guards in `server/middleware/` and why they run there instead of in a plugin   |
-| **[Plugins](/docs/server-plugins)**       | The three startup plugins every app ships: db migrations, auth, and agent-chat      |
-| **[Routes](/docs/server-routes)**         | File-based routes, the SSR catch-all, and scoping custom routes to the request user |
+| Page                                      | What it covers                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| **[Database](/docs/server-database)**     | Schema definition with `table()` helpers, `getDb`, and ownable table patterns        |
+| **[Middleware](/docs/server-middleware)** | Auth guards in `server/middleware/` and why they run there instead of in a plugin    |
+| **[Plugins](/docs/server-plugins)**       | Startup plugins for auth and agent-chat, plus optional app-owned database migrations |
+| **[Routes](/docs/server-routes)**         | File-based routes, the SSR catch-all, and scoping custom routes to the request user  |
 
 ## Nitro {#nitro}
 
 [Nitro](https://nitro.build) is the server toolkit that powers the agent-native HTTP layer. Most of what you'll configure in `server/` is Nitro: file-based routes, startup plugins, and middleware.
 
 - **File-based routing**: the filename maps directly to an HTTP method and URL path, with no registration needed. `server/routes/api/health.get.ts` becomes `GET /api/health` automatically. Visit [Routes](/docs/server-routes) for more details.
-- **Plugins**: code that runs once at server startup, before any request is served. Database migrations, auth configuration, and the agent-chat mount all happen in `server/plugins/`. Visit [Plugins](/docs/server-plugins) for more details.
+- **Plugins**: code that runs once at server startup, before any request is served. Auth configuration and the agent-chat mount happen in `server/plugins/`; app-owned database migrations are optional. Visit [Plugins](/docs/server-plugins) for more details.
 - **Middleware**: code that runs on every incoming request before it reaches a route. The auth guard lives in `server/middleware/`. Visit [Middleware](/docs/server-middleware) for more details.
 
 Nitro is also deployment-agnostic. The same app deploys to Node.js, Cloudflare Workers, Netlify, Vercel, and other runtimes with no code changes. Just set a preset. See [Deployment](/docs/deployment).
@@ -230,5 +230,5 @@ Use custom `/api/*` routes only when you need a route-shaped protocol or binary/
 - [**Actions**](/docs/actions): the default operation surface. Reach for a custom route only when it doesn't fit.
 - [**Database**](/docs/server-database): the `getDb()`/schema pattern custom routes and actions both import
 - [**Middleware**](/docs/server-middleware): auth guards and the `server/middleware/` directory
-- [**Plugins**](/docs/server-plugins): startup plugins for migrations, auth, and the agent
+- [**Plugins**](/docs/server-plugins): startup plugins for auth, the agent, and optional app-owned migrations
 - [**Routes**](/docs/server-routes): file-based routes, request context, and the SSR catch-all

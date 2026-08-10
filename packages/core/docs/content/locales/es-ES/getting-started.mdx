@@ -6,10 +6,9 @@ description: "Crea una aplicación de Chat y configura un agente; después ampl�
 # Primeros pasos
 
 Las aplicaciones Agent-Native dan al agente y a la interfaz de usuario las mismas
-[acciones](/docs/actions), datos SQL y estado de la aplicación. Este es el recorrido
-práctico: empieza con el chat y luego añade una acción y una página. Chat ya incluye
-la configuración de SQL; conviértela en el siguiente paso opcional cuando los
-resultados deban persistir.
+[acciones](/docs/actions), datos SQL y estado de la aplicación. Este recorrido
+empieza con Chat, que ya guarda el historial del chat en SQL. Añade tus propias
+tablas solo cuando tu aplicación necesite conservar datos del dominio.
 
 <Steps>
 
@@ -26,11 +25,6 @@ Define un analizador de texto tipado y muestra su resultado como un gráfico en 
 ### Añade una página
 
 Crea una ruta de React que invoque la misma acción fuera de la transcripción.
-
-### Persiste datos en SQL (opcional)
-
-Añade una tabla y acciones de persistencia cuando los resultados deban conservarse
-entre conversaciones.
 
 </Steps>
 

@@ -105,7 +105,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3000`. The app is ready when **VITE ready** appears in the terminal.
+Open the local URL shown by the dev server. The app is ready when **VITE ready** appears in the terminal.
 
 ### Sign in
 
@@ -130,7 +130,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3000`. The app is ready when **VITE ready** appears in the terminal.
+Open the local URL shown by the dev server. The app is ready when **VITE ready** appears in the terminal.
 
 ### Sign in
 
@@ -377,13 +377,17 @@ Use a fenced code block with the `mermaid` language tag. Mermaid supports flowch
       note: "New action — callable from agent, UI, and CLI",
     },
     { path: "actions/list-text-analyses.ts", change: "added" },
-    { path: "app/routes/analyses.tsx", change: "modified" },
+    { path: "app/routes/analyses.tsx", change: "added" },
     {
-      path: "app/config/nav.ts",
-      change: "modified",
-      note: "Add the new route to the sidebar nav",
+      path: "server/db/schema.ts",
+      change: "added",
+      note: "Define the app-owned table",
     },
-    { path: "db/migrations/001_analyses.sql" },
+    {
+      path: "server/plugins/db.ts",
+      change: "added",
+      note: "Run additive migrations",
+    },
   ]}
 />
 
@@ -397,13 +401,17 @@ Use a fenced code block with the `mermaid` language tag. Mermaid supports flowch
       note: "New action — callable from agent, UI, and CLI",
     },
     { path: "actions/list-text-analyses.ts", change: "added" },
-    { path: "app/routes/analyses.tsx", change: "modified" },
+    { path: "app/routes/analyses.tsx", change: "added" },
     {
-      path: "app/config/nav.ts",
-      change: "modified",
-      note: "Add the new route to the sidebar nav",
+      path: "server/db/schema.ts",
+      change: "added",
+      note: "Define the app-owned table",
     },
-    { path: "db/migrations/001_analyses.sql" },
+    {
+      path: "server/plugins/db.ts",
+      change: "added",
+      note: "Run additive migrations",
+    },
   ]}
 />
 ```

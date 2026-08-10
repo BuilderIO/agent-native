@@ -7,13 +7,15 @@ description: "Erstellen Sie eine React-Route, die Ihre Aktion aufruft und ihr Er
 
 Dies ist der dritte Teil der Reihe „Erste Schritte“. In [Eine Aktion hinzufügen](/docs/getting-started-actions)
 haben Sie `analyze-text` erstellt. Hier rufen Sie dieselbe Aktion aus einer Route
-auf. Eine Datenbank wird noch nicht benötigt: Chat enthält bereits die
-SQL-Laufzeitumgebung für den Fall, dass Sie Fachdaten speichern müssen.
+auf. Für dieses Beispiel ist keine neue Datenbanktabelle erforderlich. Chat
+speichert den Chatverlauf bereits in SQL; fügen Sie eigene Tabellen hinzu, wenn
+Sie Fachdaten speichern müssen.
 
 ## Die Route erstellen {#add-a-page}
 
-Routendateien in `app/routes/` werden automatisch erkannt. Erstellen Sie
-`app/routes/text-analyses.tsx`; die Route ist dann unter
+Der Entwicklungsserver liest Routendateien beim Start. Erstellen Sie
+`app/routes/text-analyses.tsx` und starten Sie `pnpm dev` neu, falls es bereits
+läuft. Die Route ist dann unter
 `http://localhost:8080/text-analyses` verfügbar.
 
 ```tsx filename="app/routes/text-analyses.tsx"

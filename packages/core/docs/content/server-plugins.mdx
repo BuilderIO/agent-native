@@ -21,7 +21,7 @@ Apps that need custom database tables add a third:
 
 ```text
 server/plugins/
-  db.ts          -> run migrations on startup
+  db.ts          -> register app-owned migrations for local startup
 ```
 
 ## Auth Plugin {#auth-plugin}
@@ -80,7 +80,7 @@ screen when context matters.`,
 
 ## Database Plugin {#database-plugin}
 
-If your app defines custom database tables, add `server/plugins/db.ts` to run schema migrations at startup. It uses `runMigrations` from `@agent-native/core/db`:
+If your app defines custom database tables, add `server/plugins/db.ts` to register schema migrations for local startup. It uses `runMigrations` from `@agent-native/core/db`:
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
@@ -108,6 +108,12 @@ Each entry needs a `version` number and a `sql` string. Give it a stable `name` 
 <Callout tone="warning">
   Migrations must be additive. Never put destructive SQL (`DROP TABLE`, `ALTER
   TABLE ... DROP COLUMN`, `DELETE FROM`) in startup plugins.
+</Callout>
+
+<Callout tone="warning">
+  For production or serverless deployments, run migrations in a release or
+  deploy step instead of on the first request. The Chat template provides `pnpm
+  migrate:production` for this.
 </Callout>
 
 ## Writing Custom Plugins {#custom-plugins}

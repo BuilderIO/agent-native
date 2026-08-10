@@ -110,7 +110,7 @@ An app that uses the database needs three files:
 
 - `server/db/schema.ts`: table definitions
 - `server/db/index.ts`: the typed DB client singleton
-- `server/plugins/db.ts`: migrations that run at startup
+- `server/plugins/db.ts`: app-owned migrations for local startup
 
 ### 1. Define your schema {#schema}
 
@@ -208,7 +208,8 @@ Import `getDb` from this template-local path in actions and routes. Do not impor
 
 ### 3. Write migrations {#migrations}
 
-Schema changes are applied at startup via a Nitro plugin in `server/plugins/db.ts`. Use `runMigrations` from `@agent-native/core/db`:
+For local development, schema changes can run through a Nitro plugin in
+`server/plugins/db.ts`. Use `runMigrations` from `@agent-native/core/db`:
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +243,15 @@ Schema changes are applied at startup via a Nitro plugin in `server/plugins/db.t
   ]}
 />
 
-`runMigrations` runs each entry in order once, then records the version so it is skipped on future restarts. Entries are idempotent. The plugin is safe to call on every boot.
+`runMigrations` runs each pending entry in order once, records it as applied, and
+skips it on later runs. Give new entries a stable `name`; named migrations are
+tracked independently of their version number.
+
+<Callout tone="warning">
+  For production or serverless deployments, run migrations in a release or
+  deploy step instead of on the first request. The Chat template provides `pnpm
+  migrate:production` for this.
+</Callout>
 
 <Callout tone="warning">
   Give every new migration a stable `name` (e.g. `{ version: 4, name:

@@ -7,9 +7,9 @@ description: "Créez une application Chat et configurez un agent, puis étendez-
 
 Les applications Agent-Native donnent à l’agent et à l’interface utilisateur les
 mêmes [actions](/docs/actions), données SQL et état de l’application. Ce parcours
-pratique commence par le chat, puis ajoute une action et une page. SQL est déjà
-configuré dans Chat et devient une étape facultative lorsque les résultats
-doivent être conservés.
+commence avec Chat, qui stocke déjà l’historique des conversations dans SQL.
+Ajoutez vos propres tables uniquement lorsque votre application doit conserver
+des données métier.
 
 <Steps>
 
@@ -28,11 +28,6 @@ graphique dans le chat.
 ### Ajouter une page
 
 Créez une route React qui appelle la même action en dehors de la transcription.
-
-### Conserver les données dans SQL (facultatif)
-
-Ajoutez une table et des actions de persistance lorsque les résultats doivent
-survivre aux conversations.
 
 </Steps>
 

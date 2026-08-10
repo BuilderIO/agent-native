@@ -5,11 +5,11 @@ description: "构建一个调用动作并显示其结果的 React 路由。"
 
 # 添加页面
 
-这是 Getting Started 系列的第三部分。在[添加动作](/docs/getting-started-actions)中，你创建了 `analyze-text`。现在，你将从路由调用同一个动作。目前还不需要数据库：Chat 已经包含了 SQL 运行时，供你在需要持久化领域数据时使用。
+这是 Getting Started 系列的第三部分。在[添加动作](/docs/getting-started-actions)中，你创建了 `analyze-text`。现在，你将从路由调用同一个动作。这个示例不需要新的数据库表。Chat 已经将聊天记录存储在 SQL 中；只有在需要持久化领域数据时，才添加自己的数据表。
 
 ## 创建路由 {#add-a-page}
 
-`app/routes/` 中的路由文件会自动被识别。创建 `app/routes/text-analyses.tsx`；它将在 `http://localhost:8080/text-analyses` 提供服务。
+开发服务器会在启动时读取路由文件。创建 `app/routes/text-analyses.tsx`；如果 `pnpm dev` 已在运行，请创建文件后重启它。路由将在 `http://localhost:8080/text-analyses` 提供服务。
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
