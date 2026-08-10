@@ -67,7 +67,7 @@ describe("new deck generation flow", () => {
   });
 
   it("turns an imported PPTX into a reusable reference deck", () => {
-    expect(flow).toContain('callAction("import-pptx"');
+    expect(flow).toMatch(/callAction\(\s*"import-pptx"/);
     expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
     expect(flow).toContain("const generationFiles = uploaded.filter");
     expect(flow).toContain("referenceSelection = {");
@@ -75,7 +75,7 @@ describe("new deck generation flow", () => {
   });
 
   it("imports an uploaded PDF into a reusable reference deck", () => {
-    expect(flow).toContain('callAction("import-file"');
+    expect(flow).toMatch(/callAction\(\s*"import-file"/);
     expect(flow).toContain('format: "pdf"');
     expect(flow).toContain("importIntoDeck: true");
     expect(flow).toContain("The PDF reference deck could not be imported.");
@@ -84,8 +84,8 @@ describe("new deck generation flow", () => {
   it("supports direct imports from the new-deck prompt", () => {
     expect(flow).toContain("const handleDirectImport");
     expect(flow).toContain("presentationUrl: selection.url");
-    expect(flow).toContain('callAction("import-pptx"');
-    expect(flow).toContain('callAction("import-file"');
+    expect(flow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(flow).toMatch(/callAction\(\s*"import-file"/);
     expect(source).toContain('importFromLabel={t("home.importFrom")}');
   });
 });
