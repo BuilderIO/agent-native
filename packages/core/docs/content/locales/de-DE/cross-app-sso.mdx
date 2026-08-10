@@ -184,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 Das gesamte Modell basiert auf ein paar bewusst kleinen Garantien:
 
 - **Kurzlebiges signiertes Token.** Die Identitätszusicherung ist ein `A2A_SECRET`-signiertes JWT mit einem **≤ 2-Minuten** Ablaufdatum und `scope: "identity"`. Es autorisiert eine einmalige Anmeldung und kann nicht für längere Zeit wiedergegeben oder für den API/A2A-Zugriff umgewidmet werden.
-- **Strikte `redirect_uri`-Zulassungsliste.** Dispatch leitet standardmäßig immer nur zu `*.agent-native.com` oder localhost weiter. Beliebige, schemarelative (`//host`) und Cross-Origin-Redirect-Ziele werden abgelehnt, sodass die Autorität nicht in ein Open-Redirect- oder Token-Exfiltration-Orakel umgewandelt werden kann.
+- **Strikte, app-gebundene `redirect_uri`-Zulassungsliste.** Jede kanonische App-ID ist genau einer Produktions-Origin und Callback-Route zugeordnet; localhost bleibt für die Entwicklung verfügbar. Unbekannte Subdomains, nicht passende App-IDs, beliebige Pfade und Cross-Origin-Ziele werden abgelehnt.
 - **Nur E-Mail-Beitritt von einem verifizierten Token aus.** Das Einzige, was die Vertrauensgrenze überschreitet, ist die verifizierte E-Mail in einem signierten Token. Die App akzeptiert keine Benutzer-ID, Rolle, Organisationsmitgliedschaft oder einen privilegierten Status aus der Verbindung – sie leitet alles lokal vom übereinstimmenden Konto ab.
 - **Nur additive Identitätsschreibvorgänge.** Beim Verknüpfen wird entweder ein vorhandenes Konto mit derselben E-Mail-Adresse unverändert wiederverwendet oder ein neues eingefügt. Auf diesem Pfad findet niemals eine Aktualisierung, Umbenennung, Neuzuweisung oder Löschung von Identitätszeilen statt.
 - **Standardmäßig deaktiviert.** Wenn `AGENT_NATIVE_IDENTITY_HUB_URL` deaktiviert ist, ist die gesamte Funktion inaktiv.
@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Zulassungsliste für Weiterleitungen.** Der Hub (Dispatch) validiert `redirect_uri` auf dem Autorisierungsendpunkt, bevor er ein Token ausstellt. Die Zulassungsliste wird in `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Standard:** Nur `*.agent-native.com` und localhost (die `DEFAULT_ALLOWED_HOST_SUFFIXES`-Konstante).
+- **Standard:** Nur exakt registrierte Agent-Native-App-ID/Origin-Paare und localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Erweitern:** Legen Sie die Umgebungsvariable `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` in der Dispatch-Bereitstellung mit einer durch Kommas getrennten Liste zusätzlicher Hostsuffixe fest:
 
   ```bash

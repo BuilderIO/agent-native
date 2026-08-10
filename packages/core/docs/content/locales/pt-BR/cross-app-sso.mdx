@@ -184,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 Todo o modelo se baseia em algumas garantias deliberadamente pequenas:
 
 - **Token assinado de curta duração.** A declaração de identidade é um JWT assinado por `A2A_SECRET` com expiração de **≤ 2 minutos** e `scope: "identity"`. Ele autoriza um único login e não pode ser reproduzido por muito tempo ou reaproveitado para acesso API/A2A.
-- **Lista de permissões `redirect_uri` estrita.** O despacho apenas redireciona para `*.agent-native.com` ou localhost por padrão. Os alvos de redirecionamento arbitrários, relativos ao esquema (`//host`) e de origem cruzada são rejeitados, portanto, a autoridade não pode ser transformada em um oráculo de redirecionamento aberto ou de exfiltração de token.
+- **Lista de permissões estrita de `redirect_uri` vinculada ao aplicativo.** Cada ID de aplicativo canônico corresponde a uma origem de produção e um caminho de callback exatos; localhost continua disponível para desenvolvimento. Subdomínios desconhecidos, IDs incompatíveis, caminhos arbitrários e destinos de origem cruzada são rejeitados.
 - **Junção somente por e-mail a partir de um token verificado.** A _única_ coisa que ultrapassa o limite de confiança é o e-mail verificado em um token assinado. O aplicativo não aceita ID de usuário, função, associação à organização ou qualquer estado privilegiado da transmissão. Ele deriva tudo localmente da conta correspondente.
 - **Gravações de identidade somente aditivas.** A vinculação reutiliza uma conta de mesmo e-mail existente intacta ou insere uma nova. Nenhuma atualização, renomeação, reposicionamento ou exclusão de linhas de identidade ocorre nesse caminho.
 - **Desativado por padrão.** Com `AGENT_NATIVE_IDENTITY_HUB_URL` não definido, todo o recurso fica inerte.
@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Lista de permissões de redirecionamento.** O hub (Dispatch) valida `redirect_uri` no endpoint autorizado antes de emitir um token. A lista de permissões está configurada em `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Padrão:** somente `*.agent-native.com` e localhost (a constante `DEFAULT_ALLOWED_HOST_SUFFIXES`).
+- **Padrão:** somente pares exatos de ID/origem de aplicativos Agent Native registrados e localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Estendendo:** defina a variável de ambiente `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` na implantação do Dispatch com uma lista separada por vírgulas de sufixos de host adicionais:
 
   ```bash

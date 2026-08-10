@@ -102,7 +102,7 @@ vi.mock("./identity-sso-store.js", () => ({
       const parsed = new URL(origin);
       return (
         parsed.protocol === "https:" &&
-        /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.agent-native\.com$/.test(
+        ["mail.agent-native.com", "calendar.agent-native.com"].includes(
           parsed.hostname,
         )
       );
@@ -234,6 +234,11 @@ describe("identity SSO — env-unset is a no-op", () => {
     ).toBeUndefined();
     expect(
       resolveIdentityHubUrl(ev({ host: "evil.example", userAgent: desktop })),
+    ).toBeUndefined();
+    expect(
+      resolveIdentityHubUrl(
+        ev({ host: "unknown.agent-native.com", userAgent: desktop }),
+      ),
     ).toBeUndefined();
   });
 

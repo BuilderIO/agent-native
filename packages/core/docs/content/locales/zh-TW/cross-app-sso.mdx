@@ -184,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 整個模型依賴於一些故意的小保證：
 
 - **短暫的簽名權杖。**身分斷言是 `A2A_SECRET` 簽名的 JWT，具有 **≤ 2 分鐘** 到期時間和 `scope: "identity"`。它授權單次登入，並且不能長時間重播或重新用於 API/A2A 存取。
-- **嚴格的 `redirect_uri` 允許清單。** 預設情況下，調度僅重新導向到 `*.agent-native.com` 或本機主機。任意、方案相關 (`//host`) 和跨域重新導向目標都會被拒絕，因此權限無法轉變為開放重新導向或權杖滲透預言機。
+- **與應用程式綁定的嚴格 `redirect_uri` 允許清單。** 每個正式應用程式 ID 都對應一個精確的正式環境來源和回呼路徑；localhost 仍可用於開發。未知子網域、不相符的應用程式 ID、任意路徑和跨來源目標都會被拒絕。
 - **從經過驗證的權杖僅透過電子郵件加入。** 跨越信任邊界的*唯一*事物是簽名權杖中經過驗證的電子郵件。該應用程式不接受來自線路的使用者 ID、角色、組織成員資格或任何特權狀態 - 它從匹配的帳戶在本機派生所有內容。
 - **僅新增身分寫入。**連結可以不受影響地重複使用現有的同一電子郵件帳戶，也可以插入一個新帳戶。此路徑上不會發生任何身分行的更新、重新命名、重新指向或刪除。
 - **預設情況下關閉。**如果取消設定 `AGENT_NATIVE_IDENTITY_HUB_URL`，則整個功能將處於惰性狀態。
@@ -260,7 +260,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **重新導向允許清單。** 集線器（調度）在發出權杖之前驗證授權端點上的 `redirect_uri`。允許名單在`templates/dispatch/server/lib/identity-sso.ts`中設定：
 
-- **預設值：** 僅 `*.agent-native.com` 和 localhost（`DEFAULT_ALLOWED_HOST_SUFFIXES` 常量）。
+- **預設值：** 僅允許精確註冊的 Agent Native 應用程式 ID/來源組合和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
 - **擴充功能它：**在 Dispatch 部署上設定 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 環境變數，並使用逗號分隔的其他主機後綴清單：
 
   ```bash

@@ -147,6 +147,9 @@ describe("Desktop SSO Canary request classifiers", () => {
       store.isCanonicalAgentNativeAppOrigin("https://mail.agent-native.com"),
     ).toBe(true);
     expect(
+      store.isCanonicalAgentNativeAppOrigin("https://unknown.agent-native.com"),
+    ).toBe(false);
+    expect(
       store.isCanonicalAgentNativeAppOrigin("http://mail.agent-native.com"),
     ).toBe(false);
     expect(

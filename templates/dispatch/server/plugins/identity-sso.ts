@@ -71,7 +71,7 @@ import {
   IDENTITY_TOKEN_TTL,
   buildIdentityClaims,
   buildRedirectLocation,
-  isAllowedRedirectUri,
+  isAllowedIdentityRedirect,
 } from "../lib/identity-sso.js";
 
 const AVAILABILITY_PATH = "/_agent-native/identity/availability";
@@ -167,11 +167,12 @@ const authorizeHandler = defineEventHandler(
     }
 
     const redirectUri = search.get("redirect_uri");
+    const appId = search.get("app");
     const state = search.get("state");
 
     // ---- Control 1: redirect_uri allowlist (BEFORE any session work) ----
     // An attacker-supplied redirect_uri must never reach the mint path.
-    if (!isAllowedRedirectUri(redirectUri)) {
+    if (!isAllowedIdentityRedirect(appId, redirectUri)) {
       return jsonResponse(
         {
           error: "invalid_redirect_uri",
@@ -183,7 +184,7 @@ const authorizeHandler = defineEventHandler(
         400,
       );
     }
-    // Narrowed to string by isAllowedRedirectUri.
+    // Narrowed to string by isAllowedIdentityRedirect.
     const safeRedirectUri = redirectUri as string;
 
     if (!(await canAttemptWorkspaceSso())) {

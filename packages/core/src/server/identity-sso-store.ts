@@ -35,8 +35,20 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 let _initPromise: Promise<void> | undefined;
 
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
-const CANONICAL_AGENT_NATIVE_APP_HOST =
-  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.agent-native\.com$/;
+const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
+  "https://analytics.agent-native.com",
+  "https://assets.agent-native.com",
+  "https://brain.agent-native.com",
+  "https://calendar.agent-native.com",
+  "https://chat.agent-native.com",
+  "https://clips.agent-native.com",
+  "https://content.agent-native.com",
+  "https://design.agent-native.com",
+  "https://forms.agent-native.com",
+  "https://mail.agent-native.com",
+  "https://plan.agent-native.com",
+  "https://slides.agent-native.com",
+]);
 
 // ---------------------------------------------------------------------------
 // Feature switch — the SINGLE source of truth for whether the federated-SSO
@@ -88,7 +100,12 @@ export function isCanonicalAgentNativeAppOrigin(
     const parsed = new URL(origin);
     return (
       parsed.protocol === "https:" &&
-      CANONICAL_AGENT_NATIVE_APP_HOST.test(parsed.hostname)
+      !parsed.username &&
+      !parsed.password &&
+      parsed.pathname === "/" &&
+      !parsed.search &&
+      !parsed.hash &&
+      CANONICAL_IDENTITY_SSO_APP_ORIGINS.has(parsed.origin)
     );
   } catch {
     return false;

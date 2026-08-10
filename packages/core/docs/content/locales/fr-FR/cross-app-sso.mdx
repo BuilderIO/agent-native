@@ -184,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 L'ensemble du modèle repose sur quelques garanties volontairement petites :
 
 - **Jeton signé de courte durée.** L'assertion d'identité est un JWT signé `A2A_SECRET` avec une expiration **≤ 2 minutes** et `scope: "identity"`. Il autorise une connexion unique et ne peut pas être rejoué longtemps ni réutilisé pour l'accès aux API/A2A.
-- **Liste verte stricte de `redirect_uri`.** La répartition redirige uniquement vers `*.agent-native.com` ou localhost par défaut. Les cibles de redirection arbitraires, relatives au schéma (`//host`) et d'origine croisée sont rejetées, de sorte que l'autorité ne peut pas être transformée en un oracle de redirection ouverte ou d'exfiltration de jetons.
+- **Liste stricte de `redirect_uri` liée à l'application.** Chaque identifiant d'application canonique correspond à une origine de production et à un chemin de rappel exacts ; localhost reste disponible pour le développement. Les sous-domaines inconnus, identifiants incompatibles, chemins arbitraires et destinations inter-origines sont rejetés.
 - **Jointure par e-mail uniquement à partir d'un jeton vérifié.** La seule chose qui traverse la limite de confiance est l'e-mail vérifié dans un jeton signé. L'application n'accepte pas d'identifiant d'utilisateur, de rôle, d'appartenance à une organisation ou tout autre état privilégié du fil : elle dérive tout localement du compte correspondant.
 - **Écrites d'identité additives uniquement.** La liaison réutilise un compte de même adresse existant sans modification ou en insère un nouveau. Aucune mise à jour, renommage, redirection ou suppression des lignes d'identité ne se produit sur ce chemin.
 - **Désactivé par défaut.** Avec `AGENT_NATIVE_IDENTITY_HUB_URL` désactivé, toute la fonctionnalité est inerte.
@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Liste autorisée de redirection.** Le hub (Dispatch) valide `redirect_uri` sur le point de terminaison d'autorisation avant d'émettre un jeton. La liste blanche est configurée dans `templates/dispatch/server/lib/identity-sso.ts` :
 
-- **Par défaut :** `*.agent-native.com` et localhost uniquement (la constante `DEFAULT_ALLOWED_HOST_SUFFIXES`).
+- **Par défaut :** uniquement les paires exactes identifiant/origine des applications Agent Native enregistrées et localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Extension :** définissez la variable d'environnement `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` sur le déploiement Dispatch avec une liste de suffixes d'hôte supplémentaires séparés par des virgules :
 
   ```bash

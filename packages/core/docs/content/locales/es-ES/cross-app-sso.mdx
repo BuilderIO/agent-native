@@ -184,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 Todo el modelo se basa en unas pocas garantías deliberadamente pequeñas:
 
 - **Token firmado de corta duración.** La afirmación de identidad es un JWT firmado por `A2A_SECRET` con una caducidad de **≤ 2 minutos** y `scope: "identity"`. Autoriza un inicio de sesión único y no se puede reproducir por mucho tiempo ni reutilizar para acceder a API/A2A.
-- **Lista de permitidos estricta de `redirect_uri`.** Dispatch solo redirige a `*.agent-native.com` o localhost de forma predeterminada. Se rechazan los objetivos de redireccionamiento arbitrarios, relativos al esquema (`//host`) y de origen cruzado, por lo que la autoridad no se puede convertir en un oráculo de redireccionamiento abierto o de exfiltración de tokens.
+- **Lista estricta de `redirect_uri` vinculada a la aplicación.** Cada ID de aplicación canónica se asigna a un origen de producción y una ruta de callback exactos; localhost sigue disponible para desarrollo. Se rechazan los subdominios desconocidos, los ID que no coinciden, las rutas arbitrarias y los destinos de origen cruzado.
 - **Únase solo por correo electrónico desde un token verificado.** Lo _único_ que cruza el límite de confianza es el correo electrónico verificado en un token firmado. La aplicación no acepta una identificación de usuario, función, membresía de organización ni ningún estado privilegiado de la conexión; deriva todo localmente de la cuenta coincidente.
 - **Escrituras de identidad solo aditivas.** La vinculación reutiliza una misma cuenta de correo electrónico existente intacta o inserta una nueva. Nunca se realizan actualizaciones, cambios de nombre, redireccionamiento ni eliminación de filas de identidad en esta ruta.
 - **Desactivado de forma predeterminada.** Con `AGENT_NATIVE_IDENTITY_HUB_URL` sin configurar, toda la función es inerte.
@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Lista permitida de redireccionamiento.** El concentrador (despacho) valida `redirect_uri` en el punto final autorizado antes de emitir un token. La lista de permitidos está configurada en `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Predeterminado:** `*.agent-native.com` y localhost únicamente (la constante `DEFAULT_ALLOWED_HOST_SUFFIXES`).
+- **Predeterminado:** solo pares exactos de ID/origen de aplicaciones Agent Native registradas y localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Extendiéndolo:** establezca la variable de entorno `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` en la implementación de Dispatch con una lista separada por comas de sufijos de host adicionales:
 
   ```bash

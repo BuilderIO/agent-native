@@ -140,7 +140,7 @@ The flow is a standard authorize → signed-token → callback redirect, with em
     "in": "query",
     "type": "string",
     "required": true,
-    "description": "App callback URL. Validated against a strict allowlist (`*.agent-native.com` or localhost by default)."
+    "description": "App callback URL. Canonical apps must match an exact registered app ID, origin, and callback path; localhost is allowed for development."
   },
   {
     "name": "state",
@@ -156,7 +156,7 @@ The flow is a standard authorize → signed-token → callback redirect, with em
   },
   {
     "status": "400",
-    "description": "`redirect_uri` failed allowlist validation (cross-origin, scheme-relative `//host`, or unlisted suffix)."
+    "description": "`app` and `redirect_uri` failed allowlist validation (mismatched app, cross-origin, scheme-relative `//host`, or unlisted host)."
   }
 ]}>
 
@@ -197,7 +197,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 The whole model rests on a few deliberately small guarantees:
 
 - **Short-lived signed token.** The identity assertion is an `A2A_SECRET`-signed JWT with a **≤ 2-minute** expiry and `scope: "identity"`. It authorizes a single sign-in and cannot be replayed for long or repurposed for API/A2A access.
-- **Strict `redirect_uri` allowlist.** Dispatch only ever redirects to `*.agent-native.com` or localhost by default. Arbitrary, scheme-relative (`//host`), and cross-origin redirect targets are rejected, so the authority can't be turned into an open-redirect or token-exfiltration oracle.
+- **Strict app-bound `redirect_uri` allowlist.** Every canonical app ID maps to one exact production origin and callback path; localhost remains available for development. Unknown subdomains, mismatched app IDs, arbitrary paths, scheme-relative (`//host`), and cross-origin targets are rejected, so the authority can't become a token-exfiltration oracle.
 - **Email-only join from a verified token.** The _only_ thing that crosses the trust boundary is the verified email in a signed token. The app does not accept a user id, role, org membership, or any privileged state from the wire — it derives everything locally from the matched account.
 - **Additive-only identity writes.** Linking either reuses an existing same-email account untouched or inserts a new one. No update, rename, repoint, or delete of identity rows ever happens on this path.
 - **Off by default.** With `AGENT_NATIVE_IDENTITY_HUB_URL` unset, ordinary browser federation is inert. The separately gated packaged Desktop path is described below.
@@ -300,7 +300,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Redirect allowlist.** The hub (Dispatch) validates `redirect_uri` on the authorize endpoint before issuing a token. The allowlist is configured in `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Default:** `*.agent-native.com` and localhost only (the `DEFAULT_ALLOWED_HOST_SUFFIXES` constant).
+- **Default:** exact registered Agent Native app ID/origin pairs and localhost only (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Extending it:** set the `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` environment variable on the Dispatch deployment with a comma-separated list of additional host suffixes:
 
   ```bash
@@ -308,11 +308,11 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
   IDENTITY_SSO_ALLOWED_HOST_SUFFIXES=".yourcompany.com,.staging.yourcompany.com"
   ```
 
-  Each entry is normalized to a dot-prefixed suffix (`.yourcompany.com`), so a suffix check is both sufficient and the least footgun-prone — no per-app list to keep in sync. Entries that would match everything (empty or just `.`) are filtered out.
+  Each entry is normalized to a dot-prefixed suffix (`.yourcompany.com`). Entries that would match everything (empty or just `.`) are filtered out. The request must still provide a valid app ID and the exact `/_agent-native/identity/callback` path.
 
 - **Localhost** is always allowed for local development of client-side apps regardless of `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`.
 
-Without `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, a self-hosted Dispatch can only issue tokens to apps on `*.agent-native.com`. Set the env var on your Dispatch deployment to unlock other domains.
+Without `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, a self-hosted Dispatch can only issue tokens to the exact registered Agent Native app origins. Set the env var on your Dispatch deployment to unlock other domains.
 
 ## Canary rollout runbook {#canary-rollout}
 

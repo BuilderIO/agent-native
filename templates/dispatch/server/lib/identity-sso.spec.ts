@@ -1,13 +1,14 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  DEFAULT_ALLOWED_HOST_SUFFIXES,
+  DEFAULT_ALLOWED_ORIGINS,
   IDENTITY_SCOPE,
   IDENTITY_TOKEN_TTL,
   IDENTITY_TOKEN_TTL_SECONDS,
   buildIdentityClaims,
   buildRedirectLocation,
   getConfiguredHostSuffixes,
+  isAllowedIdentityRedirect,
   isAllowedRedirectUri,
 } from "./identity-sso.js";
 
@@ -25,9 +26,12 @@ describe("isAllowedRedirectUri — the critical open-redirect guard", () => {
       ).toBe(true);
     });
 
-    it("accepts deep first-party subdomains", () => {
+    it("rejects unregistered first-party subdomains", () => {
+      expect(isAllowedRedirectUri("https://unknown.agent-native.com/cb")).toBe(
+        false,
+      );
       expect(isAllowedRedirectUri("https://a.b.c.agent-native.com/cb")).toBe(
-        true,
+        false,
       );
     });
 
@@ -152,8 +156,52 @@ describe("isAllowedRedirectUri — the critical open-redirect guard", () => {
     });
   });
 
-  it("default allowlist is exactly .agent-native.com", () => {
-    expect(DEFAULT_ALLOWED_HOST_SUFFIXES).toEqual([".agent-native.com"]);
+  it("default allowlist contains exact registered app origins", () => {
+    expect(DEFAULT_ALLOWED_ORIGINS).toContain("https://mail.agent-native.com");
+    expect(DEFAULT_ALLOWED_ORIGINS).not.toContain(
+      "https://unknown.agent-native.com",
+    );
+  });
+});
+
+describe("isAllowedIdentityRedirect — app and redirect binding", () => {
+  it("accepts a registered app at its exact callback", () => {
+    expect(
+      isAllowedIdentityRedirect(
+        "mail",
+        "https://mail.agent-native.com/_agent-native/identity/callback",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a mismatched app id and canonical origin", () => {
+    expect(
+      isAllowedIdentityRedirect(
+        "clips",
+        "https://mail.agent-native.com/_agent-native/identity/callback",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects unknown canonical subdomains and non-callback paths", () => {
+    expect(
+      isAllowedIdentityRedirect(
+        "unknown",
+        "https://unknown.agent-native.com/_agent-native/identity/callback",
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedIdentityRedirect("mail", "https://mail.agent-native.com/cb"),
+    ).toBe(false);
+  });
+
+  it("preserves localhost development with a valid app id", () => {
+    expect(
+      isAllowedIdentityRedirect(
+        "mail",
+        "http://localhost:8085/_agent-native/identity/callback",
+      ),
+    ).toBe(true);
   });
 });
 
