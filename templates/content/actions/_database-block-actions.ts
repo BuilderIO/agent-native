@@ -667,6 +667,7 @@ export async function mutateDatabaseBlock(
             identity: loaded.identity,
             mutation: resolved.mutation,
             insertedBlockId: resolved.insertedBlockId,
+            createInsertedDescendantId: () => `block_${nanoid(16)}`,
           });
         } catch (error) {
           mapMutationFailure(error);

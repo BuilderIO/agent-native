@@ -192,6 +192,60 @@ describe("individual Blocks-field document mutations", () => {
     expect(changed.deletedCandidateIds).toEqual([callout.id, child.id]);
   });
 
+  it("keeps every deleted subtree ID tombstoned after an identical fresh insert", () => {
+    const insertedMarkdown = "<callout>\n\tChild\n</callout>";
+    const markdown = `${insertedMarkdown}\nSibling`;
+    let stored = persisted(markdown);
+    const before = exposeBlocksFieldIdentity(stored, markdown);
+    const oldIds = before.blocks.map((block) => block.id);
+    const deleted = mutateBlocksFieldDocument({
+      markdown,
+      identity: before,
+      mutation: { operation: "delete", blockId: before.blocks[0]!.id },
+    });
+    stored = reconcileBlocksFieldIdentity({
+      documentId: "document-1",
+      propertyId: "property-1",
+      previous: stored,
+      markdown: deleted.markdown,
+      preferredIdsByPath: deleted.preferredIdsByPath,
+      createId: () => "unexpected-delete-id",
+    });
+    const deletedIdentity = exposeBlocksFieldIdentity(stored, deleted.markdown);
+    let descendantIndex = 0;
+    const inserted = mutateBlocksFieldDocument({
+      markdown: deleted.markdown,
+      identity: deletedIdentity,
+      mutation: {
+        operation: "insert",
+        block: { kind: "notionCallout", nfm: insertedMarkdown },
+        position: { placement: "start" },
+      },
+      insertedBlockId: "fresh-callout",
+      createInsertedDescendantId: () => `fresh-child-${descendantIndex++}`,
+    });
+    stored = reconcileBlocksFieldIdentity({
+      documentId: "document-1",
+      propertyId: "property-1",
+      previous: stored,
+      markdown: inserted.markdown,
+      preferredIdsByPath: inserted.preferredIdsByPath,
+      createId: () => "unexpected-insert-id",
+    });
+
+    const liveIds = stored.blocks
+      .filter((block) => block.state === "live")
+      .map((block) => block.id);
+    const tombstoneIds = stored.blocks
+      .filter((block) => block.state === "deleted")
+      .map((block) => block.id);
+    expect(liveIds).toEqual(
+      expect.arrayContaining(["fresh-callout", "fresh-child-0"]),
+    );
+    expect(liveIds).not.toEqual(expect.arrayContaining(oldIds.slice(0, 2)));
+    expect(tombstoneIds).toEqual(expect.arrayContaining(oldIds.slice(0, 2)));
+  });
+
   it("reorders within one parent while retaining every stable ID", () => {
     const markdown = "Alpha\nBeta\nGamma";
     const before = identity(markdown);
@@ -284,6 +338,7 @@ describe("individual Blocks-field document mutations", () => {
           position: { placement: "after", anchorBlockId: block!.id },
         },
         insertedBlockId: insertedId,
+        createInsertedDescendantId: createId,
       });
       expect(inserted.changed).toBe(true);
       stored = reconcileBlocksFieldIdentity({

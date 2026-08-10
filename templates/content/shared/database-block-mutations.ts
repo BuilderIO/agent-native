@@ -187,12 +187,36 @@ function preferredIds(
   idByNode: Map<PMNode, string>,
   requestedNode?: PMNode,
   requestedId?: string,
+  createInsertedDescendantId?: () => string,
 ) {
+  const requestedDescendants = new Set<PMNode>();
+  const collectRequestedDescendants = (nodes: PMNode[] | undefined) => {
+    for (const node of nodes ?? []) {
+      requestedDescendants.add(node);
+      collectRequestedDescendants(node.content);
+    }
+  };
+  if (requestedId && requestedNode) {
+    collectRequestedDescendants(requestedNode.content);
+  }
   return Object.fromEntries(
     collectNodeRefs(doc).flatMap((ref) => {
       const id =
         idByNode.get(ref.node) ??
-        (ref.node === requestedNode ? requestedId : undefined);
+        (ref.node === requestedNode
+          ? requestedId
+          : requestedDescendants.has(ref.node)
+            ? createInsertedDescendantId?.()
+            : undefined);
+      if (
+        requestedDescendants.has(ref.node) &&
+        !id &&
+        !createInsertedDescendantId
+      ) {
+        throw new Error(
+          "Inserting a nested block requires fresh descendant Block IDs.",
+        );
+      }
       return id ? [[ref.path, id]] : [];
     }),
   );
@@ -203,6 +227,7 @@ export function mutateBlocksFieldDocument(args: {
   identity: BlocksFieldIdentity;
   mutation: BlockDocumentMutation;
   insertedBlockId?: string;
+  createInsertedDescendantId?: () => string;
 }): BlockDocumentMutationResult {
   const indexed = indexIdentity(args.markdown, args.identity);
   const { doc, byId, idByNode } = indexed;
@@ -286,6 +311,7 @@ export function mutateBlocksFieldDocument(args: {
     idByNode,
     requestedNode,
     args.insertedBlockId,
+    args.createInsertedDescendantId,
   );
   const identityOrderChanged = collectNodeRefs(doc).some(
     (ref, index) =>
