@@ -5,7 +5,7 @@ description: "为你的代理本机应用连接一个便携式 SQL 数据库：s
 
 # 数据库
 
-每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。无论哪一方修改了数据，另一方都会通过轮询层看到变化。
+每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。实时同步使用 SSE，并以轮询作为后备，因此无需手动刷新，变化就会显示在另一端。
 
 <Diagram id="doc-block-9mtx2f" title="数据如何流向数据库" summary="UI 和代理都通过同一个 Actions 层访问数据库。两个调用方使用同一个 getDb() 客户端和同一批 SQL 表，彼此之间没有各自独立的后端。">
 

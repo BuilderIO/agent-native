@@ -5,7 +5,7 @@ description: "Verbinden Sie eine portable SQL-Datenbank mit Ihrer agentennativen
 
 # Datenbank
 
-Jede agentennative App speichert ihren Zustand in SQL. UI und Agent lesen und schreiben dieselben Tabellen über dieselben Actions, mit demselben [Drizzle ORM](https://orm.drizzle.team)-Client. Wenn eine Seite Daten ändert, sieht die andere das über die Polling-Schicht.
+Jede agentennative App speichert ihren Zustand in SQL. UI und Agent lesen und schreiben dieselben Tabellen über dieselben Actions, mit demselben [Drizzle ORM](https://orm.drizzle.team)-Client. Die Live-Synchronisierung verwendet SSE mit Polling als Fallback, sodass Änderungen ohne manuelles Neuladen in der anderen Oberfläche erscheinen.
 
 <Diagram id="doc-block-9mtx2f" title="Wie Daten zur Datenbank fließen" summary="UI und Agent erreichen die Datenbank beide über dieselbe Actions-Schicht. Beide Aufrufer verwenden denselben getDb()-Client und dieselben SQL-Tabellen. Es gibt kein separates Backend für jede Seite.">
 

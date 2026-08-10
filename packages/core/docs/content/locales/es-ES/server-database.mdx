@@ -5,7 +5,7 @@ description: "Conecte una base de datos SQL portátil a su aplicación nativa de
 
 # Base de datos
 
-Toda aplicación nativa del agente almacena su estado en SQL. La UI y el agente leen y escriben las mismas tablas a través de las mismas actions, usando el mismo cliente [Drizzle ORM](https://orm.drizzle.team). Cuando cualquiera de los dos lados cambia datos, el otro lo ve a través de la capa de polling.
+Toda aplicación nativa del agente almacena su estado en SQL. La UI y el agente leen y escriben las mismas tablas a través de las mismas actions, usando el mismo cliente [Drizzle ORM](https://orm.drizzle.team). La sincronización en vivo usa SSE con polling como alternativa, por lo que los cambios aparecen en la otra superficie sin actualizar manualmente.
 
 <Diagram id="doc-block-9mtx2f" title="Cómo fluyen los datos hacia la base de datos" summary="La UI y el agente acceden a la base de datos a través de la misma capa de Actions. Ambos llamantes usan el mismo cliente getDb() y las mismas tablas SQL. No hay un backend independiente para cada uno.">
 

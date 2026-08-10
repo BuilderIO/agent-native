@@ -5,7 +5,7 @@ description: "將便攜式 SQL 資料庫連線到您的 Agent-Native 應用：�
 
 # 資料庫
 
-每個 Agent-Native 應用都將其狀態儲存在 SQL 中。UI 與 agent 都透過同一組 actions，使用同一個 [Drizzle ORM](https://orm.drizzle.team) 用戶端，讀寫相同的資料表。當任一方變更資料時，另一方會透過輪詢層看到變化。
+每個 Agent-Native 應用都將其狀態儲存在 SQL 中。UI 與 agent 都透過同一組 actions，使用同一個 [Drizzle ORM](https://orm.drizzle.team) 用戶端，讀寫相同的資料表。即時同步使用 SSE，並以輪詢作為備援，因此不需手動重新整理，變更就會顯示在另一端。
 
 <Diagram id="doc-block-9mtx2f" title="資料如何流向資料庫" summary="UI 與 agent 都透過同一個 Actions 層存取資料庫。兩者都使用相同的 getDb() 用戶端與相同的 SQL 資料表。並不存在各自獨立的後端。">
 
