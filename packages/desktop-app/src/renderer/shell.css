@@ -3267,16 +3267,6 @@ body {
   animation: none;
 }
 
-.settings-page-backbar {
-  display: flex;
-  min-height: 52px;
-  flex: 0 0 52px;
-  align-items: center;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--separator);
-  background: var(--shell-bg);
-}
-
 .settings-page-back {
   display: inline-flex;
   align-items: center;
@@ -3294,6 +3284,18 @@ body {
   color: var(--shell-fg);
 }
 
+.settings-page-back--nav {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  justify-content: flex-start;
+}
+
+.settings-page-back--nav:hover {
+  background: var(--item-hover-bg);
+}
+
 .settings-page-tabs {
   min-width: 0;
   min-height: 0;
@@ -3309,6 +3311,12 @@ body {
 .settings-page-tabs-nav {
   border-right: 0;
   background: var(--sidebar-bg);
+}
+
+/* The settings destination covers the normal tab bar, so preserve the native
+   macOS title-bar clearance before placing the back affordance in the rail. */
+.platform-darwin .settings-page-tabs-nav {
+  padding-top: calc(var(--tabbar-height) + 16px);
 }
 
 .settings-page-tabs-content {

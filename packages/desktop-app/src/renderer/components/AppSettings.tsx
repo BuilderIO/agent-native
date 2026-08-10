@@ -1427,16 +1427,6 @@ export default function AppSettings({
         }
       >
         <div className="settings-panel settings-panel--page">
-          <div className="settings-page-backbar">
-            <button
-              type="button"
-              className="settings-page-back"
-              onClick={() => requestClose()}
-            >
-              <IconArrowLeft size={15} aria-hidden="true" />
-              Back to app
-            </button>
-          </div>
           <div className="settings-page-tabs">
             <SettingsSurfaceProvider surface="page">
               <SettingsTabsPage
@@ -1492,6 +1482,16 @@ export default function AppSettings({
                 searchPlaceholder="Search settings…"
                 className="h-full"
                 navClassName="settings-page-tabs-nav"
+                navHeader={
+                  <button
+                    type="button"
+                    className="settings-page-back settings-page-back--nav"
+                    onClick={() => requestClose()}
+                  >
+                    <IconArrowLeft size={15} aria-hidden="true" />
+                    Back to app
+                  </button>
+                }
                 contentClassName="settings-page-tabs-content"
               />
             </SettingsSurfaceProvider>

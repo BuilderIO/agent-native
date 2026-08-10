@@ -85,6 +85,33 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(searchInput);
   });
 
+  it("renders the optional navigation header above the settings search", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          navHeader={<div data-testid="settings-nav-header">Back to app</div>}
+        />,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    const navHeader = container.querySelector(
+      '[data-testid="settings-nav-header"]',
+    );
+
+    expect(navHeader).not.toBeNull();
+    expect(searchInput).not.toBeNull();
+    expect(
+      Boolean(
+        navHeader!.compareDocumentPosition(searchInput!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+  });
+
   it("does not focus the settings search on mobile entry", () => {
     stubMobileViewport(true);
     runAnimationFramesImmediately();
