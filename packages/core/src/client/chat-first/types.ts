@@ -33,7 +33,6 @@ export interface ChatFirstAppPaneProps {
   status: "loading" | "ready" | "unresolved" | "error";
   embedUrl?: string | null;
   errorMessage?: string | null;
-  onClose?: () => void;
   onRetry?: () => void;
   renderEmbed: (target: ChatFirstEmbedTarget) => ReactNode;
   copy?: ChatFirstCopy;

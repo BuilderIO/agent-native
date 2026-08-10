@@ -1519,6 +1519,7 @@ export function Layout({
         ...(pane.path ? { path: pane.path } : {}),
         ...(pane.view ? { view: pane.view } : {}),
       });
+      setChatFirstSurfacePanelOpen(true);
       persistChatFirstPane(pane);
     },
     [
@@ -1527,6 +1528,7 @@ export function Layout({
       persistChatFirstPane,
       isChatRoute,
       navigate,
+      setChatFirstSurfacePanelOpen,
     ],
   );
   const openChatFirstSurface = useCallback(
@@ -1964,7 +1966,6 @@ export function Layout({
             }
             embedUrl={chatFirstEmbedUrl}
             errorMessage={chatFirstEmbedError}
-            onClose={() => closeChatFirstSurfaceTab(tab)}
             onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
             renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
               <iframe

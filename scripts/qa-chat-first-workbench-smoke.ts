@@ -304,7 +304,7 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.locator("[data-chat-first-app-pane]").waitFor({
       state: "visible",
     });
-    await on.page.locator("[data-chat-first-app-close]").waitFor({
+    await on.page.locator("[data-dispatch-chat-first-app-frame]").waitFor({
       state: "attached",
     });
     assert.deepEqual(
@@ -318,7 +318,10 @@ async function runSmoke(browser: Browser): Promise<void> {
       "first-party app panes must not show a surface tab bar",
     );
     await saveScreenshot(on.page, "05-chat-first-app");
-    await on.page.getByRole("button", { name: "Close Mail" }).click();
+    await on.page.getByRole("button", { name: "Hide side surface" }).click();
+    await on.page.locator("[data-chat-first-surface-panel]").waitFor({
+      state: "detached",
+    });
 
     await on.page.evaluate(() => {
       window.dispatchEvent(
@@ -330,7 +333,7 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.locator("[data-chat-first-app-pane]").waitFor({
       state: "visible",
     });
-    await on.page.locator("[data-chat-first-app-close]").waitFor({
+    await on.page.locator("[data-dispatch-chat-first-app-frame]").waitFor({
       state: "attached",
     });
     assert.deepEqual(
@@ -343,7 +346,10 @@ async function runSmoke(browser: Browser): Promise<void> {
       0,
       "Analytics app panes must not show a surface tab bar",
     );
-    await on.page.getByRole("button", { name: "Close Analytics" }).click();
+    await on.page.getByRole("button", { name: "Hide side surface" }).click();
+    await on.page.locator("[data-chat-first-surface-panel]").waitFor({
+      state: "detached",
+    });
 
     await on.page.locator("[data-chat-first-surface-toggle]").click();
     await on.page.getByRole("button", { name: "Open activity" }).click();
@@ -733,7 +739,7 @@ async function runElectronSmoke(): Promise<void> {
       state: "visible",
       timeout: 15_000,
     });
-    await page.locator("[data-chat-first-app-close]").waitFor({
+    await page.locator(".app-webview").waitFor({
       state: "attached",
       timeout: 15_000,
     });
@@ -751,7 +757,10 @@ async function runElectronSmoke(): Promise<void> {
       appSurface.chatWidth < empty.chatWidth - 1,
       "Electron app panes should leave the full-page chat visible beside them",
     );
-    await page.getByRole("button", { name: "Close Mail" }).click();
+    await page.getByRole("button", { name: "Hide side surface" }).click();
+    await page.locator("[data-chat-first-surface-panel]").waitFor({
+      state: "detached",
+    });
 
     await installElectronAppCreationSmokeMock(electronApp);
     const createAppButton = page.locator(
