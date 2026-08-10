@@ -6,9 +6,10 @@ description: "एक Chat ऐप बनाएं और एक agent कॉन�
 # शुरुआत करें
 
 Agent-Native ऐप agent और UI को समान [actions](/docs/actions), SQL data और
-application state देते हैं। यह hands-on रास्ता है: chat से शुरू करें, फिर एक
-action और page जोड़ें। Chat में SQL पहले से कॉन्फ़िगर होता है और results को
-persist करने की आवश्यकता होने पर यह अगला वैकल्पिक कदम बन जाता है।
+application state देते हैं। यह रास्ता Chat से शुरू होता है, जो अपनी ज़रूरत की
+framework tables पहले से बनाता है और chat history को default रूप से local SQLite
+में store करता है। अपनी tables केवल तब जोड़ें जब आपके app को domain data persist
+करना हो।
 
 <Steps>
 
@@ -25,10 +26,6 @@ Chat template को scaffold करें, dependencies install करें, d
 ### एक page जोड़ें
 
 एक React route बनाएं जो transcript के बाहर उसी action को call करे।
-
-### SQL में data persist करें (वैकल्पिक)
-
-जब results conversations के बीच बने रहने चाहिए, तब एक table और persistence actions जोड़ें।
 
 </Steps>
 

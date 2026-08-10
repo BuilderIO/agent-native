@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -189,6 +194,6 @@ export default createH3SSRHandler(
 ## आगे क्या है {#whats-next}
 
 - [**Actions**](/docs/actions): ऐप ऑपरेशनों के लिए पसंदीदा सतह; रूट का सहारा तभी लें जब यह फ़िट न बैठे
-- [**प्लगइन्स**](/docs/server-plugins): स्टार्टअप प्लगइन्स जो रूट्स सर्व होने से पहले चलते हैं
+- [**प्लगइन्स**](/docs/server-plugins): स्टार्टअप प्लगइन्स और उनका इनिशियलाइज़ेशन व्यवहार
 - [**मिडलवेयर**](/docs/server-middleware): Auth गार्ड जो `/api/*` सहित सभी रूट्स की सुरक्षा करते हैं
 - [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess` और पूरा डेटा-स्कोपिंग मॉडल

@@ -26,12 +26,15 @@ let container: HTMLDivElement;
 let root: Root;
 let originalLocation: Location;
 let originalFetch: typeof window.fetch;
+let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  originalDocumentTitle = document.title;
+  document.title = "";
   replaceMock = vi.fn();
   originalFetch = window.fetch;
   Object.defineProperty(window, "fetch", {
@@ -65,6 +68,7 @@ afterEach(() => {
     configurable: true,
     value: originalFetch,
   });
+  document.title = originalDocumentTitle;
   vi.clearAllMocks();
 });
 
@@ -146,5 +150,18 @@ describe("AppProviders session gate", () => {
     ).not.toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("repairs structured route titles before they reach the browser tab", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    document.title = "Manage agent";
+
+    renderProviders({ isPublicPath: true });
+
+    act(() => {
+      document.title = '[{"id":"automation-1","status":"success"}]';
+    });
+
+    await vi.waitFor(() => expect(document.title).toBe("Manage agent"));
   });
 });

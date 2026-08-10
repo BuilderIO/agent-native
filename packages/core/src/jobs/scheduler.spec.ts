@@ -269,6 +269,7 @@ Summarize the inbox.`,
             delegatedPolicyId: "calendar-safe:v1",
             createdBy: "alice+jobs@agent-native.test",
             orgId: "org-1",
+            appId: "calendar",
             runAs: "creator",
             originScopeId: "scope-1",
             deliveryPlatform: "slack",
@@ -288,6 +289,7 @@ Summarize the inbox.`,
       getSystemPrompt: async () => "system",
       engine: testEngine,
       model: "test-model",
+      appId: "calendar",
     });
 
     expect(resourcePutMock).toHaveBeenCalledOnce();
@@ -355,6 +357,37 @@ Send the calendar digest.`,
     expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
+  it("does not claim an organization job whose app owner is missing", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-unscoped-organization-job",
+        owner: "__organization__:org-1",
+        path: "jobs/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "mail",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
   it("creates run history threads owned by the job user", async () => {
     await processRecurringJobs({
       getActions: () => ({}),
@@ -368,6 +401,17 @@ Send the calendar digest.`,
       expect.objectContaining({
         title: expect.stringContaining("Job: daily-report"),
       }),
+    );
+    expect(runAgentLoopWrapperMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionCaller: "automation",
+        automation: {
+          triggerId: "resource-1",
+          triggerName: "daily-report",
+        },
+      }),
+      expect.any(Number),
+      expect.any(Object),
     );
   });
 

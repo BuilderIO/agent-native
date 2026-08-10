@@ -139,13 +139,13 @@ describe("automation actions", () => {
       path: "jobs/digest.md",
       content: automationContent.replace(
         "createdBy: alice@example.com",
-        'createdBy: alice@example.com\norgId: "org-1"\nrunAs: creator',
+        'appId: "mail"\ncreatedBy: alice@example.com\norgId: "org-1"\nrunAs: creator',
       ),
     });
 
     const automations = await listAutomations.run(
       { scope: "organization" },
-      { ...ctx, orgId: "org-1" },
+      { ...ctx, orgId: "org-1", appId: "mail" },
     );
 
     expect(resourceListMock).toHaveBeenCalledWith(
@@ -238,7 +238,7 @@ describe("automation actions", () => {
       path: "jobs/digest.md",
       content: automationContent.replace(
         "createdBy: alice@example.com",
-        'createdBy: alice@example.com\norgId: "org-1"\nrunAs: creator',
+        'appId: "mail"\ncreatedBy: alice@example.com\norgId: "org-1"\nrunAs: creator',
       ),
     });
 
@@ -249,7 +249,7 @@ describe("automation actions", () => {
         scope: "organization",
         enabled: false,
       },
-      { ...ctx, orgId: "org-1" },
+      { ...ctx, orgId: "org-1", appId: "mail" },
     );
 
     expect(resourcePutMock).toHaveBeenCalledWith(

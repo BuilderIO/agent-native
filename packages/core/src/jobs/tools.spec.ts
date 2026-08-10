@@ -55,7 +55,7 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
 const SHARED_OWNER = "__organization__:org-1";
 
 function run(args: Record<string, unknown>): Promise<string> {
-  const tools = createJobTools();
+  const tools = createJobTools("mail");
   return tools["manage-jobs"].run(args as any, {} as any) as Promise<string>;
 }
 
@@ -75,6 +75,7 @@ function sharedJobContent(opts: {
   const lines = ["---", 'schedule: "0 9 * * *"', "enabled: true"];
   if (opts.createdBy) lines.push(`createdBy: ${opts.createdBy}`);
   if (opts.orgId) lines.push(`orgId: ${opts.orgId}`);
+  if (opts.orgId) lines.push("appId: mail");
   if (opts.runAs) lines.push(`runAs: ${opts.runAs}`);
   lines.push("---", "", "Summarize the inbox.");
   return lines.join("\n");

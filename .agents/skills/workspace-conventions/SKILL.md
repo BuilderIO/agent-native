@@ -69,6 +69,12 @@ Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
   data, or credential-looking literals in source, docs, prompts, fixtures,
   application state, action responses, or generated app content. Use
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- Each app deploys its own `/*` page function, and that function ships whatever
+  the app's server bundle depends on — including a dependency only a background
+  job uses. Before an app takes on a heavy runtime (headless browser, ffmpeg,
+  media processing, ML), read `.agents/skills/performance/SKILL.md` §9 and keep
+  that work in a background function or job. A dependency belonging to one app
+  does not belong in `packages/shared`.
 - Prefer framework defaults until the workspace has a real custom rule,
   component, plugin, action, or skill to share.
 - Keep the Workspace files view for user-authored or user-requested resources.
@@ -91,5 +97,6 @@ Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
 - **agent-native-toolkit** — Inventory of shared workspace and agent UI.
 - **customizing-agent-native** — The configure → compose → eject ladder.
 - **delegate-to-agent** — Routing every AI feature through the agent chat.
+- **performance** — Load cost, and (§9) cold-start artifact size per app.
 - **secrets** — Registering API keys and service credentials.
 - **storing-data** — Where structured data and large payloads belong.

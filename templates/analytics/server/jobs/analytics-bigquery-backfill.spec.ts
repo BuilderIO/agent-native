@@ -21,6 +21,7 @@ vi.mock("../lib/first-party-analytics-backend.js", () => ({
 }));
 
 const {
+  acquireDedicatedFirstPartyAnalyticsBackfillLease,
   getFirstPartyAnalyticsBigQueryBackfillJob,
   queueFirstPartyAnalyticsBigQueryBackfill,
   runFirstPartyAnalyticsBigQueryBackfillOnce,
@@ -63,6 +64,39 @@ afterEach(() => {
 });
 
 describe("durable BigQuery backfill worker", () => {
+  it("holds a durable lease while the dedicated worker runs", async () => {
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rowsAffected: 1 })
+        .mockResolvedValueOnce({ rowsAffected: 1 }),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    const release = await acquireDedicatedFirstPartyAnalyticsBackfillLease(
+      scope,
+      job.table_ref,
+    );
+    expect(db.execute).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        sql: expect.stringContaining("SET status = 'running'"),
+      }),
+    );
+
+    await release();
+    expect(db.execute).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        sql: expect.stringContaining("SET status = 'pending'"),
+      }),
+    );
+    const releaseQuery = db.execute.mock.calls[1]?.[0] as {
+      args?: unknown[];
+    };
+    expect(releaseQuery.args?.[0]).toBe(releaseQuery.args?.[1]);
+  });
+
   it("pauses before claiming work when the database has lock waiters", async () => {
     const db = { execute: vi.fn() };
     db.execute.mockResolvedValue({

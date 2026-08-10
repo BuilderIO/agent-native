@@ -8,6 +8,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   triageItemStatusSchema,
   triageSourceSchema,
@@ -24,7 +25,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async ({ status, source, limit }, context) => {
-    const { orgId } = await requireWorkspaceMember(
+    const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
@@ -54,7 +55,7 @@ export default defineAction({
       }
     }
 
-    return items.map((item) => {
+    const listedItems = items.map((item) => {
       const latestDecision = latestByItem.get(item.id);
       return {
         id: item.id,
@@ -86,5 +87,26 @@ export default defineAction({
           : null,
       };
     });
+
+    for (const item of listedItems) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "list-triage-items",
+          kind: "read",
+          itemId: item.itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: item.title,
+          details: {
+            status: item.status,
+            coverage: item.coverage,
+            decision: item.latestDecision?.outcome ?? null,
+          },
+        },
+      );
+    }
+    return listedItems;
   },
 });

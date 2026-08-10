@@ -1,5 +1,58 @@
 # @agent-native/skills
 
+## 0.2.517
+
+### Patch Changes
+
+- Updated dependencies [c29fcb7]
+- Updated dependencies [c29fcb7]
+  - @agent-native/core@0.148.1
+
+## 0.2.516
+
+### Patch Changes
+
+- 061896a: Update the skills package prompt dependency and synchronized workspace skill content.
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+  - @agent-native/core@0.148.0
+
+## 0.2.515
+
+### Patch Changes
+
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+  - @agent-native/core@0.147.0
+
+## 0.2.514
+
+### Patch Changes
+
+- Updated dependencies [89d223a]
+  - @agent-native/core@0.146.8
+
+## 0.2.513
+
+### Patch Changes
+
+- Updated dependencies [718ba9e]
+  - @agent-native/core@0.146.7
+
 ## 0.2.512
 
 ### Patch Changes

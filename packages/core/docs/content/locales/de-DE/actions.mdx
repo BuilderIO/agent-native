@@ -91,7 +91,7 @@ eingebetteter Sidecar oder als vollständiger App-Bildschirm, siehe [Agent Surfa
 
 Wenn sowohl der UI als auch der Agent etwas tun müssen, greifen Sie zu einer Aktion – nicht zu einer benutzerdefinierten Aktion
 Route. Wenn ein routenförmiges Protokoll der richtige Aufruf ist, lesen Sie [Bevorzugen Sie Actions
-Für App Operations](/docs/server#actions-first).
+Für App Operations](/docs/server-overview#actions-first).
 
 ## Beginnen Sie mit einer Aktion {#hello-action}
 
@@ -379,12 +379,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

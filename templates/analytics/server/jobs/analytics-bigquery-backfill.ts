@@ -10,6 +10,7 @@ import {
 
 const JOB_TABLE = "analytics_bigquery_backfill_jobs";
 const LEASE_MS = 5 * 60 * 1000;
+const DEDICATED_LEASE_MS = 24 * 60 * 60 * 1000;
 const ERROR_RETRY_MS = 5 * 60 * 1000;
 const DEFAULT_BATCH_SIZE = 250;
 const MAX_BATCH_SIZE = 750;
@@ -189,6 +190,75 @@ export async function getFirstPartyAnalyticsBigQueryBackfillJob(
   });
   const row = rowFromResult(result);
   return row ? rowToJob(row) : null;
+}
+
+export async function acquireDedicatedFirstPartyAnalyticsBackfillLease(
+  scope: FirstPartyAnalyticsScope,
+  table: string,
+): Promise<() => Promise<void>> {
+  if (!scope.orgId) {
+    throw new Error("Dedicated BigQuery backfill requires an organization");
+  }
+  const id = jobId(scope.orgId);
+  const token = randomUUID();
+  const now = new Date().toISOString();
+  const leaseExpiresAt = new Date(
+    Date.now() + DEDICATED_LEASE_MS,
+  ).toISOString();
+  const claimed = await executor().execute({
+    sql: `UPDATE ${JOB_TABLE}
+             SET status = 'running', lease_token = ?, lease_expires_at = ?,
+                 updated_at = ?
+           WHERE id = ? AND table_ref = ?
+             AND (status = 'pending'
+                  OR (status = 'running' AND lease_expires_at IS NOT NULL
+                      AND lease_expires_at <= ?))`,
+    args: [token, leaseExpiresAt, now, id, table, now],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
+  if (claimed.rowsAffected !== 1) {
+    const job = await getFirstPartyAnalyticsBigQueryBackfillJob(scope);
+    if (!job) {
+      throw new Error(
+        "Prepare the organization before starting the dedicated BigQuery backfill",
+      );
+    }
+    if (job.table !== table) {
+      throw new Error(
+        `BigQuery backfill already targets ${job.table}; the dedicated worker requested ${table}`,
+      );
+    }
+    if (job.status === "completed") {
+      throw new Error(
+        "The durable BigQuery backfill is already completed; do not run the dedicated worker again",
+      );
+    }
+    throw new Error(
+      "Another BigQuery backfill worker owns the durable lease; wait for it to stop before retrying",
+    );
+  }
+
+  let released = false;
+  return async () => {
+    if (released) return;
+    const releasedAt = new Date().toISOString();
+    const result = await executor().execute({
+      sql: `UPDATE ${JOB_TABLE}
+               SET status = 'pending', lease_token = NULL,
+                   lease_expires_at = NULL, next_run_at = ?, updated_at = ?
+             WHERE id = ? AND lease_token = ?`,
+      args: [releasedAt, releasedAt, id, token],
+      timeoutMs: 5_000,
+      maxAttempts: 1,
+    });
+    if (result.rowsAffected !== 1) {
+      throw new Error(
+        "The dedicated BigQuery backfill lost its durable lease before release",
+      );
+    }
+    released = true;
+  };
 }
 
 export async function queueFirstPartyAnalyticsBigQueryBackfill(

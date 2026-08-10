@@ -14,6 +14,7 @@ describe("hasDocBlockSyntax", () => {
 
   it.each([
     "# A normal document\n\n```ts\nconst value = 1;\n```",
+    "```tsx\n<Component />\n```",
     "Inline <code>HTML</code> is not a visual block.",
     "<div>ordinary HTML</div>",
   ])("keeps ordinary Markdown on the light path: %s", (markdown) => {

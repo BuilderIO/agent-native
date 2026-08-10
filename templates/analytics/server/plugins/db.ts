@@ -1534,6 +1534,48 @@ export const runAnalyticsMigrations = runMigrations(
       ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
       },
     },
+    {
+      version: 140,
+      name: "analytics-events-backfill-filtered-cursor-indexes",
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS DISTINCT FROM 'http.response'; CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_non_http_idx ON analytics_events (org_id, received_at, id) WHERE event_name IS NOT 'http.response'; CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL AND event_name IS NOT 'http.response'`,
+      },
+    },
+    {
+      version: 141,
+      name: "analytics-event-volume-usage",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_event_volume_usage (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      window_start TEXT NOT NULL,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      event_limit INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
+      ON analytics_event_volume_usage (tenant_key, window_start);
+    CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
+      ON analytics_event_volume_usage (updated_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_event_volume_usage (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      window_start TEXT NOT NULL,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      event_limit INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_volume_usage_tenant_window_idx
+      ON analytics_event_volume_usage (tenant_key, window_start);
+    CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
+      ON analytics_event_volume_usage (updated_at)`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

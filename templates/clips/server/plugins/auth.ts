@@ -1,5 +1,7 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
+import { PRERENDERED_PUBLIC_PAGE_PATHS } from "../../shared/prerendered-public-paths.js";
+
 // Clips has public share pages, embeds, and view-event tracking that must
 // reach unauthenticated viewers. Everything else sits behind auth.
 export default createAuthPlugin({
@@ -21,7 +23,10 @@ export default createAuthPlugin({
     "/share",
     "/r",
     "/embed",
-    "/download",
+    // Prerendered to static HTML, so the CDN answers without ever reaching this
+    // middleware. Sharing the constant keeps "prerendered" a strict subset of
+    // "public" instead of two lists that can drift into an auth bypass.
+    ...PRERENDERED_PUBLIC_PAGE_PATHS,
     "/bug-report",
     // React Router's lazy route-discovery endpoint. If this is gated by
     // auth it returns an HTML login page; the client tries to parse it

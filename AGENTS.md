@@ -149,6 +149,13 @@ contract.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
 - Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Never do heavy work at serverless cold start. Module load and plugin init run
+  on every cold Lambda, so migrations, backfills, aggregation, index builds,
+  provider handshakes, and warmup probes placed there multiply across every
+  function and show up as sitewide slowness or an outage, not as a slow startup.
+  Do that work in a `recurring-jobs` task, an automation, or lazily behind the
+  first request that needs it. Read `performance` before adding anything to a
+  startup path.
 - The agent can modify app code; design UI and data flows with that in mind.
 
 Every feature must touch the four areas when applicable: UI, actions, skills or
@@ -245,8 +252,11 @@ instructions, and application state.
   the shared toolkit/design-system primitive. Never show a generic "Loading..."
   label for content; reserve `Spinner` for brief mutations, uploads, and
   progress actions.
-- Keep template UX clean and progressively disclosed. Do not solve feedback by
-  adding always-visible controls unless that is clearly the main workflow.
+- For any user-facing UI change, including screenshot feedback, copy or density
+  cleanup, settings, and control placement, read `frontend-design`. Keep the
+  default surface high-information and low-chrome: make the current task, state,
+  and next decision clear; defer secondary detail contextually; and do not add
+  persistent controls or explanatory copy without a specific user need.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
   `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
   details.
@@ -284,7 +294,7 @@ iframe bridge. Use the `extensions` skill for the full rules.
 that area — most encode a decision the surrounding code cannot show. Prefer
 searching the skill directory over guessing from nearby code.
 
-Two are entry points rather than area guides:
+A few are entry points rather than area guides:
 
 - `content-product-development` — read before planning, implementing,
   reviewing, testing, or documenting Content behavior or shared framework
@@ -292,3 +302,6 @@ Two are entry points rather than area guides:
 - `adding-a-feature` — the four-area checklist every feature must satisfy.
 - `writing-agent-instructions` — read before editing any `AGENTS.md`,
   `SKILL.md`, or tool/action description, including this file.
+- `verifying-changes` — read before reporting a fix, feature, or deploy as
+  done. Exercising the path that was broken is the step most often skipped,
+  and skipping it is why the same bug gets reported twice.

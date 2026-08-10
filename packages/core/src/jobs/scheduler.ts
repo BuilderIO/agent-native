@@ -20,6 +20,7 @@ import {
 } from "./cron.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
@@ -29,7 +30,13 @@ import {
   getAutomationRun,
   listAutomationRuns,
 } from "./run-history.js";
-import { recordAutomationSchedulerHealth } from "./scheduler-health.js";
+import {
+  acquireAutomationSchedulerLease,
+  recordAutomationSchedulerHealth,
+  releaseAutomationSchedulerLease,
+  renewAutomationSchedulerLease,
+  AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
+} from "./scheduler-health.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -78,16 +85,6 @@ const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
 const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
-
-function jobBelongsToApp(
-  meta: JobFrontmatter,
-  appId: string | undefined,
-): boolean {
-  const ownerAppId = meta.appId?.trim();
-  if (!ownerAppId) return true;
-  const schedulerAppId = appId?.trim();
-  return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
-}
 
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
@@ -156,6 +153,49 @@ function subscribeToJobsResourceEvents(): void {
  * one job cannot run twice while leaving other due jobs waiting behind it.
  */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
+  const leaseOwner = await acquireAutomationSchedulerLease({
+    appId: deps.appId,
+  });
+  if (!leaseOwner) return;
+
+  const leaseRenewal = setInterval(() => {
+    void renewAutomationSchedulerLease({
+      appId: deps.appId,
+      owner: leaseOwner,
+    }).catch((error) => {
+      console.warn(
+        "[recurring-jobs] Scheduler lease renewal failed:",
+        error instanceof Error ? error.message : error,
+      );
+    });
+  }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
+
+  let primaryFailed = false;
+  try {
+    await processRecurringJobsWithLease(deps);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    clearInterval(leaseRenewal);
+    try {
+      await releaseAutomationSchedulerLease({
+        appId: deps.appId,
+        owner: leaseOwner,
+      });
+    } catch (releaseError) {
+      console.warn(
+        "[recurring-jobs] Scheduler lease release failed:",
+        releaseError instanceof Error ? releaseError.message : releaseError,
+      );
+      if (!primaryFailed) throw releaseError;
+    }
+  }
+}
+
+async function processRecurringJobsWithLease(
+  deps: SchedulerDeps,
+): Promise<void> {
   subscribeToJobsResourceEvents();
 
   // Skip if we recently confirmed there are no job resources to run.
@@ -572,6 +612,13 @@ async function executeJob(
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
         actionCaller: "automation" as const,
+        actionAutomation: {
+          triggerId: resource.id,
+          triggerName: jobName,
+          ...(meta.delegatedPolicyId
+            ? { policyId: meta.delegatedPolicyId }
+            : {}),
+        },
       },
       deps,
     );

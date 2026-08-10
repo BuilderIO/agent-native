@@ -1,3 +1,4 @@
+import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 
 export interface WorkspaceAppSummary {
@@ -44,4 +45,27 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
 
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
   return app.status === "pending" && !!app.builderUrl;
+}
+
+/**
+ * Keep the chat-first rail useful before a workspace manifest is populated.
+ * Mounted workspace rows still win, so custom names and routes remain the
+ * source of truth once an app exists in the workspace.
+ */
+export function mergeChatFirstWorkspaceApps(
+  apps: readonly WorkspaceAppSummary[] | undefined,
+): WorkspaceAppSummary[] {
+  const merged = new Map<string, WorkspaceAppSummary>();
+  for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    merged.set(id, {
+      id,
+      name: id.charAt(0).toUpperCase() + id.slice(1),
+      path: `/${id}`,
+      url: null,
+      status: "ready",
+    });
+  }
+  for (const app of apps ?? []) merged.set(app.id, app);
+
+  return [...merged.values()];
 }

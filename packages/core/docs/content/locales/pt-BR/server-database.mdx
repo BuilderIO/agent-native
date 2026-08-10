@@ -5,7 +5,7 @@ description: "Conecte um banco de dados SQL portátil ao seu aplicativo nativo d
 
 # Banco de dados
 
-Todo aplicativo nativo do agente armazena seu estado em SQL. A UI e o agente leem e gravam as mesmas tabelas por meio das mesmas actions, usando o mesmo cliente [Drizzle ORM](https://orm.drizzle.team). Quando um dos dois lados altera dados, o outro percebe isso por meio da camada de polling.
+Todo aplicativo nativo do agente armazena seu estado em SQL. A UI e o agente leem e gravam as mesmas tabelas por meio das mesmas actions, usando o mesmo cliente [Drizzle ORM](https://orm.drizzle.team). A sincronização ao vivo usa SSE com polling como fallback, então as mudanças aparecem na outra superfície sem atualização manual.
 
 <Diagram id="doc-block-9mtx2f" title="Como os dados fluem até o banco de dados" summary="A UI e o agente chegam ao banco de dados pela mesma camada de Actions. Ambos os chamadores usam o mesmo cliente getDb() e as mesmas tabelas SQL. Não existe um backend separado para cada um.">
 
@@ -110,7 +110,7 @@ Um aplicativo que usa o banco de dados precisa de três arquivos:
 
 - `server/db/schema.ts`: definições de tabela
 - `server/db/index.ts`: o singleton do cliente de BD tipado
-- `server/plugins/db.ts`: migrações que rodam na inicialização
+- `server/plugins/db.ts`: migrações próprias do app para o início local
 
 ### 1. Defina seu esquema {#schema}
 
@@ -208,7 +208,10 @@ Importe `getDb` a partir desse caminho local do modelo em actions e rotas. Não 
 
 ### 3. Escreva as migrações {#migrations}
 
-As alterações de esquema são aplicadas na inicialização por meio de um plugin Nitro em `server/plugins/db.ts`. Use `runMigrations` de `@agent-native/core/db`:
+No desenvolvimento local, as alterações de esquema podem ser aplicadas por um
+plugin Nitro em `server/plugins/db.ts`. Em produção ou deploys serverless, execute
+as migrações em uma etapa de release ou deploy, não na primeira requisição. Use
+`runMigrations` de `@agent-native/core/db`:
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +245,14 @@ As alterações de esquema são aplicadas na inicialização por meio de um plug
   ]}
 />
 
-`runMigrations` executa cada entrada em ordem uma única vez, depois registra a versão para que seja ignorada em reinicializações futuras. As entradas são idempotentes. O plugin é seguro para ser chamado a cada inicialização.
+`runMigrations` executa cada entrada pendente em ordem uma vez, registra-a como
+aplicada e a ignora nas execuções seguintes. Dê um `name` estável às novas
+entradas; migrações nomeadas são rastreadas independentemente do número da versão.
+
+<Callout tone="warning">
+  O template Chat fornece `pnpm migrate:production` para executar migrações como
+  parte da etapa de release.
+</Callout>
 
 <Callout tone="risk">
   Nunca execute `drizzle-kit push` contra um banco de dados de produção. Os

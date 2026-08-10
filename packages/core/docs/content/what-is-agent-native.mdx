@@ -39,7 +39,7 @@ The UI updates in real time as the agent opens views, edits drafts, and runs rep
 
 ### Steer it like a teammate
 
-Give feedback, queue tasks, audit what it did, edit its instructions. It remembers, and it improves.
+Give feedback, queue tasks, audit what it did, and edit its instructions.
 
 </Cards>
 
@@ -93,7 +93,7 @@ graph TD
   DB --> AG_OUT
 ```
 
-The diagram above shows what this looks like at runtime: both the user and the agent submit actions to the same layer, which writes to the same database and broadcasts updates back to both surfaces. When the agent creates a draft email, it appears in your inbox immediately. When you click Send, the agent knows it was sent. See [Key Concepts](/docs/key-concepts) for the full architecture.
+The diagram above shows what this looks like at runtime: both the user and the agent submit actions to the same layer, which writes to the same database and sends updates back to both surfaces. When the agent creates a draft email, it appears in your inbox immediately. When you click Send, the agent knows it was sent. See [Key Concepts](/docs/key-concepts) for the full architecture.
 
 ## Why agents need a UI — and apps need an agent {#why-both}
 
@@ -211,7 +211,7 @@ Browse [agent-native.com/templates](/templates) and pick the one closest to what
 
 ### Use it immediately
 
-Every template deploys as a hosted app (e.g. `mail.agent-native.com`). Try it before you touch any code.
+Many first-party templates are available as hosted apps (e.g. `mail.agent-native.com`). Try one before you touch any code.
 
 ### Clone and customize
 
@@ -235,7 +235,7 @@ Agent-native apps can talk to each other. From inside the mail app, you can tag 
 
 ### [Getting Started](/docs/getting-started)
 
-Build a working chat app in under five minutes, then add actions, a database, and a page.
+Build a working chat app in under five minutes, then add an action and a page. Add your own database tables when you need to persist domain data.
 
 ### [Key Concepts](/docs/key-concepts)
 

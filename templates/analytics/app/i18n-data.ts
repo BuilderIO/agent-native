@@ -1314,7 +1314,7 @@ const enUS = {
     storageSetupDescription:
       "Session replay recordings need storage before chunks can be saved. Connect Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
     storageConnected: "Storage connected",
-    connectBuilder: "Use Builder.io (free)",
+    connectBuilder: "Use Builder.io",
     configureS3: "Configure S3 storage",
     devtools: "Dev Tools",
     devtoolsResize: "Resize Dev Tools",
@@ -10157,7 +10157,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "保存会话回放录制片段前需要先配置存储。可连接 Builder.io 使用免费层存储，或配置您自己的 S3 兼容存储桶。",
       storageConnected: "存储已连接",
-      connectBuilder: "使用 Builder.io（免费）",
+      connectBuilder: "使用 Builder.io",
       configureS3: "配置 S3 存储",
       title: "会话",
       description:
@@ -10279,7 +10279,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Conecta Builder.io para usar almacenamiento de nivel gratuito o configura tu propio bucket compatible con S3.",
       storageConnected: "Almacenamiento conectado",
-      connectBuilder: "Usar Builder.io (gratis)",
+      connectBuilder: "Usar Builder.io",
       configureS3: "Configurar almacenamiento S3",
       title: "Sesiones",
       description:
@@ -10405,7 +10405,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "Les enregistrements de relecture de session nécessitent un espace de stockage avant de pouvoir sauvegarder les fragments. Connectez Builder.io pour un stockage en formule gratuite, ou configurez votre propre bucket compatible S3.",
       storageConnected: "Stockage connecté",
-      connectBuilder: "Utiliser Builder.io (gratuit)",
+      connectBuilder: "Utiliser Builder.io",
       configureS3: "Configurer le stockage S3",
       title: "Sessions",
       description:
@@ -10534,7 +10534,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Verbinden Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
       storageConnected: "Speicher verbunden",
-      connectBuilder: "Builder.io verwenden (kostenlos)",
+      connectBuilder: "Builder.io verwenden",
       configureS3: "S3-Speicher konfigurieren",
       title: "Sitzungen",
       description:
@@ -10659,7 +10659,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを接続するか、独自の S3 互換バケットを設定してください。",
       storageConnected: "ストレージ接続済み",
-      connectBuilder: "Builder.io を使う（無料）",
+      connectBuilder: "Builder.io を使う",
       configureS3: "S3 ストレージを設定",
       title: "セッション",
       description:
@@ -10785,7 +10785,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "세션 재생 녹화를 저장하려면 먼저 저장소가 필요합니다. 무료 등급 저장소를 사용하려면 Builder.io를 연결하거나, 직접 S3 호환 버킷을 구성하세요.",
       storageConnected: "저장소 연결됨",
-      connectBuilder: "Builder.io 사용 (무료)",
+      connectBuilder: "Builder.io 사용",
       configureS3: "S3 저장소 구성",
       title: "세션",
       description:
@@ -10910,7 +10910,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Conecte o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
       storageConnected: "Armazenamento conectado",
-      connectBuilder: "Usar Builder.io (gratuito)",
+      connectBuilder: "Usar Builder.io",
       configureS3: "Configurar armazenamento S3",
       title: "Sessões",
       description:
@@ -11034,7 +11034,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "चंक्स सेव करने से पहले सेशन रीप्ले रिकॉर्डिंग के लिए स्टोरेज ज़रूरी है। फ्री-टियर स्टोरेज के लिए Builder.io कनेक्ट करें, या अपना खुद का S3-संगत बकेट कॉन्फ़िगर करें।",
       storageConnected: "स्टोरेज कनेक्ट हो गया",
-      connectBuilder: "Builder.io इस्तेमाल करें (मुफ़्त)",
+      connectBuilder: "Builder.io इस्तेमाल करें",
       configureS3: "S3 स्टोरेज कॉन्फ़िगर करें",
       title: "सत्र",
       description:
@@ -11155,7 +11155,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "تحتاج تسجيلات إعادة عرض الجلسات إلى مساحة تخزين قبل أن يتسنى حفظ الأجزاء. اربط Builder.io للحصول على تخزين بالباقة المجانية، أو هيّئ حاوية متوافقة مع S3 خاصة بك.",
       storageConnected: "تم ربط مساحة التخزين",
-      connectBuilder: "استخدام Builder.io (مجاناً)",
+      connectBuilder: "استخدام Builder.io",
       configureS3: "تهيئة تخزين S3",
       title: "الجلسات",
       description:

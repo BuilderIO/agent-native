@@ -56,6 +56,26 @@ export interface JobFrontmatter {
   delegatedPolicyId?: string;
 }
 
+/**
+ * Return whether a scheduler or trigger dispatcher may claim this resource.
+ *
+ * Personal legacy jobs have no app owner and remain compatible with the
+ * shared scheduler. An organization-owned resource without an explicit app
+ * owner is ambiguous, though: letting every installed app claim it can run
+ * the same job multiple times and with the wrong deployment credentials.
+ */
+export function jobBelongsToApp(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  appId: string | null | undefined,
+): boolean {
+  const ownerAppId = meta.appId?.trim();
+  if (ownerAppId) {
+    const schedulerAppId = appId?.trim();
+    return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
+  }
+  return !meta.orgId?.trim();
+}
+
 export interface JobResourceClassification {
   kind: "job" | "automation";
   hasExplicitTriggerType: boolean;

@@ -57,6 +57,17 @@ const PENDING_WORKSPACE_APP_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
 const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
 const DEFAULT_WORKSPACE_APP_AUDIENCE = "internal";
+const AUTONOMOUS_WORKSPACE_APP_CREATION_CONTRACT = [
+  "Autonomous Builder handoff contract:",
+  "- This is a background implementation run launched by the turn-into-app workflow. Treat the source brief and latest user request as authorization to build the app now; do not return a proposal or wait for another turn.",
+  "- Do not ask the user questions during the initial build and do not invoke a clarification, guided-question, or choice flow for a non-blocking decision.",
+  "- When the source or a tool presents a recommended option, choose it and continue. When no recommendation is present, choose the most direct, conservative default supported by the source and normal Agent-Native conventions.",
+  "- Resolve product, visual, copy, layout, route, data-model, dependency, and integration choices yourself. If an input is missing, use an empty state or clearly labeled representative sample so the workflow is demonstrable; never invent private facts or credentials.",
+  "- Treat the source brief's unknowns and follow-up items as assumptions to record in the app README or a visible Assumptions / Review section, not as questions to send back to the user.",
+  "- If a nonessential integration or provider is unavailable, build the supported boundary and leave a precise setup note; do not stop to ask which equivalent to use.",
+  "- Pause only for a true hard blocker: missing authorization required to create or access the branch, a destructive or irreversible external action, an ambiguous target workspace/project, or the absence of any identifiable repeatable workflow. Otherwise make the best grounded choice and proceed.",
+  "- Complete the UI, actions, instructions, application state, representative happy path, and verification in this run. Do not stop after planning, scaffolding, or a question.",
+].join("\n");
 const pendingBuilderProjectProvisioning = new Map<
   string,
   Promise<{ projectId: string }>
@@ -1930,6 +1941,8 @@ function buildWorkspaceAppPrompt(input: {
     appId,
     prompt: [
       "Create a new agent-native app in this workspace.",
+      "",
+      AUTONOMOUS_WORKSPACE_APP_CREATION_CONTRACT,
       "",
       `App name: ${appId}`,
       `App description: ${appDescription}`,

@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -235,14 +235,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 每個函式都是所有者範圍的 - 沒有跨使用者讀取，沒有跨使用者寫入。
@@ -371,4 +371,4 @@ export function HeaderBar() {
 
 - [**Automations**](/docs/automations) — `notify()` 最常見的呼叫者
 - [**Security**](/docs/security) — 為 Webhook 通道提供支援的 `${keys.NAME}` 替代
-- [**Server plugins**](/docs/server) — 啟動時註冊自訂通道
+- [**Server plugins**](/docs/server-overview) — 啟動時註冊自訂通道

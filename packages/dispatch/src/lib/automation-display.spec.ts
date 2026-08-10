@@ -32,7 +32,7 @@ describe("automation-display", () => {
   it("prepares a thread-debug search for an automation", () => {
     expect(
       automationTroubleshootPath({ name: "coach onboarding reminder" }),
-    ).toBe("/admin/thread-debug?query=coach+onboarding+reminder");
+    ).toBe("/admin/thread-debug?mode=threads&query=coach+onboarding+reminder");
   });
 
   it("keeps Dispatch-owned and legacy automations in the default view", () => {

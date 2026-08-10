@@ -473,6 +473,15 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("preserves arbitrary Ollama model ids", async () => {
+      const { resolveEnginePreservesCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEnginePreservesCustomModels({ name: "ai-sdk:ollama" }),
+      ).resolves.toBe(true);
+    });
+
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
@@ -1935,6 +1944,47 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it("does not replace an unreadable endpoint with deploy configuration", async () => {
+      vi.doMock("../../server/credential-provider.js", () => ({
+        assertCredentialStoreReadable: vi.fn(),
+        canUseDeployCredentialFallbackForRequest: vi.fn(() => true),
+        getBuilderCredentialAuthFailure: vi.fn(async () => null),
+        getProviderCredentialAuthFailure: vi.fn(async () => null),
+        readDeployCredentialEnv: vi.fn(() => "https://deploy.example/v1"),
+        resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+          privateKey: null,
+          publicKey: null,
+          lookupFailed: false,
+        })),
+        resolveSecret: vi.fn(async (key: string) => {
+          if (key === "OPENAI_BASE_URL") {
+            throw new Error("credential store unavailable");
+          }
+          return null;
+        }),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const openAiCreate = vi.fn();
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      await expect(
+        resolveEngine({ engineOption: "ai-sdk:openai" }),
+      ).rejects.toThrow("credential store unavailable");
+      expect(openAiCreate).not.toHaveBeenCalled();
+    });
+
     it("does not pass the scoped OpenAI endpoint into non-OpenAI engines", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "steve@example.com",
@@ -2049,6 +2099,13 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn().mockResolvedValue(null);
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
       }));

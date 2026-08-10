@@ -181,6 +181,7 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "EMAIL_AGENT_ADDRESS",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
+  "OLLAMA_BASE_URL",
   "OPENROUTER_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
@@ -598,8 +599,17 @@ interface ScopedBuilderCredentialsResult {
   lookupFailed: boolean;
 }
 
-async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentialsResult> {
-  const email = getRequestUserEmail();
+export interface BuilderCredentialLookupIdentity {
+  /** The verified owner of a background run, when it has no browser request. */
+  userEmail?: string | null;
+  /** The verified organization attached to that run, when one exists. */
+  orgId?: string | null;
+}
+
+async function resolveScopedBuilderCredentials(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<ScopedBuilderCredentialsResult> {
+  const email = identity?.userEmail?.trim() || getRequestUserEmail();
   if (!email) return { creds: null, lookupFailed: false };
 
   const traceLookup = shouldTraceCredentialResolve();
@@ -628,7 +638,8 @@ async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentia
       return { creds: userCreds, lookupFailed: false };
     }
 
-    let orgId: string | null | undefined = getRequestOrgId();
+    let orgId: string | null | undefined =
+      identity?.orgId?.trim() || getRequestOrgId();
     let orgSource: "request" | "email-fallback" | "none" = orgId
       ? "request"
       : "none";
@@ -714,7 +725,12 @@ export async function resolveBuilderCredential(
   const envValue = canUseBuilderDeployCredentialFallbackForRequest()
     ? (readDeployCredentialEnv(key) ?? null)
     : null;
-  if (envValue) return envValue;
+  if (envValue) {
+    // A deploy fallback is still useful, but it must not turn a transient
+    // credential-store failure into a clean connected result for Builder.
+    assertCredentialStoreReadable(scoped);
+    return envValue;
+  }
   // Nothing answered AND the store never gave a real answer: that is not
   // "not connected", it is "we could not look".
   assertCredentialStoreReadable(scoped);
@@ -804,12 +820,14 @@ export interface BuilderCredentialsDetailed {
  * Callers that only need the plain credential bundle (the historical shape)
  * should use `resolveBuilderCredentials()` instead.
  */
-export async function resolveBuilderCredentialsDetailed(): Promise<BuilderCredentialsDetailed> {
+export async function resolveBuilderCredentialsDetailed(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<BuilderCredentialsDetailed> {
   const {
     creds: scoped,
     lookupFailed,
     cause,
-  } = await resolveScopedBuilderCredentials();
+  } = await resolveScopedBuilderCredentials(identity);
   if (scoped) {
     const {
       privateKey,
@@ -920,7 +938,9 @@ export async function resolveBuilderCredentialsDetailed(): Promise<BuilderCreden
  * Kept to its original return shape (no `source`/`lookupFailed`) for existing
  * callers; use `resolveBuilderCredentialsDetailed()` for those fields.
  */
-export async function resolveBuilderCredentials(): Promise<{
+export async function resolveBuilderCredentials(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<{
   privateKey: string | null;
   publicKey: string | null;
   userId: string | null;
@@ -943,7 +963,7 @@ export async function resolveBuilderCredentials(): Promise<{
     subscriptionName,
     isEnterprise,
     isFreeAccount,
-  } = await resolveBuilderCredentialsDetailed();
+  } = await resolveBuilderCredentialsDetailed(identity);
   return {
     privateKey,
     publicKey,
@@ -1614,7 +1634,7 @@ export async function resolveSecretDetailed(
     }
     return {
       value: envFallback,
-      lookupFailed: lookupFailed && !envFallback,
+      lookupFailed,
       cause,
     };
   }
