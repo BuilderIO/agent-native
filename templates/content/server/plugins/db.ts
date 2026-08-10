@@ -1007,7 +1007,7 @@ export const runContentMigrations = runMigrations(
       name: "content-block-addressable-postgres-boolean",
       sql: {
         postgres: `ALTER TABLE document_blocks ALTER COLUMN addressable DROP DEFAULT;
-        ALTER TABLE document_blocks ALTER COLUMN addressable TYPE boolean USING (addressable::int != 0);
+        ALTER TABLE document_blocks ALTER COLUMN addressable TYPE boolean USING addressable::text::boolean;
         ALTER TABLE document_blocks ALTER COLUMN addressable SET DEFAULT true`,
       },
     },
