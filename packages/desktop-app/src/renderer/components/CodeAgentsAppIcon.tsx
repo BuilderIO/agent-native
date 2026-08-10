@@ -77,11 +77,11 @@ export default function CodeAgentsAppIcon({
         } as CSSProperties
       }
     >
-      <Icon size={16} strokeWidth={1.8} aria-hidden="true" />
+      <Icon size={15} strokeWidth={1.8} aria-hidden="true" />
     </span>
   );
 }
 
 export function CodeAgentsFallbackAppIcon() {
-  return <IconApps size={16} strokeWidth={1.8} aria-hidden="true" />;
+  return <IconApps size={15} strokeWidth={1.8} aria-hidden="true" />;
 }

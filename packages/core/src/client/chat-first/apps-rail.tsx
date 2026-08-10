@@ -67,7 +67,7 @@ function AppRows({
     .filter((app): app is ChatFirstAppItem => Boolean(app));
 
   return (
-    <ul className="space-y-px">
+    <ul className="space-y-1">
       {orderedApps.map((app) => {
         const active = activeAppId === app.id;
         const pinned = layout.pinnedIds.includes(app.id);
@@ -80,7 +80,7 @@ function AppRows({
                 data-chat-first-app
                 data-app-id={app.id}
                 className={cn(
-                  "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-1 text-sm transition-colors",
+                  "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-1 text-sm",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -95,7 +95,7 @@ function AppRows({
               >
                 <button
                   type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 px-1 text-start"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2 px-1 text-start"
                   onClick={() => onOpenApp(app)}
                   onKeyDown={(event) => {
                     if (!event.altKey) return;
@@ -109,7 +109,6 @@ function AppRows({
                   }}
                   aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                   aria-label={copy("openApp", { name: app.name })}
-                  title={app.name}
                 >
                   {renderIcon(app)}
                   <span className="truncate">{app.name}</span>
@@ -117,14 +116,13 @@ function AppRows({
                 <button
                   type="button"
                   className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/45 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                    "flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/45 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:opacity-100 focus-visible:opacity-100",
                     pinned && "text-sidebar-foreground/70 opacity-100",
                   )}
                   aria-label={copy(pinned ? "unpinApp" : "pinApp", {
                     name: app.name,
                   })}
                   aria-pressed={pinned}
-                  title={pinned ? copy("removePinned") : copy("pinTop")}
                   onClick={() => onTogglePinned(app.id)}
                 >
                   <IconPin
@@ -280,7 +278,7 @@ export function ChatFirstAppsRail({
                 data-chat-first-app
                 data-app-id={app.id}
                 className={cn(
-                  "flex size-9 items-center justify-center rounded-md transition-colors",
+                  "flex size-9 items-center justify-center rounded-md",
                   activeAppId === app.id
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -296,7 +294,7 @@ export function ChatFirstAppsRail({
           <button
             type="button"
             data-chat-first-all-apps
-            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             onClick={onOpenAllApps}
             aria-label={copy("allApps")}
             title={copy("allApps")}

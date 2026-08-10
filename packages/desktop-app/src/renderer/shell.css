@@ -749,9 +749,6 @@ body {
   color: hsl(var(--foreground));
   text-align: start;
   cursor: pointer;
-  transition:
-    background var(--ease),
-    border-color var(--ease);
 }
 
 .desktop-app-card:hover {
@@ -761,9 +758,9 @@ body {
 
 .desktop-app-card__icon {
   display: flex;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
@@ -773,11 +770,11 @@ body {
 
 .desktop-app-icon {
   display: inline-flex;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 8px;
   background: color-mix(
     in srgb,
     var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue))) 14%,
@@ -787,8 +784,8 @@ body {
 }
 
 .desktop-app-card__icon .desktop-app-icon {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
 }
 
 .desktop-app-card__copy {

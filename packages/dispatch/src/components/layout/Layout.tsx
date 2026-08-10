@@ -1954,6 +1954,7 @@ export function Layout({
             }
             embedUrl={chatFirstEmbedUrl}
             errorMessage={chatFirstEmbedError}
+            onClose={() => closeChatFirstSurfaceTab(tab)}
             onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
             renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
               <iframe

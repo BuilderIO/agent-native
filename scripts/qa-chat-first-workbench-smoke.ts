@@ -153,6 +153,28 @@ async function createContext(
         ]),
       }),
     );
+    await page.route("**/_agent-native/actions/list_apps*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          workspace: true,
+          gateway: "dispatch",
+          apps: [
+            {
+              id: "analytics",
+              name: "Analytics",
+              url: "https://analytics.example.test",
+              running: true,
+              source: "dispatch-mcp-grant",
+            },
+          ],
+          message: JSON.stringify({
+            apps: [{ id: "analytics", name: "Analytics" }],
+          }),
+        }),
+      }),
+    );
     await page.route(
       "**/_agent-native/actions/create_embed_session*",
       async (route) => {
@@ -267,8 +289,35 @@ async function runSmoke(browser: Browser): Promise<void> {
       { app: "mail", path: "/mail/inbox", chrome: "minimal" },
       "app-relative embeds must mint a session for the registered app",
     );
+    assert.equal(
+      (await snapshot(on.page, "05-chat-first-app")).tabs,
+      0,
+      "first-party app panes must not show a surface tab bar",
+    );
     await saveScreenshot(on.page, "05-chat-first-app");
     await on.page.getByRole("button", { name: "Close Mail" }).click();
+
+    await on.page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:openApp", {
+          detail: { app: "analytics", path: "/adhoc/q2" },
+        }),
+      );
+    });
+    await on.page.locator("[data-chat-first-app-pane]").waitFor({
+      state: "visible",
+    });
+    assert.deepEqual(
+      on.embedRequests.at(-1),
+      { app: "analytics", path: "/adhoc/q2", chrome: "minimal" },
+      "granted first-party apps must preserve arbitrary routes",
+    );
+    assert.equal(
+      (await snapshot(on.page, "05-chat-first-analytics")).tabs,
+      0,
+      "Analytics app panes must not show a surface tab bar",
+    );
+    await on.page.getByRole("button", { name: "Close Analytics" }).click();
 
     await on.page.locator("[data-chat-first-surface-toggle]").click();
     await on.page.getByRole("button", { name: "Open activity" }).click();
@@ -646,6 +695,27 @@ async function runElectronSmoke(): Promise<void> {
       1,
       `Electron chat-first top navigation should use one neutral text color (${topNavColors.join(", ")})`,
     );
+
+    await page.locator('[data-chat-first-app][data-app-id="mail"]').click();
+    await page.locator("[data-chat-first-app-pane]").waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
+    const appSurface = await electronSnapshot(
+      page,
+      "electron-03-chat-first-app",
+      electronApp,
+    );
+    assert.equal(
+      appSurface.tabs,
+      0,
+      "Electron first-party app panes must not show a surface tab bar",
+    );
+    assert.ok(
+      appSurface.chatWidth < empty.chatWidth - 1,
+      "Electron app panes should leave the full-page chat visible beside them",
+    );
+    await page.getByRole("button", { name: "Close Mail" }).click();
 
     await installElectronAppCreationSmokeMock(electronApp);
     const createAppButton = page.locator(

@@ -1521,6 +1521,7 @@ export default function CodeAgentsHub({
             app={app}
             status="ready"
             embedUrl={tab.path ?? "/"}
+            onClose={() => closeChatFirstSurfaceTab(tab)}
             renderEmbed={() => (
               <AppWebview
                 app={toAppDefinition(app)}
