@@ -424,8 +424,12 @@ export function readAgentsBundleFromFs(
   for (const skillsDir of options.additionalSkillDirs ?? []) {
     try {
       readNestedSkillsDir(skillsDir, cwd, skills);
-    } catch {
+    } catch (error) {
       // Optional host-provided skills must not make the coding session fail.
+      console.warn(
+        "[agents-bundle] Failed to load optional host-provided skills",
+        { skillsDir, error },
+      );
     }
   }
 

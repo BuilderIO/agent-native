@@ -37,6 +37,7 @@ export {
   // Code-file analysis
   createCodeAnalysisState,
   analyzeCodeFile,
+  analyzeCodeFiles,
   analyzeCssFile,
   analyzeTailwindConfig,
   analyzeJsonTheme,
@@ -67,6 +68,8 @@ export type {
   ParsedCss,
   ParsedTailwindConfig,
   CodeAnalysisState,
+  CodeAnalysisFile,
+  CodeAnalysisResult,
   UrlExtractionResult,
   GitHubFetchOptions,
   GitHubJsonResult,

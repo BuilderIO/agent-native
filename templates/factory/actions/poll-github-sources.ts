@@ -9,6 +9,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
@@ -192,6 +193,65 @@ export default defineAction({
         pullRequestCount += 1;
       }
     });
+
+    if (issues.length === 0 && pullRequests.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-github-sources",
+          kind: "observed",
+          source: "github",
+          summary: "No open GitHub issues or pull requests were observed.",
+          details: { repository: repositoryName },
+        },
+      );
+    } else {
+      for (const issue of issues) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-github-sources",
+            kind: "observed",
+            itemId: itemDedupeKey(
+              {
+                source: "github_issue",
+                externalId: `${repositoryName}#${issue.number}`,
+              },
+              orgId,
+            ),
+            source: "github_issue",
+            sourceUrl: issue.htmlUrl,
+            summary: issue.title,
+            details: { repository: repositoryName, number: issue.number },
+          },
+        );
+      }
+      for (const pullRequest of pullRequests) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-github-sources",
+            kind: "observed",
+            itemId: itemDedupeKey(
+              {
+                source: "github",
+                externalId: `${repositoryName}#${pullRequest.number}`,
+                repository: repositoryName,
+                pullRequestNumber: pullRequest.number,
+              },
+              orgId,
+            ),
+            source: "github",
+            sourceUrl: pullRequest.htmlUrl,
+            summary: pullRequest.title,
+            details: { repository: repositoryName, number: pullRequest.number },
+          },
+        );
+      }
+    }
 
     return {
       ok: true,

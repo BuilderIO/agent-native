@@ -118,7 +118,6 @@ import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import { WorkspaceAppsRail } from "./workspace-apps-rail";
 
 export type DispatchNavSection = "primary" | "operations";
 
@@ -521,14 +520,20 @@ function DispatchChatsSection({
   prelude,
   chatFirstMode = false,
   chatFirstEmbedded = false,
+  chatFirstNavigation,
 }: {
   onNavigate?: () => void;
   showNewChat?: boolean;
   prelude?: ReactNode;
   chatFirstMode?: boolean;
   chatFirstEmbedded?: boolean;
+  chatFirstNavigation?: {
+    onOpenIntegrations: () => void;
+    onOpenScheduled: () => void;
+  };
 }) {
   const t = useT();
+  const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const navigate = useNavigate();
   const location = useLocation();
   const [includeExternal, setIncludeExternal] = useState(false);
@@ -662,54 +667,57 @@ function DispatchChatsSection({
         showNewChat && "dispatch-chat-first-chats",
       )}
     >
-      {showNewChat ? (
-        <button
-          type="button"
-          className="flex h-7 w-[calc(100%-0.5rem)] items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          onClick={() => void handleNewChat()}
-        >
-          <IconPlus size={16} className="shrink-0" aria-hidden="true" />
-          <span>New chat</span>
-        </button>
+      {showNewChat && chatFirstNavigation ? (
+        <nav className="space-y-0.5 px-2 py-2">
+          <ChatFirstPrimaryNavigation
+            copy={chatFirstCopy}
+            onNewChat={() => void handleNewChat()}
+            onOpenIntegrations={chatFirstNavigation.onOpenIntegrations}
+            onOpenScheduled={chatFirstNavigation.onOpenScheduled}
+            onSearch={openCommandMenu}
+          />
+        </nav>
       ) : null}
       {prelude}
-      <div className="flex justify-end px-2 pt-0.5">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              data-dispatch-chat-source-toggle
-              aria-pressed={includeExternal}
-              aria-label={
-                includeExternal
-                  ? t("dispatch.sidebar.showLocalChats", {
-                      defaultValue: "Show local chats",
-                    })
-                  : t("dispatch.sidebar.showAllChats", {
-                      defaultValue: "Show all chats",
-                    })
-              }
-              onClick={() => setIncludeExternal((current) => !current)}
-              className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            >
-              {includeExternal ? (
-                <IconWorld size={14} aria-hidden="true" />
-              ) : (
-                <IconDeviceDesktop size={14} aria-hidden="true" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {includeExternal
-              ? t("dispatch.sidebar.showLocalChats", {
-                  defaultValue: "Show local chats",
-                })
-              : t("dispatch.sidebar.showAllChats", {
-                  defaultValue: "Show all chats",
-                })}
-          </TooltipContent>
-        </Tooltip>
-      </div>
+      {!chatFirstMode ? (
+        <div className="flex justify-end px-2 pt-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-dispatch-chat-source-toggle
+                aria-pressed={includeExternal}
+                aria-label={
+                  includeExternal
+                    ? t("dispatch.sidebar.showLocalChats", {
+                        defaultValue: "Show local chats",
+                      })
+                    : t("dispatch.sidebar.showAllChats", {
+                        defaultValue: "Show all chats",
+                      })
+                }
+                onClick={() => setIncludeExternal((current) => !current)}
+                className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              >
+                {includeExternal ? (
+                  <IconWorld size={14} aria-hidden="true" />
+                ) : (
+                  <IconDeviceDesktop size={14} aria-hidden="true" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {includeExternal
+                ? t("dispatch.sidebar.showLocalChats", {
+                    defaultValue: "Show local chats",
+                  })
+                : t("dispatch.sidebar.showAllChats", {
+                    defaultValue: "Show all chats",
+                  })}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
       {!chatFirstMode &&
         chatsLoading &&
         visibleThreads.length === 0 &&
@@ -983,20 +991,6 @@ export function NavContent({
     />
   );
 
-  const chatFirstPrimaryNavigation = (
-    <ChatFirstPrimaryNavigation
-      copy={chatFirstCopy}
-      onOpenIntegrations={() => {
-        navigate(dispatchNavLinkTarget("/admin/integrations"));
-        onNavigate?.();
-      }}
-      onOpenScheduled={() => {
-        navigate(dispatchNavLinkTarget("/admin/automations"));
-        onNavigate?.();
-      }}
-    />
-  );
-
   const chatFirstAppsRail = (
     <ChatFirstAppsRail
       apps={chatFirstApps}
@@ -1055,6 +1049,7 @@ export function NavContent({
                   onNavigate?.();
                 }}
                 aria-label={label}
+                aria-current={itemMatchesLocalPath ? "page" : undefined}
                 className={cn(
                   "flex size-9 items-center justify-center rounded-md text-sm",
                   itemMatchesLocalPath
@@ -1093,6 +1088,7 @@ export function NavContent({
               }
               onNavigate?.();
             }}
+            aria-current={itemMatchesLocalPath ? "page" : undefined}
             className={cn(
               "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
               itemMatchesLocalPath
@@ -1175,14 +1171,18 @@ export function NavContent({
               onNavigate={onNavigate}
               showNewChat
               chatFirstMode
-              prelude={
-                <>
-                  <nav className="space-y-0.5 px-2 py-2">
-                    {chatFirstPrimaryNavigation}
-                  </nav>
-                  {chatFirstAppsRail}
-                </>
-              }
+              chatFirstEmbedded={chatFirstEmbedded}
+              chatFirstNavigation={{
+                onOpenIntegrations: () => {
+                  navigate(dispatchNavLinkTarget("/admin/integrations"));
+                  onNavigate?.();
+                },
+                onOpenScheduled: () => {
+                  navigate(dispatchNavLinkTarget("/admin/automations"));
+                  onNavigate?.();
+                },
+              }}
+              prelude={chatFirstAppsRail}
             />
           ) : (
             chatFirstAppsRail
@@ -1203,8 +1203,6 @@ export function NavContent({
           >
             {primaryNavItems.map(renderNavItem)}
           </ul>
-
-          <WorkspaceAppsRail collapsed={collapsed} onNavigate={onNavigate} />
         </nav>
 
         <div className="mt-auto shrink-0">

@@ -22,7 +22,7 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const definitions = await listAutomationDefinitions(
-      { userEmail, orgId },
+      { userEmail, orgId, appId: "factory" },
       "organization",
     );
     return Promise.all(
@@ -45,6 +45,7 @@ export default defineAction({
           runs: await listAutomationRuns({
             owners: [resource.owner],
             automation: name,
+            appId: "factory",
             limit: 20,
           }),
         })),

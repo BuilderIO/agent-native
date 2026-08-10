@@ -57,15 +57,19 @@ describe("chat-first preference", () => {
     ).toEqual(["content", "design", "mail", "calendar", "clips", "brain"]);
   });
 
-  it("defaults to disabled and persists the opt-in value", () => {
+  it("defaults to enabled and persists an explicit opt-out", () => {
     const storage = createStorage();
 
     expect(storage.getItem(CHAT_FIRST_MODE_STORAGE_KEY)).toBeNull();
-    expect(readChatFirstMode(storage)).toBe(false);
+    expect(readChatFirstMode(storage)).toBe(true);
     expect(readChatFirstModeState(storage)).toEqual({
-      enabled: false,
+      enabled: true,
       availability: "available",
     });
+
+    writeChatFirstMode(false, storage);
+
+    expect(readChatFirstMode(storage)).toBe(false);
 
     writeChatFirstMode(true, storage);
 
@@ -82,9 +86,9 @@ describe("chat-first preference", () => {
       },
     };
 
-    expect(readChatFirstMode(storage)).toBe(false);
+    expect(readChatFirstMode(storage)).toBe(true);
     expect(readChatFirstModeState(storage)).toEqual({
-      enabled: false,
+      enabled: true,
       availability: "unavailable",
     });
     expect(writeChatFirstMode(true, storage)).toEqual({

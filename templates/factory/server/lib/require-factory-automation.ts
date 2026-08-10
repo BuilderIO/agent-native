@@ -45,7 +45,11 @@ export async function requireFactoryAutomation(
 
   const definition = (
     await listAutomationDefinitions(
-      { userEmail: identity.userEmail, orgId: identity.orgId },
+      {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+        appId: "factory",
+      },
       "organization",
     )
   ).find((entry) => entry.resource.id === lineage.triggerId);

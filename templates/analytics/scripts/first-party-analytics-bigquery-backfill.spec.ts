@@ -53,6 +53,8 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
         "batch-size": "10000",
         concurrency: "20",
         "max-batches": "20000",
+        "lookback-days": "30",
+        "skip-events": "http.response,action.response",
         finalize: "true",
       }),
     ).toMatchObject({
@@ -62,6 +64,8 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
       batchSize: 2500,
       concurrency: 4,
       maxBatches: 10000,
+      lookbackDays: 30,
+      excludedEventNames: ["http.response", "action.response"],
     });
   });
 
@@ -71,6 +75,8 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
         name: "org",
         predicate: "org_id = ?",
         predicateArgs: [scope.orgId],
+        lookbackStart: "2026-06-09T00:00:00.000Z",
+        excludedEventNames: ["http.response"],
       },
       {
         cutoff: {
@@ -88,17 +94,16 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
     );
 
     expect(query.sql).toContain("SELECT received_at, id");
-    expect(query.sql).toContain("received_at < ?");
-    expect(query.sql).toContain("id <= ?");
-    expect(query.sql).toContain("received_at > ?");
+    expect(query.sql).toContain("event_name IS DISTINCT FROM 'http.response'");
+    expect(query.sql).toContain("(received_at, id) <= (?, ?)");
+    expect(query.sql).toContain("(received_at, id) > (?, ?)");
     expect(query.sql).not.toContain("SELECT *");
     expect(query.sql).not.toContain("WHERE id IN");
     expect(query.args).toEqual([
       scope.orgId,
-      "2026-08-08T00:00:00.000Z",
+      "2026-06-09T00:00:00.000Z",
       "2026-08-08T00:00:00.000Z",
       "cutoff",
-      "2026-08-07T00:00:00.000Z",
       "2026-08-07T00:00:00.000Z",
       "cursor",
       1000,

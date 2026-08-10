@@ -679,11 +679,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Builder.io는 Clips 업로드의 기본 저장 경로입니다. 자체 버킷이 필요할 때 S3를 사용할 수 있습니다.",
     checkingBuilder: "Builder.io 확인 중",
     builderConnected: "Builder.io 연결됨",
-    connectBuilder: "Builder.io 사용 (무료)",
+    connectBuilder: "Builder.io 사용",
     builderConnectedFor: "{{orgName}}에 Builder.io를 사용 중입니다.",
     builderConnectedGeneric: "새 클립은 연결된 Builder.io 제공자를 사용합니다.",
     builderIncludes:
-      "새 클립을 위한 객체 저장소, 업로드, 관리형 전사를 포함합니다.",
+      "Builder.io 무료 요금제에는 새 클립을 위한 객체 저장소, 업로드, 관리형 전사가 포함됩니다.",
     s3Title: "S3 호환 저장소",
     secondary: "보조",
     active: "활성",
@@ -709,8 +709,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
     s3RegionInvalid: '유효한 리전(예: us-east-1) 또는 "auto"이어야 합니다',
     apiSetup: "AI 설정",
-    apiSetupDescription:
-      "Builder.io 무료 크레딧 또는 직접 보유한 LLM 키로 AI를 연결하세요.",
+    apiSetupDescription: "Clips의 AI 연결 방식을 선택하세요.",
     builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
       "포함된 AI 크레딧과 관리형 전사를 Clips에서 사용할 수 있습니다.",
@@ -718,8 +717,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "포함된 AI 크레딧, 객체 스토리지, 업로드, 관리형 전사에는 먼저 Builder.io를 사용하세요.",
     providerKeyTitle: "자체 제공자 키 사용",
     providerKeyDescription:
-      "제공자 과금 사용을 위해 Anthropic, OpenAI, Gemini, Groq 또는 OpenRouter 키를 추가하세요.",
+      "제공자 과금 사용을 위해 Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere 또는 Ollama를 선택하세요.",
     providerKeysSet: "{{count}}개 설정됨",
+    providerActionTitle: "AI 제공업체",
+    providerActionDescription:
+      "Builder.io에는 무료 요금제가 있으며, 사용자 지정 키도 사용할 수 있습니다.",
+    providerManage: "관리",
+    providerCustomKeys: "사용자 지정 키",
     checkingProviderKeys: "제공자 키 확인 중…",
     keySet: "설정됨",
     keyCleared: "스토리지 자격 증명이 삭제되었습니다",
@@ -1146,7 +1150,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 사용 (무료)",
+    connectBuilder: "Builder.io 사용",
     free: "무료",
     configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",

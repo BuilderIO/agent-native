@@ -6,7 +6,7 @@ import {
   type BigQueryTableRef,
 } from "./bigquery.js";
 import { requireRequestCredentialContext } from "./credentials-context.js";
-import { getAccessToken } from "./gcloud.js";
+import { fetchGoogleWithRetry, getAccessToken } from "./gcloud.js";
 import {
   getScopedSettingRecord,
   putScopedSettingRecord,
@@ -78,6 +78,19 @@ const MAX_INSERT_BATCH_SIZE = 200;
 const MAX_DEDICATED_INSERT_BATCH_SIZE = 500;
 const MAX_DEDICATED_INSERT_CONCURRENCY = 4;
 const MAX_INSERT_REQUEST_BYTES = 8 * 1024 * 1024;
+const DEFAULT_BACKFILL_LOOKBACK_DAYS = 60;
+const MIN_BACKFILL_LOOKBACK_DAYS = 30;
+const MAX_BACKFILL_LOOKBACK_DAYS = 60;
+const DEFAULT_BACKFILL_SKIP_EVENTS = ["http.response"];
+const MAX_BACKFILL_SKIP_EVENTS = 32;
+const BACKFILL_LOOKBACK_DAYS_ENV = "ANALYTICS_BIGQUERY_BACKFILL_LOOKBACK_DAYS";
+const BACKFILL_SKIP_EVENTS_ENV = "ANALYTICS_BIGQUERY_BACKFILL_SKIP_EVENTS";
+
+export interface FirstPartyAnalyticsBackfillOptions {
+  lookbackDays?: number;
+  skipEventNames?: string[];
+  now?: () => string;
+}
 
 export interface FirstPartyAnalyticsInsertOptions {
   /** Maximum rows in one BigQuery insertAll request. */
@@ -319,7 +332,7 @@ async function insertBatch(
   token: string,
   rows: Record<string, unknown>[],
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchGoogleWithRetry(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${table.projectId}/datasets/${table.datasetId}/tables/${table.tableId}/insertAll`,
     {
       method: "POST",
@@ -336,6 +349,7 @@ async function insertBatch(
         })),
       }),
     },
+    "BigQuery insertAll",
   );
   if (!response.ok) {
     const text = await response.text();
@@ -939,6 +953,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
 
 export async function assertFirstPartyAnalyticsBigQueryReady(
   configuredTable?: string | null,
+  options: { includeRowCount?: boolean } = {},
 ): Promise<{ table: BigQueryTableRef; rowCount: number }> {
   const table = await getFirstPartyAnalyticsTable(configuredTable);
   const expectedColumns = new Map<string, readonly string[]>([
@@ -1017,6 +1032,9 @@ export async function assertFirstPartyAnalyticsBigQueryReady(
         missingColumns.join(", "),
     );
   }
+  if (options.includeRowCount === false) {
+    return { table, rowCount: 0 };
+  }
   const result = await runQuery(
     "SELECT COUNT(*) AS row_count FROM " + quote + table.fullyQualified + quote,
   );
@@ -1027,6 +1045,7 @@ export async function assertFirstPartyAnalyticsBigQueryReady(
 export async function getFirstPartyAnalyticsBigQueryMetrics(
   scope: FirstPartyAnalyticsScope,
   configuredTable?: string | null,
+  options: { includeLegacyOwnerRows?: boolean; startDate?: string } = {},
 ): Promise<{
   eventCount: number;
   dailyRollupRows: number;
@@ -1037,14 +1056,20 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
   const physical = firstPartyAnalyticsPhysicalTables(table);
   const ownerEmail = sqlLiteral(scope.userEmail);
   const today = sqlLiteral(new Date().toISOString().slice(0, 10));
+  const includeLegacyOwnerRows = options.includeLegacyOwnerRows !== false;
   const tenantFilter = scope.orgId
-    ? `(org_id = ${sqlLiteral(scope.orgId)} OR (org_id IS NULL AND owner_email = ${ownerEmail}))`
+    ? includeLegacyOwnerRows
+      ? `(org_id = ${sqlLiteral(scope.orgId)} OR (org_id IS NULL AND owner_email = ${ownerEmail}))`
+      : `(org_id = ${sqlLiteral(scope.orgId)})`
     : `(org_id IS NULL AND owner_email = ${ownerEmail})`;
+  const startDateFilter = options.startDate
+    ? ` AND event_date >= ${sqlLiteral(options.startDate)}`
+    : "";
   const result = await runQuery(`
     WITH scoped_events AS (
       SELECT *
       FROM \`${physical.events}\`
-      WHERE ${tenantFilter} AND event_date <= ${today}
+      WHERE ${tenantFilter}${startDateFilter} AND event_date <= ${today}
     )
     SELECT
       COUNT(*) AS event_count,
@@ -1121,26 +1146,92 @@ function serializeBackfillCursor(
   return JSON.stringify(cursor);
 }
 
+function boundedLookbackDays(value: number): number {
+  if (
+    !Number.isInteger(value) ||
+    value < MIN_BACKFILL_LOOKBACK_DAYS ||
+    value > MAX_BACKFILL_LOOKBACK_DAYS
+  ) {
+    throw new Error(
+      `BigQuery backfill lookback must be an integer between ${MIN_BACKFILL_LOOKBACK_DAYS} and ${MAX_BACKFILL_LOOKBACK_DAYS} days`,
+    );
+  }
+  return value;
+}
+
+function configuredLookbackDays(requested: number | undefined): number {
+  if (requested !== undefined) return boundedLookbackDays(requested);
+  const raw = process.env[BACKFILL_LOOKBACK_DAYS_ENV]?.trim();
+  if (!raw) return DEFAULT_BACKFILL_LOOKBACK_DAYS;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) &&
+    parsed >= MIN_BACKFILL_LOOKBACK_DAYS &&
+    parsed <= MAX_BACKFILL_LOOKBACK_DAYS
+    ? parsed
+    : DEFAULT_BACKFILL_LOOKBACK_DAYS;
+}
+
+function configuredSkipEventNames(requested: string[] | undefined): string[] {
+  const raw = requested
+    ? requested
+    : (
+        process.env[BACKFILL_SKIP_EVENTS_ENV] ??
+        DEFAULT_BACKFILL_SKIP_EVENTS.join(",")
+      )
+        .split(",")
+        .map((name) => name.trim());
+  const names = [...new Set(raw)].filter(Boolean);
+  if (names.length > MAX_BACKFILL_SKIP_EVENTS) {
+    throw new Error(
+      `BigQuery backfill skips at most ${MAX_BACKFILL_SKIP_EVENTS} event names`,
+    );
+  }
+  return names;
+}
+
+function backfillLookbackStart(now: string, lookbackDays: number): string {
+  const date = new Date(now);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid BigQuery backfill clock value: ${now}`);
+  }
+  date.setUTCDate(date.getUTCDate() - lookbackDays);
+  return date.toISOString();
+}
+
 function backfillBranchSql(
   predicate: string,
   predicateArgs: string[],
   cursor: FirstPartyAnalyticsBackfillCursor,
+  lookbackStart: string,
+  skipEventNames: string[],
 ): {
   sql: string;
-  args: string[];
+  args: unknown[];
 } {
-  const cursorSql = cursor.receivedAt
-    ? "(received_at > ? OR (received_at = ? AND id > ?))"
-    : "";
-  const cursorArgs = cursor.receivedAt
-    ? [cursor.receivedAt, cursor.receivedAt, cursor.id]
-    : [];
+  const cursorSql = cursor.receivedAt ? "(received_at, id) > (?, ?)" : "";
+  const cursorArgs = cursor.receivedAt ? [cursor.receivedAt, cursor.id] : [];
+  const skipSql =
+    skipEventNames.length === DEFAULT_BACKFILL_SKIP_EVENTS.length &&
+    skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0]
+      ? "event_name IS DISTINCT FROM 'http.response'"
+      : skipEventNames.length
+        ? `(event_name IS NULL OR event_name NOT IN (${skipEventNames.map(() => "?").join(", ")}))`
+        : "";
+  const filters = ["received_at >= ?", skipSql].filter(Boolean);
   return {
     sql: `SELECT id, received_at
       FROM analytics_events
-      WHERE ${predicate}${cursorSql ? ` AND ${cursorSql}` : ""}
+      WHERE ${predicate}
+        AND ${filters.join("\n        AND ")}${cursorSql ? `\n        AND ${cursorSql}` : ""}
       ORDER BY received_at ASC, id ASC LIMIT ?`,
-    args: [...predicateArgs, ...cursorArgs],
+    args: [
+      ...predicateArgs,
+      lookbackStart,
+      ...(skipSql === "event_name IS DISTINCT FROM 'http.response'"
+        ? []
+        : skipEventNames),
+      ...cursorArgs,
+    ],
   };
 }
 
@@ -1191,6 +1282,7 @@ export async function backfillFirstPartyAnalyticsBatch(
   cursor: string | null,
   limit: number,
   configuredTable?: string | null,
+  options?: FirstPartyAnalyticsBackfillOptions,
 ): Promise<FirstPartyAnalyticsBackfillBatch> {
   const boundedLimit = Math.min(
     Math.max(Math.floor(limit), 1),
@@ -1198,6 +1290,12 @@ export async function backfillFirstPartyAnalyticsBatch(
   );
   const db = getDbExec();
   const parsedCursor = parseBackfillCursor(cursor);
+  const lookbackDays = configuredLookbackDays(options?.lookbackDays);
+  const lookbackStart = backfillLookbackStart(
+    options?.now?.() ?? new Date().toISOString(),
+    lookbackDays,
+  );
+  const skipEventNames = configuredSkipEventNames(options?.skipEventNames);
   const branches = scope.orgId
     ? [
         { predicate: "org_id = ?", args: [scope.orgId] },
@@ -1218,6 +1316,8 @@ export async function backfillFirstPartyAnalyticsBatch(
       branch.predicate,
       branch.args,
       parsedCursor,
+      lookbackStart,
+      skipEventNames,
     );
     const result = await db.execute({
       sql: scoped.sql,

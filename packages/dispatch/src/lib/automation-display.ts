@@ -27,7 +27,7 @@ export function belongsToDispatch(
 export function automationTroubleshootPath(
   item: Pick<DispatchAutomationItem, "name">,
 ): string {
-  const params = new URLSearchParams({ query: item.name });
+  const params = new URLSearchParams({ mode: "threads", query: item.name });
   return `/admin/thread-debug?${params.toString()}`;
 }
 

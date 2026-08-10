@@ -79,6 +79,8 @@ interface AgentRunRow {
   worker_stage?: string | null;
   diag_stage?: string | null;
   peak_rss_mb?: number | string | null;
+  in_flight_since?: number | string | null;
+  dispatch_payload?: string | null;
 }
 
 const execCache = new Map<string, Promise<DbExec>>();
@@ -586,6 +588,11 @@ function serializeRun(row: AgentRunRow, events: any[] = []) {
     workerStage: row.worker_stage ? String(row.worker_stage) : null,
     diagStage: row.diag_stage ? String(row.diag_stage) : null,
     peakRssMb: nullableNumberField(row.peak_rss_mb),
+    inFlightSince: nullableNumberField(row.in_flight_since),
+    hasDispatchPayload:
+      row.dispatch_payload !== null &&
+      row.dispatch_payload !== undefined &&
+      String(row.dispatch_payload).length > 0,
     events,
   };
 }
@@ -906,11 +913,11 @@ export async function searchAgentThreads(input: {
         ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
         : "";
     where.push(
-      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
         runIdClause +
         ")",
     );
-    args.push(pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern);
     args.push(...runThreadIds);
   }
   args.push(limit);

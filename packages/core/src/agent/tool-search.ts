@@ -9,6 +9,7 @@ type ToolSearchArgs = {
   query?: unknown;
   limit?: unknown;
   includeSchemas?: unknown;
+  readOnlyOnly?: unknown;
 };
 
 type ToolParameterSummary = {
@@ -66,6 +67,11 @@ export function createToolSearchEntry(
             description:
               "When true, include each matching tool's full input schema. Default false.",
           },
+          readOnlyOnly: {
+            type: "boolean",
+            description:
+              "When true, return tools whose current policy is read-only or can classify the supplied arguments as read-only. The bounded orchestration host rechecks conditional policies before every call.",
+          },
         },
       },
     },
@@ -107,6 +113,7 @@ export function searchToolRegistry(
   // actually needs. A query switches to ranked search with parameter details.
   const listAll = query.length === 0;
   const includeSchemas = !listAll && parseBoolean(args.includeSchemas);
+  const readOnlyOnly = parseBoolean(args.readOnlyOnly);
   const limit = parseLimit(
     args.limit,
     options.defaultLimit ?? DEFAULT_LIMIT,
@@ -116,6 +123,7 @@ export function searchToolRegistry(
     query,
     limit,
     includeSchemas,
+    readOnlyOnly,
   });
   const runCtx = getRequestRunContext();
   const priorSearch = includeSchemas
@@ -153,13 +161,25 @@ export function searchToolRegistry(
       continue;
     }
 
-    totalTools++;
     const description = normalizeWhitespace(entry.tool.description ?? "");
     const parsedMcp = parseMcpToolName(name);
     const kind = parsedMcp ? "mcp" : "action";
     const source = parsedMcp?.serverId;
     const callable = entry.allowInPlanMode !== false;
     const planAvailability = getPlanAvailability(name, entry);
+    // Conditional policies still need discovery: MCP tools and provider/web
+    // actions classify the arguments at call time. Bash is marked conditional
+    // for Plan mode, but the orchestration bridge intentionally does not expose
+    // shell execution, so do not advertise it as a child-call candidate.
+    if (
+      readOnlyOnly &&
+      planAvailability !== "read" &&
+      (planAvailability !== "conditional" || name === "bash")
+    ) {
+      continue;
+    }
+
+    totalTools++;
 
     if (listAll) {
       candidates.push({
@@ -258,11 +278,13 @@ function normalizeToolSearchCacheKey(options: {
   query: string;
   limit: number;
   includeSchemas: boolean;
+  readOnlyOnly: boolean;
 }): string {
   return JSON.stringify({
     query: options.query.trim().toLowerCase(),
     limit: options.limit,
     includeSchemas: options.includeSchemas,
+    readOnlyOnly: options.readOnlyOnly,
   });
 }
 

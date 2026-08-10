@@ -6,7 +6,6 @@ import {
 import {
   SettingsGroup,
   SettingsRow,
-  SettingsSection,
   SettingsSurfaceProvider,
   SettingsTabsPage,
   type SettingsTabItem,
@@ -438,67 +437,60 @@ function SoftwareUpdateCard() {
   }, [canInstall, updater]);
 
   return (
-    <div className={`settings-update-card settings-update-card--${copy.tone}`}>
-      <div className="settings-update-row">
-        <div className="settings-update-title">
-          <span
-            className={`settings-update-dot settings-update-dot--${copy.tone}`}
-          />
-          <div>
-            <span className="settings-mode-card-title">Software Updates</span>
-            <span className="settings-mode-card-status">
-              {copy.label} · {copy.description}
-            </span>
-          </div>
-        </div>
-        <div className="settings-update-actions">
-          {canInstall ? (
-            <button
-              type="button"
-              className="settings-btn settings-btn--primary settings-update-btn"
-              onClick={handleInstall}
-            >
+    <SettingsRow
+      label="Software updates"
+      description={copy.description}
+      status={
+        <span className="text-xs text-muted-foreground">{copy.label}</span>
+      }
+      control={
+        canInstall ? (
+          <button
+            type="button"
+            className="settings-btn settings-btn--primary settings-update-btn"
+            onClick={handleInstall}
+          >
+            <IconRefresh size={14} />
+            Relaunch
+          </button>
+        ) : canDownload ? (
+          <button
+            type="button"
+            className="settings-btn settings-btn--primary settings-update-btn"
+            onClick={handleDownload}
+            disabled={working === "download"}
+          >
+            {working === "download" ? (
+              <IconLoader2 size={14} className="settings-update-spin" />
+            ) : (
+              <IconDownload size={14} />
+            )}
+            Download
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="settings-btn settings-btn--ghost settings-update-btn"
+            onClick={handleCheck}
+            disabled={!canCheck}
+          >
+            {working === "check" || status?.state === "checking" ? (
+              <IconLoader2 size={14} className="settings-update-spin" />
+            ) : (
               <IconRefresh size={14} />
-              Relaunch
-            </button>
-          ) : canDownload ? (
-            <button
-              type="button"
-              className="settings-btn settings-btn--primary settings-update-btn"
-              onClick={handleDownload}
-              disabled={working === "download"}
-            >
-              {working === "download" ? (
-                <IconLoader2 size={14} className="settings-update-spin" />
-              ) : (
-                <IconDownload size={14} />
-              )}
-              Download
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="settings-btn settings-btn--ghost settings-update-btn"
-              onClick={handleCheck}
-              disabled={!canCheck}
-            >
-              {working === "check" || status?.state === "checking" ? (
-                <IconLoader2 size={14} className="settings-update-spin" />
-              ) : (
-                <IconRefresh size={14} />
-              )}
-              Check
-            </button>
-          )}
-        </div>
-      </div>
+            )}
+            Check
+          </button>
+        )
+      }
+    >
       {status?.state === "downloading" && (
         <div className="settings-update-progress" aria-hidden="true">
           <span style={{ width: `${Math.min(100, status.percent)}%` }} />
         </div>
       )}
       {message && <div className="settings-update-message">{message}</div>}
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -960,25 +952,23 @@ export default function AppSettings({
       group: "agent",
       content: (
         <div className="w-full max-w-3xl space-y-8">
-          <SettingsSection
-            icon={<IconTerminal2 size={14} />}
-            title="AI providers"
-            subtitle="Use your connected providers and existing subscriptions."
-            flat
-            open
-          >
-            {providerSettings ? (
-              <CodeProviderSettings
-                settings={providerSettings}
-                onSettingsChanged={setProviderSettings}
-                onProvidersChanged={onCodeAgentProvidersChanged}
+          {providerSettings ? (
+            <CodeProviderSettings
+              settings={providerSettings}
+              onSettingsChanged={setProviderSettings}
+              onProvidersChanged={onCodeAgentProvidersChanged}
+            />
+          ) : (
+            <SettingsGroup
+              title="AI providers"
+              description={providerLoadMessage ?? "Loading provider settings…"}
+            >
+              <SettingsRow
+                label="Provider status"
+                description="Reading the providers available to this desktop app."
               />
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {providerLoadMessage ?? "Loading provider settings…"}
-              </p>
-            )}
-          </SettingsSection>
+            </SettingsGroup>
+          )}
         </div>
       ),
     },
@@ -1482,15 +1472,12 @@ export default function AppSettings({
                       />
                     ) : null}
                   </SettingsGroup>
-                  <SettingsSection
-                    icon={<IconRefresh size={14} />}
+                  <SettingsGroup
                     title="Software updates"
-                    subtitle="Keep Agent Native current."
-                    flat
-                    open
+                    description="Keep Agent Native current."
                   >
                     <SoftwareUpdateCard />
-                  </SettingsSection>
+                  </SettingsGroup>
                 </div>
               }
               extraTabs={settingsTabs}

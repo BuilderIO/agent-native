@@ -2269,12 +2269,34 @@ function isHostedPreviewRequest(event: H3Event): boolean {
   const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
   return (
     host.endsWith(".agent-native.com") ||
+    isBuilderPreviewHost(host) ||
+    host.includes("deploy-preview")
+  );
+}
+
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewHost(host: string): boolean {
+  return (
     host.endsWith(".builderio.xyz") ||
     host.endsWith(".builderio.dev") ||
     host.endsWith(".builder.codes") ||
-    host.endsWith(".builder.my") ||
-    host.includes("deploy-preview")
+    host.endsWith(".builder.my")
   );
+}
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function isBuilderPreviewLocalDevRequest(event: H3Event): boolean {
+  if (!isBuilderPreviewLocalDevEnabled()) return false;
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return isBuilderPreviewHost(host);
 }
 
 export function isLocalDevAuthAllowed(event: H3Event): boolean {
@@ -2285,8 +2307,8 @@ export function isLocalDevAuthAllowed(event: H3Event): boolean {
     !deployPreview &&
     !isAuthDisabled() &&
     process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
-    !isHostedPreviewRequest(event) &&
-    isLoopbackRequest(event)
+    ((!isHostedPreviewRequest(event) && isLoopbackRequest(event)) ||
+      isBuilderPreviewLocalDevRequest(event))
   );
 }
 

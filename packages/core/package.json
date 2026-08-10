@@ -360,7 +360,7 @@
     "@assistant-ui/store": ">=0.2.9 <0.2.14",
     "@assistant-ui/tap": "^0.5.14",
     "@builder.io/ai-utils": "^0.84.0",
-    "@clack/prompts": "^1.4.0",
+    "@clack/prompts": "^1.7.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@libsql/client": "^0.15.0",

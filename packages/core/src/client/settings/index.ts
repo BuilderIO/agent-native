@@ -61,3 +61,16 @@ export {
   type SettingsPanelController,
   type SettingsPanelControllerOptions,
 } from "./useSettingsPanelController.js";
+export {
+  AGENT_PROVIDER_CATALOG,
+  getAgentProviderOption,
+  providerIdForEngine,
+  type AgentProviderId,
+  type AgentProviderOption,
+} from "../agent-provider-catalog.js";
+export {
+  AgentProviderPicker,
+  AgentProviderSetupForm,
+  type AgentProviderPickerProps,
+  type AgentProviderSetupFormProps,
+} from "./ProviderSetupForm.js";

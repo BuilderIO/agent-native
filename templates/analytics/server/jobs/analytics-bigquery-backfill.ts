@@ -248,7 +248,7 @@ export async function acquireDedicatedFirstPartyAnalyticsBackfillLease(
                SET status = 'pending', lease_token = NULL,
                    lease_expires_at = NULL, next_run_at = ?, updated_at = ?
              WHERE id = ? AND lease_token = ?`,
-      args: [leaseExpiresAt, releasedAt, id, token],
+      args: [releasedAt, releasedAt, id, token],
       timeoutMs: 5_000,
       maxAttempts: 1,
     });

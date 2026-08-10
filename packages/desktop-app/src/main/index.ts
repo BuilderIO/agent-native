@@ -200,6 +200,10 @@ import {
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
 import {
+  registerQuickPromptIpc,
+  registerQuickPromptShortcut,
+} from "./quick-prompt";
+import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
@@ -7985,6 +7989,11 @@ registerCodeAgentsIpc({
   pairRemoteCodeAgentConnector,
 });
 
+registerQuickPromptIpc({
+  createCodeAgentRun,
+  sendOpenRequestToRenderer,
+});
+
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
 // so add the useful browser/editing actions for both the shell and app webviews.
@@ -9530,6 +9539,7 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
+  registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.
   remoteConnectorEnabled = false;

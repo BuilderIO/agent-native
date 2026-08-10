@@ -135,7 +135,7 @@ export default function App() {
     null,
   );
   const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(true);
-  const [chatFirstMode, setChatFirstMode] = useState(false);
+  const [chatFirstMode, setChatFirstMode] = useState(true);
   const [hasMountedCodeAgents, setHasMountedCodeAgents] = useState(false);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
@@ -179,11 +179,11 @@ export default function App() {
       .load()
       .then((settings) => {
         setShowCodeAgentsTab(settings.showCodeTab);
-        setChatFirstMode(settings.chatFirstMode === true);
+        setChatFirstMode(settings.chatFirstMode !== false);
       })
       .catch(() => {
         setShowCodeAgentsTab(true);
-        setChatFirstMode(false);
+        setChatFirstMode(true);
       });
   }, []);
 
@@ -261,7 +261,7 @@ export default function App() {
 
   const handleFrameSettingsChanged = useCallback((settings: FrameSettings) => {
     setShowCodeAgentsTab(settings.showCodeTab);
-    setChatFirstMode(settings.chatFirstMode === true);
+    setChatFirstMode(settings.chatFirstMode !== false);
   }, []);
 
   const activateApp = useCallback(

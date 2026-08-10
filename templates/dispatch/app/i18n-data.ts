@@ -380,7 +380,7 @@ const enUS = {
       threadDebugRefreshFailures: "Refresh failed runs",
       threadDebugNoFailures: "No failed runs found.",
       threadDebugCurrentDatabase: "Current Dispatch DB",
-      threadDebugSearchPlaceholder: "Search title, preview, messages, tools",
+      threadDebugSearchPlaceholder: "Search threads or email",
       threadDebugSearch: "Search",
       threadDebugLookupPlaceholder: "Paste thread or request/run ID",
       threadDebugInspect: "Inspect",
