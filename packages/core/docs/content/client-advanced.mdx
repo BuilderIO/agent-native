@@ -29,7 +29,7 @@ const selection = await readClientAppState("selection");
 
 ### writeClientAppState {#write-client-app-state}
 
-Write a value for a key. Unlike `setClientAppState` below, it always writes, even if you pass `null` or `undefined`.
+Write a value for a key. Unlike `setClientAppState` below, it always writes, even if you pass `null`. Passing `undefined` throws instead, since `undefined` isn't valid JSON. Use `setClientAppState(key, undefined)` or `deleteClientAppState()` to clear a key.
 
 ```ts
 import { writeClientAppState } from "@agent-native/core/client/hooks";

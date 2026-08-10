@@ -1517,6 +1517,7 @@ const enUS = {
     serverPlugins: "Plugins",
     serverRoutes: "Routes",
     client: "Client",
+    clientNext: "Client (new)",
     clientOverview: "Overview",
     clientDataSync: "Data & Sync",
     clientAgentChat: "Agent Chat",

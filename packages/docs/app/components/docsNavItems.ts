@@ -119,7 +119,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "client", labelKey: "client", slug: "client" },
       {
         id: "client-section",
-        labelKey: "client",
+        labelKey: "clientNext",
         draft: true,
         children: [
           {

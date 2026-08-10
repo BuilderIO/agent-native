@@ -1,8 +1,11 @@
 import type { BlockRenderContext } from "@agent-native/core/blocks";
 import { IconArrowsMaximize, IconX } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { MediaAlign } from "./media-shared";
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Fixed-backdrop popup for `expandable` media. Mirrors core's
@@ -10,6 +13,11 @@ import type { MediaAlign } from "./media-shared";
  * top-right close button, body scroll locked while open) rather than
  * importing it, since that lives in `@agent-native/core`'s public blocks
  * surface and would need a changeset for what's a docs-site-only need.
+ *
+ * Unlike that reference, this one also manages focus: moves focus into the
+ * dialog on open, traps Tab within it while open, and restores focus to
+ * whatever triggered it (the expand button) on close, per the standard
+ * WAI-ARIA dialog pattern.
  */
 function MediaLightbox({
   children,
@@ -18,20 +26,46 @@ function MediaLightbox({
   children: ReactNode;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener("keydown", onKeyDown);
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = "";
+      previouslyFocused?.focus();
     };
   }, [onClose]);
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label="Media preview"
@@ -45,6 +79,7 @@ function MediaLightbox({
         {children}
       </div>
       <button
+        ref={closeButtonRef}
         type="button"
         onClick={onClose}
         aria-label="Close preview"

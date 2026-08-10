@@ -275,17 +275,7 @@ For a plain full-width image with no paired text, omit `align` (or set it to `"f
 
 ## Video
 
-<Video
-  src="/videos/product-tour.mp4"
-  alt="A short screen recording of creating a new action from the CLI"
-  align="right"
-  width={320}
-  caption="Creating an action from the CLI."
->
-
-Same shape as `Image`, aligned the other way this time. The video sits on the right, and this text sits on the left. `src` must be a direct video file, mp4 or webm. Third-party embed links like YouTube or Loom aren't supported, since that would need an `<iframe>`, which the docs system doesn't allow for security reasons.
-
-</Video>
+No sample video ships in this repo, so this section shows syntax only rather than a live-rendered example. Swap `src` for a real `.mp4`/`.webm` file under `public/` to see it rendered.
 
 ```mdx
 <Video
@@ -308,12 +298,6 @@ Pass `autoplay` to play the video automatically once it's visible. It always for
 Pass `loop` to restart the video from the beginning once it ends. It's independent of `autoplay`, so a looping video that isn't set to autoplay just loops once the viewer presses play themselves.
 
 The same full-width form applies here too, omit `align` and the children for a plain full-width video:
-
-<Video
-  src="/videos/product-tour.mp4"
-  alt="A full walkthrough recording of building an action end to end"
-  caption="Building an action end to end."
-/>
 
 ```mdx
 <Video

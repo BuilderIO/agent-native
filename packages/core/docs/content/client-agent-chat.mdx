@@ -38,7 +38,7 @@ The user experience is as follows:
 
 1. The user picks **Offer a refund**, which causes `sendDraftRequest()` to send the prompt and ticket context to the agent.
 
-1. The agent calls the `draft-ticket-reply` [action](http://localhost:3000/docs/actions), and the drafted reply appears in the reply composer.
+1. The agent calls the `draft-ticket-reply` [action](/docs/actions), and the drafted reply appears in the reply composer.
 
 ## askUserQuestion(opts) {#ask-user-question}
 
@@ -137,6 +137,8 @@ This React hook wraps `sendToAgentChat()` with loading state tracking.
 
 2. The second argument, `send()`, mirrors the `sendToAgentChat()` function.
 
+`isGenerating` only resets once a run actually starts and reports it has stopped. A `submit: false` call prefills a draft without starting a run, so `isGenerating` stays `true` forever after one. Use this hook only for `submit: true` sends; call `sendToAgentChat()` directly for prefill-only ones.
+
 Combining this with the `askUserQuestion()` example above completes the button's handler:
 
 <AnnotatedCode
@@ -182,11 +184,11 @@ Combining this with the `askUserQuestion()` example above completes the button's
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Send a message to the agent chat via `postMessage`. This is the lower-level primitive `useAgentChatGenerating()` above wraps, useful when a UI interaction doesn't need loading-state tracking of its own. Pass `context` for hidden model context, and `submit: true` to send immediately or `submit: false` to prefill a draft the user reviews first.
+Send a message to the agent chat via `postMessage`. This is the lower-level primitive `useAgentChatGenerating()` above wraps, useful when a UI interaction doesn't need loading-state tracking of its own. Pass `context` for extra detail the message alone doesn't carry. It gets appended to the same visible message, wrapped in `<context>` tags. It is not hidden from the user. Pass `submit: true` to send immediately, or `submit: false` to prefill a draft the user reviews first.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Auto-submit a prompt with hidden context
+// Auto-submit a prompt with appended context
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -203,13 +205,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option        | Type       | Description                                             |
-| ------------- | ---------- | ------------------------------------------------------- |
-| `message`     | `string`   | The visible prompt sent to the chat                     |
-| `context`     | `string?`  | Hidden context appended (not shown in chat UI)          |
-| `submit`      | `boolean?` | true = auto-submit, false = prefill only                |
-| `newTab`      | `boolean?` | Create a separate chat thread for this prompt           |
-| `openSidebar` | `boolean?` | Set false to submit/prefill without opening the sidebar |
+| Option        | Type       | Description                                                                                         |
+| ------------- | ---------- | --------------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | The prompt sent to the chat. `context`, if set, is appended to this same visible message            |
+| `context`     | `string?`  | Extra detail appended to the visible message, wrapped in `<context>` tags. Not hidden from the user |
+| `submit`      | `boolean?` | true = auto-submit, false = prefill only                                                            |
+| `newTab`      | `boolean?` | Create a separate chat thread for this prompt                                                       |
+| `openSidebar` | `boolean?` | Set false to submit/prefill without opening the sidebar                                             |
 
 Running this from inside an MCP App embed, or backgrounding the run without opening the sidebar, are both covered in [Advanced](/docs/client-advanced#background-send).
 

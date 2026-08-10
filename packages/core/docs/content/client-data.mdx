@@ -351,7 +351,8 @@ Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is b
           type: "number",
           optional: true,
           default: "60000",
-          description: "Fallback polling interval when SSE is unavailable.",
+          description:
+            "Poll interval while SSE is connected, as a backup in case an event is missed. A disconnected tab polls at the faster `interval` (or a fixed idle cadence) instead.",
         },
         {
           name: "pauseWhenHidden",
