@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.23.0
+
+### Minor Changes
+
+- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
+
+### Patch Changes
+
+- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
+- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
+- Updated dependencies [c41fd16]
+  - @agent-native/toolkit@0.13.8
+
 ## 0.22.1
 
 ### Patch Changes
