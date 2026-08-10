@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.148.1
+
+### Patch Changes
+
+- c29fcb7: Render docs diagram arrows as directional CSS/Rough.js geometry instead of text or emoji glyphs.
+- c29fcb7: Restore an All apps destination at the bottom of the chat-first app shelf.
+
 ## 0.148.0
 
 ### Minor Changes
