@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -345,7 +345,7 @@ describe("ToolCallDisplay native renderers", () => {
     expect(row?.className).toContain("agent-tool-call--entering");
   });
 
-  it("replays the entry when an existing row becomes the active tail", () => {
+  it("does not replay the entry when an existing row becomes the active tail", () => {
     act(() => {
       root.render(
         <ToolCallDisplay
@@ -370,9 +370,9 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
-    expect(container.querySelector(".agent-tool-call")?.className).toContain(
-      "agent-tool-call--entering",
-    );
+    expect(
+      container.querySelector(".agent-tool-call")?.className,
+    ).not.toContain("agent-tool-call--entering");
   });
 
   it("shimmers only the newest running reconnect tool", () => {
@@ -2029,6 +2029,58 @@ describe("ToolCallStackMotion", () => {
     exitAnimation?.animation.onfinish?.();
     expect(document.querySelector(".agent-tool-call-stack__exit")).toBeNull();
   });
+
+  it("does not animate again when an entry class is removed", () => {
+    const layout = new Map<string, number>([["tool-a", 24]]);
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        const key = this.dataset.agentToolCallId ?? "";
+        const entryOffset = this.classList.contains("agent-tool-call--entering")
+          ? 6
+          : 0;
+        const top = (layout.get(key) ?? 0) + entryOffset;
+        return {
+          top,
+          left: 0,
+          width: 240,
+          height: 24,
+          bottom: top + 24,
+          right: 240,
+          x: 0,
+          y: top,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    });
+    const animations: Animation[] = [];
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value(this: HTMLElement, keyframes: Keyframe[]) {
+        const animation = {
+          cancel: vi.fn(),
+          oncancel: null,
+          onfinish: null,
+        };
+        animations.push(animation as unknown as Animation);
+        return animation as unknown as Animation;
+      },
+    });
+
+    const render = (entering: boolean) => (
+      <ToolCallStackMotion>
+        <div
+          className={entering ? "agent-tool-call--entering" : "agent-tool-call"}
+          data-agent-tool-call-id="tool-a"
+        />
+      </ToolCallStackMotion>
+    );
+
+    act(() => root.render(render(true)));
+    act(() => root.render(render(false)));
+
+    expect(animations).toHaveLength(0);
+  });
 });
 
 describe("ApprovalAffordance", () => {
@@ -2104,6 +2156,57 @@ describe("ApprovalAffordance", () => {
 
     expect(onApprove).toHaveBeenCalledWith("approval-1");
     expect(container.textContent).toContain("Approved. Re-running bash...");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash"]);
+  });
+
+  it("keeps Approved visible when the chat refresh remounts the tool card", () => {
+    const onApprove = vi.fn();
+
+    function RefreshingApproval() {
+      const [resolution, setResolution] = useState<"approved" | null>(null);
+      const [revision, setRevision] = useState(0);
+
+      return (
+        <ApprovalContext.Provider
+          value={{
+            onApprove,
+            onApprovalResolved: (_approvalKey, nextResolution) => {
+              setResolution(nextResolution === "approved" ? "approved" : null);
+              setRevision((value) => value + 1);
+            },
+            getApprovalResolution: () => resolution,
+          }}
+        >
+          <ToolCallDisplay
+            key={revision}
+            toolName="bash"
+            toolCallId="call-1"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>
+      );
+    }
+
+    act(() => root.render(<RefreshingApproval />));
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Approve",
+    ) as HTMLButtonElement;
+
+    act(() => approveButton.click());
+
+    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(container.textContent).toContain("Approved. Re-running bash...");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash"]);
   });
 
   it("calls onDeny in addition to the local denied state when provided", () => {
