@@ -310,6 +310,34 @@ describe("Dispatch NavContent", () => {
     );
   });
 
+  it("keeps Admin above Settings in the chat-first left sidebar", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent chatFirstMode />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const adminLink = container.querySelector('a[href="/admin"]');
+    const settingsLink = container.querySelector('a[href="/settings"]');
+    const organization = [...container.querySelectorAll("div")].find(
+      (element) => element.textContent?.trim() === "Organization",
+    );
+
+    expect(adminLink).not.toBeNull();
+    expect(settingsLink).not.toBeNull();
+    expect(organization).toBeDefined();
+    expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
   it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(

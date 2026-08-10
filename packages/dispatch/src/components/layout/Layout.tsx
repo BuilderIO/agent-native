@@ -1115,6 +1115,33 @@ export function NavContent({
     );
   };
 
+  const bottomNavigation = (
+    <nav className={cn("py-1", collapsed ? "px-1.5" : "px-2")}>
+      <ul
+        className={cn(
+          collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
+        )}
+      >
+        {BOTTOM_NAV_ITEMS.map(renderNavItem)}
+      </ul>
+    </nav>
+  );
+  const organizationPicker = (
+    <div
+      className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
+    >
+      <OrgSwitcher compact={collapsed} reserveSpace />
+    </div>
+  );
+  const sidebarFooterActions = (
+    <SidebarFooterActions
+      collapsed={collapsed}
+      feedback={feedbackButton}
+      search={searchButton}
+      collapse={collapseButton}
+    />
+  );
+
   return (
     <>
       <div
@@ -1206,39 +1233,16 @@ export function NavContent({
         </nav>
 
         <div className="mt-auto shrink-0">
-          <nav className={cn("py-1", collapsed ? "px-1.5" : "px-2")}>
-            <ul
-              className={cn(
-                collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
-              )}
-            >
-              {BOTTOM_NAV_ITEMS.map(renderNavItem)}
-            </ul>
-          </nav>
-          <div
-            className={cn(
-              "py-2",
-              collapsed ? "flex justify-center px-1" : "px-3",
-            )}
-          >
-            <OrgSwitcher compact={collapsed} reserveSpace />
-          </div>
+          {bottomNavigation}
+          {organizationPicker}
         </div>
-        <SidebarFooterActions
-          collapsed={collapsed}
-          feedback={feedbackButton}
-          search={searchButton}
-          collapse={collapseButton}
-        />
+        {sidebarFooterActions}
       </div>
-      {chatFirstMode && collapsed ? (
+      {chatFirstMode ? (
         <div className="mt-auto shrink-0">
-          <SidebarFooterActions
-            collapsed
-            feedback={feedbackButton}
-            search={searchButton}
-            collapse={collapseButton}
-          />
+          {bottomNavigation}
+          {organizationPicker}
+          {collapsed ? sidebarFooterActions : null}
         </div>
       ) : null}
     </>
