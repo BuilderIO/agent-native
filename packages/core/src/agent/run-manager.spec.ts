@@ -2614,6 +2614,20 @@ describe("run manager soft timeout", () => {
     expect(result).toBeNull();
   });
 
+  it("keeps terminal replay available beyond the durable client watchdog", async () => {
+    const {
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+      SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
+    } = await import("../client/sse-event-processor.js");
+
+    expect(TERMINAL_RUN_RECONNECT_WINDOW_MS).toBeGreaterThan(
+      SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+    );
+    expect(TERMINAL_RUN_RECONNECT_WINDOW_MS).toBeGreaterThan(
+      SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
+    );
+  });
+
   it("uses completed_at (not started_at) for the reconnect window so long-running tasks are still reachable", async () => {
     // The run started long enough ago that it would fall outside the window
     // if we measured from startedAt — but it completed seconds ago, which is
