@@ -110,7 +110,7 @@ Una aplicación que usa la base de datos necesita tres archivos:
 
 - `server/db/schema.ts`: definiciones de tablas
 - `server/db/index.ts`: el singleton del cliente de base de datos tipado
-- `server/plugins/db.ts`: migraciones que se ejecutan al inicio
+- `server/plugins/db.ts`: migraciones propias de la aplicación para el inicio local
 
 ### 1. Defina su esquema {#schema}
 
@@ -208,7 +208,10 @@ Importe `getDb` desde esta ruta local de la plantilla en actions y rutas. No imp
 
 ### 3. Escriba las migraciones {#migrations}
 
-Los cambios de esquema se aplican al inicio mediante un plugin de Nitro en `server/plugins/db.ts`. Use `runMigrations` desde `@agent-native/core/db`:
+Para el desarrollo local, los cambios de esquema pueden ejecutarse mediante un
+plugin de Nitro en `server/plugins/db.ts`. En producción o despliegues serverless,
+ejecuta las migraciones en un paso de release o despliegue, no en la primera
+solicitud. Usa `runMigrations` desde `@agent-native/core/db`:
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +245,15 @@ Los cambios de esquema se aplican al inicio mediante un plugin de Nitro en `serv
   ]}
 />
 
-`runMigrations` ejecuta cada entrada en orden una sola vez y luego registra la versión para que se omita en reinicios futuros. Las entradas son idempotentes. Es seguro llamar al plugin en cada arranque.
+`runMigrations` ejecuta cada entrada pendiente en orden una vez, la registra como
+aplicada y la omite en las ejecuciones posteriores. Da a las entradas nuevas un
+`name` estable; las migraciones con nombre se registran independientemente de su
+número de versión.
+
+<Callout tone="warning">
+  La plantilla Chat incluye `pnpm migrate:production` para ejecutar migraciones
+  como parte del paso de release.
+</Callout>
 
 <Callout tone="risk">
   Nunca ejecute `drizzle-kit push` contra una base de datos de producción. Los

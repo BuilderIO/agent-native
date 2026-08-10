@@ -110,7 +110,7 @@ Une application qui utilise la base de données a besoin de trois fichiers :
 
 - `server/db/schema.ts` : définitions des tables
 - `server/db/index.ts` : le singleton client de base de données typé
-- `server/plugins/db.ts` : les migrations exécutées au démarrage
+- `server/plugins/db.ts` : les migrations de l'application pour le démarrage local
 
 ### 1. Définissez votre schéma {#schema}
 
@@ -208,7 +208,11 @@ Importez `getDb` depuis ce chemin local au modèle dans les actions et les route
 
 ### 3. Écrivez les migrations {#migrations}
 
-Les modifications de schéma sont appliquées au démarrage via un plugin Nitro dans `server/plugins/db.ts`. Utilisez `runMigrations` depuis `@agent-native/core/db` :
+En développement local, les modifications de schéma peuvent être appliquées via
+un plugin Nitro dans `server/plugins/db.ts`. En production ou dans un déploiement
+serverless, exécutez les migrations lors d'une étape de release ou de déploiement,
+et non lors de la première requête. Utilisez `runMigrations` depuis
+`@agent-native/core/db` :
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +246,15 @@ Les modifications de schéma sont appliquées au démarrage via un plugin Nitro 
   ]}
 />
 
-`runMigrations` exécute chaque entrée une fois, dans l'ordre, puis enregistre la version afin qu'elle soit ignorée lors des redémarrages suivants. Les entrées sont idempotentes. Le plugin peut être appelé sans risque à chaque démarrage.
+`runMigrations` exécute chaque entrée en attente une fois, dans l'ordre, l'enregistre
+comme appliquée, puis l'ignore lors des exécutions suivantes. Donnez un `name`
+stable aux nouvelles entrées ; les migrations nommées sont suivies indépendamment
+de leur numéro de version.
+
+<Callout tone="warning">
+  Le template Chat fournit `pnpm migrate:production` pour exécuter les
+  migrations lors de l'étape de release.
+</Callout>
 
 <Callout tone="risk">
   N'exécutez jamais `drizzle-kit push` sur une base de données de production.

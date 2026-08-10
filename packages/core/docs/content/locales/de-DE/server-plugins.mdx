@@ -21,7 +21,7 @@ Apps, die benutzerdefinierte Datenbanktabellen benötigen, fügen ein drittes hi
 
 ```text
 server/plugins/
-  db.ts          -> run migrations on startup
+  db.ts          -> app-eigene Migrationen beim lokalen Start registrieren
 ```
 
 ## Auth-Plugin {#auth-plugin}
@@ -131,11 +131,17 @@ Plugins können jeden der Lifecycle-Hooks von Nitro verwenden: `request`, `befor
 
 ## Startreihenfolge {#startup-order}
 
-Nitro führt Plugins in alphabetischer Dateinamenreihenfolge aus. Innerhalb einer einzelnen Plugin-Datei wird der Default-Export abgewartet, bevor das nächste Plugin startet. Eine typische Reihenfolge:
+Nitro startet Plugins in alphabetischer Dateinamenreihenfolge. Die Dateireihenfolge bestimmt, wann ein Plugin startet, nicht wann seine asynchrone Arbeit endet. Verlassen Sie sich daher nicht darauf, dass ein Plugin abgeschlossen ist, bevor das nächste beginnt. Eine typische Reihenfolge:
 
-1. `db.ts` — Migrationen sind abgeschlossen, bevor irgendeine Route oder ein Plugin die Datenbank liest
+1. `db.ts` — app-eigene Migrationen beim lokalen Start; in Produktion als Release-Schritt
 2. `auth.ts` — die Auth-Konfiguration steht, bevor Anfragen eintreffen
 3. `agent-chat.ts` — Agent-Routen werden eingehängt, nachdem Auth konfiguriert ist
+
+<Callout tone="warning">
+  Führen Sie Migrationen in Produktions- oder Serverless-Deployments in einem
+  Release- oder Deploy-Schritt aus, nicht bei der ersten Anfrage. Das
+  Chat-Template stellt dafür `pnpm migrate:production` bereit.
+</Callout>
 
 Wenn Sie eigene Plugins hinzufügen, versehen Sie deren Dateinamen mit einem Präfix, um zu steuern, wo sie in der Abfolge einsortiert werden.
 

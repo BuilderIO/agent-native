@@ -21,7 +21,7 @@ Les applications qui ont besoin de tables de base de données personnalisées en
 
 ```text
 server/plugins/
-  db.ts          -> exécute les migrations au démarrage
+  db.ts          -> enregistre les migrations de l'application pour le démarrage local
 ```
 
 ## Plugin d'authentification {#auth-plugin}
@@ -132,11 +132,17 @@ Les plugins peuvent utiliser n'importe lequel des hooks de cycle de vie de Nitro
 
 ## Ordre de démarrage {#startup-order}
 
-Nitro exécute les plugins dans l'ordre alphabétique des noms de fichiers. Au sein d'un même fichier de plugin, l'export par défaut est attendu avant que le plugin suivant ne démarre. Un ordre typique :
+Nitro démarre les plugins dans l'ordre alphabétique des noms de fichiers. L'ordre des fichiers détermine le démarrage de chaque plugin, pas la fin de son travail asynchrone ; ne supposez donc pas qu'un plugin est terminé avant le démarrage du suivant. Un ordre typique :
 
-1. `db.ts` — les migrations se terminent avant qu'aucune route ou plugin ne lise la base de données
+1. `db.ts` — migrations de l'application au démarrage local ; en production, dans une étape de release
 2. `auth.ts` — la configuration de l'authentification est en place avant l'arrivée des requêtes
 3. `agent-chat.ts` — les routes de l'agent se montent une fois l'authentification configurée
+
+<Callout tone="warning">
+  En production ou dans un déploiement serverless, exécutez les migrations dans
+  une étape de release ou de déploiement, pas lors de la première requête. Le
+  template Chat fournit `pnpm migrate:production` pour cela.
+</Callout>
 
 Si vous ajoutez des plugins personnalisés, préfixez leurs noms de fichiers pour contrôler leur place dans la séquence.
 

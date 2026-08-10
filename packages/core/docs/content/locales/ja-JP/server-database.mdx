@@ -110,7 +110,7 @@ _計画中 (まだ利用できません):_ Builder.io に接続すると、ア�
 
 - `server/db/schema.ts`: テーブル定義
 - `server/db/index.ts`: 型付き DB クライアントのシングルトン
-- `server/plugins/db.ts`: 起動時に実行されるマイグレーション
+- `server/plugins/db.ts`: ローカル起動用のアプリ固有マイグレーション
 
 ### 1. スキーマを定義する {#schema}
 
@@ -208,7 +208,10 @@ export const getDb = createGetDb(schema);
 
 ### 3. マイグレーションを書く {#migrations}
 
-スキーマの変更は、`server/plugins/db.ts` の Nitro プラグインを通じて起動時に適用されます。`@agent-native/core/db` の `runMigrations` を使用します。
+ローカル開発では、スキーマの変更を `server/plugins/db.ts` の Nitro プラグイン
+で適用できます。本番またはサーバーレス環境では、最初のリクエストではなく
+リリースまたはデプロイ手順でマイグレーションを実行してください。
+`@agent-native/core/db` の `runMigrations` を使用します。
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +245,15 @@ export const getDb = createGetDb(schema);
   ]}
 />
 
-`runMigrations` は各エントリを順番に一度だけ実行し、その後バージョンを記録するため、以降の再起動ではスキップされます。エントリは冪等です。このプラグインは、起動のたびに呼び出しても安全です。
+`runMigrations` は保留中の各エントリを順番に一度実行し、適用済みとして
+記録して、以降の実行ではスキップします。新しいエントリには安定した
+`name` を付けてください。名前付きマイグレーションはバージョン番号とは
+独立して追跡されます。
+
+<Callout tone="warning">
+  Chatテンプレートには、リリース手順でマイグレーションを実行する `pnpm
+  migrate:production` が用意されています。
+</Callout>
 
 <Callout tone="risk">
   本番データベースに対して `drizzle-kit push`

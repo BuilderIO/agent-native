@@ -21,7 +21,7 @@ server/plugins/
 
 ```text
 server/plugins/
-  db.ts          -> स्टार्टअप पर माइग्रेशन चलाएं
+  db.ts          -> local startup के लिए app-owned migrations register करें
 ```
 
 ## Auth प्लगइन {#auth-plugin}
@@ -131,11 +131,17 @@ export default defineNitroPlugin((nitro) => {
 
 ## स्टार्टअप क्रम {#startup-order}
 
-Nitro प्लगइन्स को वर्णानुक्रम फ़ाइलनाम क्रम में चलाता है। एक ही प्लगइन फ़ाइल के भीतर, अगला प्लगइन शुरू होने से पहले डिफ़ॉल्ट निर्यात की प्रतीक्षा की जाती है। एक विशिष्ट क्रम:
+Nitro प्लगइन्स को फ़ाइलनाम के वर्णानुक्रम में शुरू करता है। फ़ाइल क्रम यह तय करता है कि plugin कब शुरू होगा, यह नहीं कि उसका async काम कब पूरा होगा; इसलिए यह न मानें कि अगला plugin शुरू होने से पहले पिछला पूरा हो गया है। एक विशिष्ट क्रम:
 
-1. `db.ts` — किसी भी रूट या प्लगइन के डेटाबेस पढ़ने से पहले माइग्रेशन पूरे होते हैं
+1. `db.ts` — local startup पर app-owned migrations; production में release step के रूप में
 2. `auth.ts` — अनुरोध आने से पहले auth कॉन्फ़िगरेशन जगह पर होता है
 3. `agent-chat.ts` — auth कॉन्फ़िगर होने के बाद एजेंट रूट्स माउंट होते हैं
+
+<Callout tone="warning">
+  Production या serverless deployments में migrations को पहली request पर नहीं,
+  बल्कि release या deploy step में चलाएं। Chat template इसके लिए `pnpm
+  migrate:production` देता है।
+</Callout>
 
 यदि आप कस्टम प्लगइन्स जोड़ते हैं, तो अनुक्रम में वे कहाँ आते हैं यह नियंत्रित करने के लिए उनके फ़ाइलनाम को प्रीफ़िक्स करें।
 

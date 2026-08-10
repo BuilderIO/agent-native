@@ -110,7 +110,7 @@ _계획됨(아직 사용할 수 없음):_ Builder.io에 연결되면 앱은 연�
 
 - `server/db/schema.ts`: 테이블 정의
 - `server/db/index.ts`: 타입이 지정된 DB 클라이언트 싱글톤
-- `server/plugins/db.ts`: 시작 시 실행되는 마이그레이션
+- `server/plugins/db.ts`: 로컬 시작을 위한 앱 소유 마이그레이션
 
 ### 1. 스키마 정의하기 {#schema}
 
@@ -208,7 +208,10 @@ export const getDb = createGetDb(schema);
 
 ### 3. 마이그레이션 작성하기 {#migrations}
 
-스키마 변경 사항은 `server/plugins/db.ts`의 Nitro 플러그인을 통해 시작 시 적용됩니다. `@agent-native/core/db`의 `runMigrations`를 사용하세요.
+로컬 개발에서는 `server/plugins/db.ts`의 Nitro 플러그인을 통해 스키마 변경을
+적용할 수 있습니다. 프로덕션 또는 서버리스 배포에서는 첫 요청이 아니라
+릴리스 또는 배포 단계에서 마이그레이션을 실행하세요.
+`@agent-native/core/db`의 `runMigrations`를 사용하세요.
 
 <AnnotatedCode
   id="doc-block-7qwlpz"
@@ -242,7 +245,14 @@ export const getDb = createGetDb(schema);
   ]}
 />
 
-`runMigrations`는 각 항목을 순서대로 한 번씩 실행한 다음 버전을 기록해, 이후 재시작 시에는 건너뜁니다. 각 항목은 멱등적입니다. 이 플러그인은 매 부팅 시 호출해도 안전합니다.
+`runMigrations`는 대기 중인 각 항목을 순서대로 한 번 실행하고 적용된 것으로
+기록한 뒤 이후 실행에서 건너뜁니다. 새 항목에는 안정적인 `name`을 지정하세요.
+이름이 있는 마이그레이션은 버전 번호와 독립적으로 추적됩니다.
+
+<Callout tone="warning">
+  Chat 템플릿은 릴리스 단계에서 마이그레이션을 실행할 수 있도록 `pnpm
+  migrate:production`을 제공합니다.
+</Callout>
 
 <Callout tone="risk">
   프로덕션 데이터베이스에 대해 `drizzle-kit push`를 절대 실행하지 마세요. 템플릿

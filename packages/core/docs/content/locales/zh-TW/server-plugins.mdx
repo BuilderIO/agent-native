@@ -21,7 +21,7 @@ server/plugins/
 
 ```text
 server/plugins/
-  db.ts          -> 在啟動時執行遷移
+  db.ts          -> 註冊本機啟動時執行的應用程式自有遷移
 ```
 
 ## 驗證外掛 {#auth-plugin}
@@ -131,11 +131,17 @@ export default defineNitroPlugin((nitro) => {
 
 ## 啟動順序 {#startup-order}
 
-Nitro 依字母順序的檔名執行外掛。在單一外掛檔案內，其預設匯出會先被等待完成，才會啟動下一個外掛。典型的順序如下：
+Nitro 依檔名字母順序啟動外掛。檔案順序只控制外掛何時開始，不控制非同步工作何時完成；因此不要依賴前一個外掛在下一個外掛啟動前完成。典型的順序如下：
 
-1. `db.ts` — 在任何路由或外掛讀取資料庫之前，先完成遷移
+1. `db.ts` — 本機啟動時的應用程式自有遷移；在生產環境中作為發佈步驟執行
 2. `auth.ts` — 在請求抵達之前，先就位驗證設定
 3. `agent-chat.ts` — 在驗證設定完成後，才掛載 agent 路由
+
+<Callout tone="warning">
+  在生產或 serverless
+  部署中，請在發佈或部署步驟執行遷移，不要在第一次請求時執行。Chat 範本提供
+  `pnpm migrate:production`。
+</Callout>
 
 若您新增自訂外掛，請為其檔名加上前綴，以控制它們在順序中的位置。
 
