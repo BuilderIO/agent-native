@@ -255,8 +255,15 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
             ],
           },
         });
-        const row = await addDatabaseItemAction.run({
+        const mutationRead = await getContentDatabaseAction.run({
           databaseId: database.database.id,
+        });
+        if (!("database" in mutationRead) || !mutationRead.mutationContract)
+          throw new Error("Fixture database has no mutation contract.");
+        const row = await addDatabaseItemAction.run({
+          target: mutationRead.mutationContract.target,
+          expectedSchemaRevision: mutationRead.mutationContract.schemaRevision,
+          idempotencyKey: `blocks-seeding-${suffix}`,
           title: `Row ${suffix}`,
         });
         const page = await getDocumentAction.run({ id: rootId });
@@ -269,7 +276,7 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
         const databaseHelperRead =
           await databaseUtils.getContentDatabaseResponse(database.database.id);
         const rowPage = await getDocumentAction.run({
-          id: row.createdDocumentId,
+          id: row.receipt.row.documentId,
         });
         return {
           page,

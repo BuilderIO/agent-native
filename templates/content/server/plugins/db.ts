@@ -956,6 +956,36 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_database_migration_receipts_owner_database_idx
         ON content_database_migration_receipts (owner_email, database_id)`,
     },
+    {
+      version: 81,
+      name: "content-database-row-mutation-contract",
+      sql: `ALTER TABLE content_databases ADD COLUMN natural_key_property_id TEXT;
+      CREATE TABLE IF NOT EXISTS content_database_row_mutation_receipts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        database_id TEXT NOT NULL,
+        database_document_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        payload_digest TEXT NOT NULL,
+        schema_revision TEXT NOT NULL,
+        pre_row_revision TEXT,
+        post_row_revision TEXT NOT NULL,
+        result_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_row_mutation_receipts_database_key_unique
+        ON content_database_row_mutation_receipts (database_id, idempotency_key);
+      CREATE INDEX IF NOT EXISTS content_database_row_mutation_receipts_owner_database_idx
+        ON content_database_row_mutation_receipts (owner_email, database_id);
+      CREATE INDEX IF NOT EXISTS content_database_row_mutation_receipts_document_idx
+        ON content_database_row_mutation_receipts (document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

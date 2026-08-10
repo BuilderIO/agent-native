@@ -58,7 +58,8 @@ type ContentDatabaseSummaryRow = Pick<
   | "viewConfigJson"
   | "createdAt"
   | "updatedAt"
->;
+> &
+  Partial<Pick<ContentDatabaseRow, "spaceId" | "naturalKeyPropertyId">>;
 type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
@@ -192,8 +193,10 @@ export function serializeDatabase(
   return {
     id: database.id,
     documentId: database.documentId,
+    spaceId: database.spaceId,
     title: database.title,
     systemRole: database.systemRole,
+    naturalKeyPropertyId: database.naturalKeyPropertyId,
     description,
     viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
     createdAt: database.createdAt,

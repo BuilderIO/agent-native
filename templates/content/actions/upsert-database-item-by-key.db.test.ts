@@ -2,7 +2,6 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -11,877 +10,576 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
-  `content-key-upsert-${process.pid}-${Date.now()}.sqlite`,
+  `content-row-mutations-${process.pid}-${Date.now()}.sqlite`,
 );
+const TEST_DATABASE_URL =
+  process.env.CONTENT_ROW_MUTATION_POSTGRES_URL ?? `file:${TEST_DB_PATH}`;
 const OWNER = "owner@example.com";
 const OUTSIDER = "outsider@example.com";
-const DATABASE_ONLY_EDITOR = "database-only@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let createDatabase: typeof import("./create-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
-let upsert: typeof import("./upsert-database-item-by-key.js").default;
-let setProperty: typeof import("./set-document-property.js").default;
-let deleteProperty: typeof import("./delete-document-property.js").default;
-let deleteDocument: typeof import("./delete-document.js").default;
-let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
+let getDatabase: typeof import("./get-content-database.js").default;
+let createRow: typeof import("./add-database-item.js").default;
+let updateRow: typeof import("./update-database-item.js").default;
+let upsertRow: typeof import("./upsert-database-item-by-key.js").default;
 
-const asOwner = <T>(fn: () => Promise<T>) =>
-  runWithRequestContext({ userEmail: OWNER }, fn);
+const asOwner = <T>(run: () => Promise<T>) =>
+  runWithRequestContext({ userEmail: OWNER }, run);
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  if (TEST_DATABASE_URL.startsWith("postgres")) {
+    const databaseName = new URL(TEST_DATABASE_URL).pathname.toLowerCase();
+    if (!databaseName.includes("test")) {
+      throw new Error(
+        "CONTENT_ROW_MUTATION_POSTGRES_URL must name an isolated test database.",
+      );
+    }
+  }
+  process.env.DATABASE_URL = TEST_DATABASE_URL;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   createDatabase = (await import("./create-content-database.js")).default;
   configureProperty = (await import("./configure-document-property.js"))
     .default;
-  upsert = (await import("./upsert-database-item-by-key.js")).default;
-  setProperty = (await import("./set-document-property.js")).default;
-  deleteProperty = (await import("./delete-document-property.js")).default;
-  deleteDocument = (await import("./delete-document.js")).default;
-  permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
-    .default;
+  getDatabase = (await import("./get-content-database.js")).default;
+  createRow = (await import("./add-database-item.js")).default;
+  updateRow = (await import("./update-database-item.js")).default;
+  upsertRow = (await import("./upsert-database-item-by-key.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
 
 afterAll(() => {
-  for (const suffix of ["", "-shm", "-wal"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  if (TEST_DATABASE_URL.startsWith("file:")) {
+    for (const suffix of ["", "-shm", "-wal"])
+      rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+  }
 });
 
 async function fixture() {
   const created = await asOwner(() =>
-    createDatabase.run({ title: "Projection" }),
+    createDatabase.run({ title: "Reliable rows" }),
   );
-  const property = await asOwner(() =>
-    configureProperty.run({
-      documentId: created.database.documentId,
-      databaseId: created.database.id,
-      name: "External key",
-      type: "text",
-    }),
-  );
-  const keyProperty = property.properties.find(
-    (candidate) => candidate.definition.name === "External key",
-  );
-  if (!keyProperty) throw new Error("Fixture key property was not created.");
   return {
     databaseId: created.database.id,
-    propertyId: keyProperty.definition.id,
+    databaseDocumentId: created.database.documentId,
   };
 }
 
-describe("upsert-database-item-by-key", () => {
-  it("creates, updates, then reports unchanged with the same stable IDs and a one-row bounded readback", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const created = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "capability-7",
-        title: "First",
-        body: "initial",
-      }),
-    );
-    const updated = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "capability-7",
-        title: "Second",
-        body: "revised",
-      }),
-    );
-    const unchanged = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "capability-7",
-        title: "Second",
-        body: "revised",
-      }),
-    );
-    expect(created.status).toBe("created");
-    expect(updated).toMatchObject({
-      status: "updated",
-      itemId: created.itemId,
-      documentId: created.documentId,
+async function contract(databaseId: string) {
+  const response = await asOwner(() => getDatabase.run({ databaseId }));
+  if (!("database" in response) || !response.mutationContract)
+    throw new Error("Fixture database has no mutation contract.");
+  return response.mutationContract;
+}
+
+function envelope(
+  discovered: Awaited<ReturnType<typeof contract>>,
+  idempotencyKey: string,
+) {
+  return {
+    target: {
+      authorityScope: discovered.target.authorityScope,
+      spaceId: discovered.target.spaceId,
+      databaseId: discovered.target.databaseId,
+      databaseDocumentId: discovered.target.databaseDocumentId,
+    },
+    expectedSchemaRevision: discovered.schemaRevision,
+    idempotencyKey,
+  };
+}
+
+async function addProperty(args: {
+  databaseId: string;
+  databaseDocumentId: string;
+  name: string;
+  type:
+    | "text"
+    | "number"
+    | "select"
+    | "multi_select"
+    | "status"
+    | "date"
+    | "person"
+    | "place"
+    | "files_media"
+    | "checkbox"
+    | "url"
+    | "email"
+    | "phone"
+    | "id";
+  options?: any;
+  naturalKey?: boolean;
+}) {
+  const response = await asOwner(() =>
+    configureProperty.run({
+      documentId: args.databaseDocumentId,
+      databaseId: args.databaseId,
+      name: args.name,
+      type: args.type,
+      options: args.options,
+      naturalKey: args.naturalKey,
+    }),
+  );
+  const property = response.properties.find(
+    (candidate) => candidate.definition.name === args.name,
+  );
+  if (!property) throw new Error(`Property ${args.name} was not created.`);
+  return property.definition.id;
+}
+
+describe("reliable Content database row mutations", () => {
+  it("discovers an exact target, deterministic writable schema, and row revisions", async () => {
+    const ids = await fixture();
+    const textId = await addProperty({
+      ...ids,
+      name: "Evidence",
+      type: "text",
     });
-    expect(unchanged).toMatchObject({
-      status: "unchanged",
-      itemId: created.itemId,
-      documentId: created.documentId,
+    const discovered = await contract(ids.databaseId);
+
+    expect(discovered.target).toMatchObject({
+      authorityScope: { kind: "personal", id: OWNER },
+      databaseId: ids.databaseId,
+      databaseDocumentId: ids.databaseDocumentId,
     });
-    expect(unchanged.readback.items).toHaveLength(1);
-    expect(unchanged.readback.items[0]?.id).toBe(created.itemId);
-    expect(unchanged.readback.items[0]?.document).toMatchObject({
-      id: created.documentId,
-      title: "Second",
-      content: "",
-    });
+    expect(discovered.schemaRevision).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(discovered.properties).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: textId,
+          type: "text",
+          writable: true,
+          acceptedShape: "string or null",
+        }),
+        expect.objectContaining({ type: "blocks", writable: false }),
+      ]),
+    );
   });
 
-  it("uses the unique claim for concurrent first writes and preserves inherited privacy", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const [first, second] = await Promise.all([
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "race-key",
-          title: "Race",
-        }),
-      ),
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "race-key",
-          title: "Race",
-        }),
-      ),
-    ]);
-    expect(new Set([first.itemId, second.itemId]).size).toBe(1);
-    const rows = await getDb()
-      .select()
-      .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-    expect(rows).toHaveLength(1);
-    const [document] = await getDb()
-      .select()
-      .from(schema.documents)
-      .where(eq(schema.documents.id, first.documentId));
-    expect(document?.visibility).toBe("private");
-    await expect(
-      getDb().insert(schema.contentDatabaseItemKeyClaims).values({
-        id: "conflicting-active-claim",
-        ownerEmail: OWNER,
-        orgId: null,
-        databaseId,
-        propertyId,
-        keyValueJson: '"another-key"',
-        itemId: first.itemId,
-        documentId: first.documentId,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+  it("creates every supported non-Blocks value without coercion and returns one durable verified receipt", async () => {
+    const ids = await fixture();
+    const propertyIds = {
+      text: await addProperty({ ...ids, name: "Text", type: "text" }),
+      number: await addProperty({ ...ids, name: "Number", type: "number" }),
+      select: await addProperty({
+        ...ids,
+        name: "Select",
+        type: "select",
+        options: {
+          options: [{ id: "one", name: "One", color: "blue" }],
+        },
       }),
-    ).rejects.toThrow();
-  });
-
-  it("serializes conflicting concurrent payloads through their exact readbacks", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const [first, second] = await Promise.all([
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "conflicting-race-key",
-          title: "Payload A",
-          body: "Body A",
-        }),
-      ),
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "conflicting-race-key",
-          title: "Payload B",
-          body: "Body B",
-        }),
-      ),
-    ]);
-
-    expect(new Set([first.itemId, second.itemId]).size).toBe(1);
-    expect(new Set([first.documentId, second.documentId]).size).toBe(1);
-    expect([first.status, second.status].sort()).toEqual([
-      "created",
-      "updated",
-    ]);
-    expect(first.readback.items[0]?.document.title).toBe("Payload A");
-    expect(second.readback.items[0]?.document.title).toBe("Payload B");
-  });
-
-  it("advances updatedAt monotonically for an existing-row body projection", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const created = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "body-refresh",
-        body: "before",
-      }),
-    );
-    const futureUpdatedAt = "2099-01-01T00:00:00.000Z";
-    await getDb()
-      .update(schema.documents)
-      .set({ updatedAt: futureUpdatedAt })
-      .where(eq(schema.documents.id, created.documentId));
-
-    await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "body-refresh",
-        body: "after",
-      }),
-    );
-
-    const [document] = await getDb()
-      .select({
-        content: schema.documents.content,
-        updatedAt: schema.documents.updatedAt,
-      })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, created.documentId));
-    expect(document?.content).toBe("after");
-    expect(document?.updatedAt > futureUpdatedAt).toBe(true);
-  });
-
-  it("serializes concurrent writes when an existing row is missing a requested property", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const created = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "concurrent-update",
-      }),
-    );
-    const [database] = await getDb()
-      .select()
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
-    const configured = await asOwner(() =>
-      configureProperty.run({
-        documentId: database.documentId,
-        databaseId,
-        name: "Concurrent value",
-        type: "text",
-      }),
-    );
-    const requestedProperty = configured.properties.find(
-      (property) => property.definition.name === "Concurrent value",
-    );
-    if (!requestedProperty)
-      throw new Error("Concurrent fixture property was not created.");
-
-    await Promise.all([
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "concurrent-update",
-          propertyValues: {
-            [requestedProperty.definition.id]: "same-value",
-          },
-        }),
-      ),
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "concurrent-update",
-          propertyValues: {
-            [requestedProperty.definition.id]: "same-value",
-          },
-        }),
-      ),
-    ]);
-
-    const stored = await getDb()
-      .select()
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, created.documentId),
-          eq(
-            schema.documentPropertyValues.propertyId,
-            requestedProperty.definition.id,
-          ),
-        ),
-      );
-    expect(stored).toHaveLength(1);
-    expect(stored[0]?.valueJson).toBe('"same-value"');
-  });
-
-  it("recollects rows created at the database-lock boundary before trashing", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const [database] = await getDb()
-      .select()
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
-    const suffix = databaseId.replace(/[^a-zA-Z0-9_]/g, "_");
-    const triggerName = `late_upsert_${suffix}`;
-    const documentId = `late_doc_${suffix}`;
-    const itemId = `late_item_${suffix}`;
-    const now = new Date().toISOString();
-    await getDbExec().execute(
-      `CREATE TRIGGER ${triggerName}
-       BEFORE UPDATE ON content_databases
-       WHEN NEW.id = '${databaseId}'
-         AND NOT EXISTS (SELECT 1 FROM documents WHERE id = '${documentId}')
-       BEGIN
-         INSERT INTO documents
-           (id, owner_email, parent_id, title, content, position, created_at, updated_at)
-         VALUES
-           ('${documentId}', '${OWNER}', '${database.documentId}', 'Late row', '', 0, '${now}', '${now}');
-         INSERT INTO content_database_items
-           (id, owner_email, database_id, document_id, position, created_at, updated_at)
-         VALUES
-           ('${itemId}', '${OWNER}', '${databaseId}', '${documentId}', 0, '${now}', '${now}');
-         INSERT INTO document_property_values
-           (id, owner_email, document_id, property_id, value_json, created_at, updated_at)
-         VALUES
-           ('late_value_${suffix}', '${OWNER}', '${documentId}', '${propertyId}', '"late-key"', '${now}', '${now}');
-       END`,
-    );
-    try {
-      await asOwner(() => deleteDocument.run({ id: database.documentId }));
-    } finally {
-      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
-    }
-
-    const [lateDocument] = await getDb()
-      .select({
-        trashedAt: schema.documents.trashedAt,
-        trashRootId: schema.documents.trashRootId,
-      })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, documentId));
-    expect(lateDocument?.trashedAt).toBeTruthy();
-    expect(lateDocument?.trashRootId).toBe(database.documentId);
-  });
-
-  it("fails closed when a key definition is deleted at the database-lock boundary", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const suffix = databaseId.replace(/[^a-zA-Z0-9_]/g, "_");
-    const triggerName = `delete_key_definition_${suffix}`;
-    await getDbExec().execute(
-      `CREATE TRIGGER ${triggerName}
-       BEFORE UPDATE ON content_databases
-       WHEN NEW.id = '${databaseId}'
-         AND EXISTS (
-           SELECT 1 FROM document_property_definitions WHERE id = '${propertyId}'
-         )
-       BEGIN
-         DELETE FROM document_property_definitions WHERE id = '${propertyId}';
-       END`,
-    );
-    try {
-      await expect(
-        asOwner(() =>
-          upsert.run({
-            databaseId,
-            keyPropertyId: propertyId,
-            keyValue: "deleted-during-upsert",
-          }),
-        ),
-      ).rejects.toThrow("changed or was deleted");
-    } finally {
-      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
-    }
-
-    const claims = await getDb()
-      .select()
-      .from(schema.contentDatabaseItemKeyClaims)
-      .where(eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId));
-    const items = await getDb()
-      .select()
-      .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-    expect(claims).toHaveLength(0);
-    expect(items).toHaveLength(0);
-  });
-
-  it("verifies every requested property by canonical serialized readback, including arrays and objects", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const [database] = await getDb()
-      .select()
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
-    const multi = await asOwner(() =>
-      configureProperty.run({
-        documentId: database.documentId,
-        databaseId,
-        name: "Labels",
+      multi: await addProperty({
+        ...ids,
+        name: "Multi",
         type: "multi_select",
         options: {
           options: [
-            { id: "alpha", name: "Alpha", color: "blue" },
-            { id: "beta", name: "Beta", color: "green" },
+            { id: "a", name: "A", color: "blue" },
+            { id: "b", name: "B", color: "green" },
           ],
         },
       }),
-    );
-    const date = await asOwner(() =>
-      configureProperty.run({
-        documentId: database.documentId,
-        databaseId,
-        name: "Window",
-        type: "date",
+      status: await addProperty({ ...ids, name: "Status", type: "status" }),
+      date: await addProperty({ ...ids, name: "Date", type: "date" }),
+      person: await addProperty({ ...ids, name: "Person", type: "person" }),
+      place: await addProperty({ ...ids, name: "Place", type: "place" }),
+      files: await addProperty({
+        ...ids,
+        name: "Files",
+        type: "files_media",
       }),
-    );
-    const multiProperty = multi.properties.find(
-      (property) => property.definition.name === "Labels",
-    );
-    const dateProperty = date.properties.find(
-      (property) => property.definition.name === "Window",
-    );
-    if (!multiProperty || !dateProperty)
-      throw new Error("Fixture properties were not created.");
-
+      checked: await addProperty({
+        ...ids,
+        name: "Checked",
+        type: "checkbox",
+      }),
+      url: await addProperty({ ...ids, name: "URL", type: "url" }),
+      email: await addProperty({ ...ids, name: "Email", type: "email" }),
+      phone: await addProperty({ ...ids, name: "Phone", type: "phone" }),
+    };
+    const discovered = await contract(ids.databaseId);
     const result = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "rich-readback",
-        title: "Typed values",
-        body: "verified body",
+      createRow.run({
+        ...envelope(discovered, "create-all-types"),
+        title: "Strict row",
         propertyValues: {
-          [multiProperty.definition.id]: ["alpha", "beta"],
-          [dateProperty.definition.id]: {
-            start: "2026-08-02",
-            end: "2026-08-03",
-            includeTime: false,
-          },
+          [propertyIds.text]: "Evidence",
+          [propertyIds.number]: 42,
+          [propertyIds.select]: "One",
+          [propertyIds.multi]: ["b", "A", "b"],
+          [propertyIds.status]: "not-started",
+          [propertyIds.date]: { start: "2026-08-10", end: "2026-08-11" },
+          [propertyIds.person]: ["alice@example.com"],
+          [propertyIds.place]: "Indianapolis",
+          [propertyIds.files]: ["https://example.com/evidence.pdf"],
+          [propertyIds.checked]: true,
+          [propertyIds.url]: "https://example.com/feedback/1",
+          [propertyIds.email]: "person@example.com",
+          [propertyIds.phone]: "+1 555 0100",
         },
       }),
     );
-    const values = new Map(
-      result.readback.items[0]?.properties.map((property) => [
-        property.definition.id,
-        property.value,
-      ]),
-    );
-    expect(values.get(propertyId)).toBe("rich-readback");
-    expect(values.get(multiProperty.definition.id)).toEqual(["alpha", "beta"]);
-    expect(values.get(dateProperty.definition.id)).toEqual({
-      start: "2026-08-02",
-      end: "2026-08-03",
-      includeTime: false,
-    });
-  });
 
-  it("denies access and fails closed for wrong-database or computed key properties", async () => {
-    const { databaseId, propertyId } = await fixture();
-    await expect(
-      runWithRequestContext({ userEmail: OUTSIDER }, () =>
-        upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "nope" }),
-      ),
-    ).rejects.toThrow();
-    await expect(
-      asOwner(() =>
-        upsert.run({ databaseId, keyPropertyId: "missing", keyValue: "nope" }),
-      ),
-    ).rejects.toThrow("does not belong");
-    const [definition] = await getDb()
+    expect(result.receipt).toMatchObject({
+      operation: "create",
+      outcome: "created",
+      target: {
+        databaseId: ids.databaseId,
+        databaseDocumentId: ids.databaseDocumentId,
+      },
+      idempotency: { key: "create-all-types", result: "applied" },
+      readback: { verified: true, title: "Strict row" },
+    });
+    expect(result.receipt.row.rowRevision).toMatch(/^sha256:/);
+    expect(result.receipt.readback.propertyValues).toMatchObject({
+      [propertyIds.number]: 42,
+      [propertyIds.select]: "one",
+      [propertyIds.multi]: ["b", "a"],
+      [propertyIds.checked]: true,
+    });
+    const receipts = await getDb()
       .select()
-      .from(schema.documentPropertyDefinitions)
+      .from(schema.contentDatabaseRowMutationReceipts)
       .where(
-        and(
-          eq(schema.documentPropertyDefinitions.id, propertyId),
-          eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+        eq(
+          schema.contentDatabaseRowMutationReceipts.databaseId,
+          ids.databaseId,
         ),
       );
-    await getDb()
-      .update(schema.documentPropertyDefinitions)
-      .set({ type: "formula" })
-      .where(eq(schema.documentPropertyDefinitions.id, definition.id));
-    await expect(
-      asOwner(() =>
-        upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "nope" }),
-      ),
-    ).rejects.toThrow("cannot be used");
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      itemId: result.receipt.row.itemId,
+      documentId: result.receipt.row.documentId,
+      postRowRevision: result.receipt.row.rowRevision,
+    });
   });
 
-  it("rejects system database memberships", async () => {
-    const { databaseId, propertyId } = await fixture();
-    await getDb()
-      .update(schema.contentDatabases)
-      .set({ systemRole: "test-system-database" })
-      .where(eq(schema.contentDatabases.id, databaseId));
-    await expect(
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "not-a-system-membership",
-        }),
-      ),
-    ).rejects.toThrow("ordinary Content databases");
-  });
-
-  it("rejects a source-managed property as the stable key", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const now = new Date().toISOString();
-    await getDb().insert(schema.contentDatabaseSources).values({
-      id: "source-managed-key-source",
-      ownerEmail: OWNER,
-      databaseId,
-      sourceType: "test",
-      sourceName: "Test source",
-      sourceTable: "test_rows",
-      createdAt: now,
-      updatedAt: now,
+  it("fails loudly and atomically for unknown, computed, Blocks, and invalid structured values", async () => {
+    const ids = await fixture();
+    const numberId = await addProperty({
+      ...ids,
+      name: "Number",
+      type: "number",
     });
-    await getDb().insert(schema.contentDatabaseSourceFields).values({
-      id: "source-managed-key-field",
-      ownerEmail: OWNER,
-      sourceId: "source-managed-key-source",
-      propertyId,
-      localFieldKey: propertyId,
-      sourceFieldKey: "external_id",
-      sourceFieldLabel: "External ID",
-      sourceFieldType: "text",
-      createdAt: now,
-      updatedAt: now,
+    const computedId = await addProperty({
+      ...ids,
+      name: "Computed",
+      type: "id",
     });
+    const response = await asOwner(() =>
+      getDatabase.run({ databaseId: ids.databaseId }),
+    );
+    if (!("database" in response) || !response.mutationContract)
+      throw new Error("Missing mutation contract.");
+    const blocksId = response.properties.find(
+      (property) => property.definition.type === "blocks",
+    )!.definition.id;
 
-    await expect(
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "source-owned",
-        }),
-      ),
-    ).rejects.toThrow("cannot be used as a stable key");
-    const claims = await getDb()
+    for (const [key, value, code] of [
+      ["missing", "value", "UNKNOWN_PROPERTY"],
+      [computedId, "value", "PROPERTY_NOT_WRITABLE"],
+      [blocksId, "body", "PROPERTY_NOT_WRITABLE"],
+      [numberId, "42", "INVALID_PROPERTY_VALUE"],
+    ] as const) {
+      await expect(
+        asOwner(() =>
+          createRow.run({
+            ...envelope(response.mutationContract!, `invalid-${key}`),
+            propertyValues: { [key]: value },
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: code });
+    }
+    const rows = await getDb()
       .select()
-      .from(schema.contentDatabaseItemKeyClaims)
-      .where(eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId));
-    expect(claims).toHaveLength(0);
-  });
-
-  it("rejects a source-managed non-key property in propertyValues", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const now = new Date().toISOString();
-    const managedPropertyId = "source-managed-payload-property";
-    await getDb().insert(schema.documentPropertyDefinitions).values({
-      id: managedPropertyId,
-      ownerEmail: OWNER,
-      databaseId,
-      name: "Source Status",
-      type: "text",
-      visibility: "always_show",
-      optionsJson: "{}",
-      position: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await getDb().insert(schema.contentDatabaseSources).values({
-      id: "source-managed-payload-source",
-      ownerEmail: OWNER,
-      databaseId,
-      sourceType: "test",
-      sourceName: "Payload source",
-      sourceTable: "test_rows",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await getDb().insert(schema.contentDatabaseSourceFields).values({
-      id: "source-managed-payload-field",
-      ownerEmail: OWNER,
-      sourceId: "source-managed-payload-source",
-      propertyId: managedPropertyId,
-      localFieldKey: managedPropertyId,
-      sourceFieldKey: "status",
-      sourceFieldLabel: "Status",
-      sourceFieldType: "text",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await expect(
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "payload-source-owned",
-          propertyValues: { [managedPropertyId]: "caller overwrite" },
-        }),
-      ),
-    ).rejects.toThrow(/source-managed and cannot be written/i);
-    const memberships = await getDb()
-      .select({ id: schema.contentDatabaseItems.id })
       .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-    expect(memberships).toEqual([]);
+      .where(eq(schema.contentDatabaseItems.databaseId, ids.databaseId));
+    expect(rows).toHaveLength(0);
   });
 
-  it("does not mutate an existing row when the caller can edit only the database page", async () => {
-    const { databaseId, propertyId } = await fixture();
+  it("sparsely updates exact IDs, preserves body and omitted fields, and rejects stale row CAS", async () => {
+    const ids = await fixture();
+    const firstId = await addProperty({ ...ids, name: "First", type: "text" });
+    const secondId = await addProperty({
+      ...ids,
+      name: "Second",
+      type: "text",
+    });
+    const discovered = await contract(ids.databaseId);
     const created = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "private-row",
-        title: "Original",
+      createRow.run({
+        ...envelope(discovered, "sparse-create"),
+        title: "Before",
+        propertyValues: { [firstId]: "keep", [secondId]: "change" },
       }),
     );
-    const [database] = await getDb()
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Blocks body stays separate" })
+      .where(eq(schema.documents.id, created.receipt.row.documentId));
+    const refreshed = await contract(ids.databaseId);
+    const updated = await asOwner(() =>
+      updateRow.run({
+        ...envelope(refreshed, "sparse-update"),
+        itemId: created.receipt.row.itemId,
+        documentId: created.receipt.row.documentId,
+        expectedRowRevision: created.receipt.row.rowRevision,
+        title: "After",
+        propertyValues: { [secondId]: null },
+      }),
+    );
+    expect(updated.receipt).toMatchObject({
+      outcome: "updated",
+      affected: { title: true, propertyIds: [secondId] },
+      readback: {
+        title: "After",
+        propertyValues: { [firstId]: "keep", [secondId]: null },
+      },
+    });
+    const [document] = await getDb()
       .select()
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
-    await getDb().insert(schema.documentShares).values({
-      id: "database-only-editor-share",
-      resourceId: database.documentId,
-      principalType: "user",
-      principalId: DATABASE_ONLY_EDITOR,
-      role: "editor",
-      createdBy: OWNER,
-      createdAt: new Date().toISOString(),
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.receipt.row.documentId));
+    expect(document.content).toBe("Blocks body stays separate");
+
+    await expect(
+      asOwner(() =>
+        updateRow.run({
+          ...envelope(refreshed, "stale-update"),
+          itemId: created.receipt.row.itemId,
+          documentId: created.receipt.row.documentId,
+          expectedRowRevision: created.receipt.row.rowRevision,
+          title: "Stale overwrite",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "ROW_REVISION_CONFLICT" });
+  });
+
+  it("configures one text natural key and creates, replays, then CAS-updates one stable row", async () => {
+    const ids = await fixture();
+    const keyPropertyId = await addProperty({
+      ...ids,
+      name: "Feedback ID",
+      type: "text",
+      naturalKey: true,
+    });
+    const evidenceId = await addProperty({
+      ...ids,
+      name: "Evidence",
+      type: "text",
     });
     await expect(
-      runWithRequestContext({ userEmail: DATABASE_ONLY_EDITOR }, () =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "private-row",
-          title: "Mutated",
-        }),
-      ),
-    ).rejects.toThrow();
-    const [document] = await getDb()
-      .select({ title: schema.documents.title })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, created.documentId));
-    expect(document?.title).toBe("Original");
-  });
-
-  it("fails closed when a stable-key claim no longer names its exact database membership", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const created = await asOwner(() =>
-      upsert.run({
-        databaseId,
-        keyPropertyId: propertyId,
-        keyValue: "stale-claim",
-        title: "Original",
-      }),
-    );
-    await getDb()
-      .update(schema.contentDatabaseItemKeyClaims)
-      .set({ itemId: "missing-item" })
-      .where(
-        and(
-          eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId),
-          eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
-        ),
-      );
-    await getDb()
-      .delete(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, created.documentId),
-          eq(schema.documentPropertyValues.propertyId, propertyId),
-        ),
-      );
-    await expect(
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "stale-claim",
-          title: "Would mutate if claim were trusted",
-        }),
-      ),
-    ).rejects.toThrow("no longer matches the stored key property");
-    const [document] = await getDb()
-      .select({ title: schema.documents.title })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, created.documentId));
-    expect(document?.title).toBe("Original");
-  });
-
-  it("atomically retires A when an ordinary property edit changes it to B", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const created = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
-    );
-    await asOwner(() =>
-      setProperty.run({
-        documentId: created.documentId,
-        databaseId,
-        propertyId,
-        value: "B",
-      }),
-    );
-    const replacement = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
-    );
-    expect(replacement.status).toBe("created");
-    expect(replacement.documentId).not.toBe(created.documentId);
-    const b = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "B" }),
-    );
-    expect(b.documentId).toBe(created.documentId);
-  });
-
-  it("serializes a real concurrent ordinary write with stable-key upsert", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const created = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
-    );
-
-    await Promise.allSettled([
-      asOwner(() =>
-        upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
-      ),
-      asOwner(() =>
-        setProperty.run({
-          documentId: created.documentId,
-          databaseId,
-          propertyId,
-          value: "B",
-        }),
-      ),
-    ]);
-
-    const aValues = await getDb()
-      .select({ documentId: schema.documentPropertyValues.documentId })
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.propertyId, propertyId),
-          eq(schema.documentPropertyValues.valueJson, '"A"'),
-        ),
-      );
-    const aClaims = await getDb()
-      .select({ documentId: schema.contentDatabaseItemKeyClaims.documentId })
-      .from(schema.contentDatabaseItemKeyClaims)
-      .where(
-        and(
-          eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId),
-          eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
-          eq(schema.contentDatabaseItemKeyClaims.keyValueJson, '"A"'),
-        ),
-      );
-    expect(aValues.length).toBeLessThanOrEqual(1);
-    expect(aClaims).toEqual(aValues);
-  });
-
-  it("rejects an ordinary edit that collides with another claimed key", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const a = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
-    );
-    await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "B" }),
-    );
-
-    await expect(
-      asOwner(() =>
-        setProperty.run({
-          documentId: a.documentId,
-          databaseId,
-          propertyId,
-          value: "B",
-        }),
-      ),
-    ).rejects.toThrow(/already claimed as another row's stable key/i);
-
-    const values = await getDb()
-      .select({ valueJson: schema.documentPropertyValues.valueJson })
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, a.documentId),
-          eq(schema.documentPropertyValues.propertyId, propertyId),
-        ),
-      );
-    expect(values).toEqual([{ valueJson: '"A"' }]);
-  });
-
-  it("serializes a real concurrent type change and retires old-type claims", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const [database] = await getDb()
-      .select()
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
-
-    const [upsertResult, configureResult] = await Promise.allSettled([
-      asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "not-a-number",
-        }),
-      ),
       asOwner(() =>
         configureProperty.run({
-          id: propertyId,
-          documentId: database.documentId,
-          databaseId,
-          name: "External key",
-          type: "number",
+          id: evidenceId,
+          documentId: ids.databaseDocumentId,
+          databaseId: ids.databaseId,
+          name: "Evidence",
+          type: "text",
+          naturalKey: true,
         }),
       ),
-    ]);
-    expect(configureResult.status).toBe("fulfilled");
-    expect(["fulfilled", "rejected"]).toContain(upsertResult.status);
+    ).rejects.toThrow("Clear the existing database natural key");
+    const discovered = await contract(ids.databaseId);
+    expect(discovered.naturalKeyPropertyId).toBe(keyPropertyId);
+    const input = {
+      ...envelope(discovered, "feedback-upsert-1"),
+      keyValue: "feedback-001",
+      expectedRowRevision: null,
+      title: "Feedback",
+      propertyValues: { [evidenceId]: "first" },
+    };
+    const created = await asOwner(() => upsertRow.run(input));
+    const replayed = await asOwner(() => upsertRow.run(input));
+    expect(replayed.receipt).toMatchObject({
+      outcome: "created",
+      row: created.receipt.row,
+      idempotency: { result: "replayed" },
+    });
+    await expect(
+      asOwner(() => upsertRow.run({ ...input, title: "Different" })),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
 
-    const [definition] = await getDb()
-      .select({ type: schema.documentPropertyDefinitions.type })
-      .from(schema.documentPropertyDefinitions)
-      .where(eq(schema.documentPropertyDefinitions.id, propertyId));
-    const claims = await getDb()
-      .select()
-      .from(schema.contentDatabaseItemKeyClaims)
-      .where(eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId));
-    const values = await getDb()
-      .select()
-      .from(schema.documentPropertyValues)
-      .where(eq(schema.documentPropertyValues.propertyId, propertyId));
-    expect(definition?.type).toBe("number");
-    expect(claims).toHaveLength(0);
-    expect(values).toHaveLength(0);
-  });
-
-  it("removes stable-key claims in the same property-definition deletion", async () => {
-    const { databaseId, propertyId } = await fixture();
-    const created = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "gone" }),
-    );
-    await asOwner(() =>
-      deleteProperty.run({
-        documentId: created.documentId,
-        databaseId,
-        propertyId,
+    const updated = await asOwner(() =>
+      upsertRow.run({
+        ...envelope(discovered, "feedback-upsert-2"),
+        keyValue: "feedback-001",
+        expectedRowRevision: created.receipt.row.rowRevision,
+        propertyValues: { [evidenceId]: "second" },
       }),
     );
-    const claims = await getDb()
-      .select()
-      .from(schema.contentDatabaseItemKeyClaims)
-      .where(eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId));
-    expect(claims).toHaveLength(0);
+    expect(updated.receipt).toMatchObject({
+      outcome: "updated",
+      row: {
+        itemId: created.receipt.row.itemId,
+        documentId: created.receipt.row.documentId,
+      },
+      readback: {
+        propertyValues: {
+          [keyPropertyId]: "feedback-001",
+          [evidenceId]: "second",
+        },
+      },
+    });
   });
 
-  it("releases claims during permanent database-row cleanup so the key can be reused", async () => {
-    const { databaseId, propertyId } = await fixture();
+  it("keeps configured natural-key claims consistent across create and exact update", async () => {
+    const ids = await fixture();
+    const keyPropertyId = await addProperty({
+      ...ids,
+      name: "Feedback ID",
+      type: "text",
+      naturalKey: true,
+    });
+    const discovered = await contract(ids.databaseId);
     const created = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "reuse" }),
+      createRow.run({
+        ...envelope(discovered, "natural-key-create"),
+        propertyValues: { [keyPropertyId]: "feedback-created-directly" },
+      }),
     );
-    await asOwner(() => deleteDocument.run({ id: created.documentId }));
     await expect(
       asOwner(() =>
-        upsert.run({
-          databaseId,
-          keyPropertyId: propertyId,
-          keyValue: "reuse",
+        upsertRow.run({
+          ...envelope(discovered, "natural-key-upsert-collision"),
+          keyValue: "feedback-created-directly",
+          expectedRowRevision: null,
         }),
       ),
-    ).rejects.toThrow("trashed database row");
-    await asOwner(() =>
-      permanentlyDeleteDocument.run({ id: created.documentId }),
+    ).rejects.toMatchObject({ errorCode: "ROW_ALREADY_EXISTS" });
+    await expect(
+      asOwner(() =>
+        updateRow.run({
+          ...envelope(discovered, "natural-key-update"),
+          itemId: created.receipt.row.itemId,
+          documentId: created.receipt.row.documentId,
+          expectedRowRevision: created.receipt.row.rowRevision,
+          propertyValues: { [keyPropertyId]: "feedback-renamed" },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "NATURAL_KEY_IMMUTABLE" });
+  });
+
+  it("rejects stale schema, target mismatch, duplicate natural-key configuration, and unauthorized writes without side effects", async () => {
+    const ids = await fixture();
+    const keyId = await addProperty({
+      ...ids,
+      name: "Candidate key",
+      type: "text",
+    });
+    const stale = await contract(ids.databaseId);
+    await addProperty({ ...ids, name: "Schema drift", type: "text" });
+    await expect(
+      asOwner(() =>
+        createRow.run({
+          ...envelope(stale, "stale-schema"),
+          title: "No write",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "SCHEMA_REVISION_CONFLICT" });
+    const current = await contract(ids.databaseId);
+    await expect(
+      asOwner(() =>
+        createRow.run({
+          ...envelope(current, "wrong-target"),
+          target: { ...envelope(current, "unused").target, spaceId: "wrong" },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "TARGET_MISMATCH" });
+    await expect(
+      runWithRequestContext({ userEmail: OUTSIDER }, () =>
+        createRow.run({ ...envelope(current, "outsider"), title: "Denied" }),
+      ),
+    ).rejects.toThrow();
+
+    const first = await asOwner(() =>
+      createRow.run({
+        ...envelope(current, "duplicate-key-1"),
+        propertyValues: { [keyId]: "duplicate" },
+      }),
     );
-    const reused = await asOwner(() =>
-      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "reuse" }),
+    const second = await asOwner(() =>
+      createRow.run({
+        ...envelope(current, "duplicate-key-2"),
+        propertyValues: { [keyId]: "duplicate" },
+      }),
     );
-    expect(reused.status).toBe("created");
-    expect(reused.documentId).not.toBe(created.documentId);
+    expect(first.receipt.row.itemId).not.toBe(second.receipt.row.itemId);
+    await expect(
+      asOwner(() =>
+        configureProperty.run({
+          id: keyId,
+          documentId: ids.databaseDocumentId,
+          databaseId: ids.databaseId,
+          name: "Candidate key",
+          type: "text",
+          naturalKey: true,
+        }),
+      ),
+    ).rejects.toThrow("more than one row");
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    expect(database.naturalKeyPropertyId).toBeNull();
+    const rows = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, ids.databaseId));
+    expect(rows).toHaveLength(2);
+    const unintended = rows.filter(
+      (row: any) =>
+        row.documentId !== first.receipt.row.documentId &&
+        row.documentId !== second.receipt.row.documentId,
+    );
+    expect(unintended).toHaveLength(0);
+  });
+
+  it("serializes concurrent retries to one side effect and one receipt", async () => {
+    const ids = await fixture();
+    const discovered = await contract(ids.databaseId);
+    const input = {
+      ...envelope(discovered, "concurrent-create"),
+      title: "Exactly once",
+    };
+    const [first, second] = await Promise.all([
+      asOwner(() => createRow.run(input)),
+      asOwner(() => createRow.run(input)),
+    ]);
+    expect(first.receipt.row).toEqual(second.receipt.row);
+    expect(
+      new Set([
+        first.receipt.idempotency.result,
+        second.receipt.idempotency.result,
+      ]),
+    ).toEqual(new Set(["applied", "replayed"]));
+    const rows = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, ids.databaseId));
+    const receipts = await getDb()
+      .select()
+      .from(schema.contentDatabaseRowMutationReceipts)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseRowMutationReceipts.databaseId,
+            ids.databaseId,
+          ),
+          eq(
+            schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+            "concurrent-create",
+          ),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    expect(receipts).toHaveLength(1);
   });
 });

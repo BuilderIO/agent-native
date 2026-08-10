@@ -166,7 +166,10 @@ export default defineAction({
         database.id,
       );
       const [lockedDatabase] = await tx
-        .select({ id: schema.contentDatabases.id })
+        .select({
+          id: schema.contentDatabases.id,
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+        })
         .from(schema.contentDatabases)
         .where(
           and(
@@ -212,6 +215,41 @@ export default defineAction({
       if (isComputedPropertyType(lockedType)) {
         throw new Error("Computed properties cannot be edited.");
       }
+      const isNaturalKey = lockedDatabase.naturalKeyPropertyId === propertyId;
+      if (isNaturalKey) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(valueJson);
+        } catch {
+          parsed = null;
+        }
+        if (typeof parsed !== "string" || !parsed.trim()) {
+          throw new Error(
+            "A database natural key must remain a non-empty string.",
+          );
+        }
+        const [existingNaturalKeyClaim] = await tx
+          .select({
+            keyValueJson: schema.contentDatabaseItemKeyClaims.keyValueJson,
+          })
+          .from(schema.contentDatabaseItemKeyClaims)
+          .where(
+            and(
+              eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+              eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+              eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+            ),
+          )
+          .limit(1);
+        if (
+          existingNaturalKeyClaim &&
+          existingNaturalKeyClaim.keyValueJson !== valueJson
+        ) {
+          throw new Error(
+            "A claimed database natural key cannot be changed. Create a new row instead.",
+          );
+        }
+      }
       const [conflictingClaim] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)
@@ -253,6 +291,45 @@ export default defineAction({
           createdAt: now,
           updatedAt: now,
         });
+      }
+      if (isNaturalKey) {
+        await tx
+          .insert(schema.contentDatabaseItemKeyClaims)
+          .values({
+            id: nanoid(),
+            ownerEmail: database.ownerEmail,
+            orgId: database.orgId,
+            databaseId: database.id,
+            propertyId,
+            keyValueJson: valueJson,
+            itemId: membership.id,
+            documentId,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing();
+        const [claim] = await tx
+          .select({
+            itemId: schema.contentDatabaseItemKeyClaims.itemId,
+            documentId: schema.contentDatabaseItemKeyClaims.documentId,
+          })
+          .from(schema.contentDatabaseItemKeyClaims)
+          .where(
+            and(
+              eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+              eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+              eq(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+            ),
+          );
+        if (
+          !claim ||
+          claim.itemId !== membership.id ||
+          claim.documentId !== documentId
+        ) {
+          throw new Error(
+            "This natural key is already claimed by another database row.",
+          );
+        }
       }
       await tx
         .delete(schema.contentDatabaseItemKeyClaims)

@@ -1593,6 +1593,11 @@ function DatabaseTable({
   ) {
     if (!databaseId) return null;
     if (isWorkspaceCatalog) return null;
+    const mutationContract = data?.mutationContract;
+    if (!mutationContract) {
+      toast.error(dbText("failedToCreateRow"));
+      return null;
+    }
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -1600,7 +1605,9 @@ function DatabaseTable({
     let response;
     try {
       response = await addItem.mutateAsync({
-        databaseId,
+        target: mutationContract.target,
+        expectedSchemaRevision: mutationContract.schemaRevision,
+        idempotencyKey: crypto.randomUUID(),
         title,
         propertyValues:
           Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
@@ -1612,12 +1619,7 @@ function DatabaseTable({
       });
       return null;
     }
-    const createdItem = databaseCreatedItemForImmediatePreview(response, {
-      databaseId,
-      parentDocument: document,
-      title,
-      propertyValues,
-    });
+    const createdItem = response.createdItem ?? null;
     const needsPreview =
       !!createdItem &&
       databaseCreatedItemNeedsPreview(items, createdItem, options);
