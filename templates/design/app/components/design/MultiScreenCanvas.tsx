@@ -7717,7 +7717,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         metadata.previewUrl ?? getPreviewUrl(screen.content)
       );
       const autoHeight =
-        isInlineScreen && measuredPrimaryHeight
+        isInlineScreen && measuredPrimaryHeight && !metadata.heightPinned
           ? Math.max(
               deviceViewportFloorForWidth(metadata.width),
               rawGeometry.height ?? 0,

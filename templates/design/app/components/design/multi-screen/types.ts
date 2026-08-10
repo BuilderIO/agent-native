@@ -32,6 +32,8 @@ export interface ScreenFile {
   updatedAt?: string;
   width?: number;
   height?: number;
+  /** A height the user dragged; auto-fit must not grow past it. */
+  heightPinned?: boolean;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -105,6 +107,7 @@ export interface ScreenMetadata {
   title?: string;
   width?: number;
   height?: number;
+  heightPinned?: boolean;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -973,6 +976,8 @@ export interface ResolvedScreenMetadata {
   title?: string;
   width: number;
   height: number;
+  /** A height the user dragged; auto-fit must not grow past it. */
+  heightPinned?: boolean;
   previewUrl?: string;
 }
 

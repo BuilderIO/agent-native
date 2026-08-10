@@ -31,18 +31,6 @@ export interface TraceEntry {
   data?: unknown;
 }
 
-const AREA_COLOR: Record<TraceArea, string> = {
-  tool: "#a855f7",
-  draw: "#f59e0b",
-  screen: "#14b8a6",
-  select: "#3b82f6",
-  drag: "#8b5cf6",
-  drop: "#ef4444",
-  persist: "#22c55e",
-  structure: "#eab308",
-  history: "#64748b",
-};
-
 const MAX_ENTRIES = 2000;
 const entries: TraceEntry[] = [];
 let areaFilter: string | undefined;
@@ -97,12 +85,11 @@ export function trace(area: TraceArea, event: string, data?: unknown): void {
     if (entries.length > MAX_ENTRIES) entries.shift();
     if (areaFilter && areaFilter !== area) return;
     const tag = `%c[${area}:${event}]`;
-    const style = `color:${AREA_COLOR[area]};font-weight:bold`;
+    const style = "font-weight:bold";
     if (data === undefined) console.log(tag, style);
     else console.log(tag, style, data);
-  } catch {
-    /* tracing must never break an interaction */
-  }
+    // coercion-ok: diagnostics must never break the interaction they observe
+  } catch {}
 }
 
 /** Short, stable label for an element in a trace line. */

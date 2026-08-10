@@ -2203,6 +2203,10 @@ function DesignEditor() {
   const [frameToolDraws, setFrameToolDraws] = useState<"screen" | "frame">(
     "screen",
   );
+  // The persisted pin round-trips through the server, but content measurement
+  // fires as soon as the iframe loads. Without a synchronous local pin the
+  // frame grows to the device floor and snaps back once metadata lands.
+  const locallyPinnedHeightIdsRef = useRef<Set<string>>(new Set());
   const activeToolRef = useRef(activeTool);
   useEffect(() => {
     activeToolRef.current = activeTool;
@@ -5407,6 +5411,11 @@ function DesignEditor() {
           layoutGroupId: stringValue("variantSetId"),
           width: numberValue("width"),
           height: numberValue("height"),
+          // Without this the pin never reaches the canvas and the content-fit
+          // pass grows a deliberately-sized screen straight back.
+          heightPinned:
+            metadata.heightPinned === true ||
+            locallyPinnedHeightIdsRef.current.has(file.id),
           url: stringValue("url"),
           previewUrl: stringValue("previewUrl"),
           bridgeUrl: stringValue("bridgeUrl"),
@@ -5706,7 +5715,10 @@ function DesignEditor() {
   const writeFrameGeometrySnapshot = useCallback(
     (
       geometryById: CanvasFrameGeometryById,
-      options?: { syncViewportFrameIds?: string[] },
+      options?: {
+        syncViewportFrameIds?: string[];
+        pinHeightFrameIds?: string[];
+      },
     ) => {
       if (!id || !canEditDesignRef.current) return;
       const queuedSave = pendingFrameGeometrySaveRef.current;
@@ -5743,6 +5755,7 @@ function DesignEditor() {
           nextGeometry: snapshot,
           designData: designDataJsonRef.current,
           syncViewportFrameIds: options?.syncViewportFrameIds,
+          pinHeightFrameIds: options?.pinHeightFrameIds,
         }),
       ]);
       if (dataOperations.length === 0) return;
@@ -5869,7 +5882,13 @@ function DesignEditor() {
         writeFrameGeometrySnapshot(
           afterSnapshot,
           resizedFrameIds.length > 0
-            ? { syncViewportFrameIds: resizedFrameIds }
+            ? (resizedFrameIds.forEach((frameId) =>
+                locallyPinnedHeightIdsRef.current.add(frameId),
+              ),
+              {
+                syncViewportFrameIds: resizedFrameIds,
+                pinHeightFrameIds: resizedFrameIds,
+              })
             : undefined,
         );
       }
@@ -7186,10 +7205,24 @@ function DesignEditor() {
                 content,
                 result,
               });
-              writeFrameGeometrySnapshot({
-                ...canvasFrameGeometryById,
-                [nextId]: nextGeometry,
+              locallyPinnedHeightIdsRef.current.add(nextId);
+              trace("screen", "pin-drawn-height", {
+                fileId: nextId,
+                height: nextGeometry.height,
+                why: "a drawn size is deliberate; without this the device floor and content-fit pass override it",
               });
+              // The drawn height is a deliberate size, so pin it: otherwise
+              // the device floor and content-fit pass immediately override it.
+              writeFrameGeometrySnapshot(
+                {
+                  ...canvasFrameGeometryById,
+                  [nextId]: nextGeometry,
+                },
+                {
+                  syncViewportFrameIds: [nextId],
+                  pinHeightFrameIds: [nextId],
+                },
+              );
               focusCreatedScreen(nextId, nextGeometry);
               recordFileCreationHistoryEntry({
                 filename,
