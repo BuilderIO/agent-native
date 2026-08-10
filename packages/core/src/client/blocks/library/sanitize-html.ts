@@ -35,6 +35,30 @@ const URL_ATTRS = new Set([
 
 const SAFE_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:", "ftp:"]);
 
+const DIAGRAM_ARROW_DIRECTIONS = new Set([
+  "right",
+  "left",
+  "up",
+  "down",
+  "both",
+  "refresh",
+]);
+
+const DIAGRAM_ARROW_ENTITY_TEXT: Record<string, string> = {
+  "&rarr;": "→",
+  "&larr;": "←",
+  "&uarr;": "↑",
+  "&darr;": "↓",
+  "&harr;": "↔",
+  "&#8592;": "←",
+  "&#8593;": "↑",
+  "&#8594;": "→",
+  "&#8595;": "↓",
+  "&#8596;": "↔",
+  "&#10145;": "➡",
+  "&#8635;": "↻",
+};
+
 const WHITESPACE = /\s+/g;
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const SAFE_DATA_IMAGE = /^data:image\/(png|jpe?g|gif|webp);/i;
@@ -131,6 +155,48 @@ function stripWireframeThemeClasses(value: string): string {
     .join(" ");
 }
 
+function diagramArrowDirection(value: string): string | undefined {
+  const normalized = value
+    .replace(
+      /&(?:r|l|u|d|h)arr;|&#(?:8592|8593|8594|8595|8596|8635|10145);/gi,
+      (entity) => DIAGRAM_ARROW_ENTITY_TEXT[entity.toLowerCase()] ?? entity,
+    )
+    .replace(/\uFE0F/g, "")
+    .trim();
+
+  if (DIAGRAM_ARROW_DIRECTIONS.has(normalized)) return normalized;
+  if (/[↔⇄⇆⇔]/u.test(normalized)) return "both";
+  if (/[←⬅⇐]/u.test(normalized)) return "left";
+  if (/[↑⬆⇑]/u.test(normalized)) return "up";
+  if (/[↓⬇⇓]/u.test(normalized)) return "down";
+  if (/[↻↺⟳⟲]/u.test(normalized)) return "refresh";
+  if (/[→➡➜➔➝➞➟➠⇢⇒]/u.test(normalized)) return "right";
+  return undefined;
+}
+
+function normalizeDiagramArrows(root: ParentNode): void {
+  root.querySelectorAll<HTMLElement>(".diagram-arrow").forEach((node) => {
+    const explicit = node.getAttribute("data-arrow");
+    const direction = DIAGRAM_ARROW_DIRECTIONS.has(explicit ?? "")
+      ? explicit
+      : diagramArrowDirection(node.textContent ?? "");
+    if (!direction) return;
+    node.setAttribute("data-arrow", direction);
+    node.replaceChildren();
+  });
+}
+
+function normalizeFallbackDiagramArrows(html: string): string {
+  return html.replace(
+    /(<(?:div|span)\b[^>]*\bclass\s*=\s*(?:"[^"]*\bdiagram-arrow\b[^"]*"|'[^']*\bdiagram-arrow\b[^']*')[^>]*>)([\s\S]*?)(<\/(?:div|span)>)/gi,
+    (_match, open: string, body: string, close: string) => {
+      const direction = diagramArrowDirection(body);
+      if (!direction) return `${open}${body}${close}`;
+      return `${open.replace(/>$/, ` data-arrow="${direction}">`)}${close}`;
+    },
+  );
+}
+
 /** Conservative no-DOM fallback for any non-browser code path (SSR). */
 function fallbackStrip(html: string, options?: SanitizeElementOptions): string {
   // Drop the whole url attribute if its value (whitespace/control-stripped)
@@ -185,16 +251,19 @@ export function sanitizeWireframeHtml(
 export function sanitizeDiagramHtml(html: string | undefined): string {
   if (!html) return "";
   if (typeof DOMParser === "undefined" || typeof document === "undefined") {
-    return fallbackStrip(html)
-      .replace(/<\/?\s*(?:math|foreignObject|foreignobject)\b[^>]*>/gi, "")
-      .replace(
-        /\s(?:@[\w:.-]+|x-on:[\w:.-]+|:on[\w:.-]+|x-bind:on[\w:.-]+|:style|x-bind:style)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
-        "",
-      );
+    return normalizeFallbackDiagramArrows(
+      fallbackStrip(html)
+        .replace(/<\/?\s*(?:math|foreignObject|foreignobject)\b[^>]*>/gi, "")
+        .replace(
+          /\s(?:@[\w:.-]+|x-on:[\w:.-]+|:on[\w:.-]+|x-bind:on[\w:.-]+|:style|x-bind:style)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,
+          "",
+        ),
+    );
   }
   const doc = new DOMParser().parseFromString(html, "text/html");
   doc.querySelectorAll(DIAGRAM_BLOCKED_TAGS).forEach((el) => el.remove());
   sanitizeElementAttributes(doc.body, { stripRuntimeDirectives: true });
+  normalizeDiagramArrows(doc.body);
   return doc.body.innerHTML;
 }
 
