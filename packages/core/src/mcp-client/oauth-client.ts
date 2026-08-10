@@ -33,7 +33,6 @@ import {
   type OAuthCredentialState,
   type OAuthRevocationResult,
 } from "../oauth-tokens/lifecycle.js";
-import { deleteOAuthTokens, getOAuthTokens } from "../oauth-tokens/store.js";
 import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
@@ -491,24 +490,7 @@ export async function readMcpOAuthCredentials(options: {
   scopeId: string;
   serverUrl?: string;
 }): Promise<McpOAuthCredentialBundle | null> {
-  if (!options.serverUrl) {
-    const stored = await getOAuthTokens(
-      "mcp",
-      options.key,
-      `${options.scope}:${options.scope === "user" ? options.scopeId.toLowerCase() : options.scopeId}`,
-    );
-    if (!stored) return null;
-    const parsed = stored as Partial<McpOAuthCredentialBundle>;
-    if (
-      typeof parsed.serverUrl !== "string" ||
-      !parsed.clientInformation ||
-      !parsed.tokens ||
-      typeof parsed.tokens.access_token !== "string"
-    ) {
-      return null;
-    }
-    return parsed as McpOAuthCredentialBundle;
-  }
+  if (!options.serverUrl) return null;
   const state = await getMcpOAuthConnectionState({
     ...options,
     serverUrl: options.serverUrl,
@@ -550,15 +532,7 @@ export async function deleteMcpOAuthCredentials(options: {
   scopeId: string;
   serverUrl?: string;
 }): Promise<boolean> {
-  if (!options.serverUrl) {
-    return (
-      (await deleteOAuthTokens(
-        "mcp",
-        options.key,
-        `${options.scope}:${options.scope === "user" ? options.scopeId.toLowerCase() : options.scopeId}`,
-      )) > 0
-    );
-  }
+  if (!options.serverUrl) return false;
   const identity = credentialIdentity({
     ...options,
     serverUrl: options.serverUrl,

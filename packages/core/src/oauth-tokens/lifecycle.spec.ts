@@ -353,10 +353,10 @@ describe("OAuth credential lifecycle", () => {
         dependencies: { holderId: () => "post-expiry-holder" },
       }),
     ).resolves.toMatchObject({
-      accessToken: null,
-      state: { kind: "reconnect_required" },
+      accessToken: "<ACCESS_TOKEN>",
+      state: { kind: "connected" },
     });
-    expect(competingRefresh).not.toHaveBeenCalled();
+    expect(competingRefresh).toHaveBeenCalledTimes(1);
 
     await saveOAuthCredential(
       identity,

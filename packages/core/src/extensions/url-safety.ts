@@ -226,6 +226,7 @@ function normalizeAllowedPrivateOriginOriginKeys(
 
 export async function createSsrfSafeDispatcher(
   allowedPrivateOrigins: readonly string[] = [],
+  destinationUrl?: string,
 ): Promise<unknown> {
   // Keep the undici import opaque to Vite/Rolldown. A literal dynamic import
   // makes browser builds try to resolve and bundle this server-only package.
@@ -247,6 +248,12 @@ export async function createSsrfSafeDispatcher(
   const allowedPrivateOriginKeys = normalizeAllowedPrivateOriginKeys(
     allowedPrivateOrigins,
   );
+  let destinationPort = "";
+  if (destinationUrl) {
+    const parsed = new URL(destinationUrl);
+    destinationPort =
+      parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  }
   if (!Agent || !lookup) {
     throw new Error(
       "SSRF protection is unavailable because the server dispatcher is incomplete.",
@@ -279,7 +286,7 @@ export async function createSsrfSafeDispatcher(
               : [{ address: addresses, family: 4 }];
             for (const record of list) {
               const allowedOrigin = allowedPrivateOriginKeys.has(
-                `${normalizeLookupHostname(hostname)}:${String(options?.port ?? "")}`,
+                `${normalizeLookupHostname(hostname)}:${destinationPort}`,
               );
               if (isPrivateHost(record.address) && !allowedOrigin) {
                 const e = new Error(
@@ -348,9 +355,6 @@ export async function ssrfSafeFetch(
   } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
-  const dispatcher = await createSsrfSafeDispatcher(
-    options.allowedPrivateOrigins,
-  );
   const allowedPrivateOrigins = normalizeAllowedPrivateOriginOriginKeys(
     options.allowedPrivateOrigins ?? [],
   );
@@ -387,7 +391,10 @@ export async function ssrfSafeFetch(
       ...init,
       redirect: "manual",
     };
-    fetchOpts.dispatcher = dispatcher;
+    fetchOpts.dispatcher = await createSsrfSafeDispatcher(
+      options.allowedPrivateOrigins,
+      currentUrl,
+    );
 
     const response = await fetch(currentUrl, fetchOpts);
     if (response.status >= 300 && response.status < 400) {

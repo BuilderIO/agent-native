@@ -54,7 +54,11 @@ interface CredentialSnapshot<T extends OAuthCredential> {
 
 export type OAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
   | { kind: "missing" }
-  | { kind: "malformed"; revision: number }
+  | {
+      kind: "malformed";
+      revision: number;
+      reason: "structure" | "identity" | "validation";
+    }
   | ({
       kind: "connected" | "expired" | "reconnect_required";
     } & CredentialSnapshot<T>);
@@ -171,6 +175,7 @@ async function acquireLease(
   identity: OAuthCredentialIdentity,
   holder: string,
   revision: number,
+  legacyCredential: boolean,
   leaseMs: number,
   now: number,
 ): Promise<LeaseAcquisition> {
@@ -185,7 +190,7 @@ async function acquireLease(
       if (
         expiresAt > now ||
         currentRevision === revision ||
-        currentRevision === -1
+        (currentRevision === -1 && legacyCredential)
       ) {
         return current!;
       }
@@ -216,6 +221,7 @@ function startLeaseHeartbeat(
   identity: OAuthCredentialIdentity,
   holder: string,
   revision: number,
+  legacyCredential: boolean,
   leaseMs: number,
   dependencies: LifecycleDependencies,
 ): () => Promise<void> {
@@ -227,6 +233,7 @@ function startLeaseHeartbeat(
         identity,
         holder,
         revision,
+        legacyCredential,
         leaseMs,
         dependencies.now(),
       )
@@ -278,18 +285,31 @@ export async function readOAuthCredentialState<
   );
   if (!stored) return { kind: "missing" };
   const parsed = stored.tokens as Partial<T>;
+  if (!parsed.tokens || typeof parsed.tokens.access_token !== "string") {
+    return {
+      kind: "malformed",
+      revision: stored.revision,
+      reason: "structure",
+    };
+  }
   if (
-    !parsed.tokens ||
-    typeof parsed.tokens.access_token !== "string" ||
     (!options.allowLegacy &&
       !metadataMatches(identity, parsed.oauthLifecycle)) ||
     (parsed.oauthLifecycle && !metadataMatches(identity, parsed.oauthLifecycle))
   ) {
-    return { kind: "malformed", revision: stored.revision };
+    return {
+      kind: "malformed",
+      revision: stored.revision,
+      reason: "identity",
+    };
   }
   const credential = parsed as T;
   if (options.validateCredential && !options.validateCredential(credential)) {
-    return { kind: "malformed", revision: stored.revision };
+    return {
+      kind: "malformed",
+      revision: stored.revision,
+      reason: "validation",
+    };
   }
   if (credential.oauthLifecycle?.reconnectReason) {
     return {
@@ -382,6 +402,7 @@ export async function resolveOAuthCredentialAccess<
       identity,
       holder,
       state.revision,
+      !state.credential.oauthLifecycle,
       leaseMs,
       dependencies.now(),
     );
@@ -460,6 +481,7 @@ export async function resolveOAuthCredentialAccess<
           identity,
           holder,
           state.revision,
+          !state.credential.oauthLifecycle,
           leaseMs,
           dependencies,
         );
@@ -473,6 +495,7 @@ export async function resolveOAuthCredentialAccess<
           identity,
           holder,
           state.revision,
+          !state.credential.oauthLifecycle,
           leaseMs,
           dependencies.now(),
         );
@@ -511,6 +534,7 @@ export async function resolveOAuthCredentialAccess<
           identity,
           holder,
           state.revision,
+          !state.credential.oauthLifecycle,
           leaseMs,
           dependencies.now(),
         );
@@ -597,6 +621,9 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
     }
   } else if (state.kind === "malformed") {
     remote = "not_attempted";
+  }
+  if (state.kind === "malformed" && state.reason !== "structure") {
+    return { remote, local: "replaced" };
   }
   const deleted = await deleteOAuthTokensIfRevision(
     identity.provider,

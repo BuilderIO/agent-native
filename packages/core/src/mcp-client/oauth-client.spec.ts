@@ -615,31 +615,26 @@ describe("MCP OAuth client", () => {
     ).resolves.toBeNull();
   });
 
-  it("preserves owner-bound legacy reads and deletes without a serverUrl argument", async () => {
+  it("fails closed for legacy reads and deletes without a serverUrl argument", async () => {
     getOAuthTokensMock.mockResolvedValue(credentials);
-    deleteOAuthTokensMock.mockResolvedValue(1);
 
-    await readMcpOAuthCredentials({
-      key: "mcp_oauth:test",
-      scope: "org",
-      scopeId: "org-test",
-    });
-    await deleteMcpOAuthCredentials({
-      key: "mcp_oauth:test",
-      scope: "org",
-      scopeId: "org-test",
-    });
+    await expect(
+      readMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+      }),
+    ).resolves.toBe(false);
 
-    expect(getOAuthTokensMock).toHaveBeenCalledWith(
-      "mcp",
-      "mcp_oauth:test",
-      "org:org-test",
-    );
-    expect(deleteOAuthTokensMock).toHaveBeenCalledWith(
-      "mcp",
-      "mcp_oauth:test",
-      "org:org-test",
-    );
+    expect(getOAuthTokensMock).not.toHaveBeenCalled();
+    expect(deleteOAuthTokensMock).not.toHaveBeenCalled();
   });
 
   it("deletes a server-bound credential from one atomic lifecycle snapshot", async () => {
@@ -656,6 +651,22 @@ describe("MCP OAuth client", () => {
 
     expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
     expect(deleteOAuthTokensIfRevisionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not delete a legacy credential bound to another server", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
+
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://different.example.com/mcp",
+      }),
+    ).resolves.toBe(false);
+
+    expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
   });
 
   it("computes an expiry only for positive finite expires_in values", () => {

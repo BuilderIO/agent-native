@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +14,35 @@ describe("createSsrfSafeDispatcher", () => {
     await expect(createSsrfSafeDispatcher()).resolves.toMatchObject({
       dispatch: expect.any(Function),
     });
+  });
+
+  it("allows a configured loopback hostname at its exact port through the real dispatcher", async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("ok");
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Test server did not expose a TCP port.");
+      }
+      const origin = `http://localhost:${address.port}`;
+      const response = await ssrfSafeFetch(
+        `${origin}/health`,
+        {},
+        {
+          allowedPrivateOrigins: [origin],
+        },
+      );
+      await expect(response.text()).resolves.toBe("ok");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 });
 
