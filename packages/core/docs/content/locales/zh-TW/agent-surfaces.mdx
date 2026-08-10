@@ -15,29 +15,29 @@ search: "代理應用程式 豐富對話 原生對話 UI 完整應用程式 自�
 <Diagram id="doc-block-hvdxgh" title="介面光譜" summary="一個 action 介面，四種產品形態，每種都在不改變底層操作的情況下新增 UI。">
 
 ```html
-<div class="”diagram-spectrum”">
-  <div class="”diagram-card”">
+<div class=""diagram-spectrum"">
+  <div class=""diagram-card"">
     <strong>對話</strong
-    ><small class="”diagram-muted”">撰寫器、對話紀錄、工具呼叫</small>
+    ><small class=""diagram-muted"">撰寫器、對話紀錄、工具呼叫</small>
   </div>
-  <div class="”diagram-arrow" diagram-muted” aria-hidden="”true”">&rarr;</div>
-  <div class="”diagram-card”">
+  <div class=""diagram-arrow" diagram-muted" aria-hidden=""true"">&rarr;</div>
+  <div class=""diagram-card"">
     <strong>內嵌 UI</strong
-    ><small class="”diagram-muted”">表格、圖表、卡片</small>
+    ><small class=""diagram-muted"">表格、圖表、卡片</small>
   </div>
-  <div class="”diagram-arrow" diagram-muted” aria-hidden="”true”">&rarr;</div>
-  <div class="”diagram-card”">
+  <div class=""diagram-arrow" diagram-muted" aria-hidden=""true"">&rarr;</div>
+  <div class=""diagram-card"">
     <strong>應用頁面</strong
-    ><small class="”diagram-muted”">持久畫面、SQL 資料</small>
+    ><small class=""diagram-muted"">持久畫面、SQL 資料</small>
   </div>
-  <div class="”diagram-arrow" diagram-muted” aria-hidden="”true”">&rarr;</div>
-  <div class="”diagram-card" accent-card”>
-    <span class="”diagram-pill" accent”>headless</span><strong>自動化</strong
-    ><small class="”diagram-muted”">工作、腳本、外部代理</small>
+  <div class=""diagram-arrow" diagram-muted" aria-hidden=""true"">&rarr;</div>
+  <div class=""diagram-card" accent-card">
+    <span class=""diagram-pill" accent">headless</span><strong>自動化</strong
+    ><small class=""diagram-muted"">工作、腳本、外部代理</small>
   </div>
 </div>
-<div class="”diagram-base”" data-rough>
-  <span class="”diagram-muted”"
+<div class=""diagram-base"" data-rough>
+  <span class=""diagram-muted""
     >相同 actions · SQL 支援的狀態 · 按需使用代理循環</span
   >
 </div>
@@ -99,10 +99,10 @@ npx @agent-native/core@latest create my-chat-app --template chat
 最簡單的全頁對話：
 
 ```tsx
-import { AgentChatSurface } from “@agent-native/core/client/chat”;
+import { AgentChatSurface } from "@agent-native/core/client/chat";
 
 export default function ChatRoute() {
-  return <AgentChatSurface mode=”page” className=”h-screen” />;
+  return <AgentChatSurface mode="page" className="h-screen" />;
 }
 ```
 
@@ -114,27 +114,27 @@ import {
   AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from “@agent-native/core/client/chat”;
-import { useLocation } from “react-router”;
+} from "@agent-native/core/client/chat";
+import { useLocation } from "react-router";
 
 function ChatRoute() {
   return (
-    <AgentChatSurface mode=”page” storageKey=”my-app” chatViewTransition />
+    <AgentChatSurface mode="page" storageKey="my-app" chatViewTransition />
   );
 }
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const handoffActive = useAgentChatHomeHandoff({
-    storageKey: “my-app”,
+    storageKey: "my-app",
     activePath: location.pathname,
-    enabled: location.pathname !== “/chat”,
+    enabled: location.pathname !== "/chat",
   });
-  useAgentChatHomeHandoffLinks({ storageKey: “my-app”, chatPath: “/chat” });
+  useAgentChatHomeHandoffLinks({ storageKey: "my-app", chatPath: "/chat" });
 
   return (
     <AgentSidebar
-      storageKey=”my-app”
+      storageKey="my-app"
       chatViewTransition
       openOnChatRunning={handoffActive}
     >
@@ -147,7 +147,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 使用你自己的外框嵌入對話的最簡方式：
 
 ```tsx
-import { AssistantChat } from “@agent-native/core/client/chat”;
+import { AssistantChat } from "@agent-native/core/client/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -215,7 +215,7 @@ Action 結果可以直接開啟正確的應用程式檢視：圖表連結至儀�
 在你的應用程式中將其掛載於 `/settings/agent`。目前的範本將此作為標準路由，並將 `agentPageHref="/settings/agent"` 傳遞給 `AgentSidebar`。`/agent` 會保留為舊版重新導向。
 
 ```tsx filename="app/routes/settings.agent.tsx"
-import { AgentTabsPage } from “@agent-native/core/client/agent-chat”;
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -254,7 +254,7 @@ export default function AgentRoute() {
 伺服器插件將 Agent-Native 路由掛載到你的宿主應用程式中，並在伺服器端解析宿主身份：
 
 ```ts
-import { createAgentNativeEmbeddedPlugin } from “@agent-native/core/server”;
+import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
 
 export default createAgentNativeEmbeddedPlugin({
   databaseUrl: process.env.AGENT_NATIVE_DATABASE_URL,
@@ -266,7 +266,7 @@ export default createAgentNativeEmbeddedPlugin({
 React 側邊欄傳遞頁面情境和宿主命令：
 
 ```tsx
-import { AgentNativeEmbedded } from “@agent-native/core/client/host”;
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded
@@ -292,28 +292,28 @@ export function AppShell({ children }) {
 <Diagram id="doc-block-27ug5y" title="側邊欄如何橋接宿主應用程式" summary="插件在伺服器端掛載 Agent-Native 路由；React 側邊欄將頁面情境串流傳入，並將宿主命令傳出。">
 
 ```html
-<div class="”diagram-sidecar”">
-  <div class="”diagram-panel”">
+<div class=""diagram-sidecar"">
+  <div class=""diagram-panel"">
     <strong>宿主應用程式</strong
-    ><small class="”diagram-muted”">你現有的 SaaS</small>
-    <div class="”diagram-node”">
-      getContext()<br /><small class="”diagram-muted”">路由 · 選取項目</small>
+    ><small class=""diagram-muted"">你現有的 SaaS</small>
+    <div class=""diagram-node"">
+      getContext()<br /><small class=""diagram-muted"">路由 · 選取項目</small>
     </div>
-    <div class="”diagram-node”">
-      onNavigate / onRefresh<br /><small class="”diagram-muted”"
+    <div class=""diagram-node"">
+      onNavigate / onRefresh<br /><small class=""diagram-muted""
         >宿主命令</small
       >
     </div>
   </div>
-  <div class="”diagram-col-arrows”">
-    <div class="”diagram-arrow" diagram-muted” aria-hidden="”true”">&rarr;</div>
-    <div class="”diagram-arrow" diagram-muted” aria-hidden="”true”">&larr;</div>
+  <div class=""diagram-col-arrows"">
+    <div class=""diagram-arrow" diagram-muted" aria-hidden=""true"">&rarr;</div>
+    <div class=""diagram-arrow" diagram-muted" aria-hidden=""true"">&larr;</div>
   </div>
-  <div class="”diagram-panel" accent-panel”>
-    <span class="”diagram-pill" accent”>AgentNativeEmbedded</span
-    ><small class="”diagram-muted”">代理 + 資源</small>
-    <div class="”diagram-box”" data-rough>
-      Agent-Native 路由<br /><small class="”diagram-muted”"
+  <div class=""diagram-panel" accent-panel">
+    <span class=""diagram-pill" accent">AgentNativeEmbedded</span
+    ><small class=""diagram-muted"">代理 + 資源</small>
+    <div class=""diagram-box"" data-rough>
+      Agent-Native 路由<br /><small class=""diagram-muted""
         >由伺服器插件掛載</small
       >
     </div>
@@ -381,16 +381,16 @@ pnpm install
 
 然後定義持久操作：
 
-```ts filename=”actions/summarize-week.ts”
-import { defineAction } from “@agent-native/core/action”;
-import { z } from “zod”;
+```ts filename="actions/summarize-week.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
 
 export default defineAction({
-  description: “Summarize this week's submissions.”,
+  description: "Summarize this week's submissions.",
   readOnly: true,
   schema: z.object({ formId: z.string() }),
   run: async ({ formId }) => {
-    return { formId, summary: “34 submissions, up 18% from last week.” };
+    return { formId, summary: "34 submissions, up 18% from last week." };
   },
 });
 ```
@@ -429,7 +429,7 @@ export default defineAction({
 如果你需要從專案資料夾以無介面方式執行整個代理迴圈，請使用：
 
 ```bash
-pnpm agent “Summarize this week's forms.”
+pnpm agent "Summarize this week's forms."
 ```
 
 如果另一個應用程式或腳本需要呼叫整個代理，請使用 `agentNative.invoke("analytics", "...")` 或 `agent-native invoke` CLI。這樣可以讓跨應用程式的工作保持在 A2A 路徑上，而本地工作則保持在 actions 上。
@@ -437,7 +437,7 @@ pnpm agent “Summarize this week's forms.”
 Workers、工作、整合 webhook 和自訂宿主可以透過伺服器 API 直接驅動代理迴圈。這比 actions 更底層——你需要自行提供引擎、模型、訊息、工具、actions、事件接收器和中止訊號：
 
 ```ts
-import { runAgentLoop } from “@agent-native/core/server”;
+import { runAgentLoop } from "@agent-native/core/server";
 
 await runAgentLoop({
   engine,
@@ -451,7 +451,7 @@ await runAgentLoop({
 });
 ```
 
-對大多數應用程式而言，排程提示和整合 webhook 已經會為你呼叫此迴圈。只有在建立自訂無瀏覽器宿主、評估執行器或伺服器端協調介面時，才需要直接使用它。完整簽名請參閱 [Server: Production agent handler](/docs/server#agent-handler)。
+對大多數應用程式而言，排程提示和整合 webhook 已經會為你呼叫此迴圈。只有在建立自訂無瀏覽器宿主、評估執行器或伺服器端協調介面時，才需要直接使用它。完整簽名請參閱 [Server: Production agent handler](/docs/server-plugins#agent-chat-plugin)。
 
 ### 針對資料夾執行 {#folder-loop}
 
@@ -464,7 +464,7 @@ await runAgentLoop({
 對於需要存放庫存取的雲端自動化優先應用程式，請使用 GitHub 連接器加上 token CRUD 模型：透過提供者範圍的憑證列出存放庫、搜尋檔案、讀取檔案、建立或編輯檔案、刪除檔案，以及撤銷存取權限。在本地開發中，請明確設定目標存放庫：
 
 ```bash
-GITHUB_REPOSITORY=owner/repo pnpm agent “Read README.md and suggest the next action.”
+GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
 ```
 
 不要將 VM 複製或長效沙盒 checkout 視為主要的雲端存放庫存取模型。沙盒在隔離程式碼執行方面仍然很重要，但存放庫存取應透過連接器層進行明確、有權限、可稽核且可撤銷的管理。
@@ -481,14 +481,14 @@ GITHUB_REPOSITORY=owner/repo pnpm agent “Read README.md and suggest the next a
 import {
   AssistantChat,
   createHttpAgentChatRuntime,
-} from “@agent-native/core/client/chat”;
+} from "@agent-native/core/client/chat";
 
 const runtime = createHttpAgentChatRuntime({
-  endpoint: “/api/support-agent/chat”,
+  endpoint: "/api/support-agent/chat",
 });
 
 export function SupportAgentChat() {
-  return <AssistantChat runtime={runtime} threadId=”support” />;
+  return <AssistantChat runtime={runtime} threadId="support" />;
 }
 ```
 
