@@ -28,7 +28,7 @@ import {
 } from "./app-list-row";
 import { CreateAppPopover } from "./create-app-popover";
 import { useSetPageTitle } from "./layout/HeaderActions";
-import { OtherAppsSection } from "./other-apps-section";
+import { mergeOtherAppEntries, OtherAppsSection } from "./other-apps-section";
 import { Button } from "./ui/button";
 import {
   Collapsible,
@@ -176,6 +176,11 @@ function AppsPanel({
   const visibleApps = apps.filter((app) => !app.isDispatch && !app.archived);
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
+  const otherAppEntries = mergeOtherAppEntries({
+    templates: curatedTemplates,
+    connectedApps,
+    workspaceApps: apps,
+  });
   const showSkeletons =
     isLoading && activeApps.length === 0 && pendingApps.length === 0;
 
@@ -216,8 +221,11 @@ function AppsPanel({
               />
             ))}
             {activeApps.length === 0 &&
+            otherAppEntries.length === 0 &&
             !curatedTemplatesLoading &&
-            !connectedAppsLoading ? (
+            !connectedAppsLoading &&
+            !curatedTemplatesError &&
+            !connectedAppsError ? (
               <p className="px-4 py-3 text-sm text-muted-foreground">
                 {t("dispatch.pages.noApps", {
                   defaultValue: "No apps yet.",

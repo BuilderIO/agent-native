@@ -103,7 +103,6 @@ import { toast } from "sonner";
 import { cn } from "../../lib/utils";
 import {
   mergeChatFirstWorkspaceApps,
-  workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
 import { AppIcon } from "../app-icon";
@@ -1372,6 +1371,8 @@ export function Layout({
       ) ?? null,
     [chatFirstSurfaceTabs],
   );
+  const chatFirstAppTakesMain =
+    chatFirstMode && isChatRoute && activeChatFirstSurfaceTab?.kind === "app";
   const activeChatFirstApp = useMemo(
     () =>
       activeChatFirstSurfaceTab?.kind === "app" &&
@@ -2080,6 +2081,39 @@ export function Layout({
       </main>
     </div>
   );
+  const chatFirstSurfaceTabsBar = (
+    <ChatFirstSurfaceTabs
+      tabs={chatFirstSurfaceTabs.tabs}
+      activeTabId={chatFirstSurfaceTabs.activeTabId}
+      onActivate={activateChatFirstSurfaceTab}
+      onClose={closeChatFirstSurfaceTab}
+      onCloseOthers={(tab) => {
+        activateChatFirstSurfaceTab(tab);
+        chatFirstSurfaceTabsStore.closeOthers(tab.id);
+      }}
+      onCloseToRight={(tab) => {
+        const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
+          (candidate) => candidate.id === tab.id,
+        );
+        const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
+          (candidate) => candidate.id === chatFirstSurfaceTabs.activeTabId,
+        );
+        if (activeIndex > targetIndex) activateChatFirstSurfaceTab(tab);
+        chatFirstSurfaceTabsStore.closeToRight(tab.id);
+      }}
+      onCloseAll={closeAllChatFirstSurfaceTabs}
+      onOpenSurface={openChatFirstSurface}
+      copy={chatFirstCopy}
+    />
+  );
+  const chatFirstSurfaceContent =
+    chatFirstSurfaceTabs.tabs.length > 0 ? (
+      <ChatFirstSurfaceContent
+        tabs={chatFirstSurfaceTabs.tabs}
+        activeTabId={chatFirstSurfaceTabs.activeTabId}
+        renderTab={renderChatFirstSurfaceTab}
+      />
+    ) : null;
   const content = isChatRoute ? (
     <div
       className={cn(
@@ -2087,46 +2121,29 @@ export function Layout({
         chatFirstMode && "dispatch-chat-first-surface",
       )}
     >
-      {appContent}
-      {chatFirstMode && chatFirstSurfacePanel.open ? (
-        <ChatFirstSurfacePanel
-          width={chatFirstSurfaceResize.width}
-          onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
-          copy={chatFirstCopy}
+      {chatFirstAppTakesMain ? (
+        <div
+          className="flex min-w-0 flex-1 flex-col overflow-hidden"
+          data-dispatch-chat-first-main-app
         >
-          <ChatFirstSurfaceTabs
-            tabs={chatFirstSurfaceTabs.tabs}
-            activeTabId={chatFirstSurfaceTabs.activeTabId}
-            onActivate={activateChatFirstSurfaceTab}
-            onClose={closeChatFirstSurfaceTab}
-            onCloseOthers={(tab) => {
-              activateChatFirstSurfaceTab(tab);
-              chatFirstSurfaceTabsStore.closeOthers(tab.id);
-            }}
-            onCloseToRight={(tab) => {
-              const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
-                (candidate) => candidate.id === tab.id,
-              );
-              const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
-                (candidate) =>
-                  candidate.id === chatFirstSurfaceTabs.activeTabId,
-              );
-              if (activeIndex > targetIndex) activateChatFirstSurfaceTab(tab);
-              chatFirstSurfaceTabsStore.closeToRight(tab.id);
-            }}
-            onCloseAll={closeAllChatFirstSurfaceTabs}
-            onOpenSurface={openChatFirstSurface}
-            copy={chatFirstCopy}
-          />
-          {chatFirstSurfaceTabs.tabs.length > 0 ? (
-            <ChatFirstSurfaceContent
-              tabs={chatFirstSurfaceTabs.tabs}
-              activeTabId={chatFirstSurfaceTabs.activeTabId}
-              renderTab={renderChatFirstSurfaceTab}
-            />
+          {chatFirstSurfaceTabsBar}
+          {chatFirstSurfaceContent}
+        </div>
+      ) : (
+        <>
+          {appContent}
+          {chatFirstMode && chatFirstSurfacePanel.open ? (
+            <ChatFirstSurfacePanel
+              width={chatFirstSurfaceResize.width}
+              onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
+              copy={chatFirstCopy}
+            >
+              {chatFirstSurfaceTabsBar}
+              {chatFirstSurfaceContent}
+            </ChatFirstSurfacePanel>
           ) : null}
-        </ChatFirstSurfacePanel>
-      ) : null}
+        </>
+      )}
     </div>
   ) : isWorkspaceAppRoute ? (
     appContent
@@ -2176,9 +2193,7 @@ export function Layout({
                   ? activeChatFirstSurfaceTab.appId
                   : undefined
               }
-              onChatFirstAppOpen={(app) =>
-                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
-              }
+              onChatFirstAppOpen={(app) => openChatFirstPane({ appId: app.id })}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
               onCollapsedChange={setSidebarCollapsed}
@@ -2217,7 +2232,7 @@ export function Layout({
                       : undefined
                   }
                   onChatFirstAppOpen={(app) =>
-                    navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
+                    openChatFirstPane({ appId: app.id })
                   }
                   onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
                   onNavigate={() => setMobileOpen(false)}
