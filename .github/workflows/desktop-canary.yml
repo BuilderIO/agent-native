@@ -29,11 +29,9 @@ jobs:
 
       - name: Set canary version
         working-directory: packages/desktop-app
-        env:
-          CANARY_SUFFIX: ${{ github.run_number }}
         run: |
           BASE=$(node -p "require('./package.json').version")
-          npm version "${BASE}-desktop-sso-canary.${CANARY_SUFFIX}" --no-git-tag-version
+          npm version "${BASE}-desktop-sso-canary.${GITHUB_RUN_NUMBER}" --no-git-tag-version
 
       - name: Import signing certificate
         env:
@@ -71,11 +69,9 @@ jobs:
 
       - name: Verify candidate provenance and trust
         working-directory: packages/desktop-app
-        env:
-          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           VERSION=$(node -p "require('./package.json').version")
           test -n "$VERSION"
 
@@ -93,7 +89,7 @@ jobs:
 
           {
             echo "workflow_run=${GITHUB_RUN_ID}"
-            echo "commit=${EXPECTED_COMMIT}"
+            echo "commit=${GITHUB_SHA}"
             echo "version=${VERSION}"
             echo "bundle_id=com.agentnative.desktop"
           } > dist/CANARY-MANIFEST.txt
