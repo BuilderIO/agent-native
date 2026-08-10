@@ -1933,10 +1933,16 @@ export function Layout({
     (tab: ChatFirstSurfaceTab) => {
       if (tab.kind === "app") {
         if (tab.id !== chatFirstSurfaceTabs.activeTabId) return null;
-        const app = tab.appId
-          ? (chatFirstWorkspaceApps.find(
+        const registration = tab.appId
+          ? (chatFirstAppRegistrations.find(
               (candidate) => candidate.id === tab.appId,
             ) ?? null)
+          : null;
+        const app = registration
+          ? {
+              id: registration.id,
+              name: registration.name ?? registration.id,
+            }
           : null;
         return (
           <ChatFirstAppPane
@@ -2041,7 +2047,7 @@ export function Layout({
       chatFirstEmbedUrl,
       chatFirstSessionWatch.target,
       chatFirstSurfaceTabs.activeTabId,
-      chatFirstWorkspaceApps,
+      chatFirstAppRegistrations,
       closeChatFirstSurfaceTab,
       renderChatFirstWatchChat,
     ],

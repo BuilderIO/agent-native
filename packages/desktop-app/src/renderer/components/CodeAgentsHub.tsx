@@ -395,6 +395,94 @@ export default function CodeAgentsHub({
         })),
     [apps],
   );
+  const chatFirstNavigation = useMemo(
+    () =>
+      chatFirstMode
+        ? {
+            onOpenIntegrations: () =>
+              openChatFirstApp("dispatch", "/admin/integrations"),
+            onOpenScheduled: () =>
+              openChatFirstApp("dispatch", "/admin/automations"),
+          }
+        : undefined,
+    [chatFirstMode, openChatFirstApp],
+  );
+  const openChatFirstAppFromRail = useCallback(
+    (app: ChatFirstAppItem) => openChatFirstApp(app.id),
+    [openChatFirstApp],
+  );
+  const openChatFirstAppFromGrid = useCallback(
+    (app: AppConfig) => openChatFirstApp(app.id),
+    [openChatFirstApp],
+  );
+  const openAllChatFirstApps = useCallback(
+    () => openChatFirstApp("dispatch", "/apps"),
+    [openChatFirstApp],
+  );
+  const renderChatFirstAppIcon = useCallback(
+    (app: ChatFirstAppItem) => (
+      <CodeAgentsAppIcon
+        id={app.id}
+        name={app.name}
+        icon={app.icon}
+        color={app.color}
+      />
+    ),
+    [],
+  );
+  const chatFirstRailWorkspaceSlot = useMemo(() => {
+    if (!chatFirstMode) return undefined;
+    return (
+      <>
+        {chatFirstNotice ? (
+          <div
+            className="flex items-start gap-1.5 border-b border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
+            role="status"
+            aria-live="polite"
+            data-chat-first-notice
+          >
+            <span className="min-w-0 flex-1">{chatFirstNotice}</span>
+            <button
+              type="button"
+              className="shrink-0 font-semibold underline underline-offset-2"
+              onClick={() => setChatFirstNotice(null)}
+            >
+              {defaultChatFirstCopy("dismiss")}
+            </button>
+          </div>
+        ) : null}
+        <ChatFirstAppsRail
+          apps={chatFirstAppItems}
+          activeAppId={
+            activeChatFirstSurfaceTab?.kind === "app"
+              ? activeChatFirstSurfaceTab.appId
+              : undefined
+          }
+          createAppTrigger={
+            onChatFirstAppCreated ? (
+              <CreateAppPromptPopover onCreated={onChatFirstAppCreated} />
+            ) : undefined
+          }
+          onCreateApp={onCreateApp}
+          onOpenApp={openChatFirstAppFromRail}
+          onOpenAllApps={openAllChatFirstApps}
+          renderIcon={renderChatFirstAppIcon}
+          copy={defaultChatFirstCopy}
+        />
+      </>
+    );
+  }, [
+    activeChatFirstSurfaceTab?.appId,
+    activeChatFirstSurfaceTab?.kind,
+    chatFirstAppItems,
+    chatFirstMode,
+    chatFirstNotice,
+    onChatFirstAppCreated,
+    onCreateApp,
+    openAllChatFirstApps,
+    openChatFirstAppFromRail,
+    renderChatFirstAppIcon,
+  ]);
 
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
@@ -605,16 +693,19 @@ export default function CodeAgentsHub({
 
   const handleChatFirstRunsChange = useCallback((runs: CodeAgentRun[]) => {
     setHasChatFirstChats(runs.length > 0);
-    setChatFirstAgentActivities(
-      runs.map((run) => ({
-        sessionId: run.id,
-        title: run.title || "Untitled agent session",
-        subtitle: run.subtitle || run.phase,
-        status: run.status,
-        updatedAt: run.updatedAt,
-        progressPercent: run.progress?.percent,
-        goalId: run.goalId,
-      })),
+    const nextActivities = runs.map((run) => ({
+      sessionId: run.id,
+      title: run.title || "Untitled agent session",
+      subtitle: run.subtitle || run.phase,
+      status: run.status,
+      updatedAt: run.updatedAt,
+      progressPercent: run.progress?.percent,
+      goalId: run.goalId,
+    }));
+    setChatFirstAgentActivities((current) =>
+      areChatFirstAgentActivitiesEqual(current, nextActivities)
+        ? current
+        : nextActivities,
     );
   }, []);
 
@@ -1606,76 +1697,18 @@ export default function CodeAgentsHub({
           suppressChatFirstUnavailableNotice={chatFirstMode}
           onRunsChange={handleChatFirstRunsChange}
           onWatchedRunChange={handleChatFirstWatchedRunChange}
-          chatFirstNavigation={
-            chatFirstMode
-              ? {
-                  onOpenIntegrations: () =>
-                    openChatFirstApp("dispatch", "/admin/integrations"),
-                  onOpenScheduled: () =>
-                    openChatFirstApp("dispatch", "/admin/automations"),
-                }
-              : undefined
-          }
+          chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={
             chatFirstMode ? emitChatFirstOpenAppStable : undefined
           }
-          railWorkspaceSlot={
-            chatFirstMode ? (
-              <>
-                {chatFirstNotice ? (
-                  <div
-                    className="flex items-start gap-1.5 border-b border-destructive/25 bg-destructive/10 px-3 py-2 text-[11px] text-destructive"
-                    role="status"
-                    aria-live="polite"
-                    data-chat-first-notice
-                  >
-                    <span className="min-w-0 flex-1">{chatFirstNotice}</span>
-                    <button
-                      type="button"
-                      className="shrink-0 font-semibold underline underline-offset-2"
-                      onClick={() => setChatFirstNotice(null)}
-                    >
-                      {defaultChatFirstCopy("dismiss")}
-                    </button>
-                  </div>
-                ) : null}
-                <ChatFirstAppsRail
-                  apps={chatFirstAppItems}
-                  activeAppId={
-                    activeChatFirstSurfaceTab?.kind === "app"
-                      ? activeChatFirstSurfaceTab.appId
-                      : undefined
-                  }
-                  createAppTrigger={
-                    onChatFirstAppCreated ? (
-                      <CreateAppPromptPopover
-                        onCreated={onChatFirstAppCreated}
-                      />
-                    ) : undefined
-                  }
-                  onCreateApp={onCreateApp}
-                  onOpenApp={(app) => openChatFirstApp(app.id)}
-                  onOpenAllApps={() => openChatFirstApp("dispatch", "/apps")}
-                  renderIcon={(app) => (
-                    <CodeAgentsAppIcon
-                      id={app.id}
-                      name={app.name}
-                      icon={app.icon}
-                      color={app.color}
-                    />
-                  )}
-                  copy={defaultChatFirstCopy}
-                />
-              </>
-            ) : undefined
-          }
+          railWorkspaceSlot={chatFirstRailWorkspaceSlot}
           overviewFooterSlot={
             chatFirstMode ? (
               <DesktopAppsGrid
                 apps={apps}
                 onCreateApp={onCreateApp}
-                onOpenAllApps={() => openChatFirstApp("dispatch", "/apps")}
-                onOpenApp={(app) => openChatFirstApp(app.id)}
+                onOpenAllApps={openAllChatFirstApps}
+                onOpenApp={openChatFirstAppFromGrid}
               />
             ) : undefined
           }
@@ -1750,6 +1783,28 @@ export default function CodeAgentsHub({
         ) : null}
       </div>
     </QueryClientProvider>
+  );
+}
+
+function areChatFirstAgentActivitiesEqual(
+  current: ChatFirstAgentActivity[],
+  next: ChatFirstAgentActivity[],
+): boolean {
+  return (
+    current.length === next.length &&
+    current.every((activity, index) => {
+      const candidate = next[index];
+      if (!candidate) return false;
+      return (
+        activity.sessionId === candidate.sessionId &&
+        activity.title === candidate.title &&
+        activity.subtitle === candidate.subtitle &&
+        activity.status === candidate.status &&
+        activity.updatedAt === candidate.updatedAt &&
+        activity.progressPercent === candidate.progressPercent &&
+        activity.goalId === candidate.goalId
+      );
+    })
   );
 }
 

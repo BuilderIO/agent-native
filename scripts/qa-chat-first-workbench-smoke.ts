@@ -130,9 +130,10 @@ async function createContext(
   });
   await context.addInitScript((chatFirstEnabled) => {
     localStorage.clear();
-    if (chatFirstEnabled) {
-      localStorage.setItem("agent-native:chat-first-mode:v1", "true");
-    }
+    localStorage.setItem(
+      "agent-native:chat-first-mode:v1",
+      String(chatFirstEnabled),
+    );
   }, enabled);
   const page = await context.newPage();
   const embedRequests: Array<Record<string, unknown>> = [];
@@ -284,6 +285,9 @@ async function runSmoke(browser: Browser): Promise<void> {
     await on.page.locator("[data-chat-first-app-pane]").waitFor({
       state: "visible",
     });
+    await on.page.locator("[data-chat-first-app-close]").waitFor({
+      state: "attached",
+    });
     assert.deepEqual(
       on.embedRequests.at(-1),
       { app: "mail", path: "/mail/inbox", chrome: "minimal" },
@@ -306,6 +310,9 @@ async function runSmoke(browser: Browser): Promise<void> {
     });
     await on.page.locator("[data-chat-first-app-pane]").waitFor({
       state: "visible",
+    });
+    await on.page.locator("[data-chat-first-app-close]").waitFor({
+      state: "attached",
     });
     assert.deepEqual(
       on.embedRequests.at(-1),
@@ -699,6 +706,10 @@ async function runElectronSmoke(): Promise<void> {
     await page.locator('[data-chat-first-app][data-app-id="mail"]').click();
     await page.locator("[data-chat-first-app-pane]").waitFor({
       state: "visible",
+      timeout: 15_000,
+    });
+    await page.locator("[data-chat-first-app-close]").waitFor({
+      state: "attached",
       timeout: 15_000,
     });
     const appSurface = await electronSnapshot(

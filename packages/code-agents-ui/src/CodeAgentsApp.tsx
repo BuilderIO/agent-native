@@ -461,6 +461,13 @@ const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
 const HOST_CALL_TIMEOUT_MIN_MS = 10_000;
 
+type RailItemCacheEntry = {
+  title: string | null;
+  pinned: boolean;
+  timestampKey: string;
+  item: ChatHistoryItem;
+};
+
 function getHostCallTimeoutMs(pollIntervalMs: number): number {
   return Math.max(HOST_CALL_TIMEOUT_MIN_MS, pollIntervalMs * 4);
 }
@@ -549,11 +556,27 @@ export default function CodeAgentsApp({
   const [runs, setRuns] = useState<CodeAgentRun[]>([]);
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
   const watchedSession = useChatFirstSessionWatch();
   const watchedSessionTarget = watchedSession.target;
+  const watchedSessionTargetRef = useRef(watchedSessionTarget);
+  watchedSessionTargetRef.current = watchedSessionTarget;
   const watchedSessionTargetSessionId = watchedSessionTarget?.sessionId ?? null;
   const watchedSessionTargetKind = watchedSessionTarget?.kind ?? null;
   const watchedSessionTargetGoalId = watchedSessionTarget?.goalId ?? null;
+  const selectedRunIdRef = useRef(selectedRunId);
+  selectedRunIdRef.current = selectedRunId;
+  const chatFirstModeRef = useRef(chatFirstMode);
+  chatFirstModeRef.current = chatFirstMode;
+  const onChatFirstMainKindChangeRef = useRef(onChatFirstMainKindChange);
+  onChatFirstMainKindChangeRef.current = onChatFirstMainKindChange;
+  const toggleRunPinnedRef = useRef<(run: CodeAgentRun) => Promise<void>>(
+    async () => undefined,
+  );
+  const renameRunRef = useRef<
+    (run: CodeAgentRun, newTitle: string) => Promise<void>
+  >(async () => undefined);
   const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
     string | null
   >(null);
@@ -725,31 +748,58 @@ export default function CodeAgentsApp({
   const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(
     () => new Set(initialViewedRunIdsRef.current!.ids),
   );
-  const railItems = useMemo<ChatHistoryItem[]>(
-    () =>
-      sortRunsForRail(runs).map((run) => ({
+  const railItemCacheRef = useRef(new Map<string, RailItemCacheEntry>());
+  const railItems = useMemo<ChatHistoryItem[]>(() => {
+    const nextCache = new Map<string, RailItemCacheEntry>();
+    const nextItems = sortRunsForRail(runs).map((run) => {
+      const title = getRunTitle(run);
+      const pinned = isRunPinned(run);
+      const active = isRunActive(run);
+      const unread = !active && !viewedRunIds.has(run.id);
+      const timestampKey = active
+        ? "active"
+        : unread
+          ? "unread"
+          : formatRelativeTime(run.updatedAt);
+      const previous = railItemCacheRef.current.get(run.id);
+      if (
+        previous &&
+        previous.title === title &&
+        previous.pinned === pinned &&
+        previous.timestampKey === timestampKey
+      ) {
+        nextCache.set(run.id, previous);
+        return previous.item;
+      }
+
+      const item: ChatHistoryItem = {
         id: run.id,
-        title: getRunTitle(run),
-        titleText: getRunTitle(run) ?? undefined,
-        pinned: isRunPinned(run),
-        timestamp: isRunActive(run) ? (
+        title,
+        titleText: title ?? undefined,
+        pinned,
+        timestamp: active ? (
           <span
             className="code-agents-run-status-spinner"
             aria-label="Running"
             title="Running"
           />
-        ) : !viewedRunIds.has(run.id) ? (
+        ) : unread ? (
           <span
             className="code-agents-run-status-dot"
             aria-label="Done — unread"
             title="Done"
           />
         ) : (
-          formatRelativeTime(run.updatedAt)
+          timestampKey
         ),
-      })),
-    [runs, viewedRunIds],
-  );
+      };
+      const entry = { title, pinned, timestampKey, item };
+      nextCache.set(run.id, entry);
+      return item;
+    });
+    railItemCacheRef.current = nextCache;
+    return nextItems;
+  }, [runs, viewedRunIds]);
 
   const markRunsViewed = useCallback((runIds: string[]) => {
     const ids = runIds.filter(Boolean);
@@ -1904,6 +1954,97 @@ export default function CodeAgentsApp({
     }
   }
 
+  toggleRunPinnedRef.current = toggleRunPinned;
+  renameRunRef.current = renameRun;
+
+  const handleRailSelect = useCallback(
+    (id: string) => {
+      onChatFirstMainKindChangeRef.current?.("code");
+      markRunsViewed([id]);
+      setSelectedExtensionDetailId(null);
+      setSelectedRunId(id);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
+    },
+    [markRunsViewed],
+  );
+
+  const handleRailOpen = useCallback(
+    (id: string) => {
+      onChatFirstMainKindChangeRef.current?.("code");
+      markRunsViewed([id]);
+      setSelectedExtensionDetailId(null);
+      setSelectedRunId(id);
+      setWorkbenchOpen(true);
+      setSearchPanelOpen(false);
+      setMobilePanelOpen(false);
+    },
+    [markRunsViewed],
+  );
+
+  const handleRailTogglePin = useCallback((id: string) => {
+    const run = runsRef.current.find((item) => item.id === id);
+    if (run) void toggleRunPinnedRef.current(run);
+  }, []);
+
+  const handleRailRename = useCallback((id: string, nextTitle: string) => {
+    const run = runsRef.current.find((item) => item.id === id);
+    if (run) void renameRunRef.current(run, nextTitle);
+  }, []);
+
+  const handleRailAdditionalRowActions = useCallback(
+    (item: ChatHistoryItem, closeMenu: () => void) => (
+      <>
+        <button
+          type="button"
+          role="menuitem"
+          className="an-chat-history-row__menu-item"
+          onClick={() => {
+            closeMenu();
+            void writeClipboardText(item.id).then((copied) => {
+              toast(
+                copied ? "Session ID copied" : "Could not copy session ID",
+                { duration: 1800 },
+              );
+            });
+          }}
+        >
+          <IconCopy size={13} strokeWidth={1.8} />
+          <span>Copy session ID</span>
+        </button>
+        {chatFirstModeRef.current ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="an-chat-history-row__menu-item"
+            onClick={() => {
+              closeMenu();
+              const run = runsRef.current.find(
+                (candidate) => candidate.id === item.id,
+              );
+              if (!run) return;
+              emitChatFirstSessionWatch({
+                sessionId: item.id,
+                title: getRunTitle(run) ?? "Untitled session",
+                kind: "code-agent",
+                goalId: run.goalId,
+                sourceSessionId: selectedRunIdRef.current ?? undefined,
+              });
+            }}
+          >
+            <IconEye size={13} strokeWidth={1.8} />
+            <span>
+              {watchedSessionTargetRef.current?.sessionId === item.id
+                ? "Keep watching session"
+                : "Watch and message session"}
+            </span>
+          </button>
+        ) : null}
+      </>
+    ),
+    [],
+  );
+
   const showingSelectedRunDetail =
     !workbenchOpen &&
     !mobilePanelOpen &&
@@ -2001,82 +2142,11 @@ export default function CodeAgentsApp({
           loading={loading}
           loadingLabel={<RunListSkeleton />}
           emptyLabel="No chats yet."
-          onSelect={(id) => {
-            onChatFirstMainKindChange?.("code");
-            markRunsViewed([id]);
-            setSelectedExtensionDetailId(null);
-            setSelectedRunId(id);
-            setSearchPanelOpen(false);
-            setMobilePanelOpen(false);
-          }}
-          onOpen={(id) => {
-            onChatFirstMainKindChange?.("code");
-            markRunsViewed([id]);
-            setSelectedExtensionDetailId(null);
-            setSelectedRunId(id);
-            setWorkbenchOpen(true);
-            setSearchPanelOpen(false);
-            setMobilePanelOpen(false);
-          }}
-          onTogglePin={(id) => {
-            const run = runs.find((item) => item.id === id);
-            if (run) toggleRunPinned(run);
-          }}
-          onRename={(id, nextTitle) => {
-            const run = runs.find((item) => item.id === id);
-            if (run) renameRun(run, nextTitle);
-          }}
-          renderAdditionalRowActions={(item, closeMenu) => (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className="an-chat-history-row__menu-item"
-                onClick={() => {
-                  closeMenu();
-                  void writeClipboardText(item.id).then((copied) => {
-                    toast(
-                      copied
-                        ? "Session ID copied"
-                        : "Could not copy session ID",
-                      { duration: 1800 },
-                    );
-                  });
-                }}
-              >
-                <IconCopy size={13} strokeWidth={1.8} />
-                <span>Copy session ID</span>
-              </button>
-              {chatFirstMode ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="an-chat-history-row__menu-item"
-                  onClick={() => {
-                    closeMenu();
-                    const run = runs.find(
-                      (candidate) => candidate.id === item.id,
-                    );
-                    if (!run) return;
-                    emitChatFirstSessionWatch({
-                      sessionId: item.id,
-                      title: getRunTitle(run) ?? "Untitled session",
-                      kind: "code-agent",
-                      goalId: run.goalId,
-                      sourceSessionId: selectedRunId ?? undefined,
-                    });
-                  }}
-                >
-                  <IconEye size={13} strokeWidth={1.8} />
-                  <span>
-                    {watchedSession.target?.sessionId === item.id
-                      ? "Keep watching session"
-                      : "Watch and message session"}
-                  </span>
-                </button>
-              ) : null}
-            </>
-          )}
+          onSelect={handleRailSelect}
+          onOpen={handleRailOpen}
+          onTogglePin={handleRailTogglePin}
+          onRename={handleRailRename}
+          renderAdditionalRowActions={handleRailAdditionalRowActions}
           className="code-agents-run-list"
         />
         {railFooterSlot ? (

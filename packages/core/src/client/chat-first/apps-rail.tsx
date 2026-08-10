@@ -16,7 +16,7 @@ import {
   IconPin,
   IconPlus,
 } from "@tabler/icons-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 
 import {
   orderChatFirstAppIds,
@@ -164,7 +164,7 @@ function AppRows({
   );
 }
 
-export function ChatFirstAppsRail({
+export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   apps,
   activeAppId,
   loading = false,
@@ -409,4 +409,4 @@ export function ChatFirstAppsRail({
       ) : null}
     </section>
   );
-}
+});
