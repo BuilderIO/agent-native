@@ -559,8 +559,6 @@ export async function deleteMcpOAuthCredentials(options: {
       )) > 0
     );
   }
-  const current = await readMcpOAuthCredentials(options);
-  if (!current) return false;
   const identity = credentialIdentity({
     ...options,
     serverUrl: options.serverUrl,
@@ -581,10 +579,6 @@ export async function revokeMcpOAuthCredentials(options: {
   serverUrl: string;
 }): Promise<OAuthRevocationResult> {
   const identity = credentialIdentity(options);
-  const current = await readMcpOAuthCredentials(options);
-  if (!current) {
-    return { remote: "not_attempted", local: "missing" };
-  }
   return revokeOAuthCredential<McpOAuthCredentialBundle>(identity, {
     allowLegacy: true,
     legacyAccountKey: true,

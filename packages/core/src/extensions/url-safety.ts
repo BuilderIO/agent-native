@@ -226,21 +226,20 @@ function normalizeAllowedPrivateOriginOriginKeys(
 
 export async function createSsrfSafeDispatcher(
   allowedPrivateOrigins: readonly string[] = [],
-): Promise<unknown | null> {
-  // Keep the optional undici import opaque to Vite/Rolldown. A static
-  // `import("undici")` makes browser builds try to resolve and bundle undici
-  // even though this dispatcher is only useful in Node server runtimes.
+): Promise<unknown> {
+  // Keep the undici import opaque to Vite/Rolldown. A literal dynamic import
+  // makes browser builds try to resolve and bundle this server-only package.
   let undici: any;
   let dnsModule: any;
   try {
-    const runtimeImport = new Function(
-      "specifier",
-      "return import(specifier)",
-    ) as (specifier: string) => Promise<any>;
-    undici = await runtimeImport("undici");
+    const undiciSpecifier = "undici";
+    undici = await import(/* @vite-ignore */ undiciSpecifier);
     dnsModule = await import("node:dns");
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(
+      "SSRF protection is unavailable because the server dispatcher could not be loaded.",
+      { cause: error },
+    );
   }
 
   const { Agent } = undici;
@@ -248,7 +247,11 @@ export async function createSsrfSafeDispatcher(
   const allowedPrivateOriginKeys = normalizeAllowedPrivateOriginKeys(
     allowedPrivateOrigins,
   );
-  if (!Agent || !lookup) return null;
+  if (!Agent || !lookup) {
+    throw new Error(
+      "SSRF protection is unavailable because the server dispatcher is incomplete.",
+    );
+  }
 
   return new Agent({
     connect: {
@@ -345,9 +348,9 @@ export async function ssrfSafeFetch(
   } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
-  const dispatcher =
-    (await createSsrfSafeDispatcher(options.allowedPrivateOrigins)) ??
-    undefined;
+  const dispatcher = await createSsrfSafeDispatcher(
+    options.allowedPrivateOrigins,
+  );
   const allowedPrivateOrigins = normalizeAllowedPrivateOriginOriginKeys(
     options.allowedPrivateOrigins ?? [],
   );
@@ -384,7 +387,7 @@ export async function ssrfSafeFetch(
       ...init,
       redirect: "manual",
     };
-    if (dispatcher) fetchOpts.dispatcher = dispatcher;
+    fetchOpts.dispatcher = dispatcher;
 
     const response = await fetch(currentUrl, fetchOpts);
     if (response.status >= 300 && response.status < 400) {

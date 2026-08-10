@@ -82,6 +82,8 @@ interface LifecycleDependencies {
   holderId: () => string;
 }
 
+type LeaseAcquisition = "acquired" | "held" | "abandoned";
+
 const defaultDependencies: LifecycleDependencies = {
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -168,20 +170,37 @@ function storageAccountId(
 async function acquireLease(
   identity: OAuthCredentialIdentity,
   holder: string,
+  revision: number,
   leaseMs: number,
   now: number,
-): Promise<boolean> {
+): Promise<LeaseAcquisition> {
   const next = await mutateSetting(leaseKey(identity), (current) => {
     const currentHolder =
       typeof current?.holder === "string" ? current.holder : "";
     const expiresAt =
       typeof current?.expiresAt === "number" ? current.expiresAt : 0;
-    if (currentHolder && currentHolder !== holder && expiresAt > now) {
-      return current!;
+    const currentRevision =
+      typeof current?.revision === "number" ? current.revision : -1;
+    if (currentHolder && currentHolder !== holder) {
+      if (
+        expiresAt > now ||
+        currentRevision === revision ||
+        currentRevision === -1
+      ) {
+        return current!;
+      }
     }
-    return { holder, expiresAt: now + leaseMs };
+    return { holder, revision, expiresAt: now + leaseMs };
   });
-  return next.holder === holder;
+  if (next.holder === holder && next.revision === revision) return "acquired";
+  if (
+    (next.revision === revision || typeof next.revision !== "number") &&
+    typeof next.expiresAt === "number" &&
+    next.expiresAt <= now
+  ) {
+    return "abandoned";
+  }
+  return "held";
 }
 
 async function releaseLease(
@@ -196,6 +215,7 @@ async function releaseLease(
 function startLeaseHeartbeat(
   identity: OAuthCredentialIdentity,
   holder: string,
+  revision: number,
   leaseMs: number,
   dependencies: LifecycleDependencies,
 ): () => Promise<void> {
@@ -203,7 +223,13 @@ function startLeaseHeartbeat(
   const timer = setInterval(
     () => {
       if (renewal) return;
-      renewal = acquireLease(identity, holder, leaseMs, dependencies.now())
+      renewal = acquireLease(
+        identity,
+        holder,
+        revision,
+        leaseMs,
+        dependencies.now(),
+      )
         .then(() => undefined)
         .catch(() => undefined)
         .finally(() => {
@@ -352,13 +378,34 @@ export async function resolveOAuthCredentialAccess<
   const baselineRevision = state.revision;
   const holder = dependencies.holderId();
   while (dependencies.now() - startedAt <= maxWaitMs) {
-    const acquired = await acquireLease(
+    const lease = await acquireLease(
       identity,
       holder,
+      state.revision,
       leaseMs,
       dependencies.now(),
     );
-    if (!acquired) {
+    if (lease === "abandoned") {
+      await markReconnectRequired(
+        identity,
+        state,
+        options.legacyAccountKey === true,
+      );
+      const reconnect = await readOAuthCredentialState<T>(identity, {
+        allowLegacy: options.allowLegacy,
+        legacyAccountKey: options.legacyAccountKey,
+        now: dependencies.now(),
+        validateCredential: options.validateCredential,
+      });
+      return {
+        state: reconnect,
+        accessToken:
+          reconnect.kind === "connected"
+            ? reconnect.credential.tokens.access_token
+            : null,
+      };
+    }
+    if (lease === "held") {
       await dependencies.sleep(waitMs);
       state = await readOAuthCredentialState<T>(identity, {
         allowLegacy: options.allowLegacy,
@@ -412,6 +459,7 @@ export async function resolveOAuthCredentialAccess<
         const stopHeartbeat = startLeaseHeartbeat(
           identity,
           holder,
+          state.revision,
           leaseMs,
           dependencies,
         );
@@ -424,10 +472,11 @@ export async function resolveOAuthCredentialAccess<
         const stillOwnsLease = await acquireLease(
           identity,
           holder,
+          state.revision,
           leaseMs,
           dependencies.now(),
         );
-        if (!stillOwnsLease) {
+        if (stillOwnsLease !== "acquired") {
           await dependencies.sleep(waitMs);
           continue;
         }
@@ -461,10 +510,11 @@ export async function resolveOAuthCredentialAccess<
         const stillOwnsLease = await acquireLease(
           identity,
           holder,
+          state.revision,
           leaseMs,
           dependencies.now(),
         );
-        if (!stillOwnsLease) {
+        if (stillOwnsLease !== "acquired") {
           await dependencies.sleep(waitMs);
           continue;
         }

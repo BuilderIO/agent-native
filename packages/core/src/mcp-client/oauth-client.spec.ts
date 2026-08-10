@@ -560,6 +560,7 @@ describe("MCP OAuth client", () => {
     expect(body.get("token")).toBe("<REFRESH_TOKEN>");
     expect(body.get("token_type_hint")).toBe("refresh_token");
     expect(body.get("client_id")).toBe("mcp-client-test");
+    expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
     expect(deleteOAuthTokensIfRevisionMock).toHaveBeenCalledTimes(1);
     expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
       "https://auth.example.com/revoke",
@@ -639,6 +640,22 @@ describe("MCP OAuth client", () => {
       "mcp_oauth:test",
       "org:org-test",
     );
+  });
+
+  it("deletes a server-bound credential from one atomic lifecycle snapshot", async () => {
+    getOAuthTokensMock.mockResolvedValue(credentials);
+
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBe(true);
+
+    expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokensIfRevisionMock).toHaveBeenCalledTimes(1);
   });
 
   it("computes an expiry only for positive finite expires_in values", () => {

@@ -1,10 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createSsrfSafeDispatcher,
   isBlockedExtensionUrl,
   isBlockedExtensionUrlWithDns,
   ssrfSafeFetch,
 } from "./url-safety.js";
+
+describe("createSsrfSafeDispatcher", () => {
+  it("loads the packaged server dispatcher instead of falling back to bare fetch", async () => {
+    await expect(createSsrfSafeDispatcher()).resolves.toMatchObject({
+      dispatch: expect.any(Function),
+    });
+  });
+});
 
 describe("isBlockedExtensionUrl", () => {
   it.each([

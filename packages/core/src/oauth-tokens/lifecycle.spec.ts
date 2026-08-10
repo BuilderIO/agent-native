@@ -302,6 +302,127 @@ describe("OAuth credential lifecycle", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("does not steal an active revisionless lease during a rolling deployment", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    let finishFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const firstRefresh = vi.fn(async ({ credential: current }) => {
+      await firstGate;
+      return current;
+    });
+    const first = resolveOAuthCredentialAccess(identity, {
+      refresh: firstRefresh,
+      leaseMs: 60_000,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+      dependencies: { holderId: () => "first-holder" },
+    });
+    await vi.waitFor(() => expect(firstRefresh).toHaveBeenCalledTimes(1));
+    const key = [...state.settings.keys()][0]!;
+    state.settings.set(key, {
+      holder: "legacy-holder",
+      expiresAt: Date.now() + 60_000,
+    });
+    const competingRefresh = vi.fn(async () => credential());
+    const competing = resolveOAuthCredentialAccess(identity, {
+      refresh: competingRefresh,
+      waitMs: 1,
+      maxWaitMs: 5,
+      dependencies: { holderId: () => "competing-holder" },
+    });
+    await expect(competing).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "expired" },
+    });
+    expect(competingRefresh).not.toHaveBeenCalled();
+
+    state.settings.set(key, {
+      holder: "legacy-holder",
+      expiresAt: Date.now() - 1,
+    });
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        refresh: competingRefresh,
+        waitMs: 1,
+        maxWaitMs: 5,
+        dependencies: { holderId: () => "post-expiry-holder" },
+      }),
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
+    expect(competingRefresh).not.toHaveBeenCalled();
+
+    await saveOAuthCredential(
+      identity,
+      credential({ access: "<NEW_AUTHORIZATION>" }),
+    );
+    finishFirst();
+    await expect(first).resolves.toMatchObject({
+      accessToken: "<NEW_AUTHORIZATION>",
+    });
+  });
+
+  it("does not overwrite an active foreign lease from a newer revision", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    let finishStale!: () => void;
+    const staleGate = new Promise<void>((resolve) => {
+      finishStale = resolve;
+    });
+    const staleRefresh = vi.fn(async ({ credential: current }) => {
+      await staleGate;
+      return current;
+    });
+    const stale = resolveOAuthCredentialAccess(identity, {
+      refresh: staleRefresh,
+      leaseMs: 60_000,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+      dependencies: { holderId: () => "stale-holder" },
+    });
+    await vi.waitFor(() => expect(staleRefresh).toHaveBeenCalledTimes(1));
+
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    const newerRevision = [...state.rows.values()][0]!.revision;
+    const key = [...state.settings.keys()][0]!;
+    state.settings.set(key, {
+      holder: "newer-holder",
+      revision: newerRevision,
+      expiresAt: Date.now() + 60_000,
+    });
+    const competingRefresh = vi.fn(async () => credential());
+    const competing = resolveOAuthCredentialAccess(identity, {
+      refresh: competingRefresh,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+      dependencies: { holderId: () => "competing-holder" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(competingRefresh).not.toHaveBeenCalled();
+
+    await saveOAuthCredential(
+      identity,
+      credential({ access: "<LATEST_AUTHORIZATION>" }),
+    );
+    finishStale();
+    await expect(Promise.all([stale, competing])).resolves.toEqual([
+      expect.objectContaining({ accessToken: "<LATEST_AUTHORIZATION>" }),
+      expect.objectContaining({ accessToken: "<LATEST_AUTHORIZATION>" }),
+    ]);
+    expect(competingRefresh).not.toHaveBeenCalled();
+  });
+
   it("reloads the winning rotation when a successful redeemer loses its lease", async () => {
     await saveOAuthCredential(
       identity,
@@ -349,8 +470,10 @@ describe("OAuth credential lifecycle", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
     const key = [...state.settings.keys()][0];
+    const leasedRevision = [...state.rows.values()][0]!.revision;
     state.settings.set(key, {
       holder: "winning-holder",
+      revision: leasedRevision,
       expiresAt: Date.now() + 10_000,
     });
     const winner = resolveOAuthCredentialAccess(identity, {
@@ -397,8 +520,10 @@ describe("OAuth credential lifecycle", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
     const key = [...state.settings.keys()][0];
+    const leasedRevision = [...state.rows.values()][0]!.revision;
     state.settings.set(key, {
       holder: "competing-process",
+      revision: leasedRevision,
       expiresAt: Date.now() + 10_000,
     });
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -416,6 +541,60 @@ describe("OAuth credential lifecycle", () => {
       accessToken: "<WINNING_ACCESS_TOKEN>",
       state: { kind: "connected" },
     });
+  });
+
+  it("never redeems a rotating refresh token again after its lease expires in flight", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    let finishRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const refresh = vi.fn(async ({ credential: current }) => {
+      await refreshGate;
+      return {
+        ...current,
+        tokens: {
+          ...current.tokens,
+          access_token: "<ROTATED_ACCESS_TOKEN>",
+          refresh_token: "<ROTATED_REFRESH_TOKEN>",
+        },
+        tokenExpiresAt: Date.now() + 3_600_000,
+      };
+    });
+    const first = resolveOAuthCredentialAccess(identity, {
+      refresh,
+      leaseMs: 60_000,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+      dependencies: { holderId: () => "first-holder" },
+    });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    const key = [...state.settings.keys()][0]!;
+    const leased = state.settings.get(key)!;
+    state.settings.set(key, { ...leased, expiresAt: Date.now() - 1 });
+
+    const second = resolveOAuthCredentialAccess(identity, {
+      refresh,
+      leaseMs: 60_000,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+      dependencies: { holderId: () => "second-holder" },
+    });
+    await expect(second).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    finishRefresh();
+    await expect(first).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("marks an expired credential for reconnect after refresh fails", async () => {
