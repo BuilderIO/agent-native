@@ -308,7 +308,7 @@ Si está realizando un scaffolding ahora, el comando CLI es:
 npx @agent-native/core@latest create my-platform
 ```
 
-Obtendrás un selector de selección múltiple. Elija una aplicación (independiente) o varias (espacio de trabajo: las aplicaciones comparten autenticación, marca, configuración del agente y base de datos). Cada app seleccionada se estructura en `apps/<name>/` con cada archivo que necesita. Para una automatización sin UI de navegador en lugar de una UI de app, use `npx @agent-native/core@latest create my-agent --headless`.
+La CLI pregunta primero **¿Cómo quieres empezar?** Elige **Chat** para un espacio de trabajo mínimo con Chat y Dispatch, o **First-party template(s)** para abrir el selector múltiple. Community y Headless son los accesos para una app independiente. Las apps del espacio de trabajo comparten autenticación, marca, configuración del agente y base de datos; cada app se estructura en `apps/<name>/` con todos los archivos necesarios. Para una automatización sin UI de navegador en lugar de una UI de app, use `npx @agent-native/core@latest create my-agent --headless`.
 
 Complete `.env` (principalmente `ANTHROPIC_API_KEY` y `DATABASE_URL`), `pnpm install`, `pnpm dev` y funciona. Sin "TODO: implementar inicio de sesión", sin rutas de marcador de posición.
 

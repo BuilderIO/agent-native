@@ -19,6 +19,7 @@ import {
   IconStack2,
   IconUsers,
 } from "@tabler/icons-react";
+import type { CSSProperties } from "react";
 
 const APP_ICON_MAP: Record<string, typeof IconStack2> = {
   Mail: IconMail,
@@ -44,10 +45,12 @@ export default function CodeAgentsAppIcon({
   id,
   name,
   icon,
+  color,
 }: {
   id: string;
   name: string;
   icon?: string;
+  color?: string;
 }) {
   const normalized = `${id} ${name}`.toLowerCase();
   const Icon =
@@ -55,9 +58,30 @@ export default function CodeAgentsAppIcon({
     (normalized.includes("mail") ? IconMail : null) ||
     (normalized.includes("calendar") ? IconCalendar : null) ||
     IconStack2;
-  return <Icon size={16} strokeWidth={1.8} aria-hidden="true" />;
+  const customColor = color?.trim();
+  let hash = 0;
+  for (const character of `${id}:${name}`) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  }
+  const hue = 20 + (Math.abs(hash) % 320);
+  return (
+    <span
+      className="desktop-app-icon"
+      style={
+        {
+          "--desktop-app-icon-color":
+            customColor && /^#[0-9a-f]{6}$/i.test(customColor)
+              ? customColor
+              : undefined,
+          "--desktop-app-icon-hue": `${hue} 72% 44%`,
+        } as CSSProperties
+      }
+    >
+      <Icon size={15} strokeWidth={1.8} aria-hidden="true" />
+    </span>
+  );
 }
 
 export function CodeAgentsFallbackAppIcon() {
-  return <IconApps size={16} strokeWidth={1.8} aria-hidden="true" />;
+  return <IconApps size={15} strokeWidth={1.8} aria-hidden="true" />;
 }

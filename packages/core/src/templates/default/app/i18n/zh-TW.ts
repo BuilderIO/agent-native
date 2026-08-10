@@ -217,7 +217,7 @@ const messages = {
     newTerminal: "新航站樓",
     panelOptions: "代理面板選項",
     collapseSidebar: "收起側邊欄",
-    widenChat: "將聊天視窗加寬至 75%",
+    widenChat: "將聊天視窗加寬",
     returnChatToLayout: "將聊天視窗放回版面配置",
     hideChats: "隱藏聊天紀錄",
     allChats: "所有聊天紀錄",

@@ -64,9 +64,7 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
   );
 
   if (!response.ok) {
-    throw new Error(
-      `Google Drive returned HTTP ${response.status} while exporting the presentation.`,
-    );
+    throw googleSlidesExportError(response.status);
   }
 
   const bytes = await response.arrayBuffer();
@@ -80,14 +78,15 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
 interface GoogleSlidesImageElement {
   objectId?: string;
   size?: {
-    width?: { magnitude?: number };
-    height?: { magnitude?: number };
+    width?: { magnitude?: number; unit?: string };
+    height?: { magnitude?: number; unit?: string };
   };
   transform?: {
     scaleX?: number;
     scaleY?: number;
     translateX?: number;
     translateY?: number;
+    unit?: string;
   };
   image?: {
     contentUrl?: string;
@@ -124,6 +123,41 @@ function finiteNumber(value: number | undefined): number | undefined {
   return value != null && Number.isFinite(value) ? value : undefined;
 }
 
+const EMU_PER_POINT = 12700;
+
+export function googleSlidesMeasurementToEmu(
+  value: number | undefined,
+  unit?: string,
+): number | undefined {
+  const finite = finiteNumber(value);
+  if (finite == null) return undefined;
+  return unit === "PT" ? finite * EMU_PER_POINT : finite;
+}
+
+export function googleSlidesExportError(
+  status: number,
+): Error & { statusCode?: number } {
+  if (status === 401) {
+    return Object.assign(
+      new Error(
+        "Google Drive connection expired. Connect Google again, then retry the import.",
+      ),
+      { statusCode: 401 },
+    );
+  }
+  if (status === 403) {
+    return Object.assign(
+      new Error(
+        "Google Drive denied access to this presentation. Connect Google again to enable pasted-link imports, or choose the deck through Google Picker.",
+      ),
+      { statusCode: 403 },
+    );
+  }
+  return new Error(
+    `Google Drive returned HTTP ${status} while exporting the presentation.`,
+  );
+}
+
 /**
  * Google Drive's PPTX export can omit image page elements that remain present
  * in the native Slides document. Read those native objects as a fidelity
@@ -135,7 +169,7 @@ async function fetchGoogleSlidesImageFallbacks(
   presentation: ParsedPresentation,
 ): Promise<ImportedImageFallback[]> {
   const fields =
-    "slides(pageElements(objectId,size,transform,image(contentUrl,imageProperties(cropProperties))))";
+    "slides(pageElements(objectId,size(width(magnitude,unit),height(magnitude,unit)),transform(scaleX,scaleY,translateX,translateY,unit),image(contentUrl,imageProperties(cropProperties))))";
   const response = await ssrfSafeFetch(
     `https://slides.googleapis.com/v1/presentations/${encodeURIComponent(fileId)}?fields=${encodeURIComponent(fields)}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -156,12 +190,24 @@ async function fetchGoogleSlidesImageFallbacks(
   ).entries()) {
     for (const [imageIndex, element] of (slide.pageElements ?? []).entries()) {
       const contentUrl = element.image?.contentUrl;
-      const baseWidth = finiteNumber(element.size?.width?.magnitude);
-      const baseHeight = finiteNumber(element.size?.height?.magnitude);
+      const baseWidth = googleSlidesMeasurementToEmu(
+        element.size?.width?.magnitude,
+        element.size?.width?.unit,
+      );
+      const baseHeight = googleSlidesMeasurementToEmu(
+        element.size?.height?.magnitude,
+        element.size?.height?.unit,
+      );
       const scaleX = finiteNumber(element.transform?.scaleX) ?? 1;
       const scaleY = finiteNumber(element.transform?.scaleY) ?? 1;
-      const x = finiteNumber(element.transform?.translateX);
-      const y = finiteNumber(element.transform?.translateY);
+      const x = googleSlidesMeasurementToEmu(
+        element.transform?.translateX,
+        element.transform?.unit,
+      );
+      const y = googleSlidesMeasurementToEmu(
+        element.transform?.translateY,
+        element.transform?.unit,
+      );
       const width =
         baseWidth == null ? undefined : baseWidth * Math.abs(scaleX);
       const height =

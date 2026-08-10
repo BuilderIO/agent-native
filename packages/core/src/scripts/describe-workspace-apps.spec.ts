@@ -89,6 +89,33 @@ describe("describe-workspace-apps", () => {
     expect(discoverAgents).toHaveBeenCalledWith("coach");
   });
 
+  it("separates direct reads from capabilities that require message delegation", async () => {
+    discoverAgents.mockResolvedValue([agent()]);
+    getAgentCard.mockResolvedValue(
+      card({
+        skills: [
+          skill(),
+          skill({
+            id: "create-campaign",
+            name: "Create campaign",
+            description: "Build and save a campaign.",
+            readOnly: false,
+          }),
+        ],
+      }),
+    );
+
+    const output = await run({}, undefined, "coach");
+
+    expect(output).toContain(
+      "Read-only actions (direct action + input): query-events",
+    );
+    expect(output).toContain(
+      "Message-only capabilities (use a natural-language message): create-campaign",
+    );
+    expect(output).not.toContain("Callable actions:");
+  });
+
   // The catalog is only trustworthy if it is read from live deployments, so an
   // unreachable peer must read as unknown rather than as having no capabilities.
   it("distinguishes an unreachable card from a peer that exposes nothing", async () => {

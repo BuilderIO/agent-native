@@ -279,7 +279,7 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 npx @agent-native/core@latest create my-platform
 ```
 
-您將獲得一個多選選取器。選取一個應用程式（獨立）或多個應用程式（工作區 - 應用程式共用驗證、品牌、代理設定和資料庫）。每個挑選的應用程式都與您需要的每個檔案一起建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是應用程式 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
+CLI 會先詢問 **如何開始？**。選擇 **Chat** 可建立包含 Chat 和 Dispatch 的最小工作區，選擇 **First-party template(s)** 可開啟多選選取器。Community 和 Headless 是獨立應用程式的入口。工作區應用程式共用驗證、品牌、代理設定和資料庫；每個應用程式都會連同所需的所有檔案建置到 `apps/<name>/` 中。對於沒有瀏覽器 UI 的自動化應用程式，而不是應用程式 UI，請使用 `npx @agent-native/core@latest create my-agent --headless`。
 
 填寫`.env`（主要是`ANTHROPIC_API_KEY`和`DATABASE_URL`）、`pnpm install`、`pnpm dev`，就可以了。沒有“TODO：實現登入”，沒有預留位置路由。
 

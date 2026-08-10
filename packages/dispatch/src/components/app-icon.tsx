@@ -95,6 +95,7 @@ export function AppIcon({
   color,
   className,
   size = "md",
+  monochrome = false,
 }: {
   id: string;
   name: string;
@@ -102,6 +103,7 @@ export function AppIcon({
   color?: string;
   className?: string;
   size?: "sm" | "md";
+  monochrome?: boolean;
 }) {
   const Icon = appIconComponent(id, name, icon);
   const customColor = safeHexColor(color);
@@ -126,10 +128,12 @@ export function AppIcon({
       className={cn(
         "flex shrink-0 items-center justify-center rounded-xl",
         size === "sm" ? "size-8" : "size-10",
-        !customColor && tone,
+        monochrome
+          ? "bg-transparent text-sidebar-foreground/70"
+          : !customColor && tone,
         className,
       )}
-      style={style}
+      style={monochrome ? undefined : style}
     >
       <Icon size={size === "sm" ? 16 : 19} stroke={1.8} />
     </span>

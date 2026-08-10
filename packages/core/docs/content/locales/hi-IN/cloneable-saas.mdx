@@ -294,7 +294,7 @@ Hosted demo वैकल्पिक है। यदि आप एक देत
 npx @agent-native/core@latest create my-platform
 ```
 
-आपको एक बहु-चयन पिकर मिलेगा। एक ऐप (स्टैंडअलोन) या कई (वर्कस्पेस - ऐप्स शेयर ऑथ, ब्रांड, एजेंट कॉन्फ़िगरेशन और डेटाबेस) चुनें। प्रत्येक चयनित ऐप को आपकी आवश्यक प्रत्येक फ़ाइल के साथ `apps/<name>/` में रखा गया है। ऐप UI के बजाय बिना browser UI वाली automation के लिए, `npx @agent-native/core@latest create my-agent --headless` का उपयोग करें।
+CLI पहले पूछता है **आप कैसे शुरू करना चाहते हैं?** Chat और Dispatch वाले न्यूनतम workspace के लिए **Chat** चुनें, या multi-select picker खोलने के लिए **First-party template(s)** चुनें। Community और Headless standalone app के विकल्प हैं। Workspace apps auth, brand, agent configuration और database साझा करते हैं; हर app आपकी ज़रूरत की सभी फ़ाइलों के साथ `apps/<name>/` में रखा जाता है। App UI के बजाय बिना browser UI वाली automation के लिए, `npx @agent-native/core@latest create my-agent --headless` का उपयोग करें।
 
 `.env` (ज्यादातर `ANTHROPIC_API_KEY` और `DATABASE_URL`), `pnpm install`, `pnpm dev` भरें और यह काम करता है। नहीं "TODO: लॉगिन लागू करें," कोई प्लेसहोल्डर रूट नहीं।
 

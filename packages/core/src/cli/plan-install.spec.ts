@@ -234,14 +234,23 @@ describe(
     );
 
     it(
-      "sets pnpm.onlyBuiltDependencies so native deps build without a prompt",
+      "writes pnpm build approvals to the workspace settings",
       async () => {
         await createApp("plan", { template: "plan" });
-        const pkg = readPkg(path.join(tmpDir, "plan"));
-        const built: string[] = pkg.pnpm?.onlyBuiltDependencies ?? [];
-        expect(built).toEqual(
-          expect.arrayContaining(["better-sqlite3", "esbuild", "node-pty"]),
+        const root = path.join(tmpDir, "plan");
+        const pkg = readPkg(root);
+        const workspaceYaml = fs.readFileSync(
+          path.join(root, "pnpm-workspace.yaml"),
+          "utf-8",
         );
+
+        expect(pkg.pnpm).toBeUndefined();
+        expect(workspaceYaml).toContain("allowBuilds:");
+        expect(workspaceYaml).toContain("better-sqlite3: true");
+        expect(workspaceYaml).toContain("esbuild: true");
+        expect(workspaceYaml).toContain("node-pty: true");
+        expect(workspaceYaml).toContain("tesseract.js: true");
+        expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
       },
       PLAN_STANDALONE_SCAFFOLD_TIMEOUT_MS,
     );
