@@ -137,7 +137,38 @@ async function createContext(
   }, enabled);
   const page = await context.newPage();
   const embedRequests: Array<Record<string, unknown>> = [];
+  if (process.env.CHAT_FIRST_DEBUG) {
+    page.on("response", (response) => {
+      if (!response.url().includes("create_embed_session")) return;
+      void response
+        .text()
+        .then((body) =>
+          console.error(
+            `[chat-first] embed response ${response.status()}: ${body}`,
+          ),
+        );
+    });
+  }
   if (enabled) {
+    await page.route("**/_agent-native/application-state*", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      const url = new URL(route.request().url());
+      const keys = (url.searchParams.get("keys") ?? "")
+        .split(",")
+        .filter(Boolean);
+      if (!keys.includes("chat-first-pane")) {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ values: {}, missing: keys }),
+      });
+    });
     await page.route("**/_agent-native/actions/list-workspace-apps*", (route) =>
       route.fulfill({
         status: 200,
