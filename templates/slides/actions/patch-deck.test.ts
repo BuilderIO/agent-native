@@ -4,6 +4,7 @@ import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   applyOperation,
   assertSourceImportOperationsPreserved,
+  isAgentPatchCaller,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -275,6 +276,20 @@ describe("source-imported deck structure", () => {
         { op: "delete-slide", slideId: "s1" },
       ]),
     ).not.toThrow();
+  });
+});
+
+describe("isAgentPatchCaller", () => {
+  it("treats tool, mcp, and a2a callers as agent callers", () => {
+    expect(isAgentPatchCaller("tool")).toBe(true);
+    expect(isAgentPatchCaller("mcp")).toBe(true);
+    expect(isAgentPatchCaller("a2a")).toBe(true);
+  });
+
+  it("treats the browser editor and unset callers as non-agent", () => {
+    expect(isAgentPatchCaller("frontend")).toBe(false);
+    expect(isAgentPatchCaller("http")).toBe(false);
+    expect(isAgentPatchCaller(undefined)).toBe(false);
   });
 });
 

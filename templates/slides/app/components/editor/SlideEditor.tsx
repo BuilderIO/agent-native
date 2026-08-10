@@ -119,6 +119,8 @@ import {
   getSlideTextBoxDefaultColor,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  findPersistedImageObject,
+  isDeletableFlowImage,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   type CopiedSlideObjects,
@@ -2404,9 +2406,24 @@ export default function SlideEditor({
         clearMultiSelection();
       } else {
         const element = resolveSelectedElement();
-        if (!element || !isPersistedFreeformObject(element)) return;
-        e.preventDefault();
-        removeSlideObjectAndLayoutSpacer(element);
+        if (!element) return;
+        if (isPersistedFreeformObject(element)) {
+          e.preventDefault();
+          removeSlideObjectAndLayoutSpacer(element);
+        } else if (isDeletableFlowImage(element)) {
+          e.preventDefault();
+          // An imported PPTX/PDF image is an <img> (or placeholder) nested in
+          // an absolutely positioned wrapper that carries the persisted object
+          // id. Removing only the inner node would leave that wrapper and its
+          // durable metadata behind as an invisible ghost object.
+          const owner = findPersistedImageObject(element, slideContent);
+          if (owner) removeSlideObjectAndLayoutSpacer(owner);
+          else element.remove();
+          setSelectedImg(null);
+          setImageOverlay(null);
+        } else {
+          return;
+        }
         clearSelectedElement();
       }
 
@@ -4413,7 +4430,12 @@ export default function SlideEditor({
         onSendToAgent={sendSelectionToAgent}
       />
 
-      <BlockBubbleMenu editingEl={editingEl} />
+      <BlockBubbleMenu
+        editingEl={editingEl}
+        slideId={slide.id}
+        deckId={deckId}
+        onCommitInlineEdit={exitInlineEdit}
+      />
 
       {pendingUpdateCount > 0 && (
         <div className="absolute top-4 right-4 z-50">
