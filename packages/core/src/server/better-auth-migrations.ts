@@ -1,5 +1,45 @@
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 
+async function assertBetterAuthUserIdentityColumns(): Promise<void> {
+  const { getCloudflareD1Binding, getDbExec, getDialect, isPostgres } =
+    await import("../db/client.js");
+  const dialect = getDialect();
+  let columnNames: string[];
+
+  if (dialect === "d1") {
+    const d1 = getCloudflareD1Binding() as
+      | { prepare(sql: string): { all(): Promise<{ results: unknown[] }> } }
+      | undefined;
+    if (!d1) {
+      throw new Error(
+        'Cannot inspect the Better Auth "user" table because the D1 binding is unavailable.',
+      );
+    }
+    const result = await d1.prepare("PRAGMA table_info(user)").all();
+    columnNames = result.results.map((column) => {
+      const record = column as { name?: unknown };
+      return typeof record.name === "string" ? record.name : "";
+    });
+  } else if (isPostgres()) {
+    const { rows } = await getDbExec().execute(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name IN ('id', 'email')`,
+    );
+    columnNames = rows.map((row) => String(row.column_name ?? row[0] ?? ""));
+  } else {
+    const { rows } = await getDbExec().execute("PRAGMA table_info(user)");
+    columnNames = rows.map((row) => String(row.name ?? row[1] ?? ""));
+  }
+
+  const missing = ["id", "email"].filter(
+    (column) => !columnNames.includes(column),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Cannot repair the Better Auth "user" table because required identity column(s) are missing: ${missing.join(", ")}. Restore the existing user schema before deploying this migration.`,
+    );
+  }
+}
+
 /**
  * Better Auth's framework-owned schema. This is deliberately a release
  * migration, not a fallback inside `getBetterAuth()`: request functions must
@@ -171,6 +211,31 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
         )
       `,
     },
+  },
+  {
+    version: 2,
+    name: "better-auth-repair-user-columns",
+    sql: {
+      // `CREATE TABLE IF NOT EXISTS` does not reconcile an older table that
+      // already has the Better Auth name but is missing newer columns. Keep
+      // this repair additive so existing user rows and legacy auth data stay
+      // intact while the adapter gets the columns it selects on signup.
+      postgres: `
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "name" TEXT NOT NULL DEFAULT '';
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "email_verified" BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "image" TEXT;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      `,
+      sqlite: `
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS email_verified INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS image TEXT;
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS created_at INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS updated_at INTEGER NOT NULL DEFAULT 0
+      `,
+    },
+    run: assertBetterAuthUserIdentityColumns,
   },
 ];
 

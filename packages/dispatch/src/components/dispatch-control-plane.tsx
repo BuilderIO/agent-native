@@ -207,35 +207,37 @@ function AppsPanel({
         <OverviewAppsSkeleton />
       ) : (
         <>
-          {activeApps.length > 0 ? (
-            <AppList className={APP_LIST_GRID_CLASS}>
-              {activeApps.map((app) => (
-                <WorkspaceAppCard
-                  key={app.id}
-                  app={app}
-                  className={APP_LIST_GRID_ROW_CLASS}
-                />
-              ))}
-            </AppList>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {t("dispatch.pages.noApps", {
-                defaultValue: "No apps yet.",
-              })}
-            </p>
-          )}
-          <OtherAppsSection
-            templates={curatedTemplates}
-            connectedApps={connectedApps}
-            workspaceApps={apps}
-            templatesLoading={curatedTemplatesLoading}
-            connectedAppsLoading={connectedAppsLoading}
-            templatesError={curatedTemplatesError}
-            connectedAppsError={connectedAppsError}
-            onRetryTemplates={onRetryCuratedTemplates}
-            onRetryConnectedApps={onRetryConnectedApps}
-            heading={null}
-          />
+          <AppList className={APP_LIST_GRID_CLASS}>
+            {activeApps.map((app) => (
+              <WorkspaceAppCard
+                key={app.id}
+                app={app}
+                className={APP_LIST_GRID_ROW_CLASS}
+              />
+            ))}
+            {activeApps.length === 0 &&
+            !curatedTemplatesLoading &&
+            !connectedAppsLoading ? (
+              <p className="px-4 py-3 text-sm text-muted-foreground">
+                {t("dispatch.pages.noApps", {
+                  defaultValue: "No apps yet.",
+                })}
+              </p>
+            ) : null}
+            <OtherAppsSection
+              templates={curatedTemplates}
+              connectedApps={connectedApps}
+              workspaceApps={apps}
+              templatesLoading={curatedTemplatesLoading}
+              connectedAppsLoading={connectedAppsLoading}
+              templatesError={curatedTemplatesError}
+              connectedAppsError={connectedAppsError}
+              onRetryTemplates={onRetryCuratedTemplates}
+              onRetryConnectedApps={onRetryConnectedApps}
+              heading={null}
+              embeddedInList
+            />
+          </AppList>
         </>
       )}
       {pendingApps.length > 0 ? (

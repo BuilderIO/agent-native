@@ -54,7 +54,7 @@ import {
   SelectTrigger,
 } from "@agent-native/toolkit/ui/select";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
-import { IconSettings } from "@tabler/icons-react";
+import { IconArrowUpRight, IconPlus, IconSettings } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   useCallback,
@@ -157,6 +157,81 @@ export function chatFirstPreviewPartitionKey(
     : "persist:chat-first-browser";
 }
 
+function DesktopAppsGrid({
+  apps,
+  onCreateApp,
+  onOpenAllApps,
+  onOpenApp,
+}: {
+  apps: AppConfig[];
+  onCreateApp?: () => void;
+  onOpenAllApps: () => void;
+  onOpenApp: (app: AppConfig) => void;
+}) {
+  const visibleApps = apps.filter((app) => app.enabled && app.id !== "agent");
+  if (visibleApps.length === 0) return null;
+
+  return (
+    <section className="desktop-apps-grid" aria-label="Apps">
+      <div className="desktop-apps-grid__header">
+        <h3 className="desktop-apps-grid__title">Apps</h3>
+        <div className="desktop-apps-grid__actions">
+          <button
+            type="button"
+            className="desktop-apps-grid__action"
+            onClick={onOpenAllApps}
+          >
+            <span>View all</span>
+            <IconArrowUpRight size={14} aria-hidden="true" />
+          </button>
+          {onCreateApp ? (
+            <button
+              type="button"
+              className="desktop-apps-grid__action desktop-apps-grid__action--primary"
+              onClick={onCreateApp}
+            >
+              <IconPlus size={14} aria-hidden="true" />
+              <span>New</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="desktop-apps-grid__list">
+        {visibleApps.map((app) => (
+          <button
+            key={app.id}
+            type="button"
+            className="desktop-app-card"
+            data-desktop-app-card
+            data-app-id={app.id}
+            onClick={() => onOpenApp(app)}
+          >
+            <span className="desktop-app-card__icon" aria-hidden="true">
+              <CodeAgentsAppIcon
+                id={app.id}
+                name={app.name}
+                icon={app.icon}
+                color={app.color}
+              />
+            </span>
+            <span className="desktop-app-card__copy">
+              <span className="desktop-app-card__name">{app.name}</span>
+              <span className="desktop-app-card__description">
+                {app.description}
+              </span>
+            </span>
+            <IconArrowUpRight
+              className="desktop-app-card__arrow"
+              size={15}
+              aria-hidden="true"
+            />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   isActive?: boolean;
@@ -235,6 +310,7 @@ export default function CodeAgentsHub({
     url: string;
     title?: string;
   } | null>(null);
+  const [hasChatFirstChats, setHasChatFirstChats] = useState(false);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
   const handledChatFirstPreviewNonceRef = useRef<number | null>(null);
   const [multiFrontierMode, setMultiFrontierMode] = useState(false);
@@ -279,17 +355,10 @@ export default function CodeAgentsHub({
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
       closeChatFirstSessionWatch();
-      chatFirstSurfaceTabsStore.open({
-        id: chatFirstSurfaceTabId("app", `${app.id}:${path ?? view ?? "/"}`),
-        kind: "app",
-        title: app.name,
-        appId: app.id,
-        ...(path ? { path } : {}),
-        ...(view ? { view } : {}),
-      });
+      setChatFirstSurfacePanelOpen(false);
       setChatFirstAppSelection({ appId: app.id, path, view });
     },
-    [apps, chatFirstSurfaceTabsStore],
+    [apps, setChatFirstSurfacePanelOpen],
   );
 
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(
@@ -536,6 +605,7 @@ export default function CodeAgentsHub({
   );
 
   const handleChatFirstRunsChange = useCallback((runs: CodeAgentRun[]) => {
+    setHasChatFirstChats(runs.length > 0);
     setChatFirstAgentActivities(
       runs.map((run) => ({
         sessionId: run.id,
@@ -1269,6 +1339,20 @@ export default function CodeAgentsHub({
         }
         return api.openCodexLogin();
       },
+      async openClaudeLogin() {
+        const api = window.electronAPI?.multiFrontier;
+        if (!api) {
+          return {
+            ok: false,
+            cwd: "",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        const result = await api.beginProviderLogin("claude");
+        return result.error
+          ? { ok: false, cwd: "", error: result.error.message }
+          : { ok: true, cwd: "" };
+      },
       async getRemoteConnectorStatus() {
         const api = window.electronAPI?.codeAgents;
         if (!api?.getRemoteConnectorStatus) {
@@ -1491,6 +1575,9 @@ export default function CodeAgentsHub({
         className={[
           "desktop-chat-first-hub",
           chatFirstMode ? "desktop-chat-first-hub--enabled" : "",
+          chatFirstMode && !hasChatFirstChats
+            ? "desktop-chat-first-hub--no-chats"
+            : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -1504,7 +1591,7 @@ export default function CodeAgentsHub({
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
           mainToolbarSlot={
-            chatFirstMode ? (
+            chatFirstMode && !chatFirstAppSelection ? (
               <ChatFirstSurfacePanelToggle
                 open={chatFirstSurfacePanel.open}
                 onToggle={chatFirstSurfacePanel.toggle}
@@ -1516,6 +1603,7 @@ export default function CodeAgentsHub({
             chatFirstMode ? activeChatFirstSurfaceTab?.kind : undefined
           }
           chatFirstMode={chatFirstMode}
+          suppressChatFirstUnavailableNotice={chatFirstMode}
           onRunsChange={handleChatFirstRunsChange}
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={
@@ -1554,9 +1642,10 @@ export default function CodeAgentsHub({
                 <ChatFirstAppsRail
                   apps={chatFirstAppItems}
                   activeAppId={
-                    activeChatFirstSurfaceTab?.kind === "app"
+                    chatFirstAppSelection?.appId ??
+                    (activeChatFirstSurfaceTab?.kind === "app"
                       ? activeChatFirstSurfaceTab.appId
-                      : undefined
+                      : undefined)
                   }
                   createAppTrigger={
                     onChatFirstAppCreated ? (
@@ -1573,11 +1662,22 @@ export default function CodeAgentsHub({
                       id={app.id}
                       name={app.name}
                       icon={app.icon}
+                      color={app.color}
                     />
                   )}
                   copy={defaultChatFirstCopy}
                 />
               </>
+            ) : undefined
+          }
+          overviewFooterSlot={
+            chatFirstMode ? (
+              <DesktopAppsGrid
+                apps={apps}
+                onCreateApp={onCreateApp}
+                onOpenAllApps={() => openChatFirstApp("dispatch", "/apps")}
+                onOpenApp={(app) => openChatFirstApp(app.id)}
+              />
             ) : undefined
           }
           railFooterSlot={
@@ -1594,7 +1694,33 @@ export default function CodeAgentsHub({
           }
           newSessionExtension={multiFrontierExtension}
           openDetailRequest={multiFrontierOpenDetailRequest}
-          chatFirstMainKind="code"
+          chatFirstMainKind={chatFirstAppSelection ? "agent" : "code"}
+          onChatFirstMainKindChange={(kind) => {
+            if (kind === "code") setChatFirstAppSelection(null);
+          }}
+          renderChatFirstMainSurface={
+            chatFirstAppSelection
+              ? (() => {
+                  const app = apps.find(
+                    (candidate) =>
+                      candidate.id === chatFirstAppSelection.appId &&
+                      candidate.enabled,
+                  );
+                  if (!app) return null;
+                  return (
+                    <div className="code-agents-primary-app-surface">
+                      <AppWebview
+                        app={toAppDefinition(app)}
+                        appConfig={app}
+                        isActive={isActive}
+                        urlPath={chatFirstAppSelection.path}
+                        urlParams={{ embedded: "1", chatFirst: "1" }}
+                      />
+                    </div>
+                  );
+                })()
+              : undefined
+          }
           renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
             <div className="code-agents-embedded-app-surface">
               <AppWebview

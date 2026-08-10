@@ -970,7 +970,7 @@ const VALID_AUTH_EMAIL_MESSAGE =
 const AUTH_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const AUTH_CREDENTIALS_REQUIRED_MESSAGE = "Enter your email and password.";
 const AUTH_EMAIL_NOT_VERIFIED_MESSAGE =
-  "Email not verified. Check your inbox for a verification link.";
+  "Your email isn't verified yet. Check your inbox for a verification link.";
 const AUTH_ACCOUNT_EXISTS_MESSAGE =
   "An account with this email already exists. Sign in instead or reset your password.";
 const AUTH_PASSWORD_REQUIRED_MESSAGE = "Enter a password.";

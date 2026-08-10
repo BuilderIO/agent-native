@@ -289,6 +289,8 @@ export interface CodeAgentsAppProps {
   chatFirstMode?: boolean;
   /** Selected primary chat kind in the opt-in chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
+  /** Hide host transport-unavailable copy while the chat-first shell is booting. */
+  suppressChatFirstUnavailableNotice?: boolean;
   /** Select the primary chat kind in the opt-in chat-first shell. */
   onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
   /** Host-rendered shared Agent-Native chat surface for chat-first mode. */
@@ -533,6 +535,7 @@ export default function CodeAgentsApp({
   activeChatFirstSurfaceKind,
   chatFirstMode = false,
   chatFirstMainKind = "code",
+  suppressChatFirstUnavailableNotice = false,
   onChatFirstMainKindChange,
   renderChatFirstMainSurface,
   chatFirstNavigation,
@@ -2201,7 +2204,12 @@ export default function CodeAgentsApp({
                       <OverviewSkeleton />
                     ) : (
                       <>
-                        {status !== "ok" && (
+                        {status !== "ok" &&
+                        !(
+                          chatFirstMode &&
+                          suppressChatFirstUnavailableNotice &&
+                          status === "unavailable"
+                        ) ? (
                           <div
                             className={`code-agents-callout code-agents-callout--${status}`}
                           >
@@ -2213,7 +2221,7 @@ export default function CodeAgentsApp({
                                   `${selectedGoal.surfaceLabel} is not reporting chats yet.`)}
                             </span>
                           </div>
-                        )}
+                        ) : null}
 
                         {activeNewSessionExtension &&
                         selectedExtensionDetailId &&

@@ -424,7 +424,7 @@ describe("Dispatch NavContent", () => {
 
     await act(async () => {
       container
-        .querySelector<HTMLButtonElement>("[data-chat-first-app]")
+        .querySelector<HTMLButtonElement>("[data-chat-first-app] button")
         ?.click();
     });
     expect(paths).toEqual(["/apps/mail"]);

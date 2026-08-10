@@ -103,6 +103,7 @@ import { toast } from "sonner";
 import { cn } from "../../lib/utils";
 import {
   mergeChatFirstWorkspaceApps,
+  workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
 import { AppIcon } from "../app-icon";
@@ -663,7 +664,7 @@ function DispatchChatsSection({
   return (
     <div
       className={cn(
-        "ms-4 min-w-0 space-y-0.5",
+        "min-w-0 space-y-0.5",
         showNewChat && "dispatch-chat-first-chats",
       )}
     >
@@ -730,7 +731,7 @@ function DispatchChatsSection({
             <Skeleton className="h-3 w-3/4 rounded" />
           </div>
         ))}
-      {chatFirstMode ? (
+      {chatFirstMode && (chatsLoading || visibleThreads.length > 0) ? (
         <ChatFirstChatHistory
           items={chatItems}
           activeId={displayedActiveThreadId}
@@ -1015,6 +1016,7 @@ export function NavContent({
           id={app.id}
           name={app.name}
           size="sm"
+          monochrome
           className="size-5 rounded-md"
         />
       )}
@@ -1278,7 +1280,11 @@ export function Layout({
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
-  const isWorkspaceAppHostRoute = localPathname.startsWith("/apps/");
+  const isWorkspaceAppRoute = localPathname.startsWith("/apps/");
+  const isWorkspaceAppHostRoute =
+    isWorkspaceAppRoute &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("embedded") === "1";
   const [chatFirstPreference, setChatFirstPreference] = useState(() =>
     readChatFirstMode(),
   );
@@ -1293,7 +1299,7 @@ export function Layout({
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
     { includeAgentCards: false },
-    { enabled: chatFirstMode && isChatRoute },
+    { enabled: chatFirstMode },
   );
   const chatFirstWorkspaceApps = useMemo(
     () => mergeChatFirstWorkspaceApps(chatFirstAppsQuery.data),
@@ -1454,6 +1460,12 @@ export function Layout({
     (pane: DispatchChatFirstPane) => {
       setChatFirstNotice(null);
       closeChatFirstSessionWatch();
+      if (!isChatRoute) {
+        navigateWithAgentChatViewTransition(
+          navigate,
+          dispatchNavLinkTarget("/chat"),
+        );
+      }
       const app = chatFirstAppRegistrations.find(
         (candidate) => candidate.id === pane.appId,
       );
@@ -1474,6 +1486,8 @@ export function Layout({
       chatFirstAppRegistrations,
       chatFirstSurfaceTabsStore,
       persistChatFirstPane,
+      isChatRoute,
+      navigate,
     ],
   );
   const openChatFirstSurface = useCallback(
@@ -1546,8 +1560,6 @@ export function Layout({
       openChatFirstPane,
     ],
   );
-  const sidebarBeforeAppRef = useRef<boolean | null>(null);
-  const sidebarAutoCollapsedRef = useRef(false);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "dispatch",
     activePath: localPathname,
@@ -1618,7 +1630,7 @@ export function Layout({
   );
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute) {
+    if (!chatFirstMode) {
       setChatFirstPane(null);
       closeChatFirstSessionWatch();
       chatFirstSurfaceTabsStore.closeAll();
@@ -1721,7 +1733,7 @@ export function Layout({
   useEffect(() => {
     const tabCount = chatFirstSurfaceTabs.tabs.length;
     const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
-    if (!chatFirstMode || !isChatRoute) {
+    if (!chatFirstMode) {
       setChatFirstSurfacePanelOpen(false);
     } else if (
       tabCount > 0 &&
@@ -1781,28 +1793,6 @@ export function Layout({
     chatFirstSurfaceTabsStore,
     isChatRoute,
   ]);
-
-  useEffect(() => {
-    if (isWorkspaceAppHostRoute) {
-      if (!sidebarAutoCollapsedRef.current) {
-        sidebarAutoCollapsedRef.current = true;
-        sidebarBeforeAppRef.current = sidebarCollapsed;
-      }
-      if (!sidebarCollapsed) setSidebarCollapsed(true);
-      return;
-    }
-
-    if (!sidebarAutoCollapsedRef.current) return;
-    sidebarAutoCollapsedRef.current = false;
-    const previousSidebarState = sidebarBeforeAppRef.current;
-    sidebarBeforeAppRef.current = null;
-    if (
-      previousSidebarState !== null &&
-      previousSidebarState !== sidebarCollapsed
-    ) {
-      setSidebarCollapsed(previousSidebarState);
-    }
-  }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
 
   useEffect(() => {
     if (typeof window === "undefined" || isWorkspaceAppHostRoute) return;
@@ -2075,7 +2065,7 @@ export function Layout({
       <main
         className={cn(
           "flex-1",
-          isChatRoute || isWorkspaceAppHostRoute
+          isChatRoute || isWorkspaceAppRoute
             ? "min-h-0 overflow-hidden"
             : "overflow-y-auto",
         )}
@@ -2138,6 +2128,8 @@ export function Layout({
         </ChatFirstSurfacePanel>
       ) : null}
     </div>
+  ) : isWorkspaceAppRoute ? (
+    appContent
   ) : (
     <AgentSidebar
       position="right"
@@ -2184,7 +2176,9 @@ export function Layout({
                   ? activeChatFirstSurfaceTab.appId
                   : undefined
               }
-              onChatFirstAppOpen={(app) => openChatFirstPane({ appId: app.id })}
+              onChatFirstAppOpen={(app) =>
+                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
+              }
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
               onCollapsedChange={setSidebarCollapsed}
@@ -2223,7 +2217,7 @@ export function Layout({
                       : undefined
                   }
                   onChatFirstAppOpen={(app) =>
-                    openChatFirstPane({ appId: app.id })
+                    navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
                   }
                   onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
                   onNavigate={() => setMobileOpen(false)}

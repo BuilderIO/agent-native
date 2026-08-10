@@ -222,6 +222,13 @@ describe("getOnboardingHtml", () => {
       "We couldn't update your password. The link may have expired; request a new one.",
     );
     expect(resetHtml).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    const resetScript = resetHtml.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(resetScript).toBeTruthy();
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+    expect(() => new Function(resetScript!)).not.toThrow();
   });
 
   it("renders the policy password minimum in signup and reset forms", () => {

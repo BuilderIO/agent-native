@@ -8,6 +8,8 @@ import {
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH_MESSAGE,
   PASSWORD_MIN_LENGTH,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
@@ -2140,6 +2142,15 @@ describe("server/auth", () => {
         }),
       );
       expect(tooShortResult).toEqual({ error: PASSWORD_MIN_LENGTH_MESSAGE });
+      expect(signUpEmail).not.toHaveBeenCalled();
+
+      const tooLongResult = await registerHandler(
+        createJsonPostEvent("/_agent-native/auth/register", {
+          email: "steve+1@builder.io",
+          password: "p".repeat(PASSWORD_MAX_LENGTH + 1),
+        }),
+      );
+      expect(tooLongResult).toEqual({ error: PASSWORD_MAX_LENGTH_MESSAGE });
       expect(signUpEmail).not.toHaveBeenCalled();
 
       const event = createJsonPostEvent(

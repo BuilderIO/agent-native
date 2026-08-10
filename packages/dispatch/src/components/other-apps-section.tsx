@@ -80,6 +80,7 @@ export function OtherAppsSection({
   templateLabels,
   onRemixSuccess,
   heading = "Other apps",
+  embeddedInList = false,
   className,
 }: {
   templates?: CuratedWorkspaceTemplatesResult;
@@ -97,6 +98,7 @@ export function OtherAppsSection({
     template: CuratedWorkspaceTemplate,
   ) => void;
   heading?: string | null;
+  embeddedInList?: boolean;
   className?: string;
 }) {
   const t = useT();
@@ -110,8 +112,8 @@ export function OtherAppsSection({
 
   if (!isLoading && !hasError && entries.length === 0) return null;
 
-  return (
-    <section className={cn("space-y-3", className)}>
+  const content = (
+    <>
       {heading ? (
         <div className="flex min-w-0 items-center">
           <h2 className="truncate text-sm font-semibold text-foreground">
@@ -134,31 +136,37 @@ export function OtherAppsSection({
       ) : null}
 
       {isLoading && entries.length === 0 ? (
-        <OtherAppsSkeletonList />
+        embeddedInList ? (
+          <OtherAppsSkeletonRows />
+        ) : (
+          <OtherAppsSkeletonList />
+        )
       ) : entries.length > 0 ? (
-        <AppList className={APP_LIST_GRID_CLASS}>
-          {entries.map((entry) =>
-            entry.kind === "template" ? (
-              <WorkspaceTemplateCard
-                key={`template:${templateKey(entry.template)}`}
-                template={entry.template}
-                labels={templateLabels}
-                catalog
-                className={APP_LIST_GRID_ROW_CLASS}
-                onRemixSuccess={onRemixSuccess}
-              />
-            ) : (
-              <ConnectedAppCard
-                key={`connected:${entry.app.id}`}
-                app={entry.app}
-                className={APP_LIST_GRID_ROW_CLASS}
-              />
-            ),
-          )}
-        </AppList>
+        entries.map((entry) =>
+          entry.kind === "template" ? (
+            <WorkspaceTemplateCard
+              key={`template:${templateKey(entry.template)}`}
+              template={entry.template}
+              labels={templateLabels}
+              catalog
+              className={APP_LIST_GRID_ROW_CLASS}
+              onRemixSuccess={onRemixSuccess}
+            />
+          ) : (
+            <ConnectedAppCard
+              key={`connected:${entry.app.id}`}
+              app={entry.app}
+              className={APP_LIST_GRID_ROW_CLASS}
+            />
+          ),
+        )
       ) : null}
-    </section>
+    </>
   );
+
+  if (embeddedInList) return content;
+
+  return <section className={cn("space-y-3", className)}>{content}</section>;
 }
 
 function OtherAppsSkeletonList() {
@@ -181,5 +189,28 @@ function OtherAppsSkeletonList() {
         </div>
       ))}
     </AppList>
+  );
+}
+
+function OtherAppsSkeletonRows() {
+  return (
+    <>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className={cn(
+            "flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0",
+            APP_LIST_GRID_ROW_CLASS,
+          )}
+        >
+          <Skeleton className="size-8 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+          <Skeleton className="h-9 w-24 shrink-0 rounded-md" />
+        </div>
+      ))}
+    </>
   );
 }
