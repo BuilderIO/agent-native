@@ -212,7 +212,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 모든 Agent-Native 앱은 결국 사용자가 에이전트를 구성할 수 있는 공간이 필요합니다: 상시 지침 설정, 완료된 작업 검토, MCP 서버 연결, 자동화 관리, 접근 제어. 처음부터 해당 UI를 구축하는 것은 많은 작업이 필요합니다. Agent-Native는 열두 개의 탭에 걸쳐 이 모든 것을 처리하는 미리 구축된 전체 페이지 컴포넌트 `AgentTabsPage`를 제공합니다.
 
-앱의 `/agent`에 마운트하세요. 현재 템플릿은 해당 경로를 앱 내비게이션 항목과 연결하고 `AgentSidebar`에 `agentPageHref="/agent"`를 전달하여, 사이드바의 Resources 및 Settings 모드가 해당 흐름을 중복하지 않고 전체 페이지로 연결할 수 있습니다.
+앱의 `/settings/agent`에 마운트하세요. 현재 템플릿은 이 경로를 표준 경로로 사용하고 `AgentSidebar`에 `agentPageHref="/settings/agent"`를 전달합니다. `/agent`는 기존 호환 리디렉션으로 유지됩니다.
 
 ```tsx filename="app/routes/agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";

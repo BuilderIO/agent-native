@@ -5,7 +5,7 @@ description: "Plugins de inicialização em server/plugins/ — o que são, os d
 
 # Plugins
 
-Plugins são ganchos de inicialização. Cada arquivo em `server/plugins/` exporta uma função que o Nitro chama uma única vez quando o servidor é inicializado, antes de qualquer rota ser atendida. Eles são o lugar certo para configurações únicas: configurar autenticação, montar o loop do agente, executar migrações de banco de dados, ou registrar qualquer outro código de inicialização que precise ser concluído antes de as requisições chegarem.
+Plugins são ganchos de inicialização. O Nitro carrega cada arquivo em `server/plugins/` uma vez ao inicializar o servidor. Eles são o lugar certo para configurações únicas: configurar autenticação, montar o loop do agente, executar migrações de banco de dados ou registrar outro código de inicialização. Os helpers do framework coordenam sua configuração assíncrona; o trabalho de plugins personalizados ainda pode estar em andamento quando chegar a primeira requisição.
 
 O Nitro descobre plugins automaticamente a partir do sistema de arquivos. Nenhum registro ou import é necessário. Os arquivos rodam em ordem alfabética, então a ordem de execução é controlada pelo prefixo do nome do arquivo.
 
@@ -149,6 +149,6 @@ Se você adicionar plugins personalizados, prefixe seus nomes de arquivo para co
 
 - [**Banco de dados**](/docs/server-database): auxiliares de esquema e o padrão `getDb` usado dentro dos plugins
 - [**Middleware**](/docs/server-middleware): a guarda de autenticação que impõe o que o plugin de auth configura
-- [**Rotas**](/docs/server-routes): rotas de arquivo personalizadas servidas depois que os plugins terminam
+- [**Rotas**](/docs/server-routes): rotas de arquivo personalizadas e quando usá-las
 - [**Escrevendo instruções do agente**](/docs/writing-agent-instructions): como criar o `systemPrompt` no plugin de agent-chat
 - [**Docs de plugins do Nitro**](https://nitro.build/guide/plugins): a API completa de plugins e os ganchos de ciclo de vida

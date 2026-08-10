@@ -5,7 +5,7 @@ description: "Plugins de inicio en server/plugins/: qué son, los dos plugins qu
 
 # Plugins
 
-Los plugins son ganchos de inicio. Cada archivo en `server/plugins/` exporta una función que Nitro llama una sola vez cuando el servidor se inicializa, antes de que se sirva ninguna ruta. Son el lugar adecuado para la configuración única: configurar la autenticación, montar el bucle del agente, ejecutar migraciones de base de datos, o registrar cualquier otro código de inicialización que deba completarse antes de que lleguen las solicitudes.
+Los plugins son ganchos de inicio. Nitro carga cada archivo de `server/plugins/` una vez al inicializar el servidor. Son el lugar adecuado para la configuración única: configurar la autenticación, montar el bucle del agente, ejecutar migraciones de base de datos o registrar otro código de inicialización. Las funciones auxiliares del framework coordinan su configuración asíncrona; el trabajo de plugins personalizados puede seguir en curso cuando llega la primera solicitud.
 
 Nitro descubre los plugins automáticamente a partir del sistema de archivos. No se requiere registro ni importaciones. Los archivos se ejecutan en orden alfabético, por lo que el orden de ejecución se controla mediante el prefijo del nombre de archivo.
 
@@ -150,6 +150,6 @@ Si agrega plugins personalizados, anteponga un prefijo a sus nombres de archivo 
 
 - [**Base de datos**](/docs/server-database): ayudantes de esquema y el patrón `getDb` usado dentro de los plugins
 - [**Middleware**](/docs/server-middleware): el guardia de autenticación que impone lo que configura el plugin de autenticación
-- [**Rutas**](/docs/server-routes): rutas de archivo personalizadas que se sirven después de que los plugins terminan
+- [**Rutas**](/docs/server-routes): rutas de archivo personalizadas y cuándo usarlas
 - [**Redacción de Instrucciones para el Agente**](/docs/writing-agent-instructions): cómo redactar el `systemPrompt` en el plugin de agent-chat
 - [**Documentos de plugins de Nitro**](https://nitro.build/guide/plugins): la API completa de plugins y sus ganchos de ciclo de vida

@@ -204,7 +204,7 @@ Dies sind die Verzeichnisse und Dateien innerhalb von `server/`, die jede agente
 [Nitro](https://nitro.build) ist das Server-Toolkit, das die agentennative HTTP-Schicht antreibt. Das meiste, was Sie in `server/` konfigurieren, ist Nitro: dateibasierte Routen, Startup-Plugins und Middleware.
 
 - **Dateibasiertes Routing**: Der Dateiname wird ohne Registrierung direkt auf eine HTTP-Methode und einen URL-Pfad abgebildet. `server/routes/api/health.get.ts` wird automatisch zu `GET /api/health`. Weitere Details finden Sie unter [Routen](/docs/server-routes).
-- **Plugins**: Code, der einmal beim Serverstart läuft, bevor irgendeine Anfrage bedient wird. Datenbankmigrationen, Auth-Konfiguration und das Einhängen des Agent-Chats geschehen alle in `server/plugins/`. Weitere Details finden Sie unter [Plugins](/docs/server-plugins).
+- **Plugins**: Code, der beim Serverstart registriert und einmal geladen wird. Framework-Hilfsfunktionen initialisieren Auth und Agent-Chat; optionale app-eigene Datenbankmigrationen können beim Eintreffen der ersten Anfrage noch laufen. Weitere Details finden Sie unter [Plugins](/docs/server-plugins).
 - **Middleware**: Code, der bei jeder eingehenden Anfrage läuft, bevor sie eine Route erreicht. Der Auth-Guard lebt in `server/middleware/`. Weitere Details finden Sie unter [Middleware](/docs/server-middleware).
 
 Nitro ist außerdem bereitstellungsunabhängig. Dieselbe App wird ohne Codeänderungen auf Node.js, Cloudflare Workers, Netlify, Vercel und weiteren Laufzeitumgebungen bereitgestellt. Legen Sie einfach ein Preset fest. Siehe [Deployment](/docs/deployment).

@@ -5,7 +5,7 @@ description: "server/plugins/ 中的启动插件——它们是什么、每个�
 
 # 插件
 
-插件是启动钩子。`server/plugins/` 中的每个文件都导出一个函数,Nitro 会在服务器初始化时调用它一次，早于任何路由被处理之前。它们是执行一次性设置的合适位置：配置身份验证、挂载 Agent 循环、运行数据库迁移，或者注册其他任何需要在请求到达之前完成的初始化代码。
+插件是启动钩子。Nitro 会在服务器初始化时加载 `server/plugins/` 中的每个文件一次。它们适合执行一次性设置：配置身份验证、挂载 Agent 循环、运行数据库迁移，或者注册其他初始化代码。框架辅助函数会协调异步初始化；自定义插件的工作在第一个请求到达时可能仍在进行。
 
 Nitro 会自动从文件系统中发现插件，不需要注册或导入。文件按字母顺序运行，因此执行顺序由文件名前缀控制。
 
@@ -149,6 +149,6 @@ Nitro 按文件名的字母顺序启动插件。文件顺序只控制插件何�
 
 - [**数据库**](/docs/server-database)：插件内部使用的 schema 助手和 `getDb` 模式
 - [**中间件**](/docs/server-middleware)：强制执行身份验证插件所配置内容的守卫
-- [**路由**](/docs/server-routes)：在插件执行完毕后被处理的自定义文件路由
+- [**路由**](/docs/server-routes)：自定义文件路由及其使用时机
 - [**编写 Agent 指令**](/docs/writing-agent-instructions)：如何在 agent-chat 插件中撰写 `systemPrompt`
 - [**Nitro 插件文档**](https://nitro.build/guide/plugins)：完整的插件 API 和生命周期钩子

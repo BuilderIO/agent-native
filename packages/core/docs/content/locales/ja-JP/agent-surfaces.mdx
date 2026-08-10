@@ -214,7 +214,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 すべてのAgent-Nativeアプリは最終的に、ユーザーがエージェントを設定できる場所が必要になります。常時指示の設定、実行内容の確認、MCPサーバーの接続、自動化の管理、アクセスの制御などです。そのUIをゼロから構築するのは大変な作業です。Agent-Nativeには、12タブにわたってすべてをカバーする事前構築済みのフルページコンポーネント `AgentTabsPage` が搭載されています。
 
-アプリの `/agent` にマウントしてください。現在のテンプレートはそのルートをアプリナビゲーションエントリーと組み合わせ、`AgentSidebar` に `agentPageHref="/agent"` を渡すため、サイドバーのリソースと設定モードはそれらのフローを複製することなくフルページにリンクできます。
+アプリの `/settings/agent` にマウントしてください。現在のテンプレートはこれを正規ルートとして使用し、`AgentSidebar` に `agentPageHref="/settings/agent"` を渡します。`/agent` は従来のリダイレクトとして残されています。
 
 ```tsx filename="app/routes/agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";

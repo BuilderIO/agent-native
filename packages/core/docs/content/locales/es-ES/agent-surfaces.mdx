@@ -229,7 +229,7 @@ una forma de producto completa.
 
 Toda aplicación Agent-Native eventualmente necesita un lugar donde los usuarios puedan configurar su agente: establecer instrucciones permanentes, revisar lo que ha hecho, conectar servidores MCP, gestionar automatizaciones y controlar el acceso. Construir esa interfaz de usuario desde cero es mucho trabajo. Agent-Native incluye un componente de página completa preconstruido, `AgentTabsPage`, que cubre todo esto en doce pestañas.
 
-Móntalo en `/agent` en tu aplicación. Las plantillas actuales emparejan esa ruta con una entrada de navegación de la aplicación y pasan `agentPageHref="/agent"` a `AgentSidebar`, para que los modos Recursos y Configuración de la barra lateral puedan enlazar a la página completa sin duplicar esos flujos.
+Móntalo en `/settings/agent` en tu aplicación. Las plantillas actuales usan esta como ruta canónica y pasan `agentPageHref="/settings/agent"` a `AgentSidebar`. `/agent` se conserva como redirección heredada.
 
 ```tsx filename="app/routes/agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";

@@ -5,7 +5,7 @@ description: "Les plugins de démarrage dans server/plugins/ — ce qu'ils sont,
 
 # Plugins
 
-Les plugins sont des hooks de démarrage. Chaque fichier de `server/plugins/` exporte une fonction que Nitro appelle une seule fois à l'initialisation du serveur, avant qu'aucune route ne soit servie. C'est l'endroit approprié pour la configuration ponctuelle : configurer l'authentification, monter la boucle de l'agent, exécuter les migrations de base de données, ou enregistrer tout autre code d'initialisation qui doit se terminer avant l'arrivée des requêtes.
+Les plugins sont des hooks de démarrage. Nitro charge chaque fichier de `server/plugins/` une seule fois à l'initialisation du serveur. C'est l'endroit approprié pour la configuration ponctuelle : configurer l'authentification, monter la boucle de l'agent, exécuter les migrations de base de données ou enregistrer tout autre code d'initialisation. Les helpers du framework coordonnent leur initialisation asynchrone ; le travail des plugins personnalisés peut encore être en cours à l'arrivée de la première requête.
 
 Nitro découvre les plugins automatiquement à partir du système de fichiers. Aucun enregistrement ni import n'est requis. Les fichiers s'exécutent dans l'ordre alphabétique, l'ordre d'exécution est donc contrôlé par le préfixe du nom de fichier.
 
@@ -150,6 +150,6 @@ Si vous ajoutez des plugins personnalisés, préfixez leurs noms de fichiers pou
 
 - [**Database**](/docs/server-database) : les assistants de schéma et le modèle `getDb` utilisés dans les plugins
 - [**Middleware**](/docs/server-middleware) : le garde d'authentification qui impose ce que configure le plugin d'authentification
-- [**Routes**](/docs/server-routes) : les routes de fichiers personnalisées servies une fois les plugins terminés
+- [**Routes**](/docs/server-routes) : les routes de fichiers personnalisées et quand les utiliser
 - [**Writing Agent Instructions**](/docs/writing-agent-instructions) : comment concevoir le `systemPrompt` dans le plugin agent-chat
 - [**Documentation des plugins Nitro**](https://nitro.build/guide/plugins) : l'API complète des plugins et les hooks de cycle de vie

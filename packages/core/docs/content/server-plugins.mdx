@@ -5,7 +5,7 @@ description: "Startup plugins in server/plugins/ — what they are, the two plug
 
 # Plugins
 
-Plugins are startup hooks. Each file in `server/plugins/` exports a function that Nitro calls once when the server initializes, before any route is served. They are the right place for one-time setup: configuring auth, mounting the agent loop, running database migrations, or registering any other initialization code that needs to complete before requests arrive.
+Plugins are startup hooks. Nitro loads each file in `server/plugins/` once when the server initializes. They are the right place for one-time setup: configuring auth, mounting the agent loop, running database migrations, or registering other initialization code. Framework helpers coordinate their async setup; custom plugin work may still be in flight when the first request arrives.
 
 Nitro discovers plugins automatically from the filesystem. No registration or imports are required. Files run in alphabetical order, so execution order is controlled by filename prefix.
 
@@ -148,6 +148,6 @@ If you add custom plugins, prefix their filenames to control invocation order, b
 
 - [**Database**](/docs/server-database): schema helpers and the `getDb` pattern used inside plugins
 - [**Middleware**](/docs/server-middleware): the auth guard that enforces what the auth plugin configures
-- [**Routes**](/docs/server-routes): custom file routes served after plugins complete
+- [**Routes**](/docs/server-routes): custom file routes and when to use them
 - [**Writing Agent Instructions**](/docs/writing-agent-instructions): how to craft the `systemPrompt` in the agent-chat plugin
 - [**Nitro plugin docs**](https://nitro.build/guide/plugins): the full plugin API and lifecycle hooks

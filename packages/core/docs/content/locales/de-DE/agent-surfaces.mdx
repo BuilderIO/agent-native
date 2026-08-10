@@ -227,7 +227,7 @@ eine vollständige Produktform möchten.
 
 Jede Agent-Native-App braucht früher oder später einen Ort, an dem Benutzer ihren Agenten konfigurieren können: dauerhafte Anweisungen festlegen, überprüfen was er getan hat, MCP-Server verbinden, Automatisierungen verwalten und den Zugriff steuern. Diese UI von Grund auf zu bauen ist viel Arbeit. Agent-Native liefert eine vorgefertigte ganzseitige Komponente, `AgentTabsPage`, die alles über zwölf Tabs abdeckt.
 
-Binden Sie sie unter `/agent` in Ihrer App ein. Aktuelle Templates kombinieren diese Route mit einem App-Navigationseintrag und übergeben `agentPageHref="/agent"` an `AgentSidebar`, sodass die Ressourcen- und Einstellungsmodi der Sidebar auf die vollständige Seite verlinken können, ohne diese Abläufe zu duplizieren.
+Binden Sie sie unter `/settings/agent` in Ihrer App ein. Aktuelle Templates verwenden dies als kanonische Route und übergeben `agentPageHref="/settings/agent"` an `AgentSidebar`. `/agent` bleibt als Legacy-Weiterleitung erhalten.
 
 ```tsx filename="app/routes/agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";

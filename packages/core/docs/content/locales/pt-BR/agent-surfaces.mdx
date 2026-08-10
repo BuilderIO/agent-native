@@ -215,7 +215,7 @@ Comece pelo [template Chat](/docs/template-chat) quando quiser um app mínimo em
 
 Todo app Agent-Native eventualmente precisa de um lugar onde os usuários possam configurar seu agente: definir instruções permanentes, revisar o que ele fez, conectar servidores MCP, gerenciar automações e controlar o acesso. Construir essa UI do zero dá muito trabalho. O Agent-Native inclui um componente pré-construído de página completa, `AgentTabsPage`, que cobre tudo isso em doze abas.
 
-Monte-o em `/agent` no seu app. Os templates atuais combinam essa rota com uma entrada de navegação do app e passam `agentPageHref="/agent"` para `AgentSidebar`, para que os modos Resources e Settings do sidebar possam linkar para a página completa sem duplicar esses fluxos.
+Monte-o em `/settings/agent` no seu app. Os templates atuais usam essa como rota canônica e passam `agentPageHref="/settings/agent"` para `AgentSidebar`. `/agent` continua disponível como redirecionamento legado.
 
 ```tsx filename="app/routes/agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";

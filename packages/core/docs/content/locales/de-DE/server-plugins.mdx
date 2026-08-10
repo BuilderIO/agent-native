@@ -5,7 +5,7 @@ description: "Startup-Plugins in server/plugins/ – was sie sind, die zwei Plug
 
 # Plugins
 
-Plugins sind Startup-Hooks. Jede Datei in `server/plugins/` exportiert eine Funktion, die Nitro einmal aufruft, wenn der Server initialisiert wird, bevor irgendeine Route bedient wird. Sie sind der richtige Ort für einmalige Einrichtung: Auth konfigurieren, die Agentenschleife einhängen, Datenbankmigrationen ausführen oder jeglichen anderen Initialisierungscode registrieren, der abgeschlossen sein muss, bevor Anfragen eintreffen.
+Plugins sind Startup-Hooks. Nitro lädt jede Datei in `server/plugins/` einmal bei der Serverinitialisierung. Sie sind der richtige Ort für einmalige Einrichtung: Auth konfigurieren, die Agentenschleife einhängen, Datenbankmigrationen ausführen oder anderen Initialisierungscode registrieren. Framework-Hilfsfunktionen koordinieren ihre asynchrone Einrichtung; benutzerdefinierte Plugin-Arbeit kann beim ersten Request noch laufen.
 
 Nitro entdeckt Plugins automatisch über das Dateisystem. Weder Registrierung noch Imports sind erforderlich. Dateien laufen in alphabetischer Reihenfolge, sodass die Ausführungsreihenfolge über das Dateinamenspräfix gesteuert wird.
 
@@ -149,6 +149,6 @@ Wenn Sie eigene Plugins hinzufügen, versehen Sie deren Dateinamen mit einem Pr�
 
 - [**Datenbank**](/docs/server-database): Schema-Helfer und das `getDb`-Muster, das innerhalb von Plugins verwendet wird
 - [**Middleware**](/docs/server-middleware): der Auth-Guard, der durchsetzt, was das Auth-Plugin konfiguriert
-- [**Routen**](/docs/server-routes): benutzerdefinierte Dateirouten, die bedient werden, nachdem Plugins abgeschlossen sind
+- [**Routen**](/docs/server-routes): benutzerdefinierte Dateirouten und wann sie sinnvoll sind
 - [**Writing Agent Instructions**](/docs/writing-agent-instructions): wie man den `systemPrompt` im Agent-Chat-Plugin gestaltet
 - [**Nitro-Plugin-Dokumentation**](https://nitro.build/guide/plugins): die vollständige Plugin-API und Lifecycle-Hooks

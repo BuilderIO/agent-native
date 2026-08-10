@@ -212,7 +212,7 @@ Action 結果可以直接開啟正確的應用程式檢視：圖表連結至儀�
 
 每個 Agent-Native 應用程式最終都需要一個讓使用者設定代理的地方：設定常駐指令、檢視已完成的工作、連接 MCP 伺服器、管理自動化，以及控制存取權限。從頭建立這個 UI 需要大量工作。Agent-Native 附帶一個預建的全頁元件 `AgentTabsPage`，涵蓋十二個分頁的所有功能。
 
-在你的應用程式中將其掛載於 `/agent`。目前的範本會將該路由與應用程式導覽項目配對，並將 `agentPageHref="/agent"` 傳遞給 `AgentSidebar`，讓側邊欄的 Resources 和 Settings 模式可以連結至完整頁面，而不需要重複這些流程。
+在你的應用程式中將其掛載於 `/settings/agent`。目前的範本將此作為標準路由，並將 `agentPageHref="/settings/agent"` 傳遞給 `AgentSidebar`。`/agent` 會保留為舊版重新導向。
 
 ```tsx filename=”app/routes/agent.tsx”
 import { AgentTabsPage } from “@agent-native/core/client/agent-chat”;

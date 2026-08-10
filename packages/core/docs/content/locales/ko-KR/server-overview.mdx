@@ -204,7 +204,7 @@ description: "에이전트 기반 앱의 Nitro 서버 계층: 무엇을 위한 �
 [Nitro](https://nitro.build)는 에이전트 기반 HTTP 계층을 지원하는 서버 툴킷입니다. `server/`에서 구성하게 될 대부분은 Nitro입니다. 파일 기반 라우트, 시작 플러그인, 미들웨어가 그것입니다.
 
 - **파일 기반 라우팅**: 파일 이름이 등록 없이 곧바로 HTTP 메서드와 URL 경로에 매핑됩니다. `server/routes/api/health.get.ts`는 자동으로 `GET /api/health`가 됩니다. 자세한 내용은 [라우트](/docs/server-routes)를 참조하세요.
-- **플러그인**: 요청이 처리되기 전, 서버 시작 시 한 번 실행되는 코드입니다. 데이터베이스 마이그레이션, 인증 구성, 에이전트 채팅 마운트가 모두 `server/plugins/`에서 일어납니다. 자세한 내용은 [플러그인](/docs/server-plugins)을 참조하세요.
+- **플러그인**: 서버 시작 시 등록되어 한 번 로드되는 코드입니다. 프레임워크 헬퍼가 인증과 에이전트 채팅을 초기화하며, 선택적 앱 소유 DB 마이그레이션은 첫 요청이 들어올 때도 실행 중일 수 있습니다. 자세한 내용은 [플러그인](/docs/server-plugins)을 참조하세요.
 - **미들웨어**: 라우트에 도달하기 전, 들어오는 모든 요청에 대해 실행되는 코드입니다. 인증 가드는 `server/middleware/`에 있습니다. 자세한 내용은 [미들웨어](/docs/server-middleware)를 참조하세요.
 
 Nitro는 또한 배포 방식에 구애받지 않습니다. 동일한 앱이 코드 변경 없이 Node.js, Cloudflare Workers, Netlify, Vercel 및 기타 런타임에 배포됩니다. 프리셋만 설정하면 됩니다. [배포](/docs/deployment)를 참조하세요.

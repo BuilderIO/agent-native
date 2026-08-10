@@ -212,7 +212,7 @@ Tables, charts, cards, approvals, और typed results chat में first-part
 
 हर Agent-Native ऐप को अंततः एक ऐसी जगह की आवश्यकता होती है जहाँ उपयोगकर्ता अपने एजेंट को configure कर सकें: standing instructions सेट करना, क्या हुआ है यह review करना, MCP servers connect करना, automations manage करना, और access control करना। उस UI को scratch से बनाना बहुत काम है। Agent-Native एक pre-built full-page component, `AgentTabsPage`, ship करता है जो बारह tabs में यह सब cover करता है।
 
-इसे अपने ऐप में `/agent` पर mount करें। वर्तमान templates उस route को app-navigation entry के साथ pair करते हैं और `AgentSidebar` को `agentPageHref="/agent"` पास करते हैं, ताकि sidebar के Resources और Settings modes उन flows को duplicate किए बिना पूर्ण पेज से link कर सकें।
+इसे अपने ऐप में `/settings/agent` पर mount करें। वर्तमान templates इसे canonical route के रूप में इस्तेमाल करते हैं और `AgentSidebar` को `agentPageHref="/settings/agent"` पास करते हैं। `/agent` legacy redirect के रूप में बना हुआ है।
 
 ```tsx filename="app/routes/agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";

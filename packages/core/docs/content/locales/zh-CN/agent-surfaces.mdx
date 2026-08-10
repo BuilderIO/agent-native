@@ -212,7 +212,7 @@ Agent 可以动态创建内联控件，并在工作流需要持久化时保存�
 
 每个 Agent-Native 应用最终都需要一个让用户配置其 Agent 的地方：设置常驻指令、查看已完成的工作、连接 MCP 服务器、管理自动化，以及控制访问权限。从头构建该 UI 工作量很大。Agent-Native 内置了一个预构建的全页组件 `AgentTabsPage`，涵盖了所有这些功能，分布在十二个标签页中。
 
-在你的应用中将其挂载到 `/agent`。当前模板将该路由与应用导航条目配对，并向 `AgentSidebar` 传递 `agentPageHref="/agent"`，这样边栏的资源和设置模式就可以链接到全页，而无需重复这些流程。
+在你的应用中将其挂载到 `/settings/agent`。当前模板将其作为规范路由，并向 `AgentSidebar` 传递 `agentPageHref="/settings/agent"`。`/agent` 作为旧版重定向保留。
 
 ```tsx filename="app/routes/agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";

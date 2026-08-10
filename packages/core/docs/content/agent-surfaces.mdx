@@ -226,9 +226,9 @@ want a complete product shape.
 
 Every Agent-Native app eventually needs a place where users can configure their agent: set standing instructions, review what it's done, connect MCP servers, manage automations, and control access. Building that UI from scratch is a lot of work. Agent-Native ships a pre-built full-page component, `AgentTabsPage`, that covers all of it across twelve tabs.
 
-Mount it at `/agent` in your app. Current templates pair that route with an app-navigation entry and pass `agentPageHref="/agent"` to `AgentSidebar`, so the sidebar's Resources and Settings modes can link to the full page without duplicating those flows.
+Mount it at `/settings/agent` in your app. Current templates use this as the canonical route and pass `agentPageHref="/settings/agent"` to `AgentSidebar`. `/agent` is kept as a legacy redirect.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
