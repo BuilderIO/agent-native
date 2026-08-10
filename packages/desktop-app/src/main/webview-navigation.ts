@@ -9,7 +9,8 @@ export function installWebviewNavigationListeners(
   handleNavigation: WebviewNavigationHandler,
 ) {
   contents.on("will-frame-navigate", (event) => {
-    handleNavigation(event, event.url, { isMainFrame: event.isMainFrame });
+    if (event.isMainFrame) return;
+    handleNavigation(event, event.url, { isMainFrame: false });
   });
 
   // Retain the legacy positional URL fallback for webview navigation events.

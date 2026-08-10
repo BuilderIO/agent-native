@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 
 describe("webview navigation listeners", () => {
-  it("forwards main-frame navigation from will-frame-navigate", () => {
+  it("forwards only subframe navigation from will-frame-navigate", () => {
     const listeners = new Map<string, (...args: never[]) => void>();
     const contents = {
       on: vi.fn((event: string, listener: (...args: never[]) => void) => {
@@ -13,16 +13,28 @@ describe("webview navigation listeners", () => {
     const handleNavigation = vi.fn();
     installWebviewNavigationListeners(contents, handleNavigation);
 
-    const event = {
+    const mainFrameEvent = {
       isMainFrame: true,
       preventDefault: vi.fn(),
       url: "https://mail.agent-native.com/_agent-native/sign-in",
     };
-    listeners.get("will-frame-navigate")?.(event as never);
+    listeners.get("will-frame-navigate")?.(mainFrameEvent as never);
+    expect(handleNavigation).not.toHaveBeenCalled();
 
-    expect(handleNavigation).toHaveBeenCalledWith(event, event.url, {
-      isMainFrame: true,
-    });
+    const subframeEvent = {
+      isMainFrame: false,
+      preventDefault: vi.fn(),
+      url: "https://accounts.google.com/o/oauth2/auth",
+    };
+    listeners.get("will-frame-navigate")?.(subframeEvent as never);
+
+    expect(handleNavigation).toHaveBeenCalledWith(
+      subframeEvent,
+      subframeEvent.url,
+      {
+        isMainFrame: false,
+      },
+    );
   });
 
   it("forwards the legacy will-navigate URL when the event has no URL", () => {
