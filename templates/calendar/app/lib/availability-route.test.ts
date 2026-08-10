@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import AvailabilityRoute from "./_app.availability";
+import AvailabilityRoute from "../routes/_app.availability";
 
 describe("AvailabilityRoute", () => {
   it("redirects to the availability tab of booking links", () => {
