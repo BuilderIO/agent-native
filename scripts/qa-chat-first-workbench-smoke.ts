@@ -351,6 +351,10 @@ async function runSmoke(browser: Browser): Promise<void> {
       state: "detached",
     });
 
+    // App-only panes intentionally hide the tab strip. Start a fresh surface
+    // store before testing the tabbed side-surface picker below.
+    await on.page.reload({ waitUntil: "domcontentloaded" });
+    await on.page.waitForTimeout(7_000);
     await on.page.locator("[data-chat-first-surface-toggle]").click();
     await on.page.getByRole("button", { name: "Open activity" }).click();
     const agents = await snapshot(on.page, "06-chat-first-agents");

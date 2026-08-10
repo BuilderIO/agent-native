@@ -2257,7 +2257,7 @@ const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_DRAWER_Z_INDEX = 80;
 const SIDEBAR_DRAWER_VIEW_TRANSITION_NAME = "agent-native-sidebar-drawer";
 /** Shared max width of the centered fullscreen chat column and composer. */
-const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
+const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;
 
 export function getActiveTabScrollDelta(
   containerRect: Pick<DOMRect, "left" | "right">,

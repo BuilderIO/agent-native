@@ -662,14 +662,14 @@ body {
 
 .desktop-chat-first-hub .code-agents-start {
   justify-content: flex-start;
-  max-width: min(1280px, 100%);
+  max-width: min(1000px, 100%);
   padding: clamp(48px, 10vh, 96px) 28px 24px;
   box-sizing: border-box;
 }
 
 .desktop-chat-first-hub .code-agents-start > .code-agents-standard-composer {
   align-self: center;
-  width: min(100%, 640px) !important;
+  width: min(100%, 750px) !important;
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
@@ -678,6 +678,8 @@ body {
 
 .desktop-apps-grid {
   width: 100%;
+  max-width: 1000px;
+  margin-inline: auto;
 }
 
 .desktop-apps-grid__header {
@@ -811,11 +813,6 @@ body {
 .desktop-app-card__description {
   color: hsl(var(--muted-foreground));
   font-size: 11px;
-}
-
-.desktop-app-card__arrow {
-  flex: 0 0 auto;
-  color: hsl(var(--muted-foreground));
 }
 
 @media (max-width: 900px) {

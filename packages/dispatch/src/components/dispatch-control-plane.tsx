@@ -6,7 +6,6 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconArrowUpRight,
   IconChevronDown,
   IconClockHour4,
   IconPlus,
@@ -97,7 +96,7 @@ function CommandPanel() {
 
   return (
     <section className="flex flex-col">
-      <div className="mx-auto flex w-full max-w-3xl flex-col pt-4 sm:pt-6">
+      <div className="mx-auto flex w-full max-w-[750px] flex-col pt-4 sm:pt-6">
         <div className="mb-5 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             {t("dispatch.pages.chatAcrossApps", {
@@ -178,7 +177,7 @@ function AppsPanel({
     isLoading && activeApps.length === 0 && pendingApps.length === 0;
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className="mx-auto flex w-full max-w-[1000px] flex-col gap-3">
       <SectionHeader
         title="Apps"
         action={
@@ -186,7 +185,6 @@ function AppsPanel({
             <Button variant="outline" size="sm" asChild>
               <Link to="/apps">
                 View all
-                <IconArrowUpRight size={14} />
               </Link>
             </Button>
             <CreateAppPopover

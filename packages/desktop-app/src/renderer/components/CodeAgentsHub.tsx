@@ -54,7 +54,7 @@ import {
   SelectTrigger,
 } from "@agent-native/toolkit/ui/select";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
-import { IconArrowUpRight, IconPlus, IconSettings } from "@tabler/icons-react";
+import { IconPlus, IconSettings } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   useCallback,
@@ -198,7 +198,6 @@ function DesktopAppsGrid({
             onClick={onOpenAllApps}
           >
             <span>View all</span>
-            <IconArrowUpRight size={14} aria-hidden="true" />
           </button>
           {onCreateApp ? (
             <button
@@ -236,11 +235,6 @@ function DesktopAppsGrid({
                 {app.description}
               </span>
             </span>
-            <IconArrowUpRight
-              className="desktop-app-card__arrow"
-              size={15}
-              aria-hidden="true"
-            />
           </button>
         ))}
       </div>
@@ -317,6 +311,8 @@ export default function CodeAgentsHub({
       ) ?? null,
     [chatFirstSurfaceTabs],
   );
+  const chatFirstAppTakesMain =
+    chatFirstMode && activeChatFirstSurfaceTab?.kind === "app";
   const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -1681,7 +1677,7 @@ export default function CodeAgentsHub({
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
           mainToolbarSlot={
-            chatFirstMode ? (
+            chatFirstMode && !chatFirstAppTakesMain ? (
               <ChatFirstSurfacePanelToggle
                 open={chatFirstSurfacePanel.open}
                 onToggle={chatFirstSurfacePanel.toggle}
@@ -1693,6 +1689,12 @@ export default function CodeAgentsHub({
             chatFirstMode ? activeChatFirstSurfaceTab?.kind : undefined
           }
           chatFirstMode={chatFirstMode}
+          chatFirstMainKind={chatFirstAppTakesMain ? "agent" : "code"}
+          renderChatFirstMainSurface={
+            chatFirstAppTakesMain && activeChatFirstSurfaceTab
+              ? renderChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+              : undefined
+          }
           suppressChatFirstUnavailableNotice={chatFirstMode}
           onRunsChange={handleChatFirstRunsChange}
           onWatchedRunChange={handleChatFirstWatchedRunChange}
@@ -1737,7 +1739,9 @@ export default function CodeAgentsHub({
             </div>
           )}
         />
-        {chatFirstMode && chatFirstSurfacePanel.open ? (
+        {chatFirstMode &&
+        chatFirstSurfacePanel.open &&
+        !chatFirstAppTakesMain ? (
           <ChatFirstSurfacePanel
             width={chatFirstSurfaceResize.width}
             onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
