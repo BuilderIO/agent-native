@@ -10,7 +10,7 @@ Une **surface** désigne la façon dont les utilisateurs (ou d'autres systèmes)
 
 ## Comment les surfaces s'articulent entre elles
 
-Les quatre formes de produit principales s'inscrivent sur un spectre allant de la plus interactive à la totalement sans interface. Ce qui les rend composables, c'est que la fondation reste la même tout au long : les mêmes actions, la même base de données SQL et la même boucle d'agent alimentent chaque forme. Ajouter une nouvelle surface ne signifie pas réécrire ce qui se trouve en dessous — vous ajoutez simplement une nouvelle façon d'atteindre les mêmes opérations.
+Les quatre formes de produit principales s'inscrivent sur un spectre allant de la plus interactive à la totalement sans interface. Ce qui les rend composables, c'est qu'elles partagent les mêmes actions et le même état d'application stocké dans SQL. Utilisez la boucle d'agent lorsqu'une surface a besoin d'un agent. Ajouter une nouvelle surface ne signifie pas réécrire ce qui se trouve en dessous — vous ajoutez simplement une nouvelle façon d'atteindre les mêmes opérations.
 
 <Diagram id="doc-block-hvdxgh" title="Le spectre des surfaces" summary={"Une surface d'action, quatre formes de produit, chacune ajoutant une interface sans modifier l'opération sous-jacente."}>
 
@@ -41,7 +41,7 @@ Les quatre formes de produit principales s'inscrivent sur un spectre allant de l
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >mêmes actions · même SQL · même boucle d'agent</span
+    >mêmes actions · état stocké dans SQL · boucle d'agent si nécessaire</span
   >
 </div>
 ```
@@ -196,7 +196,7 @@ Les applications complètes ajoutent une interface produit autour du même contr
 
 ### État SQL
 
-Les données de l'application, la navigation, les paramètres et l'historique du chat sont tous durables. L'agent lit et écrit les mêmes lignes que l'interface utilisateur.
+Les données de l'application, la navigation, les paramètres et l'historique du chat sont persistants dans SQL. L'agent lit et écrit les mêmes lignes que l'interface utilisateur.
 
 ### Prise de conscience du contexte
 
@@ -204,7 +204,7 @@ L'agent connaît la route actuelle, la sélection et l'objet ciblé, de sorte qu
 
 ### Synchronisation en direct
 
-Les modifications de l'agent mettent à jour l'interface en temps réel, et les modifications de l'interface mettent à jour le contexte de l'agent. Pas de polling, pas de rechargement.
+Les modifications de l'agent mettent à jour l'interface via la synchronisation en direct, et les modifications de l'interface mettent à jour le contexte de l'agent. Le framework utilise SSE avec un fallback par polling : les utilisateurs n'ont pas besoin de recharger manuellement.
 
 ### Liens profonds
 

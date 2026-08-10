@@ -10,7 +10,7 @@ Eine **Oberfläche** ist die Art und Weise, wie Benutzer (oder andere Systeme) m
 
 ## Wie Oberflächen miteinander zusammenhängen
 
-Die vier wichtigsten Produktformen liegen auf einem Spektrum von höchst interaktiv bis vollständig headless. Was sie kombinierbar macht, ist, dass das Fundament durchgehend gleich bleibt: dieselben Aktionen, dieselbe SQL-Datenbank und dieselbe Agentenschleife treiben jede Form an. Das Hinzufügen einer neuen Oberfläche bedeutet nicht, das Darunter liegende neu zu schreiben — Sie fügen lediglich einen neuen Weg hinzu, dieselben Operationen zu erreichen.
+Die vier wichtigsten Produktformen liegen auf einem Spektrum von höchst interaktiv bis vollständig headless. Was sie kombinierbar macht, ist, dass sie dieselben Aktionen und denselben SQL-gestützten App-Zustand teilen. Verwenden Sie die Agentenschleife, wenn eine Oberfläche einen Agenten benötigt. Das Hinzufügen einer neuen Oberfläche bedeutet nicht, das Darunterliegende neu zu schreiben — Sie fügen lediglich einen neuen Weg hinzu, dieselben Operationen zu erreichen.
 
 <Diagram id="doc-block-hvdxgh" title="Das Oberflächenspektrum" summary={"Eine Aktionsoberfläche, vier Produktformen, jede fügt UI hinzu, ohne die darunter liegende Operation zu verändern."}>
 
@@ -39,7 +39,7 @@ Die vier wichtigsten Produktformen liegen auf einem Spektrum von höchst interak
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >gemeinsame Aktionen · SQL-gestützter Status · Agenten-Schleife bei
+    >gemeinsame Aktionen · SQL-gestützter Zustand · Agentenschleife bei
     Bedarf</span
   >
 </div>
@@ -195,7 +195,7 @@ Vollständige Apps fügen Produkt-UI um denselben Aktions- und Agentenvertrag he
 
 ### SQL-Zustand
 
-App-Daten, Navigation, Einstellungen und Chat-Verlauf sind alle dauerhaft. Der Agent liest und schreibt dieselben Zeilen wie die UI.
+App-Daten, Navigation, Einstellungen und Chat-Verlauf sind in SQL dauerhaft. Der Agent liest und schreibt dieselben Zeilen wie die UI.
 
 ### Kontextbewusstsein
 
@@ -203,7 +203,7 @@ Der Agent kennt die aktuelle Route, Auswahl und das fokussierte Objekt, sodass �
 
 ### Live-Sync
 
-Agentenänderungen aktualisieren die UI in Echtzeit, und UI-Änderungen aktualisieren den Kontext des Agenten. Kein Polling, kein Neu laden.
+Agentenänderungen aktualisieren die UI über die Live-Synchronisierung, und UI-Änderungen aktualisieren den Kontext des Agenten. Das Framework verwendet SSE mit Polling-Fallback, sodass Benutzer nicht manuell aktualisieren müssen.
 
 ### Deeplinks
 
