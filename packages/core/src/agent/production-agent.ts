@@ -7936,6 +7936,10 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
     // settings reads inside resolveEngine).
     workerStep("engine_start");
+    const credentialIdentity = {
+      userEmail: ownerEmail,
+      orgId: getRequestOrgId(),
+    };
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
@@ -7944,12 +7948,14 @@ export function createProductionAgentHandler(
         apiKeyEnvVar: effectiveApiKeyEnvVar,
         model: configuredModel,
         appId: options.appId,
+        credentialIdentity,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
         apiKeyEnvVar: effectiveApiKeyEnvVar,
         appId: options.appId,
+        credentialIdentity,
       });
     }
     // DIAGNOSTIC-ONLY: engine resolution finished.
@@ -8036,6 +8042,7 @@ export function createProductionAgentHandler(
     if (
       !(await isResolvedEngineUsableForRequest(engine, {
         apiKey: effectiveApiKey,
+        credentialIdentity,
       }))
     ) {
       setResponseHeader(event, "Content-Type", "text/event-stream");

@@ -173,6 +173,40 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("uses credentials captured during engine construction instead of ambient lookup", async () => {
+    const { resolveBuilderCredentials } =
+      await import("../../server/credential-provider.js");
+    vi.mocked(resolveBuilderCredentials).mockClear();
+
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonlResponse([
+        { type: "text-delta", text: "Hi!" },
+        { type: "stop", reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine({
+      credentials: {
+        privateKey: "bpk-captured",
+        publicKey: "space-captured",
+        userId: "captured-user",
+        orgName: "Captured Space",
+      },
+    });
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.some((event) => event.type === "text-delta")).toBe(true);
+    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(
+      "https://test.example/gateway/v1/messages?apiKey=space-captured",
+    );
+    expect(init.headers.Authorization).toBe("Bearer bpk-captured");
+    expect(init.headers["x-builder-user-id"]).toBe("captured-user");
+  });
+
   it("short-circuits with missing-credentials when BUILDER_PUBLIC_KEY is unset", async () => {
     credentialState.builderPublicKey = null;
 
