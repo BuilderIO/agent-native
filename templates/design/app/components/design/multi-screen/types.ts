@@ -978,6 +978,9 @@ export interface ResolvedScreenMetadata {
 
 export interface DuplicatePreview {
   display: string;
+  /** How many frames the drop will copy — the whole frame selection when the
+   *  alt-drag started on a selected frame, otherwise just the pressed one. */
+  count: number;
   x: number;
   y: number;
   width: number;
