@@ -237,12 +237,13 @@ function App() {
 | `ignoreSource`     | `string?`          | Per-tab request source to ignore so a tab does not refetch from its own writes                                                                               |
 | `onEvent`          | `(data) => void`   | Optional callback when SSE/polling receives a change event                                                                                                   |
 
-For normal CRUD, prefer `useActionQuery()` and `useActionMutation()`. Mutating actions emit `source: "action"`, so those hooks refetch right away. Changes from the agent, a webhook, or another tab arrive through `useDbSync()` instead, over SSE or the polling fallback. If a raw `useQuery()` call needs to sync on a custom key, or you need to write to `application_state` directly, see [Advanced](/docs/client-advanced).
+For normal CRUD, prefer `useActionQuery()` and `useActionMutation()`. Mutating actions emit `source: "action"`, so those hooks refetch right away. Changes from the agent, a webhook, or another tab arrive through `useDbSync()` instead, over SSE or the polling fallback. If a raw `useQuery()` call needs to sync on a custom key, see [Sync Internals](/docs/client-sync-internals). If you need to write to `application_state` directly, see [Advanced](/docs/client-advanced).
 
 ## What's next
 
 - [**Overview**](/docs/client-overview) — the `app/` and `public/` directory layout this page's hooks live in
 - [**Agent Chat**](/docs/client-agent-chat) — sending prompts and staging context for the agent
 - [**Actions**](/docs/actions) — the `defineAction` surface behind every hook on this page
-- [**Advanced**](/docs/client-advanced) — direct `application_state` access and syncing a raw `useQuery` with `useChangeVersion`
+- [**Advanced**](/docs/client-advanced) — direct `application_state` access
+- [**Sync Internals**](/docs/client-sync-internals) — syncing a raw `useQuery` with `useChangeVersion`
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync) — how `useDbSync` keeps the UI current

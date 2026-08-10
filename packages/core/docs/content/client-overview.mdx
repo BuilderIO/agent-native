@@ -97,26 +97,28 @@ Browser requests, the agent loop, and external API clients all resolve to the sa
 
 This page covers the directories you build in and the pieces of the browser runtime nothing else documents (`root.tsx`, `public/`). The React hooks that connect your components to actions and to the agent live on their own focused pages:
 
-| Page | What it covers |
-| --- | --- |
-| **[Data & Sync](/docs/client-data)** | `useActionQuery`, `useActionMutation`, `callAction`, and `useDbSync` |
-| **[Agent Chat](/docs/client-agent-chat)** | `sendToAgentChat`, `askUserQuestion`, `openAgentSettings`, and dynamic suggestions |
-| **[Advanced](/docs/client-advanced)** | Direct `application_state` access, `useChangeVersion`, agent chat context state, the MCP App host bridge, and the SSR entry points |
+| Page                                              | What it covers                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **[Data & Sync](/docs/client-data)**              | `useActionQuery`, `useActionMutation`, `callAction`, and `useDbSync`                                                |
+| **[Agent Chat](/docs/client-agent-chat)**         | `sendToAgentChat`, `askUserQuestion`, `openAgentSettings`, dynamic suggestions, and staged agent chat context state |
+| **[Advanced](/docs/client-advanced)**             | Direct `application_state` access, background chat sends, custom suggestion chips, and the MCP App host bridge      |
+| **[Sync Internals](/docs/client-sync-internals)** | `useChangeVersion`/`useChangeVersions` for syncing a raw `useQuery`                                                 |
+| **[Entry Points](/docs/client-entry-points)**     | `app/entry.client.tsx`/`app/entry.server.tsx` and SSR customization                                                 |
 
 ## What's in app/ and public/ {#project-directories}
 
-| Path | What it covers |
-| --- | --- |
-| **`app/root.tsx`** | The HTML shell and provider stack — see [The Browser Shell](#app-shell) below |
-| **`app/entry.client.tsx` / `app/entry.server.tsx`** | Hydration and SSR bootstrap — see [Advanced](/docs/client-advanced#entry-points) |
-| **`app/routes.ts` + `app/routes/`** | File-based pages and navigation — see [Routing](/docs/routing) |
-| **`app/components/`** | Your UI: shadcn-style primitives plus app-specific components — see [shadcn/ui](/docs/shadcn-ui) |
-| **`app/hooks/`** | Data, sync, and agent-chat hooks — see [Data & Sync](/docs/client-data) and [Agent Chat](/docs/client-agent-chat) |
-| **`app/lib/`** | Shared client utilities (app config, tab id, `cn`) — see [Utilities](#utilities) below |
-| **`app/design-system.ts`** | Optional custom design system adapter — see [Custom Design Systems](/docs/custom-design-system) |
-| **`app/i18n/`** | Localized UI copy catalogs — see [Internationalization](/docs/internationalization) |
-| **`app/global.css`** | Base styles and the Tailwind entry point |
-| **`public/`** | Static assets served as-is — see [Static Assets](#public-directory) below |
+| Path                                                | What it covers                                                                                                    |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **`app/root.tsx`**                                  | The HTML shell and provider stack — see [The Browser Shell](#app-shell) below                                     |
+| **`app/entry.client.tsx` / `app/entry.server.tsx`** | Hydration and SSR bootstrap — see [Entry Points](/docs/client-entry-points)                                       |
+| **`app/routes.ts` + `app/routes/`**                 | File-based pages and navigation — see [Routing](/docs/routing)                                                    |
+| **`app/components/`**                               | Your UI: shadcn-style primitives plus app-specific components — see [shadcn/ui](/docs/shadcn-ui)                  |
+| **`app/hooks/`**                                    | Data, sync, and agent-chat hooks — see [Data & Sync](/docs/client-data) and [Agent Chat](/docs/client-agent-chat) |
+| **`app/lib/`**                                      | Shared client utilities (app config, tab id, `cn`) — see [Utilities](#utilities) below                            |
+| **`app/design-system.ts`**                          | Optional custom design system adapter — see [Custom Design Systems](/docs/custom-design-system)                   |
+| **`app/i18n/`**                                     | Localized UI copy catalogs — see [Internationalization](/docs/internationalization)                               |
+| **`app/global.css`**                                | Base styles and the Tailwind entry point                                                                          |
+| **`public/`**                                       | Static assets served as-is — see [Static Assets](#public-directory) below                                         |
 
 ## The Browser Shell: root.tsx and AppProviders {#app-shell}
 
@@ -169,7 +171,9 @@ public/
   "name": "My App",
   "short_name": "My App",
   "theme_color": "#18181B",
-  "icons": [{ "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+  "icons": [
+    { "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }
+  ]
 }
 ```
 
@@ -193,7 +197,9 @@ import { cn } from "@agent-native/toolkit/utils";
 
 - [**Data & Sync**](/docs/client-data) — action hooks and `useDbSync`
 - [**Agent Chat**](/docs/client-agent-chat) — `sendToAgentChat`, `askUserQuestion`, and dynamic suggestions
-- [**Advanced**](/docs/client-advanced) — application state, custom query keys, and the MCP App host bridge
+- [**Advanced**](/docs/client-advanced) — application state, background chat sends, and the MCP App host bridge
+- [**Sync Internals**](/docs/client-sync-internals) — `useChangeVersion` for syncing a raw `useQuery`
+- [**Entry Points**](/docs/client-entry-points) — SSR bootstrap customization
 - [**Routing**](/docs/routing) — file-based pages, dynamic params, and navigation
 - [**Actions**](/docs/actions) — the `defineAction` surface behind every data hook
 - [**Custom Design Systems**](/docs/custom-design-system) — swapping in your own component library via `app/design-system.ts`

@@ -1,0 +1,125 @@
+---
+title: "Sync Internals"
+description: "The change-version mechanism behind useDbSync: useChangeVersion/useChangeVersions for syncing a raw useQuery, and the two latency paths a refetch can take."
+draft: true
+---
+
+# Sync Internals
+
+[Live Sync](/docs/key-concepts#polling-sync) covers the mental model: an agent write becomes a change event, `useDbSync()` picks it up, and affected queries refetch. This page covers the mechanism underneath that most apps never touch directly: the change-version counters `useDbSync()` bumps, and how to fold them into a raw `useQuery()` call that isn't going through `useActionQuery()`.
+
+`useActionQuery()` already refetches automatically when a mutating action completes (see [Data & Sync](/docs/client-data#fetching-mutating)). Reach for `useChangeVersion()`/`useChangeVersions()` only when you're syncing a raw `useQuery()` call outside that path, such as a low-level client helper reading integration status.
+
+## How change versions work {#how-it-works}
+
+When a server-side database mutation occurs, the server records a change event tagged with a `source` key. `useDbSync()` receives that event and bumps a local counter for that source. Folding the counter into a React Query key makes the query refetch automatically whenever the backend reports new activity for that source.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description: 'The change-event source to watch, e.g. `"dashboards"`.',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description:
+      "A counter that increments whenever the given source is mutated.",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "Multiple change-event sources to watch at once.",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "The sum of the version counters for every given source.",
+  }}
+/>
+
+In the example below, a raw `useQuery()` call reads a dashboard directly, folding the `"dashboards"` source's version counter into its query key so it refetches whenever that source changes:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` keeps the previous data on screen during the refetch, so the view doesn't flicker to a loading state.
+
+## Two paths to a refetch {#latency-models}
+
+A mutation reaches the UI one of two ways, and they have different latency.
+
+A local mutation, one your own `useActionMutation()` call just made, fires a `source: "action"` event as soon as it succeeds. Every query depending on that action refetches immediately. There's no round-trip delay, since the tab that made the write already knows about it.
+
+A remote mutation, from the agent, a webhook, another tab, or another user, has to reach this tab first. `useDbSync()` picks it up over SSE almost immediately, or over the polling fallback within about two seconds if SSE isn't available. Only once that event arrives does the relevant version counter bump and the query refetch in the background.
+
+<Diagram id="doc-block-client-sync-internals-3" title="Two paths to a refetch" summary="A local mutation invalidates its own caches instantly. A remote write reaches this tab over SSE, or the polling tick as a fallback.">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">This tab</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >fires source: "action" on success &rarr; instant local refetch</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Agent · webhook · other tab</span
+      ><strong>Remote write</strong
+      ><small class="diagram-muted"
+        >SSE push, or the ~2s polling tick as fallback &rarr; version bumps
+        &rarr; background refetch</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## What's next
+
+- [**Live Sync**](/docs/key-concepts#polling-sync) — the conceptual mental model this page goes underneath
+- [**Data & Sync**](/docs/client-data) — `useActionQuery`/`useDbSync`, which most pages should use instead of these primitives
+- [**Advanced**](/docs/client-advanced) — the other lower-level client primitives and escape hatches
