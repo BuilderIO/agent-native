@@ -1,3 +1,4 @@
+import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type {
   DocumentPropertyOptions,
   DocumentPropertyOption,
@@ -190,6 +191,7 @@ export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
+  blocksField?: BlocksFieldIdentity;
 }
 
 export interface DocumentPropertiesResponse {
@@ -214,6 +216,7 @@ export interface SetDocumentPropertyRequest {
   databaseId: string;
   propertyId: string;
   value: DocumentPropertyValue;
+  expectedBlocksFieldRevision?: number;
 }
 
 export interface DuplicateDocumentPropertyRequest {

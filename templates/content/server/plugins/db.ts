@@ -956,6 +956,49 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_database_migration_receipts_owner_database_idx
         ON content_database_migration_receipts (owner_email, database_id)`,
     },
+    {
+      version: 81,
+      name: "content-block-field-identities",
+      sql: `CREATE TABLE IF NOT EXISTS document_block_fields (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        document_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS document_block_fields_document_property_unique
+        ON document_block_fields (document_id, property_id);
+      CREATE INDEX IF NOT EXISTS document_block_fields_owner_document_idx
+        ON document_block_fields (owner_email, document_id)`,
+    },
+    {
+      version: 82,
+      name: "content-block-identities-and-tombstones",
+      sql: `CREATE TABLE IF NOT EXISTS document_blocks (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        field_id TEXT NOT NULL,
+        parent_id TEXT,
+        kind TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        sort_index INTEGER NOT NULL,
+        addressable INTEGER NOT NULL DEFAULT 1,
+        content_hash TEXT NOT NULL,
+        markdown TEXT NOT NULL DEFAULT '',
+        state TEXT NOT NULL DEFAULT 'live',
+        deleted_at_revision INTEGER,
+        recovered_at_revision INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS document_blocks_field_state_sort_idx
+        ON document_blocks (field_id, state, sort_index);
+      CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
+        ON document_blocks (parent_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -21,6 +21,7 @@ import type {
   ContentDatabaseOpenPagesIn,
   DocumentProperty,
 } from "../shared/api.js";
+import { blocksFieldId } from "../shared/blocks-field-identity.js";
 import {
   DEFAULT_BLOCKS_FIELD_NAME,
   defaultPropertyOptions,
@@ -42,6 +43,7 @@ import {
   type DocumentPropertyValue,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -540,10 +542,46 @@ export async function listPropertiesForDatabase(
     ? await blockFieldContentsForDocument(valueDocument.id)
     : new Map<string, string>();
 
+  const blocksFieldIdentityById = valueDocument
+    ? await readBlocksFieldIdentities({
+        db,
+        fields: definitions.flatMap((definition) => {
+          const type = definition.type as DocumentPropertyType;
+          if (!isBlocksPropertyType(type)) return [];
+          const options = parsePropertyOptions(definition.optionsJson);
+          return [
+            {
+              documentId: valueDocument.id,
+              propertyId: definition.id,
+              markdown: resolveBlocksFieldValue({
+                options,
+                documentBody: valueDocument.content,
+                blockFieldContent: blockContentByPropertyId.get(definition.id),
+              }),
+            },
+          ];
+        }),
+      })
+    : new Map();
+
   const properties = definitions.map((definition) => {
     const type = definition.type as DocumentPropertyType;
     const storedValue = valueByPropertyId.get(definition.id);
     const options = parsePropertyOptions(definition.optionsJson);
+    const value =
+      valueDocument && isComputedPropertyType(type) && type !== "formula"
+        ? computedPropertyValue(type, valueDocument, {
+            databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
+          })
+        : valueDocument && isBlocksPropertyType(type)
+          ? // Each Blocks field reads from exactly one place: the primary from
+            // the document body, additional fields from their own store.
+            resolveBlocksFieldValue({
+              options,
+              documentBody: valueDocument.content,
+              blockFieldContent: blockContentByPropertyId.get(definition.id),
+            })
+          : parsePropertyValue(storedValue?.valueJson);
     return {
       definition: {
         id: definition.id,
@@ -560,21 +598,15 @@ export async function listPropertiesForDatabase(
         createdAt: definition.createdAt,
         updatedAt: definition.updatedAt,
       },
-      value:
-        valueDocument && isComputedPropertyType(type) && type !== "formula"
-          ? computedPropertyValue(type, valueDocument, {
-              databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
-            })
-          : valueDocument && isBlocksPropertyType(type)
-            ? // Each Blocks field reads from exactly one place: the primary from
-              // the document body, additional fields from their own store.
-              resolveBlocksFieldValue({
-                options,
-                documentBody: valueDocument.content,
-                blockFieldContent: blockContentByPropertyId.get(definition.id),
-              })
-            : parsePropertyValue(storedValue?.valueJson),
+      value,
       editable: !definition.systemRole && !isComputedPropertyType(type),
+      ...(valueDocument && isBlocksPropertyType(type)
+        ? {
+            blocksField: blocksFieldIdentityById.get(
+              blocksFieldId(valueDocument.id, definition.id),
+            ),
+          }
+        : {}),
     };
   });
 
@@ -724,32 +756,64 @@ export async function listPropertiesForDatabaseDocuments(
     }
   }
 
+  const blocksFieldIdentityById = await readBlocksFieldIdentities({
+    db,
+    fields: valueDocuments.flatMap((document) =>
+      definitions.flatMap((definition) => {
+        const type = definition.type as DocumentPropertyType;
+        if (!isBlocksPropertyType(type)) return [];
+        const options = parsePropertyOptions(definition.optionsJson);
+        return [
+          {
+            documentId: document.id,
+            propertyId: definition.id,
+            markdown: resolveBlocksFieldValue({
+              options,
+              documentBody: document.content,
+              blockFieldContent: blockContentByDocumentAndProperty.get(
+                propertyValueKey(document.id, definition.id),
+              ),
+            }),
+          },
+        ];
+      }),
+    ),
+  });
+
   for (const document of valueDocuments) {
     const properties = definitions.map((definition) => {
       const propertyDefinition = serializePropertyDefinition(definition);
       const storedValue = valueByDocumentAndProperty.get(
         propertyValueKey(document.id, definition.id),
       );
+      const value =
+        isComputedPropertyType(propertyDefinition.type) &&
+        propertyDefinition.type !== "formula"
+          ? computedPropertyValue(propertyDefinition.type, document, {
+              databaseRowNumber: rowNumberByDocumentId.get(document.id),
+            })
+          : isBlocksPropertyType(propertyDefinition.type)
+            ? resolveBlocksFieldValue({
+                options: propertyDefinition.options,
+                documentBody: document.content,
+                blockFieldContent: blockContentByDocumentAndProperty.get(
+                  propertyValueKey(document.id, definition.id),
+                ),
+              })
+            : parsePropertyValue(storedValue?.valueJson);
       return {
         definition: propertyDefinition,
-        value:
-          isComputedPropertyType(propertyDefinition.type) &&
-          propertyDefinition.type !== "formula"
-            ? computedPropertyValue(propertyDefinition.type, document, {
-                databaseRowNumber: rowNumberByDocumentId.get(document.id),
-              })
-            : isBlocksPropertyType(propertyDefinition.type)
-              ? resolveBlocksFieldValue({
-                  options: propertyDefinition.options,
-                  documentBody: document.content,
-                  blockFieldContent: blockContentByDocumentAndProperty.get(
-                    propertyValueKey(document.id, definition.id),
-                  ),
-                })
-              : parsePropertyValue(storedValue?.valueJson),
+        value,
         editable:
           !definition.systemRole &&
           !isComputedPropertyType(propertyDefinition.type),
+        ...(isBlocksPropertyType(propertyDefinition.type)
+          ? {
+              blocksField: blocksFieldIdentityById.get(
+                blocksFieldId(document.id, definition.id),
+              ),
+            }
+          : {}),
       };
     });
 

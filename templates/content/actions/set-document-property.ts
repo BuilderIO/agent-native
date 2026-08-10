@@ -12,6 +12,7 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
@@ -34,8 +35,15 @@ export default defineAction({
       ),
     propertyId: z.string().describe("Property definition ID"),
     value: z.unknown().describe("Value for the property type"),
+    expectedBlocksFieldRevision: z.number().int().nonnegative().optional(),
   }),
-  run: async ({ documentId, databaseId, propertyId, value }) => {
+  run: async ({
+    documentId,
+    databaseId,
+    propertyId,
+    value,
+    expectedBlocksFieldRevision,
+  }) => {
     const db = getDb();
     const [definition] = await db
       .select()
@@ -116,12 +124,31 @@ export default defineAction({
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
+        let previousContent = "";
         if (target === "document_body") {
+          const [currentDocument] = await tx
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, documentId));
+          if (!currentDocument) {
+            throw new Error(`Document "${documentId}" not found`);
+          }
+          previousContent = currentDocument.content;
           await tx
             .update(schema.documents)
             .set({ content, updatedAt: now })
             .where(eq(schema.documents.id, documentId));
         } else {
+          const [currentField] = await tx
+            .select({ content: schema.documentBlockFieldContents.content })
+            .from(schema.documentBlockFieldContents)
+            .where(
+              and(
+                eq(schema.documentBlockFieldContents.documentId, documentId),
+                eq(schema.documentBlockFieldContents.propertyId, propertyId),
+              ),
+            );
+          previousContent = currentField?.content ?? "";
           await tx
             .insert(schema.documentBlockFieldContents)
             .values({
@@ -141,6 +168,16 @@ export default defineAction({
               set: { content, updatedAt: now },
             });
         }
+        await persistBlocksFieldIdentity({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          ownerEmail: database.ownerEmail,
+          documentId,
+          propertyId,
+          previousMarkdown: previousContent,
+          markdown: content,
+          expectedRevision: expectedBlocksFieldRevision,
+          now,
+        });
       });
       return {
         documentId,

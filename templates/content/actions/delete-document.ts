@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -730,6 +731,9 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    for (const documentId of documentIdBatch) {
+      await deleteBlocksFieldIdentity({ db, documentId });
+    }
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(

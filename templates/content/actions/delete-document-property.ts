@@ -11,6 +11,7 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -117,6 +118,10 @@ export default defineAction({
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
       if (isBlocks) {
+        await deleteBlocksFieldIdentity({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          propertyId,
+        });
         await tx
           .delete(schema.documentBlockFieldContents)
           .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));

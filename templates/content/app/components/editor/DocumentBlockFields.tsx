@@ -657,15 +657,18 @@ export function useBlockFieldEditor({
   documentId,
   propertyId,
   initialContent,
+  initialRevision,
   save,
 }: {
   documentId: string;
   propertyId: string;
   initialContent: string;
+  initialRevision: number;
   save: (request: {
     documentId: string;
     propertyId: string;
     value: string;
+    expectedBlocksFieldRevision: number;
   }) => Promise<unknown>;
 }): { content: string; onChange: (markdown: string) => void } {
   const key = `${documentId}:${propertyId}`;
@@ -674,7 +677,24 @@ export function useBlockFieldEditor({
   // save TARGET (documentId:propertyId) is fixed by the key; only the function
   // identity changes per mount, never the field it writes to.
   const implRef = blockFieldSaveImplRef(key);
-  implRef.current = (value: string) => save({ documentId, propertyId, value });
+  const revisionRef = useRef(initialRevision);
+  if (initialRevision > revisionRef.current) {
+    revisionRef.current = initialRevision;
+  }
+  implRef.current = async (value: string) => {
+    const response = await save({
+      documentId,
+      propertyId,
+      value,
+      expectedBlocksFieldRevision: revisionRef.current,
+    });
+    const nextRevision = (
+      response as DocumentPropertiesResponse
+    )?.properties?.find((candidate) => candidate.definition.id === propertyId)
+      ?.blocksField?.revision;
+    if (typeof nextRevision === "number") revisionRef.current = nextRevision;
+    return response;
+  };
 
   // Build (but do not yet ref-count) the controller factory for this key. The
   // formal acquire/release happens in the effect below; we only need the factory
@@ -823,6 +843,7 @@ function AdditionalBlockEditor({
     documentId,
     propertyId,
     initialContent,
+    initialRevision: property.blocksField?.revision ?? 0,
     save: setProperty.mutateAsync,
   });
 
