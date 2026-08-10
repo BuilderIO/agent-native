@@ -98,13 +98,22 @@ async function runWorker(mode: string): Promise<WorkerResult> {
         args: [testId],
       });
       const barrierStartedAt = Date.now();
+      let bothWorkersReady = false;
       while (Date.now() - barrierStartedAt < 5_000) {
         const barrier = await db.execute({
           sql: `SELECT ready_count FROM public.oauth_lifecycle_refresh_test WHERE id = ?`,
           args: [testId],
         });
-        if (Number(barrier.rows[0]?.ready_count ?? 0) >= 2) break;
+        if (Number(barrier.rows[0]?.ready_count ?? 0) >= 2) {
+          bothWorkersReady = true;
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      if (!bothWorkersReady) {
+        throw new Error(
+          "Both OAuth refresh workers did not reach the concurrency barrier.",
+        );
       }
 
       const result = await resolveOAuthCredentialAccess(identity, {
