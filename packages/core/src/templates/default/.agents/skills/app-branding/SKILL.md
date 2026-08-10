@@ -2,9 +2,10 @@
 name: app-branding
 description: >-
   How to rename or rebrand the app so every surface — title, package metadata,
-  PWA manifest, and icons — stays consistent. Use when a prompt establishes or
-  implies a new app name, title, or visual identity, OR when you generate an app
-  title, theme, or icon yourself while scaffolding an app from an initial prompt.
+  PWA manifest, and icons — stays consistent. Use when the user explicitly
+  renames or rebrands the app, or when a richer app clearly needs a full visual
+  identity. Do not use for inventing a title during a simple first-prompt
+  scaffold (todo, landing page, button) — title/SEO only is enough there.
 scope: dev
 metadata:
   internal: true
@@ -14,27 +15,37 @@ metadata:
 
 ## Trigger
 
-Read this skill whenever the app's name, title, or visual identity is being
-established or changed — whether the user states it or **you derive it yourself**.
+Read this skill when branding work is actually in scope:
 
-- **Explicit** — the prompt names the app: "rename this app to …", "this is a
-  Todo app called …", "call this app …".
-- **Implicit / agent-generated** — the prompt describes what to build but leaves
-  the branding to you: "build me a habit tracker", "turn this into a recipe
-  manager", "make a CRM for my studio". The moment you decide on a title, theme
-  color, or icon from that prompt, treat it as a branding change and apply the
-  full checklist so your generated identity lands on every surface — not just
-  the one screen you happen to be building.
+- **Explicit rebrand** — the prompt names or renames the app: "rename this app
+  to …", "this is a Todo app called …", "call this app …", "rebrand this".
+- **Richer app identity** — the ask is a multi-surface product (CRM, admin tool,
+  analytics dashboard, etc.) where launcher icons, manifest, and package
+  metadata should match the product name in the same pass.
 
-If you are inventing an app title, theme, or icon as part of scaffolding a new
-app from an initial prompt, that counts — run the checklist in the same pass.
+Do **not** treat inventing a display title while scaffolding a simple first
+prompt ("build a todo", "make a landing page", "add a button") as a full
+rebrand. For those, use the **Lightweight title pass** below and skip the rest
+of this skill (no icons, manifest, package.json, typecheck sweep).
 
-## Rule
+## Lightweight title pass (simple scaffolds)
 
-Apply **all** of the updates below in a single consistent pass. Depending on the
-template, the app name may live in one source-of-truth module or be spread
-across several files — either way, a partial rename leaves the app half-branded
-(a stale tab title, launcher label, or icon).
+When you only need a sensible tab/heading name during a simple scaffold:
+
+1. **Centralized layout** (`app/lib/app-config.ts`): set `rawAppName` (slug) and
+   `rawAppTitle` (title). That is enough for derived UI titles.
+2. If the homepage or route still has hardcoded `SEO_TITLE` /
+   `SEO_DESCRIPTION` literals, update those to match.
+3. Stop. Do not edit icons, `public/manifest.json`, or `package.json` unless the
+   user asked to rebrand.
+
+## Rule (full rebrand)
+
+When an explicit rebrand or richer-app identity applies, run **all** of the
+updates below in a single consistent pass. Depending on the template, the app
+name may live in one source-of-truth module or be spread across several files —
+either way, a partial rename leaves the app half-branded (a stale tab title,
+launcher label, or icon).
 
 Derive three values once, then reuse them everywhere:
 
