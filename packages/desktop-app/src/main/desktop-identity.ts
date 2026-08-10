@@ -355,10 +355,25 @@ export class DesktopIdentityBroker {
       logoutPath: DesktopWorkspaceLogoutPath;
       alreadyRevokedAppId: string;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
+    if (this.options.isAvailable) {
+      const authorityApp = this.options.resolveApp("dispatch");
+      const available = authorityApp
+        ? await this.options
+            .isAvailable(authorityApp, this.options.identitySession)
+            .catch(() => false)
+        : false;
+      if (!available) {
+        this.availability = "unavailable";
+        this.setStatus("idle");
+        return false;
+      }
+      this.availability = "available";
+    }
     this.externalSignOutRequests += 1;
     this.updateSignOutIntent({ logoutPath: options.logoutPath });
     await this.ensureRevocationTargets(apps);
+    return true;
   }
 
   completeExternalSignOut(

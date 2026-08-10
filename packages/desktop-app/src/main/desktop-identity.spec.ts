@@ -346,6 +346,51 @@ describe("DesktopIdentityBroker", () => {
     ).toBe(false);
   });
 
+  it("leaves ordinary per-app sign-out alone after rollout availability turns off", async () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const isAvailable = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    const appFetch = vi.fn(async () => new Response(null, { status: 200 }));
+    app.session = {
+      cookies: cookieStore([
+        sessionCookie("an_session_mail", app.origin, "mail-session"),
+      ]),
+      fetch: appFetch,
+    } as unknown as Electron.Session;
+    const clearStorageData = vi.fn(async () => {});
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        clearStorageData,
+      } as unknown as Electron.Session,
+      isAvailable,
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await broker.refreshStatus(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+
+    await expect(
+      broker.prepareExternalSignOut([app, authority], {
+        logoutPath: "/_agent-native/auth/logout",
+        alreadyRevokedAppId: app.id,
+      }),
+    ).resolves.toBe(false);
+
+    expect(broker.getStatus()).toBe("idle");
+    expect(clearStorageData).not.toHaveBeenCalled();
+    expect(appFetch).not.toHaveBeenCalled();
+  });
+
   it("bounds a stalled rollout availability request", async () => {
     vi.useFakeTimers();
     const authority = authorityFixture();
