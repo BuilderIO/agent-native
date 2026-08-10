@@ -22,6 +22,8 @@ const REQUIRED_CONTENT_ACTIONS = [
   "add-database-item",
   "update-database-item",
   "upsert-database-item-by-key",
+  "list-content-database-blocks",
+  "mutate-content-database-block",
 ];
 
 const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;

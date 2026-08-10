@@ -170,6 +170,7 @@ export async function persistBlocksFieldIdentity(args: {
   previousMarkdown: string;
   markdown: string;
   expectedRevision?: number;
+  preferredIdsByPath?: Readonly<Record<string, string>>;
   now: string;
 }): Promise<StoredBlocksFieldIdentity> {
   const fieldId = blocksFieldId(args.documentId, args.propertyId);
@@ -211,6 +212,7 @@ export async function persistBlocksFieldIdentity(args: {
     previous,
     markdown: args.markdown,
     createId: () => `block_${nanoid(16)}`,
+    preferredIdsByPath: args.preferredIdsByPath,
   });
 
   if (next.blocks.length > 0) {
