@@ -235,7 +235,7 @@ export const getDb = createGetDb(schema);
     {
       lines: "17",
       label: "추가 방식의 열 추가",
-      note: "마이그레이션 항목은 추적되며 한 번만 적용됩니다. 초기 생성 후에는 추가 방식의 `ADD COLUMN` 문을 사용하고 열을 삭제하거나 이름을 바꾸지 마세요.",
+      note: "`ADD COLUMN IF NOT EXISTS`는 초기 생성 이후에 열을 추가하는 안전한 방법입니다. 열을 삭제하거나 이름을 바꾸지 마세요.",
     },
     {
       lines: "22-25",

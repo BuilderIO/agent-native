@@ -235,7 +235,7 @@ solicitud. Usa `runMigrations` desde `@agent-native/core/db`:
     {
       lines: "17",
       label: "Adiciones de columnas aditivas",
-      note: "Las entradas de migración se registran y se aplican una vez. Después de la creación inicial, use sentencias `ADD COLUMN` aditivas; nunca elimine ni renombre columnas.",
+      note: "`ADD COLUMN IF NOT EXISTS` es la forma segura de agregar columnas después de la creación inicial. Nunca elimine ni cambie el nombre de columnas.",
     },
     {
       lines: "22-25",

@@ -235,7 +235,7 @@ as migrações em uma etapa de release ou deploy, não na primeira requisição.
     {
       lines: "17",
       label: "Adições aditivas de colunas",
-      note: "As entradas de migração são rastreadas e aplicadas uma vez. Após a criação inicial, use instruções aditivas `ADD COLUMN`; nunca descarte nem renomeie colunas.",
+      note: "`ADD COLUMN IF NOT EXISTS` é a forma segura de adicionar colunas após a criação inicial. Nunca descarte ou renomeie colunas.",
     },
     {
       lines: "22-25",

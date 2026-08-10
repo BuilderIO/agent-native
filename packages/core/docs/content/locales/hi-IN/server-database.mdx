@@ -235,7 +235,7 @@ Local development में schema changes को `server/plugins/db.ts` के 
     {
       lines: "17",
       label: "योगात्मक कॉलम जोड़ना",
-      note: "Migration entries को track करके एक बार लागू किया जाता है। शुरुआती निर्माण के बाद additive `ADD COLUMN` statements का उपयोग करें; columns को कभी delete या rename न करें।",
+      note: "प्रारंभिक निर्माण के बाद कॉलम जोड़ने का सुरक्षित तरीका `ADD COLUMN IF NOT EXISTS` है। कभी भी कॉलम न गिराएं या नाम न बदलें।",
     },
     {
       lines: "22-25",

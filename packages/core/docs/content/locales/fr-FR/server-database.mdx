@@ -236,7 +236,7 @@ et non lors de la première requête. Utilisez `runMigrations` depuis
     {
       lines: "17",
       label: "Ajouts de colonnes additifs",
-      note: "Les entrées de migration sont suivies et appliquées une seule fois. Après la création initiale, utilisez des instructions `ADD COLUMN` additives ; ne supprimez et ne renommez jamais de colonnes.",
+      note: "`ADD COLUMN IF NOT EXISTS` est la façon sûre d'ajouter des colonnes après la création initiale. Ne supprimez et ne renommez jamais de colonnes.",
     },
     {
       lines: "22-25",

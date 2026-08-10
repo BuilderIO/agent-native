@@ -235,7 +235,7 @@ export const getDb = createGetDb(schema);
     {
       lines: "17",
       label: "追加的な列の追加",
-      note: "マイグレーション項目は追跡され、一度だけ適用されます。初期作成後は追加的な `ADD COLUMN` 文を使い、列を削除したり名前変更したりしないでください。",
+      note: "`ADD COLUMN IF NOT EXISTS` は、初期作成後に列を追加する安全な方法です。列を削除したり名前を変更したりしないでください。",
     },
     {
       lines: "22-25",

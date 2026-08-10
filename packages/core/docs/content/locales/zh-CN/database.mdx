@@ -252,13 +252,13 @@ await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
       lines: "6-7",
       label: "仅添加剂",
-      note: "迁移条目会被跟踪并只应用一次。保持变更为增量式：添加列或表，不要删除或重命名它们。",
+      note: "`ADD COLUMN IF NOT EXISTS` 可以安全地重新运行并且永远不会丢失数据。重命名看起来像 drop+create 为 Drizzle，所以改为添加然后迁移。",
     },
     {
       lines: "13-16",

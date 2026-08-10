@@ -252,13 +252,13 @@ Au lieu de pousser directement, les modifications de schéma doivent être appli
   filename="server/plugins/db.ts"
   language="ts"
   code={
-    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
   annotations={[
     {
       lines: "6-7",
       label: "Additif uniquement",
-      note: "Les entrées de migration sont suivies et appliquées une seule fois. Gardez les changements additifs : ajoutez des colonnes ou des tables, sans jamais les supprimer ni les renommer.",
+      note: "`ADD COLUMN IF NOT EXISTS` peut être réexécuté en toute sécurité et ne perd jamais de données. Les noms ressemblent à drop+create en Drizzle, alors ajoutez-puis-migrez à la place.",
     },
     {
       lines: "13-16",

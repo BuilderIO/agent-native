@@ -230,7 +230,7 @@ export const getDb = createGetDb(schema);
     {
       lines: "17",
       label: "增量式的列添加",
-      note: "迁移条目会被跟踪并只应用一次。初始建表后使用增量式 `ADD COLUMN` 语句；永远不要删除或重命名列。",
+      note: "`ADD COLUMN IF NOT EXISTS` 是在初始建表之后添加列的安全方式。永远不要删除或重命名列。",
     },
     {
       lines: "22-25",

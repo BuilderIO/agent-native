@@ -230,7 +230,7 @@ export const getDb = createGetDb(schema);
     {
       lines: "17",
       label: "附加式新增欄位",
-      note: "遷移項目會被追蹤並只套用一次。初次建表後使用附加式 `ADD COLUMN` 陳述式；切勿刪除或重新命名欄位。",
+      note: "`ADD COLUMN IF NOT EXISTS` 是在初次建表後新增欄位的安全做法。切勿刪除或重新命名欄位。",
     },
     {
       lines: "22-25",

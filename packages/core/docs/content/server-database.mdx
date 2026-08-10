@@ -233,7 +233,7 @@ For local development, schema changes can run through a Nitro plugin in
     {
       lines: "17",
       label: "Additive column adds",
-      note: "Migration entries are tracked and applied once. Use additive `ADD COLUMN` statements after initial creation; never drop or rename columns.",
+      note: "`ADD COLUMN IF NOT EXISTS` is the safe way to add columns after initial creation. Never drop or rename columns.",
     },
     {
       lines: "22-25",

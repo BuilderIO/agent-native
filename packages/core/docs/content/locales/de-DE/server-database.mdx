@@ -235,7 +235,7 @@ bei der ersten Anfrage aus. Verwenden Sie `runMigrations` aus `@agent-native/cor
     {
       lines: "17",
       label: "Additives Hinzufügen von Spalten",
-      note: "Migrationseinträge werden nachverfolgt und einmal angewendet. Verwenden Sie nach der Erstanlage additive `ADD COLUMN`-Anweisungen; löschen oder benennen Sie Spalten niemals um.",
+      note: "`ADD COLUMN IF NOT EXISTS` ist der sichere Weg, nach der Erstanlage Spalten hinzuzufügen. Löschen oder benennen Sie Spalten niemals um.",
     },
     {
       lines: "22-25",
