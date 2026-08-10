@@ -58,6 +58,7 @@ import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import {
+  IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
@@ -70,16 +71,6 @@ import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
-
-/**
- * PDF/PPTX import renders every page (image extraction, per-page fidelity
- * parsing) and can run well past the client's default 60s action timeout on
- * large or image-heavy files. A timeout here only aborts the *client's wait*
- * — the server keeps importing and the deck still ends up with slides — so
- * the old default made the editor silently fail to open on a deck that had
- * (or was about to have) real content.
- */
-const IMPORT_ACTION_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */

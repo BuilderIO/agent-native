@@ -118,7 +118,9 @@ export function expandIpv6(address: string): number[] | null {
   if (last?.includes(".")) {
     if (net.isIP(last) !== 4) return null;
     const octets = last.split(".").map((part) => Number(part));
-    if (octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255))
+    if (
+      octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+    )
       return null;
     ipv4Tail = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
     if (tailGroups.length > 0) tailGroups.pop();
@@ -138,11 +140,8 @@ export function expandIpv6(address: string): number[] | null {
   const tailParts = toHextets(tailGroups);
   if (!headParts || !tailParts) return null;
 
-  const explicit = [
-    ...headParts,
-    ...tailParts,
-    ...(ipv4Tail ? ipv4Tail : []),
-  ].length;
+  const explicit = [...headParts, ...tailParts, ...(ipv4Tail ? ipv4Tail : [])]
+    .length;
   if (explicit > 8) return null;
 
   if (elision === -1) {

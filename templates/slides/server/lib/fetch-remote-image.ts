@@ -34,7 +34,11 @@ const REQUEST_TIMEOUT_MS = 15_000;
  * actual connection. Because Node passes this straight to `net.connect`, the
  * address that is checked here is the address that gets dialled.
  */
-export const publicOnlyLookup: LookupFunction = (hostname, options, callback) => {
+export const publicOnlyLookup: LookupFunction = (
+  hostname,
+  options,
+  callback,
+) => {
   const wantsAll =
     typeof options === "object" && options !== null && options.all === true;
   const hints = typeof options === "object" && options !== null ? options : {};
@@ -56,7 +60,10 @@ export const publicOnlyLookup: LookupFunction = (hostname, options, callback) =>
       return;
     }
     if (wantsAll) {
-      (callback as unknown as (e: null, a: LookupAddress[]) => void)(null, safe);
+      (callback as unknown as (e: null, a: LookupAddress[]) => void)(
+        null,
+        safe,
+      );
       return;
     }
     callback(null, safe[0].address, safe[0].family);

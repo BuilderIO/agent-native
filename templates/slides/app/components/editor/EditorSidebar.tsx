@@ -147,9 +147,13 @@ function PresenceAvatarTip({
 // slide rail multiplies that by the slide count until the browser starts
 // serving stale tiles and flickering on hover. `hidden` keeps them out of the
 // layer tree until the row is actually hovered.
+//
+// `group-focus-within` is not decoration: `hidden` takes these out of the tab
+// order entirely, and keyboard focus does not satisfy `group-hover`, so
+// without it a keyboard user on a desktop width can never reach them.
 const THUMB_OVERLAY_CLASS =
   // guard:allow-raw-color — matches the duplicate/delete overlays below.
-  "absolute top-2 left-7 rounded bg-black/80 p-1 border border-white/10 cursor-grab active:cursor-grabbing sm:hidden sm:group-hover:block";
+  "absolute top-2 left-7 rounded bg-black/80 p-1 border border-white/10 cursor-grab active:cursor-grabbing sm:hidden sm:group-hover:block sm:group-focus-within:block";
 // guard:allow-raw-color — same fixed scrim as the class above.
 const THUMB_OVERLAY_ICON_CLASS = "w-3 h-3 text-white/60";
 const THUMB_ACTION_CLASS =
@@ -277,7 +281,7 @@ function SortableSlideThumb({
 
       {/* Actions - always visible on touch devices */}
       {!readOnly && (
-        <div className="absolute top-2 right-2 flex gap-0.5 sm:hidden sm:group-hover:flex">
+        <div className="absolute top-2 right-2 flex gap-0.5 sm:hidden sm:group-hover:flex sm:group-focus-within:flex">
           <Tooltip>
             <TooltipTrigger asChild>
               <button

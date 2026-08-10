@@ -4429,7 +4429,12 @@ export default function SlideEditor({
         onSendToAgent={sendSelectionToAgent}
       />
 
-      <BlockBubbleMenu editingEl={editingEl} slideId={slide.id} />
+      <BlockBubbleMenu
+        editingEl={editingEl}
+        slideId={slide.id}
+        deckId={deckId}
+        onCommitInlineEdit={exitInlineEdit}
+      />
 
       {pendingUpdateCount > 0 && (
         <div className="absolute top-4 right-4 z-50">

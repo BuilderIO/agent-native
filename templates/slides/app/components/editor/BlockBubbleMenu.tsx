@@ -1,4 +1,4 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBold,
@@ -11,6 +11,7 @@ import {
   IconCheck,
   IconX,
   IconArrowUp,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -28,6 +29,15 @@ interface BlockBubbleMenuProps {
   editingEl: HTMLElement | null;
   /** Slide the edited block belongs to, so an AI revision can target it. */
   slideId?: string;
+  /** Deck that owns the slide — pins the revision to the right deck. */
+  deckId?: string;
+  /**
+   * Ends the inline edit session and persists whatever is in the DOM now.
+   * Required before handing work to the agent: otherwise the still-open
+   * contentEditable serializes its stale text on the user's next click and
+   * overwrites the revision the agent just wrote.
+   */
+  onCommitInlineEdit?: () => void;
 }
 
 interface Position {
@@ -61,23 +71,32 @@ export function buildReviseSelectionPrompt({
   selectedText,
   instruction,
   slideId,
+  deckId,
 }: {
   selectedText: string;
   instruction: string;
   slideId?: string;
+  deckId?: string;
 }): string {
+  // The deck is named explicitly rather than left to "the current slide": the
+  // request is queued, and if the user opens another deck before the agent
+  // runs, an implicit target would pair this slide id with the wrong deck.
+  const target = [
+    deckId ? `Deck id: \`${deckId}\`` : null,
+    slideId ? `Slide id: \`${slideId}\`` : null,
+  ].filter((line) => line !== null);
+
   return [
-    `Revise this exact text on the current slide:`,
+    `Revise this exact text:`,
     ``,
     `"""`,
     selectedText,
     `"""`,
     ``,
     `How to revise it: ${instruction}`,
-    slideId ? `` : null,
-    slideId ? `Slide id: \`${slideId}\`` : null,
+    ...(target.length > 0 ? [``, ...target] : []),
     ``,
-    `Read the slide first with \`view-screen\`, then make one bounded \`update-slide --fullContent\` edit that replaces only the quoted text. Leave the surrounding HTML, inline styles, and layout untouched, and keep the replacement close to the original length so the slide still fits its canvas.`,
+    `Read that slide first with \`view-screen\`, then make one bounded \`update-slide --fullContent\` edit that replaces only the quoted text. Leave the surrounding HTML, inline styles, and layout untouched, and keep the replacement close to the original length so the slide still fits its canvas.`,
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -94,7 +113,12 @@ export function buildReviseSelectionPrompt({
  * It hands the selected text plus the user's instruction to the agent, which
  * rewrites the slide through `update-slide`.
  */
-export function BlockBubbleMenu({ editingEl, slideId }: BlockBubbleMenuProps) {
+export function BlockBubbleMenu({
+  editingEl,
+  slideId,
+  deckId,
+  onCommitInlineEdit,
+}: BlockBubbleMenuProps) {
   const t = useT();
   const [pos, setPos] = useState<Position | null>(null);
   const [showColors, setShowColors] = useState(false);
@@ -103,6 +127,7 @@ export function BlockBubbleMenu({ editingEl, slideId }: BlockBubbleMenuProps) {
   const [showAiInput, setShowAiInput] = useState(false);
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiTargetText, setAiTargetText] = useState("");
+  const [aiSending, setAiSending] = useState(false);
   const savedRangeRef = useRef<Range | null>(null);
   // True while a popup/input has the user's focus — keeps the menu pinned
   // even when the contentEditable selection collapses behind the scenes.
@@ -223,21 +248,42 @@ export function BlockBubbleMenu({ editingEl, slideId }: BlockBubbleMenuProps) {
     setShowLinkInput(false);
   };
 
-  const submitAiRevision = () => {
+  const submitAiRevision = async () => {
     const instruction = aiInstruction.trim();
-    if (!instruction || !aiTargetText) return;
-    sendToAgentChat({
-      message: buildReviseSelectionPrompt({
-        selectedText: aiTargetText,
-        instruction,
-        slideId,
-      }),
-      submit: true,
-      chatTarget: "local",
-    });
-    toast.success(t("raw.sentToAgent"), { description: instruction });
-    setShowAiInput(false);
-    setAiInstruction("");
+    if (!instruction || !aiTargetText || aiSending) return;
+
+    // Close the inline edit first. The block is still a live contentEditable
+    // session; leaving it open means the next click away serializes the old
+    // text over whatever the agent writes.
+    onCommitInlineEdit?.();
+
+    setAiSending(true);
+    try {
+      const delivery = await sendToAgentChatAndConfirm({
+        message: buildReviseSelectionPrompt({
+          selectedText: aiTargetText,
+          instruction,
+          slideId,
+          deckId,
+        }),
+        submit: true,
+        chatTarget: "local",
+      });
+
+      if (!delivery.delivered) {
+        // Keep the typed instruction so the user can retry without retyping.
+        toast.error(t("raw.sendToAgent"), {
+          description: delivery.reason ?? "The agent did not receive this.",
+        });
+        return;
+      }
+
+      toast.success(t("raw.sentToAgent"), { description: instruction });
+      setShowAiInput(false);
+      setAiInstruction("");
+    } finally {
+      setAiSending(false);
+    }
   };
 
   return createPortal(
@@ -344,7 +390,7 @@ export function BlockBubbleMenu({ editingEl, slideId }: BlockBubbleMenuProps) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  submitAiRevision();
+                  void submitAiRevision();
                 } else if (e.key === "Escape") {
                   e.preventDefault();
                   setShowAiInput(false);
@@ -352,19 +398,24 @@ export function BlockBubbleMenu({ editingEl, slideId }: BlockBubbleMenuProps) {
               }}
               placeholder={t("raw.tellAgentDo")}
               rows={2}
-              className="flex-1 resize-none rounded border border-border bg-muted px-2 py-1.5 text-xs text-foreground outline-none focus:border-ring"
+              disabled={aiSending}
+              className="flex-1 resize-none rounded border border-border bg-muted px-2 py-1.5 text-xs text-foreground outline-none focus:border-ring disabled:opacity-60"
               autoFocus
             />
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={submitAiRevision}
-                  disabled={!aiInstruction.trim()}
+                  onClick={() => void submitAiRevision()}
+                  disabled={!aiInstruction.trim() || aiSending}
                   aria-label={t("raw.sendToAgent")}
                   className={AI_SEND_BUTTON_CLASS}
                 >
-                  <IconArrowUp className="w-3.5 h-3.5" />
+                  {aiSending ? (
+                    <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <IconArrowUp className="w-3.5 h-3.5" />
+                  )}
                 </button>
               </TooltipTrigger>
               <TooltipContent>{t("raw.sendToAgent")}</TooltipContent>
