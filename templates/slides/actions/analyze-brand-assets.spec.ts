@@ -1,21 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  fetchBrandWebsiteSignals: vi.fn(),
+  extractRenderedDesignSystemFromUrl: vi.fn(),
   resolveAccess: vi.fn(),
 }));
 
-// The pure scraping/normalize helpers now live in @agent-native/core/brand-kit
-// and are unit-tested there. Here we only verify the action wires inputs through.
 vi.mock("@agent-native/core/brand-kit", async () => {
   const actual = await vi.importActual<
     typeof import("@agent-native/core/brand-kit")
   >("@agent-native/core/brand-kit");
-  return {
-    ...actual,
-    fetchBrandWebsiteSignals: mocks.fetchBrandWebsiteSignals,
-  };
+  return actual;
 });
+
+vi.mock("@agent-native/creative-context/server", () => ({
+  extractRenderedDesignSystemFromUrl: mocks.extractRenderedDesignSystemFromUrl,
+}));
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: mocks.resolveAccess,
@@ -27,7 +26,7 @@ import action, { normalizeBrandWebsiteUrl } from "./analyze-brand-assets";
 
 describe("analyze-brand-assets", () => {
   beforeEach(() => {
-    mocks.fetchBrandWebsiteSignals.mockReset();
+    mocks.extractRenderedDesignSystemFromUrl.mockReset();
     mocks.resolveAccess.mockReset();
   });
 
@@ -45,20 +44,26 @@ describe("analyze-brand-assets", () => {
     expect(result).toMatchObject({ companyName: "Acme", brandNotes: "bold" });
   });
 
-  it("delegates website analysis to fetchBrandWebsiteSignals", async () => {
-    mocks.fetchBrandWebsiteSignals.mockResolvedValue({
+  it("delegates website analysis to the shared rendered extractor", async () => {
+    mocks.extractRenderedDesignSystemFromUrl.mockResolvedValue({
       url: "https://example.com/",
-      themeColor: "#123456",
-      pageTitle: "Brand",
+      status: "complete",
+      rendered: true,
+      title: "Brand",
+      warnings: [],
+      diagnostics: [],
     });
 
     const result = await action.run({ websiteUrl: "example.com" });
 
-    expect(mocks.fetchBrandWebsiteSignals).toHaveBeenCalledWith("example.com");
+    expect(mocks.extractRenderedDesignSystemFromUrl).toHaveBeenCalledWith(
+      "example.com",
+    );
     expect(result.websiteAnalysis).toMatchObject({
       url: "https://example.com/",
-      themeColor: "#123456",
-      pageTitle: "Brand",
+      status: "complete",
+      rendered: true,
+      title: "Brand",
     });
   });
 });

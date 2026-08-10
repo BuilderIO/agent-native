@@ -4,6 +4,7 @@ import { hashEmail } from "./remote-store.js";
 import {
   buildMergedConfig,
   formatMcpConnectError,
+  McpConfigUnreadableError,
   mountMcpServersRoutes,
   startMcpConfigRefresh,
 } from "./routes.js";
@@ -33,6 +34,15 @@ vi.mock("../settings/store.js", async () => {
   const { EventEmitter } = await import("node:events");
   mockedSettings.emitter = new EventEmitter();
   return {
+    getSetting: async (key: string) => mockedSettings.all[key] ?? null,
+    putSetting: async (key: string, value: Record<string, unknown>) => {
+      mockedSettings.all[key] = value;
+    },
+    deleteSetting: async (key: string) => {
+      const existed = key in mockedSettings.all;
+      delete mockedSettings.all[key];
+      return existed;
+    },
     getAllSettings: async () => {
       mockedSettings.reads += 1;
       if (mockedSettings.readError) throw mockedSettings.readError;
@@ -137,6 +147,25 @@ describe("startMcpConfigRefresh", () => {
     }
   });
 
+  it("starts no timer where in-process sweeps are disabled", async () => {
+    // Billed per warm container, and the first tick always scans the whole
+    // settings table because it starts dirty.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    vi.useFakeTimers();
+    const manager = {
+      getConfig: () => ({ servers: {} }),
+      reconfigure: vi.fn(async () => {}),
+    };
+    try {
+      expect(startMcpConfigRefresh(manager as never)).toBeNull();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(mockedSettings.reads).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retries a failed refresh on the next interval", async () => {
     vi.useFakeTimers();
     const reconfigure = vi
@@ -220,6 +249,14 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
 
     await expect(buildMergedConfig()).resolves.toBeNull();
   });
+
+  it("reports an unreadable settings table instead of an empty config", async () => {
+    mockedSettings.readError = new Error("connect ECONNREFUSED");
+
+    // `null` means "zero MCP servers configured". An unreachable settings table
+    // must not be able to produce that answer.
+    await expect(buildMergedConfig()).rejects.toThrow(McpConfigUnreadableError);
+  });
 });
 
 describe("MCP server routes", () => {
@@ -256,6 +293,195 @@ describe("MCP server routes", () => {
     release();
     await expect(pending).resolves.toMatchObject({ status: 401 });
     expect(getSessionMock).toHaveBeenCalledOnce();
+  });
+
+  it("reconnects a scoped existing server by reconfiguring the manager", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
+    });
+
+    const server = {
+      id: "demo",
+      name: "demo",
+      url: "https://mcp.example.test/mcp",
+      createdAt: 1,
+      description: "Demo server",
+    };
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [server],
+    };
+
+    const mergedId = "org_acme_demo";
+    let status = {
+      connectedServers: [],
+      configuredServers: [mergedId],
+      errors: {
+        [mergedId]: "Streamable HTTP error: non-200 status code 401",
+      },
+      tools: [] as Array<{ source: string; name: string; description: string }>,
+    };
+    const manager = {
+      getStatus: () => status,
+      reconfigure: vi.fn(
+        async (nextConfig: { servers?: Record<string, unknown> }) => {
+          expect(nextConfig?.servers).toMatchObject({
+            [mergedId]: {
+              type: "http",
+              url: "https://mcp.example.test/mcp",
+              description: "Demo server",
+            },
+          });
+          status = {
+            connectedServers: [mergedId],
+            configuredServers: [mergedId],
+            errors: {},
+            tools: [
+              {
+                source: mergedId,
+                name: `mcp__${mergedId}__ping`,
+                description: "Ping",
+              },
+            ],
+          };
+        },
+      ),
+    };
+    const nitroApp = createNitroApp();
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(200);
+    expect(manager.reconfigure).toHaveBeenCalledOnce();
+    expect(response.body).toEqual({
+      ok: true,
+      server: {
+        id: "demo",
+        scope: "org",
+        name: "demo",
+        url: "https://mcp.example.test/mcp",
+        headers: undefined,
+        authMode: "none",
+        description: "Demo server",
+        firstParty: false,
+        createdAt: 1,
+        mergedId,
+        status: {
+          state: "connected",
+          toolCount: 1,
+        },
+      },
+    });
+  });
+
+  it("returns the formatted connection cause when reconnect still fails", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
+    });
+
+    const server = {
+      id: "demo",
+      name: "demo",
+      url: "https://mcp.example.test/mcp",
+      createdAt: 1,
+      description: "Demo server",
+    };
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [server],
+    };
+
+    const mergedId = "org_acme_demo";
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [mergedId],
+        errors: {
+          [mergedId]: "Streamable HTTP error: non-200 status code 401",
+        },
+        tools: [],
+      }),
+      reconfigure: vi.fn(async () => {}),
+    };
+    const nitroApp = createNitroApp();
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      server: {
+        id: "demo",
+        scope: "org",
+        name: "demo",
+        url: "https://mcp.example.test/mcp",
+        headers: undefined,
+        authMode: "none",
+        description: "Demo server",
+        firstParty: false,
+        createdAt: 1,
+        mergedId,
+        status: {
+          state: "error",
+          error:
+            "The MCP server rejected the request. Reconnect or update the required Authorization header.",
+        },
+      },
+    });
+  });
+
+  it("requires an active org to reconnect an org-scoped server", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [
+        {
+          id: "demo",
+          name: "demo",
+          url: "https://mcp.example.test/mcp",
+          createdAt: 1,
+        },
+      ],
+    };
+
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      }),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({
+      error: "Authentication required",
+    });
+    expect(manager.reconfigure).not.toHaveBeenCalled();
   });
 
   it("requires authentication before dry-running arbitrary MCP URLs", async () => {

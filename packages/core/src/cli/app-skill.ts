@@ -14,6 +14,10 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  AGENT_PLUGIN_MCP_SCHEMA,
+  AGENT_PLUGIN_SCHEMA,
+} from "./agent-plugin.js";
+import {
   resolveClients,
   supportsRemoteMcpOAuth,
   writeConfigs,
@@ -168,7 +172,7 @@ Usage:
 Commands:
   ensure   Register the app skill MCP connector for your local agent clients.
   launch   Open the hosted app, or materialize and start a local editable app.
-  pack     Create marketplace-ready skill, MCP, Codex/Claude plugin, and Vercel skills adapters.
+  pack     Create a standard Agent Plugin plus marketplace-ready skill, MCP, and host adapters.
 
 Hosted is the default. Use --local when you want editable source, offline work,
 or a privacy-sensitive local app instance.`;
@@ -649,6 +653,44 @@ function mcpServerConfig(manifest: AppSkillManifest, serverName?: string) {
   };
 }
 
+function standardAgentPluginManifest(
+  manifest: AppSkillManifest,
+  version: string,
+) {
+  return {
+    $schema: AGENT_PLUGIN_SCHEMA,
+    name: pluginName(manifest),
+    version,
+    description: manifest.description,
+    author: {
+      name: "Agent-Native",
+      url: "https://agent-native.com",
+    },
+    homepage: manifest.hosted.url,
+    repository: "https://github.com/BuilderIO/agent-native",
+    license: "MIT",
+    keywords: [
+      "agent-native",
+      manifest.id,
+      "mcp",
+      "skills",
+      "app-backed-skill",
+    ],
+  };
+}
+
+function standardAgentPluginMcpConfig(manifest: AppSkillManifest) {
+  return {
+    $schema: AGENT_PLUGIN_MCP_SCHEMA,
+    mcpServers: {
+      [manifest.mcp.serverName]: {
+        type: "streamable-http",
+        url: manifest.hosted.mcpUrl,
+      },
+    },
+  };
+}
+
 function pluginName(manifest: AppSkillManifest): string {
   return `agent-native-${manifest.id}`;
 }
@@ -955,6 +997,14 @@ export function buildAppSkillPack(
       }
     : manifest;
   writeJson(path.join(target, "agent-native.app-skill.json"), packedManifest);
+  writeJson(
+    path.join(target, "plugin.json"),
+    standardAgentPluginManifest(manifest, pluginVersion),
+  );
+  writeJson(
+    path.join(target, "mcp.json"),
+    standardAgentPluginMcpConfig(manifest),
+  );
   if (appSource) {
     copyDirFiltered(appSource, path.join(target, "app"));
   }
@@ -964,6 +1014,8 @@ export function buildAppSkillPack(
 
   const files: string[] = [
     path.join(target, "agent-native.app-skill.json"),
+    path.join(target, "plugin.json"),
+    path.join(target, "mcp.json"),
     ...(appSource ? [path.join(target, "app")] : []),
     ...exportedSkillNames.map((name) =>
       path.join(target, "skills", name, "SKILL.md"),

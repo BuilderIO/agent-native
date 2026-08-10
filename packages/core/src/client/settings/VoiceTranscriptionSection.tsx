@@ -10,20 +10,21 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import { Picker, Switch } from "@agent-native/toolkit/design-system";
+import { Picker, Skeleton, Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconExternalLink,
-  IconLoader2,
   IconLockOpen,
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import { agentNativePath } from "../api-path.js";
 import { SettingsRow } from "./SettingsRow.js";
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -318,7 +319,12 @@ export function VoiceTranscriptionSection({
 
   const focusKey = (key: string) => {
     if (typeof window === "undefined") return;
-    window.location.hash = `#secrets:${key}`;
+    window.history.pushState(
+      null,
+      "",
+      buildSettingsRoute(`integrations:secrets:${key}`),
+    );
+    window.dispatchEvent(new Event("popstate"));
   };
 
   const chooseSource = (next: TranscriptionMode) => {
@@ -365,12 +371,21 @@ export function VoiceTranscriptionSection({
   };
 
   if (transcriptionMode === null) {
-    return (
-      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <IconLoader2 size={10} className="animate-spin" />
-        Loading…
-      </div>
-    );
+    if (compact) {
+      return (
+        <SettingsRow
+          label="Voice transcription"
+          description="Choose how voice input is transcribed."
+          control={
+            <Skeleton
+              className="h-9 w-44 border border-border bg-muted-foreground/10"
+              aria-label="Loading voice transcription"
+            />
+          }
+        />
+      );
+    }
+    return <SettingsSkeleton lines={1} />;
   }
 
   if (compact) {

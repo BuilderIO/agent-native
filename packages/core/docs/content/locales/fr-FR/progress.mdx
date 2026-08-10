@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/progress";
 
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Triage 128 unread emails",
   step: "Fetching inbox",
 });
@@ -100,7 +100,7 @@ Créez une course. Renvoie le `AgentRun` complet avec un identifiant généré.
 
 ```ts
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Ingest 1M rows",
   step: "Opening CSV",
   metadata: { jobId: "abc123", artifactPath: "s3://..." },
@@ -140,9 +140,9 @@ await completeRun(run.id, run.owner, "succeeded", {
 ```ts
 import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
 
-const active = await listRuns("steve@builder.io", { activeOnly: true });
-const run = await getRun("run-id", "steve@builder.io");
-await deleteRun("run-id", "steve@builder.io");
+const active = await listRuns("user@example.com", { activeOnly: true });
+const run = await getRun("run-id", "user@example.com");
+await deleteRun("run-id", "user@example.com");
 ```
 
 ## HTTP API {#http}

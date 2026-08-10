@@ -253,12 +253,14 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 production agent chat plugin raw SQL tools को default रूप से read-only रखता है
-(`databaseTools: "read"`), इसलिए agent app data को `db-schema` / `db-query`
-से inspect करते हैं और writes typed app actions से करते हैं। `databaseTools: "write"`
+(`frameworkTools: { database: "read" }`), इसलिए agent app data को `db-schema` / `db-query`
+से inspect करते हैं और writes typed app actions से करते हैं। `database: "write"`
 (या `true`) केवल उन maintenance surfaces के लिए सेट करें जिन्हें scoped
 `db-exec` / `db-patch` भी चाहिए; सभी data access के लिए typed app actions
-require करने हेतु `databaseTools: "off"` / `false` सेट करें
+require करने हेतु `database: "off"` / `false` सेट करें
 पहुँच.
+
+`frameworkTools` फ़्रेमवर्क के बाकी अपने टूल को भी इसी तरह नियंत्रित करता है: sharing, रिव्यू कमेंट, वर्शन इतिहास, feature flags, लोकलाइज़ेशन, ऑडिट, Context X-Ray, प्रोफ़ाइल, ऑटोमेशन, docs, resources, web, ऐप-दर-ऐप डेलिगेशन, चैट और ईमेल। पूरी सूची, `"minimal"` preset, और किसी समूह को बंद करने पर उसके HTTP रूट क्यों माउंट रहते हैं — देखें [Production Agent Tools](/docs/deployment#production-agent-tools)।
 
 ## एजेंट चैट ब्रिज {#agent-chat-bridge}
 

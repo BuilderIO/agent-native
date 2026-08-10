@@ -13,12 +13,19 @@ workflow needs durable UI around the conversation.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Follow the root framework contract: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
+- Keep actions deterministic and focused. For research, analysis, generation,
+  recommendation, or synthesis, start in the AgentSidebar and let the agent
+  orchestrate its tools; keep follow-ups in the same thread instead of adding
+  a second freeform prompt box.
 - Keep the full-page chat route distinct from domain pages. If a workflow needs
   a page, give it a named route and use the right AgentSidebar for contextual
   AI; domain buttons that call `sendToAgentChat()` should open that sidebar.
 - Keep the first viewport sparse and task-focused. Use progressive disclosure
   and domain-specific navigation, and never use sparkle, wand, magic, or robot
   icons as AI affordances.
+- Page and section data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
 - Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
   type for content previews. Give the AgentSidebar a subtle surface/divider
   boundary, and stack original/generated review vertically by default.

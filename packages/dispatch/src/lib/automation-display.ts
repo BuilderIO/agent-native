@@ -13,11 +13,22 @@ export function automationIdentity(
   return `${item.owner}:${item.path}`;
 }
 
+/**
+ * Dispatch is the workspace-wide surface. Keep legacy resources without an
+ * app owner visible in its default view while making an explicit app owner
+ * opt into the global filter.
+ */
+export function belongsToDispatch(
+  item: Pick<DispatchAutomationItem, "appId">,
+): boolean {
+  return !item.appId || item.appId === "dispatch";
+}
+
 export function automationTroubleshootPath(
   item: Pick<DispatchAutomationItem, "name">,
 ): string {
-  const params = new URLSearchParams({ query: item.name });
-  return `/thread-debug?${params.toString()}`;
+  const params = new URLSearchParams({ mode: "threads", query: item.name });
+  return `/admin/thread-debug?${params.toString()}`;
 }
 
 export function automationTarget(item: DispatchAutomationItem): string {

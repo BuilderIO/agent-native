@@ -1,6 +1,7 @@
 import {
   Checkbox,
   Picker,
+  Skeleton,
   TextField,
 } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
@@ -26,7 +27,6 @@ import {
   IconDatabase,
   IconFolder,
   IconShield,
-  IconShieldLock,
   IconPlugConnected,
   IconTopologyRing2,
   IconLoader2,
@@ -53,8 +53,16 @@ import React, {
 } from "react";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
-import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
+import { buildSettingsRoute } from "../../navigation/index.js";
+import {
+  saveAgentEngineProviderSettings,
+  setAgentEngineProvider,
+} from "../agent-engine-key.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
+import {
+  getAgentProviderOption,
+  providerIdForEngine,
+} from "../agent-provider-catalog.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
@@ -68,6 +76,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
@@ -85,6 +94,7 @@ import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
+import { AgentProviderPicker } from "./ProviderSetupForm.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -93,6 +103,7 @@ import {
   useSettingsSurface,
   type SettingsSurface,
 } from "./SettingsSection.js";
+import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
@@ -147,26 +158,6 @@ const IntegrationsPanel = lazy(() =>
     default: m.IntegrationsPanel,
   })),
 );
-
-// ─── Shared helpers ─────────────────────────────────────────────────────────
-
-function SettingsSkeleton({ lines = 3 }: { lines?: number }) {
-  return (
-    <div className="space-y-3 animate-pulse">
-      {Array.from({ length: lines }, (_, i) => (
-        <div key={i} className="space-y-1.5">
-          <div
-            className="h-3 rounded bg-muted-foreground/10"
-            style={{ width: i === 0 ? "30%" : i === 1 ? "100%" : "60%" }}
-          />
-          {i < 2 && (
-            <div className="h-9 rounded-md border border-border bg-muted-foreground/5" />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 interface SettingsSelectOption {
   value: string;
@@ -958,8 +949,8 @@ function LLMSectionInner({
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
     | { ok: true; latencyMs: number; model: string }
@@ -1053,42 +1044,32 @@ function LLMSectionInner({
     envVar,
     builderConnected,
   });
-  const manualSetupHint =
-    selectedEngine === "ai-sdk:openrouter"
-      ? "Provide an OpenRouter key to use OpenRouter models like GLM 5.2."
-      : "Choose your AI provider and model.";
+  const manualSetupHint = "Select a provider.";
 
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
-  const isOpenAiEngine = selectedEngine === "ai-sdk:openai";
-  const endpointChanged = isOpenAiEngine && (!!baseUrl.trim() || clearBaseUrl);
+  const selectedProvider = providerIdForEngine(selectedEngine) ?? "anthropic";
+  const selectedProviderOption = getAgentProviderOption(selectedProvider);
+  const isEndpointProvider = selectedProviderOption.supportsEndpoint === true;
+  const endpointChanged =
+    isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
   const providerSettingsChanged = !!apiKey.trim() || endpointChanged;
-
-  // Hide the Anthropic-via-AI-SDK alias (redundant with the native entry)
-  // and Ollama (no API key to set here). The currently-selected engine is
-  // always kept so a stale setting doesn't vanish from the picker.
-  const providerOptions: SettingsSelectOption[] = engines
-    .filter(
-      (e) =>
-        e.name === selectedEngine ||
-        (e.name !== "ai-sdk:anthropic" && e.name !== "ai-sdk:ollama"),
-    )
-    .map((e) => ({ value: e.name, label: e.label }));
 
   const modelOptions: SettingsSelectOption[] = latestModelsOnly(
     selectedEngineInfo?.supportedModels ?? [],
   ).map((m) => ({ value: m, label: friendlyModelName(m) }));
 
   const handleSave = async () => {
-    if (!providerSettingsChanged || !envVar) return;
+    if (!providerSettingsChanged || (!envVar && !isEndpointProvider)) return;
     setSaving(true);
     try {
-      const nextBaseUrl = isOpenAiEngine ? baseUrl.trim() : "";
+      const nextBaseUrl = isEndpointProvider ? baseUrl.trim() : "";
       await saveAgentEngineProviderSettings({
-        key: envVar,
+        provider: selectedProvider,
+        ...(envVar ? { key: envVar } : {}),
         ...(apiKey.trim() ? { apiKey } : {}),
         ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
-        ...(isOpenAiEngine && clearBaseUrl ? { clearBaseUrl: true } : {}),
+        ...(isEndpointProvider && clearBaseUrl ? { clearBaseUrl: true } : {}),
       });
       setSaved(true);
       setApiKey("");
@@ -1177,28 +1158,21 @@ function LLMSectionInner({
   };
 
   const handleApply = async () => {
+    setApplyError(null);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/actions/manage-agent-engine"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "set",
-            engine: selectedEngine,
-            model: selectedModel,
-          }),
-        },
-      );
-      if (res.ok) {
-        setCurrentEngine(selectedEngine);
-        setCurrentModel(selectedModel);
-        setApplyNote(true);
-        refreshSettingsStatus();
-        notifyConfigChanged();
-        setTimeout(() => setApplyNote(false), 4000);
-      }
-    } catch {}
+      await setAgentEngineProvider({
+        provider: selectedProvider,
+        model: selectedModel,
+      });
+      setCurrentEngine(selectedEngine);
+      setCurrentModel(selectedModel);
+      setApplyNote(true);
+      refreshSettingsStatus();
+      notifyConfigChanged();
+      setTimeout(() => setApplyNote(false), 4000);
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -1206,40 +1180,40 @@ function LLMSectionInner({
       id={settingsSectionDomId("llm")}
       icon={<IconBrain size={14} />}
       title="LLM"
-      subtitle="Use Builder.io free credits or your own LLM provider."
       required
       connected={initialLoading ? undefined : anyKeyConfigured}
+      subtitle={
+        isPage
+          ? undefined
+          : t("agentPanel.builderOrOwnKeys", {
+              defaultValue: "Choose Builder.io or custom keys.",
+            })
+      }
       grouped={isPage && grouped}
       open={open}
       onToggle={onToggle}
     >
       {initialLoading ? (
-        <div className={cn(isPage && "px-5 py-4 sm:px-6")}>
-          <SettingsSkeleton lines={3} />
-        </div>
+        <SettingsLoadingRow controlCount={2} />
       ) : (
         <div
           className={cn(
             isPage
               ? "flex items-center justify-between gap-4 px-5 py-4 sm:px-6"
-              : "space-y-2",
+              : "flex items-center justify-between gap-2",
           )}
         >
           {isPage && (
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">
-                Connect an LLM
-              </p>
+              <p className="text-sm font-medium text-foreground">AI provider</p>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Use Builder.io free credits or your own provider.
+                {t("agentPanel.builderOrOwnKeys", {
+                  defaultValue: "Choose Builder.io or custom keys.",
+                })}
               </p>
             </div>
           )}
-          <div
-            className={cn(
-              isPage && "flex flex-wrap items-center justify-end gap-2",
-            )}
-          >
+          <div className={cn("flex flex-wrap items-center justify-end gap-2")}>
             <UseBuilderCard
               builderFlow={builderFlow}
               connectUrl={connectUrl}
@@ -1250,341 +1224,326 @@ function LLMSectionInner({
               trackingSource="llm_settings"
               trackingFlow="connect_llm"
               label="Connect Builder.io"
-              compact={isPage}
+              compact
             />
-            {builderConnected && !isPage && (
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="ghost"
-                aria-expanded={manualSetupOpen}
-                aria-controls="llm-manual-setup"
-                onClick={() => setManualSetupOpen((open) => !open)}
-                className={cn(
-                  "inline-flex items-center gap-1 px-0.5 text-muted-foreground hover:text-foreground",
-                  isPage ? "text-xs" : "text-[10px]",
-                )}
-              >
-                {t("agentPanel.addOwnKeys", {
-                  defaultValue: "Add your own keys",
-                })}
-                <IconChevronDown
-                  size={isPage ? 14 : 11}
-                  className={cn(
-                    "transition-transform",
-                    manualSetupOpen && "rotate-180",
-                  )}
+            <ManualSetupCard
+              id="llm-manual-setup"
+              title="Custom keys"
+              hint={manualSetupHint}
+              sourceBadge={builderConnected ? undefined : sourceBadge}
+              bare={isPage}
+              popover
+              popoverLabel={
+                settingsConfigured
+                  ? "Manage"
+                  : t("agentPanel.addOwnKeys", {
+                      defaultValue: "Custom keys",
+                    })
+              }
+            >
+              <div className="space-y-2 mb-1">
+                <AgentProviderPicker
+                  value={selectedProvider}
+                  layout={isPage ? "page" : "compact"}
+                  onChange={(provider) => {
+                    const option = getAgentProviderOption(provider);
+                    setSelectedEngine(option.engine);
+                    setSelectedModel(option.defaultModel);
+                    setApiKey("");
+                    setBaseUrl("");
+                    setClearBaseUrl(false);
+                    setAdvancedOpen(false);
+                  }}
                 />
-              </Button>
-            )}
-            {(!builderConnected || manualSetupOpen || isPage) && (
-              <ManualSetupCard
-                id="llm-manual-setup"
-                title="Custom keys"
-                hint={manualSetupHint}
-                sourceBadge={builderConnected ? undefined : sourceBadge}
-                bare={isPage}
-                popover={isPage}
-                popoverLabel="Custom keys"
-              >
-                <div className="space-y-2 mb-1">
-                  <SettingsSelect
-                    label="Provider"
-                    value={selectedEngine}
-                    options={providerOptions}
-                    onValueChange={(val) => {
-                      setSelectedEngine(val);
-                      const info = engines.find((e) => e.name === val);
-                      setSelectedModel(info?.defaultModel ?? "");
-                      setApiKey("");
-                      setBaseUrl("");
-                      setClearBaseUrl(false);
-                      setAdvancedOpen(false);
-                    }}
-                  />
 
-                  {/* Free-form input so OpenRouter/Ollama custom model IDs can
+                {/* Free-form input so OpenRouter/Ollama custom model IDs can
                 be typed — the registry's supportedModels is only suggestions. */}
-                  <div className="space-y-1.5">
-                    <p className={fieldLabelClass(isPage)}>Model</p>
-                    <input
-                      type="text"
-                      list={`model-suggestions-${selectedEngine}`}
-                      value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
-                      placeholder={
-                        selectedEngineInfo?.defaultModel ?? "e.g. model-id"
-                      }
-                      spellCheck={false}
-                      autoComplete="off"
-                      className={textInputClass(isPage)}
-                      style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
-                    />
-                    {modelOptions.length > 0 && (
-                      <datalist id={`model-suggestions-${selectedEngine}`}>
-                        {modelOptions.map((opt) => (
-                          <option
-                            key={opt.value}
-                            value={opt.value}
-                            label={opt.label}
-                          />
-                        ))}
-                      </datalist>
-                    )}
-                  </div>
-
-                  {isOpenAiEngine && (
-                    <div className="border-t border-border/70 pt-2">
-                      <Button
-                        type="button"
-                        onClick={() => setAdvancedOpen((v) => !v)}
-                        className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
-                      >
-                        <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
-                          {advancedOpen ? (
-                            <IconChevronDown size={12} />
-                          ) : (
-                            <IconChevronRight
-                              size={12}
-                              className="rtl:-scale-x-100"
-                            />
-                          )}
-                          Advanced
-                        </span>
-                        <span className="truncate text-[10px] text-muted-foreground">
-                          OpenAI-compatible endpoint
-                        </span>
-                      </Button>
-
-                      {advancedOpen && (
-                        <div className="mt-1.5 space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[12px] font-medium text-foreground">
-                              Endpoint URL
-                            </p>
-                            <span className="text-[10px] text-muted-foreground">
-                              {baseUrlConfigured ? "Configured" : "Optional"}
-                            </span>
-                          </div>
-                          <input
-                            type="url"
-                            value={baseUrl}
-                            onChange={(e) => {
-                              setBaseUrl(e.target.value);
-                              if (e.target.value.trim()) setClearBaseUrl(false);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSave();
-                            }}
-                            placeholder={
-                              baseUrlConfigured
-                                ? "Leave blank to keep current endpoint"
-                                : "https://gateway.example/v1"
-                            }
-                            disabled={clearBaseUrl}
-                            spellCheck={false}
-                            autoComplete="off"
-                            className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
-                            style={CONTROL_STYLE}
-                          />
-                          <p className="text-[10px] leading-relaxed text-muted-foreground">
-                            Use for LiteLLM or another OpenAI-compatible chat
-                            gateway. Leave blank for OpenAI.
-                          </p>
-                          {baseUrlConfigured && (
-                            <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                              <Checkbox
-                                checked={clearBaseUrl}
-                                onChange={(checked) => {
-                                  setClearBaseUrl(checked);
-                                  if (checked) setBaseUrl("");
-                                }}
-                                aria-label="Clear saved endpoint override"
-                                className="shrink-0"
-                              />
-                              Clear saved endpoint override
-                            </label>
-                          )}
-                          {envVar && envConfigured && endpointChanged && (
-                            <Button
-                              type="button"
-                              intent="neutral"
-                              emphasis="solid"
-                              onClick={handleSave}
-                              disabled={saving}
-                              className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
-                            >
-                              {saving ? (
-                                <IconLoader2
-                                  size={10}
-                                  className="animate-spin"
-                                />
-                              ) : saved ? (
-                                <IconCheck size={10} />
-                              ) : (
-                                "Save endpoint"
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {envVar && envConfigured ? (
-                    <div
-                      className={cn(
-                        "flex items-center gap-1.5 text-primary",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      <IconCheck size={isPage ? 14 : 10} />
-                      {envVar} configured
-                    </div>
-                  ) : envVar ? (
-                    <div className="flex gap-1.5">
-                      <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSave();
-                        }}
-                        placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
-                        className={cn(textInputClass(isPage), "flex-1")}
-                        style={isPage ? CONTROL_STYLE_PAGE : undefined}
-                      />
-                      <Button
-                        intent="primary"
-                        emphasis="solid"
-                        onClick={handleSave}
-                        disabled={!providerSettingsChanged || saving}
-                        className={pillButtonClass(isPage, "solid")}
-                      >
-                        {saving ? (
-                          <IconLoader2
-                            size={isPage ? 14 : 10}
-                            className="animate-spin"
-                          />
-                        ) : saved ? (
-                          <IconCheck size={isPage ? 14 : 10} />
-                        ) : (
-                          "Save"
-                        )}
-                      </Button>
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      intent="neutral"
-                      emphasis="outline"
-                      onClick={handleTest}
-                      disabled={testing}
-                      className={pillButtonClass(isPage, "outline")}
-                    >
-                      {testing ? (
-                        <span className="flex items-center gap-1">
-                          <IconLoader2
-                            size={isPage ? 14 : 10}
-                            className="animate-spin"
-                          />
-                          Testing…
-                        </span>
-                      ) : (
-                        "Test"
-                      )}
-                    </Button>
-                    {PROVIDER_DOCS[selectedEngine] ? (
-                      <a
-                        href={PROVIDER_DOCS[selectedEngine]}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={cn(
-                          pillButtonClass(isPage, "outline"),
-                          "no-underline",
-                        )}
-                      >
-                        Get an API key
-                        <IconExternalLink size={isPage ? 14 : 10} />
-                      </a>
-                    ) : null}
-                    {engineChanged && (
-                      <Button
-                        intent="primary"
-                        emphasis="solid"
-                        onClick={handleApply}
-                        className={pillButtonClass(isPage, "solid")}
-                      >
-                        Apply
-                      </Button>
-                    )}
-                    {settingsStatus != null && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            intent="danger"
-                            emphasis="outline"
-                            onClick={handleDisconnect}
-                            className={cn(
-                              pillButtonClass(isPage, "outline"),
-                              "ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40",
-                            )}
-                          >
-                            Disconnect
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Clear the saved engine — the app will fall back to the
-                          default until you re-apply.
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                  {testResult && testResult.ok && (
-                    <p
-                      className={cn(
-                        "flex items-center gap-1 text-primary",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      <IconCheck size={isPage ? 14 : 10} />
-                      Test passed — {testResult.latencyMs}ms
-                    </p>
-                  )}
-                  {testResult && testResult.ok === false && (
-                    <p
-                      className={cn(
-                        "text-destructive",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      Test failed: {testResult.error}
-                    </p>
-                  )}
-                  {disconnectError && (
-                    <p
-                      className={cn(
-                        "text-destructive",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      Disconnect failed: {disconnectError}
-                    </p>
-                  )}
-                  {applyNote && (
-                    <p
-                      className={cn(
-                        "text-muted-foreground",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      Changes take effect on next conversation
-                    </p>
+                <div className="space-y-1.5">
+                  <p className={fieldLabelClass(isPage)}>Model</p>
+                  <input
+                    type="text"
+                    list={`model-suggestions-${selectedEngine}`}
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    placeholder={
+                      selectedEngineInfo?.defaultModel ?? "e.g. model-id"
+                    }
+                    spellCheck={false}
+                    autoComplete="off"
+                    className={textInputClass(isPage)}
+                    style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
+                  />
+                  {modelOptions.length > 0 && (
+                    <datalist id={`model-suggestions-${selectedEngine}`}>
+                      {modelOptions.map((opt) => (
+                        <option
+                          key={opt.value}
+                          value={opt.value}
+                          label={opt.label}
+                        />
+                      ))}
+                    </datalist>
                   )}
                 </div>
-              </ManualSetupCard>
-            )}
+
+                {isEndpointProvider && (
+                  <div className="border-t border-border/70 pt-2">
+                    <Button
+                      type="button"
+                      onClick={() => setAdvancedOpen((v) => !v)}
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-foreground">
+                        {advancedOpen ? (
+                          <IconChevronDown size={12} />
+                        ) : (
+                          <IconChevronRight
+                            size={12}
+                            className="rtl:-scale-x-100"
+                          />
+                        )}
+                        Advanced
+                      </span>
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        {selectedProvider === "ollama"
+                          ? "Local Ollama endpoint"
+                          : "OpenAI-compatible endpoint"}
+                      </span>
+                    </Button>
+
+                    {advancedOpen && (
+                      <div className="mt-1.5 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[12px] font-medium text-foreground">
+                            Endpoint URL
+                          </p>
+                          <span className="text-[10px] text-muted-foreground">
+                            {baseUrlConfigured ? "Configured" : "Optional"}
+                          </span>
+                        </div>
+                        <input
+                          type="url"
+                          value={baseUrl}
+                          onChange={(e) => {
+                            setBaseUrl(e.target.value);
+                            if (e.target.value.trim()) setClearBaseUrl(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSave();
+                          }}
+                          placeholder={
+                            baseUrlConfigured
+                              ? "Leave blank to keep current endpoint"
+                              : selectedProvider === "ollama"
+                                ? "http://localhost:11434"
+                                : "https://gateway.example/v1"
+                          }
+                          disabled={clearBaseUrl}
+                          spellCheck={false}
+                          autoComplete="off"
+                          className="flex h-9 w-full rounded-md border border-border bg-background px-3 text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 focus:ring-1 focus:ring-accent disabled:opacity-50 placeholder:text-muted-foreground/50"
+                          style={CONTROL_STYLE}
+                        />
+                        {baseUrlConfigured && (
+                          <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <Checkbox
+                              checked={clearBaseUrl}
+                              onChange={(checked) => {
+                                setClearBaseUrl(checked);
+                                if (checked) setBaseUrl("");
+                              }}
+                              aria-label="Clear saved endpoint override"
+                              className="shrink-0"
+                            />
+                            Clear saved endpoint override
+                          </label>
+                        )}
+                        {endpointChanged && (
+                          <Button
+                            type="button"
+                            intent="neutral"
+                            emphasis="solid"
+                            onClick={handleSave}
+                            disabled={saving}
+                            className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
+                          >
+                            {saving ? (
+                              <IconLoader2 size={10} className="animate-spin" />
+                            ) : saved ? (
+                              <IconCheck size={10} />
+                            ) : (
+                              "Save endpoint"
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {envVar && envConfigured ? (
+                  <div
+                    className={cn(
+                      "flex items-center gap-1.5 text-primary",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconCheck size={isPage ? 14 : 10} />
+                    {envVar} configured
+                  </div>
+                ) : envVar ? (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="password"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSave();
+                      }}
+                      placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
+                      className={cn(textInputClass(isPage), "flex-1")}
+                      style={isPage ? CONTROL_STYLE_PAGE : undefined}
+                    />
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={handleSave}
+                      disabled={!providerSettingsChanged || saving}
+                      className={pillButtonClass(isPage, "solid")}
+                    >
+                      {saving ? (
+                        <IconLoader2
+                          size={isPage ? 14 : 10}
+                          className="animate-spin"
+                        />
+                      ) : saved ? (
+                        <IconCheck size={isPage ? 14 : 10} />
+                      ) : (
+                        "Save"
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    intent="neutral"
+                    emphasis="outline"
+                    onClick={handleTest}
+                    disabled={testing}
+                    className={pillButtonClass(isPage, "outline")}
+                  >
+                    {testing ? (
+                      <span className="flex items-center gap-1">
+                        <IconLoader2
+                          size={isPage ? 14 : 10}
+                          className="animate-spin"
+                        />
+                        Testing…
+                      </span>
+                    ) : (
+                      "Test"
+                    )}
+                  </Button>
+                  {PROVIDER_DOCS[selectedEngine] ? (
+                    <a
+                      href={PROVIDER_DOCS[selectedEngine]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        pillButtonClass(isPage, "outline"),
+                        "no-underline",
+                      )}
+                    >
+                      Get an API key
+                      <IconExternalLink size={isPage ? 14 : 10} />
+                    </a>
+                  ) : null}
+                  {engineChanged && (
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={handleApply}
+                      className={pillButtonClass(isPage, "solid")}
+                    >
+                      Apply
+                    </Button>
+                  )}
+                  {settingsStatus != null && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          intent="danger"
+                          emphasis="outline"
+                          onClick={handleDisconnect}
+                          className={cn(
+                            pillButtonClass(isPage, "outline"),
+                            "ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40",
+                          )}
+                        >
+                          Disconnect
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Clear the saved engine — the app will fall back to the
+                        default until you re-apply.
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                {testResult && testResult.ok && (
+                  <p
+                    className={cn(
+                      "flex items-center gap-1 text-primary",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    <IconCheck size={isPage ? 14 : 10} />
+                    Test passed — {testResult.latencyMs}ms
+                  </p>
+                )}
+                {testResult && testResult.ok === false && (
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Test failed: {testResult.error}
+                  </p>
+                )}
+                {disconnectError && (
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Disconnect failed: {disconnectError}
+                  </p>
+                )}
+                {applyError && (
+                  <p
+                    className={cn(
+                      "text-destructive",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Apply failed: {applyError}
+                  </p>
+                )}
+                {applyNote && (
+                  <p
+                    className={cn(
+                      "text-muted-foreground",
+                      isPage ? "text-xs" : "text-[10px]",
+                    )}
+                  >
+                    Changes take effect on next conversation
+                  </p>
+                )}
+              </div>
+            </ManualSetupCard>
           </div>
         </div>
       )}
@@ -1632,8 +1591,7 @@ function AppDefaultModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const visibleEngines = engines.filter(
-    (engine) =>
-      engine.name !== "ai-sdk:anthropic" && engine.name !== "ai-sdk:ollama",
+    (engine) => engine.name !== "ai-sdk:anthropic",
   );
   const selectedModel = value.includes("::")
     ? value.slice(value.indexOf("::") + 2)
@@ -1647,7 +1605,10 @@ function AppDefaultModelPicker({
 
   const openIntegrations = () => {
     setOpen(false);
-    if (typeof window !== "undefined") window.location.hash = "integrations";
+    if (typeof window !== "undefined") {
+      window.history.pushState(null, "", buildSettingsRoute("integrations"));
+      window.dispatchEvent(new Event("popstate"));
+    }
   };
 
   return (
@@ -1818,8 +1779,7 @@ function AppModelDefaultsSectionInner({
   const engineOptions: SettingsSelectOption[] = (settings?.engines ?? [])
     .filter(
       (engine) =>
-        engine.name === selectedEngine ||
-        (engine.name !== "ai-sdk:anthropic" && engine.name !== "ai-sdk:ollama"),
+        engine.name === selectedEngine || engine.name !== "ai-sdk:anthropic",
     )
     .map((engine) => ({
       value: engine.name,
@@ -1934,7 +1894,7 @@ function AppModelDefaultsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsSkeleton lines={2} />
+        <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2585,7 +2545,7 @@ function AgentLimitsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsSkeleton lines={2} />
+        <SettingsLoadingRow />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2817,7 +2777,21 @@ export interface AgentSettingsTabsOptions {
    * app capability and stay hidden unless the host opts in.
    */
   extensionTools?: boolean;
+  /** Optional page-level settings to show in the Agent section. */
+  agentAdditionalContent?: React.ReactNode;
+  /** Optional app-owned tabs that share the Agent settings scope. */
+  agentAdditionalTabFactories?: AgentSettingsTabFactory[];
 }
+
+export interface AgentSettingsTabFactoryContext {
+  scope: "user";
+  canManageOrg?: boolean;
+  scopeControl: React.ReactNode;
+}
+
+export type AgentSettingsTabFactory = (
+  context: AgentSettingsTabFactoryContext,
+) => SettingsTabItem;
 
 export function areExtensionSettingsEnabled(
   options: AgentSettingsTabsOptions = {},
@@ -2886,7 +2860,7 @@ function CapabilityStatusStrip({
           active={builderConnected}
           value={
             builderLoading ? (
-              "Checking..."
+              <Skeleton className="h-3 w-16" />
             ) : builderConnected ? (
               "Connected"
             ) : (
@@ -2913,6 +2887,7 @@ interface SettingsPanelContentProps extends SettingsPanelProps {
   className?: string;
   surface?: SettingsSurface;
   builderConnectionOwnedExternally?: boolean;
+  agentAdditionalContent?: React.ReactNode;
 }
 
 function SettingsPanelContent({
@@ -2924,6 +2899,7 @@ function SettingsPanelContent({
   className,
   surface = "sidebar",
   builderConnectionOwnedExternally = false,
+  agentAdditionalContent,
 }: SettingsPanelContentProps) {
   const { status: builder, loading: builderLoading } = useBuilderStatus({
     enabled: !builderConnectionOwnedExternally,
@@ -2967,6 +2943,7 @@ function SettingsPanelContent({
   );
 
   const isPage = surface === "page";
+  const isWorkspacePage = isPage && sections.includes("hosting");
 
   return (
     <SettingsSurfaceProvider surface={surface}>
@@ -3037,6 +3014,12 @@ function SettingsPanelContent({
             </SettingsGroup>
           )}
 
+        {isPage && agentAdditionalContent ? (
+          <SettingsGroup title="Notifications">
+            {agentAdditionalContent}
+          </SettingsGroup>
+        ) : null}
+
         {isPage &&
           ["automations", "background"].some((section) =>
             shouldShowSection(section as SettingsSectionId),
@@ -3058,7 +3041,7 @@ function SettingsPanelContent({
                     description="Schedule agent tasks or run them from events."
                     control={
                       <a
-                        href="/settings#agent:automations"
+                        href="/settings/agent/automations"
                         className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
                       >
                         Open automations
@@ -3101,6 +3084,143 @@ function SettingsPanelContent({
               )}
             </SettingsGroup>
           )}
+
+        {isWorkspacePage && (
+          <SettingsGroup title="Workspace">
+            {shouldShowSection("demo-mode") && (
+              <SettingsRow
+                id={settingsSectionDomId("demo-mode")}
+                label="Demo mode"
+                description="Use sample data in this browser for presentations."
+                control={<DemoModeSection compact />}
+              />
+            )}
+            {shouldShowSection("hosting") && (
+              <SettingsRow
+                id={settingsSectionDomId("hosting")}
+                label="Hosting"
+                description="Deploy the app to the cloud."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="hosting_settings"
+                      trackingFlow="hosting"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("database") && (
+              <SettingsRow
+                id={settingsSectionDomId("database")}
+                label="Database"
+                description="Connect persistent app storage."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="database_settings"
+                      trackingFlow="database"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Set DATABASE_URL in your .env to connect a supported database."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("uploads") && (
+              <SettingsRow
+                id={settingsSectionDomId("uploads")}
+                label="File uploads"
+                description="Store avatars and chat attachments."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="file_upload_settings"
+                      trackingFlow="file_upload"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Configure your own file or object storage provider."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("auth") && (
+              <SettingsRow
+                id={settingsSectionDomId("auth")}
+                label="Authentication"
+                description="Set up sign-in and access control."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="auth_settings"
+                      trackingFlow="auth"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Configure Better Auth and optional Google or GitHub providers."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+          </SettingsGroup>
+        )}
 
         {!isPage && shouldShowSection("llm") && (
           <LLMSectionInner
@@ -3145,7 +3265,7 @@ function SettingsPanelContent({
         )}
 
         {/* Demo mode */}
-        {shouldShowSection("demo-mode") && (
+        {!isPage && shouldShowSection("demo-mode") && (
           <SettingsSection
             id={settingsSectionDomId("demo-mode")}
             icon={<IconEyeOff size={14} />}
@@ -3190,7 +3310,7 @@ function SettingsPanelContent({
         )}
 
         {/* Hosting */}
-        {shouldShowSection("hosting") && (
+        {!isPage && shouldShowSection("hosting") && (
           <SettingsSection
             id={settingsSectionDomId("hosting")}
             icon={<IconCloud size={14} />}
@@ -3222,7 +3342,7 @@ function SettingsPanelContent({
         )}
 
         {/* Database */}
-        {shouldShowSection("database") && (
+        {!isPage && shouldShowSection("database") && (
           <SettingsSection
             id={settingsSectionDomId("database")}
             icon={<IconDatabase size={14} />}
@@ -3254,7 +3374,7 @@ function SettingsPanelContent({
         )}
 
         {/* File uploads */}
-        {shouldShowSection("uploads") && (
+        {!isPage && shouldShowSection("uploads") && (
           <SettingsSection
             id={settingsSectionDomId("uploads")}
             icon={<IconUpload size={14} />}
@@ -3286,7 +3406,7 @@ function SettingsPanelContent({
         )}
 
         {/* Authentication */}
-        {shouldShowSection("auth") && (
+        {!isPage && shouldShowSection("auth") && (
           <SettingsSection
             id={settingsSectionDomId("auth")}
             icon={<IconShield size={14} />}
@@ -3461,9 +3581,11 @@ export function ConnectionsSettingsContent({
 export function AgentSettingsContent({
   className,
   sections = AGENT_SETTINGS_SECTIONS,
+  agentAdditionalContent,
 }: {
   className?: string;
   sections?: readonly SettingsSectionId[];
+  agentAdditionalContent?: React.ReactNode;
 } = {}) {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const settingsPanelProps = useMemo<SettingsPanelProps>(
@@ -3484,6 +3606,7 @@ export function AgentSettingsContent({
       sections={sections}
       showCapabilityStrip={false}
       className={cn("w-full", className)}
+      agentAdditionalContent={agentAdditionalContent}
     />
   );
 }
@@ -3492,7 +3615,12 @@ export function useAgentSettingsTabs(
   options: AgentSettingsTabsOptions = {},
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const { data: org } = useOrg();
+  const canManageOrg =
+    !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
+  const agentAdditionalContent = options.agentAdditionalContent;
+  const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3502,6 +3630,17 @@ export function useAgentSettingsTabs(
       showDevToggle: canToggle,
     }),
     [canToggle, isDevMode, setDevMode],
+  );
+  const additionalTabs = useMemo(
+    () =>
+      agentAdditionalTabFactories.map((factory) =>
+        factory({
+          scope: "user",
+          canManageOrg,
+          scopeControl: null,
+        }),
+      ),
+    [agentAdditionalTabFactories, canManageOrg],
   );
 
   return useMemo<SettingsTabItem[]>(() => {
@@ -3641,6 +3780,7 @@ export function useAgentSettingsTabs(
             overview={
               <AgentSettingsContent
                 className="w-full"
+                agentAdditionalContent={agentAdditionalContent}
                 sections={AGENT_SETTINGS_SECTIONS.filter(
                   (section) => section !== "automations" && section !== "a2a",
                 )}
@@ -3701,14 +3841,12 @@ export function useAgentSettingsTabs(
         ],
         content: <AgentWorkspaceContent activeTab="agents" overview={null} />,
       },
-      {
-        id: "agent:access",
-        label: "Access",
-        icon: IconShieldLock,
-        group: "agent",
-        keywords: "access sharing permissions clients",
-        content: <AgentWorkspaceContent activeTab="access" overview={null} />,
-      },
+      ...additionalTabs,
     ];
-  }, [baseProps, extensionToolsEnabled]);
+  }, [
+    agentAdditionalContent,
+    additionalTabs,
+    baseProps,
+    extensionToolsEnabled,
+  ]);
 }

@@ -10,6 +10,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
@@ -53,7 +54,6 @@ function hasSuccessfulDashboardSave(
     "update-dashboard",
     "mutate-dashboard",
     "compose-dashboard",
-    "install-dashboard-template",
   ]);
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
@@ -61,7 +61,20 @@ function hasSuccessfulDashboardSave(
       .trim()
       .toLowerCase()
       .replace(/[\s_]+/g, "-");
-    return saveActions.has(name);
+    if (!saveActions.has(name)) return false;
+    const content = String(result.content ?? "").trim();
+    if (!content.startsWith("{")) return true;
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      if (parsed.saved === false) return false;
+      if (name === "compose-dashboard" && parsed.changed === false) {
+        return false;
+      }
+      // coercion-ok: malformed structured action output fails closed below.
+    } catch {
+      return false;
+    }
+    return true;
   });
 }
 
@@ -713,6 +726,7 @@ export function realDataFinalGuard(
   }
   if (
     hasDashboardMutationAttempt(context.toolResults) &&
+    hasSuccessfulDashboardSave(context.toolResults) &&
     !draftClaimsAnalyticsMetrics(context.text)
   ) {
     return null;
@@ -737,9 +751,8 @@ export function realDataFinalGuard(
         'This is a dashboard construction/template-clone request. Resolve the named template\'s id (use `list-sql-dashboards` if you only have a title) and call `get-sql-dashboard` with `includeConfig: true` first. If its panels are `chartType: "extension"`, use `get-extension` then `create-extension` to clone/adapt it, then `update-dashboard` to save the new dashboard. Do not invent SQL panels for an extension-backed template. Ask one clarifying filter question if needed. Only run a data-source query before presenting numbers or authoring invented SQL.',
       fallbackMessage:
         "I need to inspect the template dashboard (and its extension, if it uses one) before creating the new one. Tell me the template dashboard name, or confirm the org/account filter, and I'll clone it without inventing metrics.",
-      // list-sql-dashboards/list-dashboard-templates are on the initial
-      // surface, but expand anyway so a corrective retry can always reach
-      // the lookup/inspection tools this message asks for.
+      // Expand the tool surface so a corrective retry can always reach the
+      // lookup/inspection tools this message asks for.
       expandToolSurface: true,
     };
   }
@@ -883,6 +896,10 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
+  // Resource prompt hydration performs additive schema checks. Keep that
+  // work out of production serverless cold starts; it is not needed for the
+  // dashboard's domain prompt and can contend with the request's DB queries.
+  leanPrompt: isProductionServerlessRuntime(),
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   corpusTools: "lazy",
@@ -904,14 +921,16 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   runNoProgressTimeoutMs: ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
-  connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
-  externalAgents: {
-    // Keep the direct MCP surface deliberately curated. External agents
-    // should use ask_app by default; cataloged actions are optional stable
-    // semantic reads for callers with an exact, fully known contract. They are
-    // never a fallback for slow or failed delegation.
-    authenticatedReads: "off",
-    writes: "ask_app_only",
+  mcp: {
+    connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
+    externalAgents: {
+      // Keep the direct MCP surface deliberately curated. External agents
+      // should use ask_app by default; cataloged actions are optional stable
+      // semantic reads for callers with an exact, fully known contract. They
+      // are never a fallback for slow or failed delegation.
+      authenticatedReads: "off",
+      writes: "ask_app_only",
+    },
   },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
@@ -925,7 +944,8 @@ export default createAgentChatPlugin({
       analyticsSourceGuidanceOpening() +
       "DASHBOARD CREATION RULE — You may create dashboard artifacts, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'save this analysis', 'add a chart for...'). Treat a requested saved analysis or deep-dive report as a dashboard request. Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
       "EXECUTION CONTINUITY — An explicit request to build, create, save, or adapt a dashboard or one-off Custom Block authorizes all non-destructive in-app steps required to finish it in the same turn. After querying or scaffolding, continue through extension-data seeding/refresh, dashboard save/embed, and navigation. Do not ask 'want me to proceed?' or stop at an empty shell. Ask one clarification only when metric scope or grain materially changes the result, and pause for destructive changes or external side effects such as sending email or outreach. " +
-      "DASHBOARD MUTATION RULE — For dashboard edits, default to `mutate-dashboard` with the typed `dashboard.*` script API so the main payload is a string and avoids native-array serialization traps. It can move panels by id, edit titles/SQL/config, insert, duplicate, remove, and patch dashboard fields in one atomic save. The script API is constrained: no variables/imports/loops/functions, only JSON-compatible arguments on documented dashboard methods. Do not count shifting `/panels/<index>` positions for ordinary dashboard edits unless the user specifically asks for low-level JSON-pointer operations. " +
+      "APPROVED MUTATION CONTINUITY — If this turn includes an explicitly approved dashboard action with concrete input, execute that exact action and input immediately. Treat the supplied dashboard id as authoritative: do not reinterpret an existing-dashboard edit as a template clone, ask for a template name, or substitute an inspection step. A dashboard mutation is complete only when the action result proves `saved: true` and the requested change is reflected by `changed: true`, refreshed/changed panel ids, or an equivalent non-empty proof field; a natural-language acknowledgement or a no-op with skipped panels is not success. " +
+      "DASHBOARD MUTATION RULE — For first-party dashboard creation or catalog refreshes, use `compose-dashboard` with metric keys; set `refreshExisting: true` when updating matching catalog panels so the server regenerates validated SQL without sending a large SQL payload through the prompt. For ordinary existing edits, use `mutate-dashboard` with structured `operations` in one atomic save; use its short `code` form only for compact layout/config edits. Both forms address panels by id, validate the resulting config, and return proof. Never stream a large multi-panel SQL script or count shifting `/panels/<index>` positions unless the user specifically asks for low-level JSON-pointer operations. " +
       'CUSTOM BLOCK RULE — Analytics can embed sandboxed extensions as dashboard-scoped Custom Blocks, but native panels and Data Programs come first. Do not create one for an ordinary "put X in this dashboard" request. Use `config.extensionId` only for an explicitly requested one-off or bespoke visualization that the native dashboard model cannot represent faithfully. For each new block, set `config.customBlock` with `authoredBy: "agent"`, `intent: "one-off"`, `scope: "dashboard"`, and a categorical `nativeGapReason` of `custom-visualization`, `custom-interaction`, `custom-layout`, or `other`; never store prompt or customer text there. The embed is shared with the dashboard, appears in scheduled reports, and receives dashboard/panel/current-filter context. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot. Slot ids use `analytics.dashboard.<dashboard-id>.panel.<panel-id>` and require `add-extension-slot-target` plus `install-extension`; installs are per-user, so viewers can see different content and report identities may see an empty slot. Use `get-sql-dashboard` panel summaries to inspect an existing Custom Block. ' +
       'EXTENSION DATA-REPAIR RULE — When fixing data in an existing extension-backed dashboard or migrated surface such as Risk Meeting, inspect the current dashboard and extension first, then call `update-extension` with exactly `id`, `operation="edit"`, and a `payloadJson` string containing focused patches/edits that change only the data-loading seam. Never send empty placeholder fields. Preserve the existing layout, CSS, copy, and interactions; never reconstruct the full HTML body for a data-only fix. A request that combines a visual rewrite such as compacting, removing sections, renaming, or changing padding with a data repair is a broad rewrite; after inspecting the current extension, use `operation="replace"` with the complete replacement in `payloadJson`. If a focused edit fails, change the target instead of retrying identical arguments. ' +
       'FIRST-PARTY DASHBOARD TIME RULE — AI-generated `source: "first-party"` panels are dashboard-time-bound by default: set `config.timeScope` to `dashboard` and include a matching dashboard time predicate. `{{timeRange}}` requires a matching `filters` entry with `id: "timeRange"` and `type: "select"`; `{{<id>Start}}`/`{{<id>End}}` require a matching `type: "date-range"` filter with that id. Allowed `timeScope` values are `dashboard`, `fixed-window`, `cohort-history`, and `all-time`; use `all-time` only when the user requests full available history and put all-time, lifetime, or historical in the title or description. Server validation rejects unbound first-party SQL. ' +

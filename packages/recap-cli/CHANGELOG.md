@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.4
+
+### Patch Changes
+
+- 061896a: Use the recap CLI package as the single implementation source for Core's recap skill, Plan block, and publish-token helpers while preserving Core compatibility exports.
+
 ## 0.5.3
 
 ### Patch Changes

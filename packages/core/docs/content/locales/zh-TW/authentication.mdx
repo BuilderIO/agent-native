@@ -102,6 +102,15 @@ Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的�
 
 </Callout>
 
+## 本機開發登入 {#local-development-sign-in}
+
+在使用迴圈位址的開發伺服器上，共用登入頁面會優先顯示 **Continue as local
+dev**。它會建立或重複使用真實的 Better Auth 開發帳戶和工作階段，因此使用的仍然是應用程式其他地方相同的驗證流程。
+
+選擇 **Show full sign in options** 可顯示一般註冊、密碼、magic link 和社交提供者選項。如果無法建立本機工作階段，頁面會自動顯示這些選項，讓你可以繼續使用標準驗證。
+
+此便利功能僅在開發或測試環境中，瀏覽器透過 `localhost`、`127.0.0.0/8` 或 `::1` 連線時可用。部署預覽和託管正式環境會停用此功能。這不是驗證繞過。設定 `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` 可選擇退出，讓本機開發顯示一般登入頁面。
+
 ## 更好的驗證（預設） {#better-auth}
 
 預設情況下，Better Auth 支援驗證。它提供：
@@ -380,7 +389,7 @@ function MyComponent() {
 具有**公開頁面**（共用連結、嵌入、行銷頁面）的範本通常需要一個頁面內 CTA 來要求匿名檢視者登入並將他們帶回到他們所在的頁面。此框架為此提供了一個入口點：
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 當匿名檢視者點選此 URL 時，將提供框架的登入頁面。成功登入（任何流程 - 權杖、電子郵件/密碼或 GoogleOAuth）後，瀏覽器會返回 `return`。
@@ -395,8 +404,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -404,13 +412,13 @@ function SignInCta() {
 
 ### 已新增書簽的私人路徑
 
-一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/_agent-native/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
+一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
 
 此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/deployment#ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
 
 ### 幕後花絮：GoogleOAuth
 
-兩個流（顯式 `/_agent-native/sign-in` 入口點和書簽路徑情況）都將傳回 URL 對話串穿過 OAuth 狀態。該狀態是 HMAC 簽名的，因此在運輸過程中無法偽造。在回調中，返回的 URL 在重新導向之前被重新驗證為同來源 - 因此泄漏的簽名金鑰仍然無法轉換為開放重新導向預言機。
+兩個流（顯式 `/sign-in` 入口點和書簽路徑情況）都將傳回 URL 對話串穿過 OAuth 狀態。該狀態是 HMAC 簽名的，因此在運輸過程中無法偽造。在回調中，返回的 URL 在重新導向之前被重新驗證為同來源 - 因此泄漏的簽名金鑰仍然無法轉換為開放重新導向預言機。
 
 如果您的範本直接包裝 `/_agent-native/google/auth-url`（例如郵件和行事曆範本這樣做，以擴大範圍），則接受 `?return=<path>` 查詢並透過 `encodeOAuthState` 的選項物件形式轉發它：
 

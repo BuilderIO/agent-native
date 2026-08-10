@@ -1,11 +1,6 @@
-import {
-  AgentChatSurface,
-  AgentTabsPage,
-} from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
-import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { buildLegacyAgentSettingsRoute } from "@agent-native/core/client/navigation";
+import { Navigate, useLocation } from "react-router";
 
-import { resolveAgentPageComponent } from "@/lib/agent-page";
 import { APP_TITLE } from "@/lib/app-config";
 
 export function meta() {
@@ -13,12 +8,11 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  const t = useT();
-  useSetPageTitle(t("settings.agentTitle"));
-
-  const AgentPage = resolveAgentPageComponent({
-    AgentChatSurface,
-    AgentTabsPage,
-  });
-  return <AgentPage appName={APP_TITLE} />;
+  const location = useLocation();
+  return (
+    <Navigate
+      to={buildLegacyAgentSettingsRoute(location.hash, location.search)}
+      replace
+    />
+  );
 }

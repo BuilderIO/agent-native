@@ -9,6 +9,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { mergeTriageMetadata } from "../server/triage/metadata.js";
 import { createSentryClient } from "../server/triage/sentry-client.js";
@@ -150,6 +151,44 @@ export default defineAction({
         })
         .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)));
     });
+
+    if (observedIssues.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-sentry-errors",
+          kind: "observed",
+          source: "sentry",
+          summary: "No unresolved Sentry errors were observed.",
+          details: { sentryOrgSlug: config.sentryOrgSlug },
+        },
+      );
+    } else {
+      for (const issue of observedIssues) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-sentry-errors",
+            kind: "observed",
+            itemId: itemDedupeKey(
+              { source: "sentry", externalId: issue.id },
+              orgId,
+            ),
+            source: "sentry",
+            sourceUrl: issue.permalink,
+            summary: issue.title,
+            details: {
+              shortId: issue.shortId,
+              level: issue.level,
+              count: issue.count,
+              projectSlug: issue.projectSlug,
+            },
+          },
+        );
+      }
+    }
 
     return {
       ok: true,

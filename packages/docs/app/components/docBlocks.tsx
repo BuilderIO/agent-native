@@ -43,9 +43,13 @@ import {
   resolveDocBlockType,
   type DocSegment,
 } from "../../lib/doc-block-segments";
+import { accordionBlock } from "./blocks/accordion";
+import { badgeBlock } from "./blocks/badge";
+import { bannerBlock } from "./blocks/banner";
 import { cardsBlock } from "./blocks/cards";
 import { comparisonBlock } from "./blocks/comparison";
 import { imageBlock } from "./blocks/image";
+import { noticeBlock } from "./blocks/notice";
 import { signatureBlock } from "./blocks/signature";
 import { stepsBlock } from "./blocks/steps";
 import { videoBlock } from "./blocks/video";
@@ -82,6 +86,10 @@ function getDocBlockRegistry(): BlockRegistry {
   registry.register(signatureBlock);
   registry.register(imageBlock);
   registry.register(videoBlock);
+  registry.register(noticeBlock);
+  registry.register(bannerBlock);
+  registry.register(accordionBlock);
+  registry.register(badgeBlock);
   cachedRegistry = registry;
   return registry;
 }

@@ -124,6 +124,8 @@ Skills 位於 `.agents/skills/<name>/SKILL.md`，包含針對代理的詳細指�
 
 **完整詳細資訊如下：** [App-backed skills — full details](#app-backed-skills-full) 中介紹了應用程式支援的 skills 的機制（清單格式、CLI 指令、市場轉接器、自動更新哈希）。
 
+`app-skill` 套件也會產生標準 Agent Plugin 檔案。使用 `agent-native plugin import <path> --into <workspace> --yes` 匯入 Skills 和遠端 Streamable HTTP MCP 伺服器；套件標頭會被忽略，stdio 和 SSE 伺服器會回報後略過。
+
 </Callout>
 
 ## 建立自訂 skills {#creating-skills}

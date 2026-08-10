@@ -11,7 +11,11 @@ vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
 
-import { decodeContinuation } from "../shared/sign-in-journey.js";
+import {
+  decodeContinuation,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
+} from "../shared/sign-in-journey.js";
 import { RequireSession, buildSignInReturnHref } from "./require-session.js";
 
 function stubLocation(pathname: string, search = "", hash = "") {
@@ -127,7 +131,7 @@ describe("RequireSession", () => {
     expect(container.querySelector('[data-testid="protected"]')).toBeNull();
     expect(replaceMock).toHaveBeenCalledTimes(1);
     const href = replaceMock.mock.calls[0][0] as string;
-    expect(href).toContain("/_agent-native/sign-in?c=");
+    expect(href).toContain(`${SIGN_IN_ENTRY_PATH}?c=`);
     // A PATH, not a re-encoded URL: nothing downstream can nest it.
     expect(href).not.toContain("%2F");
     expect(continuationOf(href)).toBe("/inbox?label=important");
@@ -139,7 +143,7 @@ describe("RequireSession", () => {
     // `?return=` and loop forever. `signInJourney` returns `signInHref: null`
     // here, which is the only thing left standing between this surface and a
     // same-URL replace loop — it must never gain a fallback.
-    stubLocation("/_agent-native/sign-in", "?c=abc");
+    stubLocation(SIGN_IN_ENTRY_PATH, "?c=abc");
     useSessionMock.mockReturnValue({
       session: null,
       isLoading: false,
@@ -152,6 +156,21 @@ describe("RequireSession", () => {
     );
     expect(replaceMock).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="protected"]')).toBeNull();
+  });
+
+  it("still recognizes the legacy sign-in alias without redirecting", () => {
+    stubLocation(SIGN_IN_LEGACY_ENTRY_PATH, "?c=abc");
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: false,
+      status: "unauthenticated",
+    });
+    render(
+      <RequireSession>
+        <Child />
+      </RequireSession>,
+    );
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 
   it("never redirects from /login or /signup under a base-path deploy", () => {
@@ -230,7 +249,8 @@ describe("RequireSession", () => {
     expect(replaceMock).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="protected"]')).toBeNull();
     expect(container.querySelector('[aria-label="Loading"]')).toBeNull();
-    expect(container.textContent).toContain("Try again");
+    expect(container.textContent).toContain("Retry connection");
+    expect(container.textContent).toContain("Reload page starts the app over");
   });
 
   it("bypass renders children even with no session", () => {
@@ -265,7 +285,7 @@ describe("buildSignInReturnHref", () => {
       "/foo\r\nLocation: /evil",
     ]) {
       expect(buildSignInReturnHref({ returnTo: evil })).toBe(
-        "/_agent-native/sign-in",
+        SIGN_IN_ENTRY_PATH,
       );
     }
   });
@@ -273,10 +293,10 @@ describe("buildSignInReturnHref", () => {
   it("rejects a continuation escaping the app base path", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/mail");
     stubLocation("/mail/inbox");
-    expect(buildSignInReturnHref()).toContain("/mail/_agent-native/sign-in?c=");
+    expect(buildSignInReturnHref()).toContain(`/mail${SIGN_IN_ENTRY_PATH}?c=`);
     // Same-origin sibling app on a multi-app workspace host.
     expect(buildSignInReturnHref({ returnTo: "/otherapp/admin" })).toBe(
-      "/mail/_agent-native/sign-in",
+      `/mail${SIGN_IN_ENTRY_PATH}`,
     );
     vi.unstubAllEnvs();
   });

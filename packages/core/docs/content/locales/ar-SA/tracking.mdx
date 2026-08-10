@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 قم بتشغيل حدث التحليلات. المعجبون لجميع مقدمي الخدمة المسجلين.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+‏`source` هو إمّا `ctx` الخاص بالإجراء يُمرَّر كما هو، أو كائن بيانات وصفية `{ userId, anonymousId, sessionId }` للمستدعين الذين لا يملكون `ctx`.
+
+‏جلسة المتصفح ليست شيئًا على المستدعي تمريره: فهي تأتي من سياق الطلب المحيط (`RequestContext.browserSessionId`، الذي يُضبط من ترويسة `X-Agent-Native-Session-Id` التي يرسلها عميل الإجراءات والدردشة ودالة `track()` في المتصفح)، فتُربط الزيارة نفسها سواء أطلقت الواجهة الحدث أم الوكيل. ويعيّنها كل مزوّد إلى حقل الجلسة الخاص به: `$session_id` في PostHog، وهو ما يربط الحدث بإعادة تشغيل الجلسة؛ وخاصية `session_id` في Mixpanel وAmplitude؛ و`sessionId` على المستوى الأعلى في الويب هوك وAgent Native Analytics. وهي غائبة للمستدعين بلا متصفح (cron وCLI وMCP وA2A)، ويتجاوزها `sessionId` الممرَّر في كائن البيانات الوصفية.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 هل تحتاج إلى واجهة خلفية مخصصة، أو سجل الموفر API، أو الأجزاء الداخلية المجمعة/المفردة؟ انظر [Advanced: custom providers & internals](#advanced) في النهاية.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // مرِّر ctx كما هو: يُنسب الحدث إلى ctx.userEmail ويرتبط بجلسة المتصفح
+    // التي جاء منها الاستدعاء.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -352,5 +358,5 @@ interface TrackingEvent {
 ## ما هي الخطوة التالية
 
 - [**Actions**](/docs/actions) — حيث تنشأ معظم مكالمات التتبع
-- [**Server Plugins**](/docs/server#server-plugins) — يعمل `registerBuiltinProviders()` في البرنامج الإضافي للمسارات الأساسية عند بدء التشغيل
+- [**Server Plugins**](/docs/server-plugins) — يعمل `registerBuiltinProviders()` في البرنامج الإضافي للمسارات الأساسية عند بدء التشغيل
 - [**الأمان — إدارة الأسرار**](/docs/security#secrets) - إدارة مفاتيح API لموفري التتبع

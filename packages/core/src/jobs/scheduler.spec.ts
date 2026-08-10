@@ -269,6 +269,7 @@ Summarize the inbox.`,
             delegatedPolicyId: "calendar-safe:v1",
             createdBy: "alice+jobs@agent-native.test",
             orgId: "org-1",
+            appId: "calendar",
             runAs: "creator",
             originScopeId: "scope-1",
             deliveryPlatform: "slack",
@@ -288,6 +289,7 @@ Summarize the inbox.`,
       getSystemPrompt: async () => "system",
       engine: testEngine,
       model: "test-model",
+      appId: "calendar",
     });
 
     expect(resourcePutMock).toHaveBeenCalledOnce();
@@ -322,6 +324,70 @@ Summarize the inbox.`,
     expect(createThreadMock).not.toHaveBeenCalled();
   });
 
+  it("does not execute an automation owned by another app", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-calendar-automation",
+        owner: "__organization__:org-1",
+        path: "jobs/calendar-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+triggerType: schedule
+appId: calendar
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Send the calendar digest.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "factory",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not claim an organization job whose app owner is missing", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-unscoped-organization-job",
+        owner: "__organization__:org-1",
+        path: "jobs/factory-slack-feedback.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+orgId: org-1
+runAs: creator
+---
+
+Process the feedback.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+      appId: "mail",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
   it("creates run history threads owned by the job user", async () => {
     await processRecurringJobs({
       getActions: () => ({}),
@@ -335,6 +401,17 @@ Summarize the inbox.`,
       expect.objectContaining({
         title: expect.stringContaining("Job: daily-report"),
       }),
+    );
+    expect(runAgentLoopWrapperMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionCaller: "automation",
+        automation: {
+          triggerId: "resource-1",
+          triggerName: "daily-report",
+        },
+      }),
+      expect.any(Number),
+      expect.any(Object),
     );
   });
 
@@ -535,6 +612,159 @@ Run capped job ${index}.`,
     await scan;
     expect(capacityObserved).toBe(true);
     expect(runCount).toBe(8);
+  });
+
+  it("does not let blocked jobs starve a later valid job", async () => {
+    const resources = Array.from({ length: 9 }, (_, index) => {
+      const owner =
+        index < 8
+          ? `blocked-${index}@agent-native.test`
+          : "valid@agent-native.test";
+      return {
+        id: `resource-blocked-${index}`,
+        owner,
+        path: `jobs/blocked-${index}.md`,
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ${owner}
+---
+
+Run job ${index}.`,
+      };
+    });
+    resourceListAllOwnersMock.mockResolvedValueOnce(resources);
+    dbExecuteMock.mockImplementation(
+      async (query: { sql?: string; args?: unknown[] }) => {
+        const email = query.args?.[0];
+        if (
+          query.sql?.includes('FROM "user"') &&
+          typeof email === "string" &&
+          email.startsWith("blocked-")
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        return { rows: [{ "1": 1 }], rowsAffected: 1 };
+      },
+    );
+    let runCount = 0;
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runCount).toBe(1);
+    expect(
+      resourcePutMock.mock.calls.filter((call) =>
+        String(call[2]).includes("lastStatus: skipped"),
+      ),
+    ).toHaveLength(8);
+    expect(
+      resourcePutMock.mock.calls.some(
+        (call) =>
+          call[0] === "valid@agent-native.test" &&
+          call[1] === "jobs/blocked-8.md",
+      ),
+    ).toBe(true);
+  });
+
+  it("rotates past recently recorded identity failures", async () => {
+    const resources = Array.from({ length: 34 }, (_, index) => {
+      const owner =
+        index < 33
+          ? `blocked-${index}@agent-native.test`
+          : "valid@agent-native.test";
+      return {
+        id: `resource-rotate-${index}`,
+        owner,
+        path: `jobs/rotate-${index}.md`,
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ${owner}
+---
+
+Run job ${index}.`,
+      };
+    });
+    const contentByKey = new Map(
+      resources.map((resource) => [
+        `${resource.owner}:${resource.path}`,
+        resource.content,
+      ]),
+    );
+    resourceListAllOwnersMock.mockImplementation(async () =>
+      resources.map((resource) => ({
+        ...resource,
+        content:
+          contentByKey.get(`${resource.owner}:${resource.path}`) ??
+          resource.content,
+      })),
+    );
+    resourcePutMock.mockImplementation(
+      async (owner: string, path: string, content: string) => {
+        contentByKey.set(`${owner}:${path}`, content);
+      },
+    );
+    dbExecuteMock.mockImplementation(
+      async (query: { sql?: string; args?: unknown[] }) => {
+        const email = query.args?.[0];
+        if (
+          query.sql?.includes('FROM "user"') &&
+          typeof email === "string" &&
+          email.startsWith("blocked-")
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        return { rows: [{ "1": 1 }], rowsAffected: 1 };
+      },
+    );
+    let runCount = 0;
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runCount).toBe(1);
+    expect(
+      resourcePutMock.mock.calls.filter((call) =>
+        String(call[2]).includes("lastStatus: skipped"),
+      ),
+    ).toHaveLength(33);
   });
 
   it("passes persisted MCP capabilities to the background action suppliers", async () => {

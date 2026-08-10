@@ -1461,7 +1461,6 @@ const messages = {
     templatesSection: "應用程式",
     gettingStarted: "入門",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "什麼是 Agent-Native？",
     agentSurfaces: "Agent 介面",

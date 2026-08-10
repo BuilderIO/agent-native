@@ -8,10 +8,14 @@ import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
+  completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
+  getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
   InlineRunErrorNotice,
+  isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
+  isMissingFinalResponseWarningText,
   latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
@@ -282,6 +286,18 @@ describe("assistantMessageHasCompletedCustomUi", () => {
       ]),
     ).toBe(false);
   });
+
+  it("recognizes a completed Builder handoff as interactive UI", () => {
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("assistantMessageHasCustomUi", () => {
@@ -315,13 +331,13 @@ describe("assistantMessageHasCustomUi", () => {
       assistantMessageHasCustomUi([
         {
           type: "tool-call",
-          toolName: "start-prospect-run",
-          result: "Awaiting human approval — did NOT execute.",
-          approval: { approvalKey: "start-prospect-run:{}" },
+          toolName: "create-builder-branch",
+          result: "Awaiting human approval. This action did NOT execute.",
+          approval: { approvalKey: "create-builder-branch:{}" },
         },
         {
           type: "text",
-          text: "Waiting for your approval to run start-prospect-run.",
+          text: "Waiting for your approval to run create-builder-branch.",
         },
       ]),
     ).toBe(true);
@@ -329,15 +345,27 @@ describe("assistantMessageHasCustomUi", () => {
       assistantMessageHasCustomUi([
         {
           type: "tool-call",
-          toolName: "start-prospect-run",
-          result: "Awaiting human approval — did NOT execute.",
+          toolName: "create-builder-branch",
+          result: "Awaiting human approval. This action did NOT execute.",
           approval: {
-            approvalKey: "start-prospect-run:{}",
+            approvalKey: "create-builder-branch:{}",
             dismissed: true,
           },
         },
       ]),
     ).toBe(false);
+  });
+
+  it("keeps the Builder handoff treated as interactive UI", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
   });
 });
 
@@ -359,6 +387,43 @@ describe("messageTextFromContent", () => {
         },
       ]),
     ).toBe("Stopped because manage-progress failed 3 times.");
+  });
+});
+
+describe("assistant completion notices", () => {
+  it("recognizes terminal missing-response warnings separately from final text", () => {
+    expect(
+      isMissingFinalResponseWarningText(
+        "The agent completed the view screen action, but stopped before sending a final message.",
+      ),
+    ).toBe(true);
+    expect(isMissingFinalResponseWarningText("The work is complete.")).toBe(
+      false,
+    );
+  });
+
+  it("lists completed tools after the latest assistant text in arrival order", () => {
+    expect(
+      completedAssistantToolNamesAfterLastText([
+        { type: "text", text: "I will inspect the workspace." },
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "view-screen",
+          argsText: "{}",
+          args: {},
+          result: "{}",
+        },
+        {
+          type: "tool-call",
+          toolCallId: "call-2",
+          toolName: "workspace-read",
+          argsText: "{}",
+          args: {},
+          result: "{}",
+        },
+      ]),
+    ).toEqual(["view screen", "workspace read"]);
   });
 });
 
@@ -484,6 +549,18 @@ describe("shouldShowAssistantWorkSummary", () => {
   });
 });
 
+describe("getAssistantWorkSummaryDurationMs", () => {
+  it("shows a turn duration only on the first folded work segment", () => {
+    expect(getAssistantWorkSummaryDurationMs(11_000, 2, 2)).toBe(11_000);
+    expect(getAssistantWorkSummaryDurationMs(11_000, 5, 2)).toBeNull();
+  });
+
+  it("does not invent a duration when the turn has none", () => {
+    expect(getAssistantWorkSummaryDurationMs(null, 2, 2)).toBeNull();
+    expect(getAssistantWorkSummaryDurationMs(undefined, 2, 2)).toBeUndefined();
+  });
+});
+
 describe("shouldShowInlineRunError", () => {
   const runError = {
     message: "Provider timed out.",
@@ -589,12 +666,12 @@ describe("InlineRunErrorNotice", () => {
 
 describe("isCollapsibleAssistantWorkPart", () => {
   it("keeps the Builder handoff card outside collapsed work", () => {
-    expect(
-      isCollapsibleAssistantWorkPart({
-        type: "tool-call",
-        toolName: "connect-builder",
-      }),
-    ).toBe(false);
+    const builderHandoff = {
+      type: "tool-call",
+      toolName: "connect-builder",
+    };
+    expect(isAlwaysVisibleAssistantTool(builderHandoff)).toBe(true);
+    expect(isCollapsibleAssistantWorkPart(builderHandoff)).toBe(false);
   });
 
   it("still groups ordinary work and reasoning", () => {
@@ -621,16 +698,16 @@ describe("isCollapsibleAssistantWorkPart", () => {
     expect(
       isCollapsibleAssistantWorkPart({
         type: "tool-call",
-        toolName: "start-prospect-run",
-        approval: { approvalKey: "start-prospect-run:{}" },
+        toolName: "create-builder-branch",
+        approval: { approvalKey: "create-builder-branch:{}" },
       }),
     ).toBe(false);
     expect(
       isCollapsibleAssistantWorkPart({
         type: "tool-call",
-        toolName: "start-prospect-run",
+        toolName: "create-builder-branch",
         approval: {
-          approvalKey: "start-prospect-run:{}",
+          approvalKey: "create-builder-branch:{}",
           dismissed: true,
         },
       }),

@@ -10,12 +10,25 @@ import {
   registerLibraryBlockConfigs,
   type MdxJsxNode,
 } from "../../core/src/client/blocks/server";
+import {
+  accordionSchema,
+  accordionMdx,
+} from "../app/components/blocks/accordion.config";
+import { badgeSchema, badgeMdx } from "../app/components/blocks/badge.config";
+import {
+  bannerSchema,
+  bannerMdx,
+} from "../app/components/blocks/banner.config";
 import { cardsSchema, cardsMdx } from "../app/components/blocks/cards.config";
 import {
   comparisonSchema,
   comparisonMdx,
 } from "../app/components/blocks/comparison.config";
 import { imageSchema, imageMdx } from "../app/components/blocks/image.config";
+import {
+  noticeSchema,
+  noticeMdx,
+} from "../app/components/blocks/notice.config";
 import {
   signatureSchema,
   signatureMdx,
@@ -104,6 +117,10 @@ const DOCS_EXTRA_BLOCKS: Array<{ type: string; schema: any; mdx: any }> = [
   { type: "signature", schema: signatureSchema, mdx: signatureMdx },
   { type: "image", schema: imageSchema, mdx: imageMdx },
   { type: "video", schema: videoSchema, mdx: videoMdx },
+  { type: "notice", schema: noticeSchema, mdx: noticeMdx },
+  { type: "banner", schema: bannerSchema, mdx: bannerMdx },
+  { type: "accordion", schema: accordionSchema, mdx: accordionMdx },
+  { type: "badge", schema: badgeSchema, mdx: badgeMdx },
 ];
 
 function getDocBlockConfigRegistry(): BlockRegistry {

@@ -1463,7 +1463,6 @@ const zhCN = {
     templatesSection: "应用",
     gettingStarted: "入门",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "什么是 Agent-Native？",
     agentSurfaces: "Agent 界面",

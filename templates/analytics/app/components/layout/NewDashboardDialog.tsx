@@ -9,6 +9,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +
@@ -32,7 +33,11 @@ const DASHBOARD_CONTEXT =
   "Do not create code files for an ordinary native dashboard. Use `connect-builder` only for an explicitly reusable/native code request. " +
   "After saving, call the `navigate` action with view='adhoc' and dashboardId so the new dashboard opens immediately.";
 
-export function NewDashboardDialog() {
+export function NewDashboardDialog({
+  triggerClassName,
+}: {
+  triggerClassName?: string;
+} = {}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
@@ -47,7 +52,12 @@ export function NewDashboardDialog() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary">
+        <button
+          className={cn(
+            "flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary",
+            triggerClassName,
+          )}
+        >
           <IconPlus className="h-3 w-3" />
           {t("dialogs.newDashboard")}
         </button>

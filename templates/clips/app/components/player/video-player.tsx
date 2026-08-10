@@ -40,7 +40,11 @@ import {
   uploadRecordingThumbnail,
 } from "@/lib/thumbnail-capture";
 import {
+  editedToOriginal,
+  effectiveDuration,
   getExcludedRanges,
+  isExcluded,
+  originalToEdited,
   parseEdits,
   type TrimRange,
 } from "@/lib/timestamp-mapping";
@@ -140,6 +144,12 @@ function isPlayerUiTarget(target: EventTarget | null): boolean {
     Boolean(target.closest("[data-player-ui]"))
   );
 }
+
+type WebkitFullscreenVideo = HTMLVideoElement & {
+  webkitDisplayingFullscreen?: boolean;
+  webkitEnterFullscreen?: () => void;
+  webkitExitFullscreen?: () => void;
+};
 
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
@@ -418,6 +428,49 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
       useState(false);
     const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
+    const scrubberTimeline = useMemo(() => {
+      const mapMarker = (originalMs: number): number | null => {
+        if (!Number.isFinite(originalMs) || isExcluded(originalMs, edits)) {
+          return null;
+        }
+        return originalToEdited(originalMs, edits);
+      };
+
+      return {
+        durationMs: effectiveDuration(resolvedDurationMs, edits),
+        currentMs: originalToEdited(currentMs, edits),
+        comments: (comments ?? []).flatMap((comment) => {
+          const editedMs = mapMarker(comment.videoTimestampMs);
+          return editedMs === null
+            ? []
+            : [
+                {
+                  id: comment.id,
+                  content: comment.content,
+                  videoTimestampMs: editedMs,
+                },
+              ];
+        }),
+        chapters: (chapters ?? []).flatMap((chapter) => {
+          const editedMs = mapMarker(chapter.startMs);
+          return editedMs === null
+            ? []
+            : [{ startMs: editedMs, title: chapter.title }];
+        }),
+        reactions: (reactions ?? []).flatMap((reaction) => {
+          const editedMs = mapMarker(reaction.videoTimestampMs);
+          return editedMs === null
+            ? []
+            : [
+                {
+                  id: reaction.id,
+                  emoji: reaction.emoji,
+                  videoTimestampMs: editedMs,
+                },
+              ];
+        }),
+      };
+    }, [chapters, comments, currentMs, edits, reactions, resolvedDurationMs]);
     const activeVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(activeVideoSrc),
       [activeVideoSrc],
@@ -954,16 +1007,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const seekByMs = useCallback(
       (deltaMs: number) => {
         const v = videoRef.current;
-        const liveMs =
+        const liveOriginalMs =
           v &&
           Number.isFinite(v.currentTime) &&
           v.currentTime >= 0 &&
           v.currentTime < 1e7
             ? Math.floor(v.currentTime * 1000)
             : currentMs;
-        seekToVisibleMs(liveMs + deltaMs);
+        const liveEditedMs = originalToEdited(liveOriginalMs, edits);
+        seekToVisibleMs(editedToOriginal(liveEditedMs + deltaMs, edits));
       },
-      [currentMs, seekToVisibleMs],
+      [currentMs, edits, seekToVisibleMs],
     );
 
     // Imperative handle for parent
@@ -1306,25 +1360,59 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     async function toggleFullscreenInternal() {
       const el = containerRef.current;
+      const video = videoRef.current as WebkitFullscreenVideo | null;
       if (!el) return;
       try {
         if (!document.fullscreenElement) {
-          await el.requestFullscreen();
-          setIsFullscreen(true);
+          if (
+            video?.webkitDisplayingFullscreen ||
+            (isFullscreen && video?.webkitExitFullscreen)
+          ) {
+            video?.webkitExitFullscreen?.();
+            setIsFullscreen(false);
+          } else if (typeof el.requestFullscreen === "function") {
+            await el.requestFullscreen();
+            setIsFullscreen(true);
+          } else if (video?.webkitEnterFullscreen) {
+            // iPhone Safari exposes fullscreen on the video element, not the
+            // containing div used by the custom player controls.
+            video.webkitEnterFullscreen();
+            setIsFullscreen(true);
+          } else {
+            console.warn("[clips] Fullscreen unavailable");
+          }
         } else {
           await document.exitFullscreen();
           setIsFullscreen(false);
         }
       } catch (err) {
+        if (video?.webkitEnterFullscreen && !document.fullscreenElement) {
+          try {
+            video.webkitEnterFullscreen();
+            setIsFullscreen(true);
+            return;
+          } catch (fallbackErr) {
+            console.warn("[clips] Fullscreen fallback failed", fallbackErr);
+          }
+        }
         console.warn("[clips] Fullscreen failed", err);
       }
     }
 
     useEffect(() => {
+      const video = videoRef.current as WebkitFullscreenVideo | null;
       const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+      const onNativeFsEnter = () => setIsFullscreen(true);
+      const onNativeFsExit = () => setIsFullscreen(false);
       document.addEventListener("fullscreenchange", onFs);
-      return () => document.removeEventListener("fullscreenchange", onFs);
-    }, []);
+      video?.addEventListener("webkitbeginfullscreen", onNativeFsEnter);
+      video?.addEventListener("webkitendfullscreen", onNativeFsExit);
+      return () => {
+        document.removeEventListener("fullscreenchange", onFs);
+        video?.removeEventListener("webkitbeginfullscreen", onNativeFsEnter);
+        video?.removeEventListener("webkitendfullscreen", onNativeFsExit);
+      };
+    }, [playbackVideoEl]);
 
     const currentSegment = transcriptSegments?.find(
       (s) => currentMs >= s.startMs && currentMs <= s.endMs,
@@ -1683,7 +1771,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <CenterPlaybackOverlay
             mode={centerOverlayMode}
             label={centerOverlayLabel}
-            durationMs={resolvedDurationMs}
+            durationMs={scrubberTimeline.durationMs}
             speed={speed}
             playError={playError}
             onPlay={() => {
@@ -1780,8 +1868,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           >
             <PlayerControls
               isPlaying={isPlaying}
-              durationMs={resolvedDurationMs}
-              currentMs={currentMs}
+              durationMs={scrubberTimeline.durationMs}
+              currentMs={scrubberTimeline.currentMs}
               volume={volume}
               muted={muted}
               speed={speed}
@@ -1789,16 +1877,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               isFullscreen={isFullscreen}
               isPip={isPip}
               theaterMode={!!theaterMode}
-              comments={comments}
-              chapters={chapters}
-              reactions={reactions}
-              excludedRanges={excludedRanges}
+              comments={scrubberTimeline.comments}
+              chapters={scrubberTimeline.chapters}
+              reactions={scrubberTimeline.reactions}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
                 togglePlayback();
               }}
-              onSeek={(ms) => {
-                seekToVisibleMs(ms);
+              onSeek={(editedMs) => {
+                seekToVisibleMs(editedToOriginal(editedMs, edits));
               }}
               onSeekRelative={seekByMs}
               onVolumeChange={(vol) => {

@@ -144,6 +144,12 @@ body {
   background: inherit;
 }
 
+.agent-frame-sidebar-placeholder {
+  height: 100%;
+  min-width: 0;
+  pointer-events: none;
+}
+
 @media (min-width: 768px) {
   .agent-frame-main-surface[data-agent-frame-main-state="open"] {
     border-start-end-radius: var(--agent-native-raised-radius);
@@ -174,6 +180,38 @@ body {
   transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+.agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"] {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: var(--agent-frame-sidebar-width);
+  max-width: 100vw;
+  z-index: 80;
+  transform: translateX(0);
+  will-change: transform;
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: -12px 0 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+  transition: transform 260ms var(--ease-drawer);
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"]
+  > .agent-frame-sidebar-inner {
+  width: var(--agent-frame-sidebar-width);
+  min-width: var(--agent-frame-sidebar-width);
+  max-width: var(--agent-frame-sidebar-width);
+  height: 100%;
+  transform: none;
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"][data-agent-frame-sidebar-state="closed"] {
+  transform: translateX(100%);
+}
+
+.dark .agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"] {
+  --agent-shadow-o: 0.08;
+}
+
 .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"]
   > .agent-frame-sidebar-inner {
   transform: translateX(0);
@@ -190,10 +228,22 @@ body {
   }
 }
 
+@supports (view-transition-name: agent-native-frame-sidebar) {
+  ::view-transition-old(agent-native-frame-sidebar),
+  ::view-transition-new(agent-native-frame-sidebar) {
+    height: 100%;
+    animation-duration: 340ms;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-frame-sidebar[data-agent-frame-sidebar-animation],
   .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"]
     > .agent-frame-sidebar-inner {
+    transition: none;
+  }
+  .agent-frame-sidebar[data-agent-frame-sidebar-layout="drawer"] {
     transition: none;
   }
 }

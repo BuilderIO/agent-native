@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs design"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter design build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter design build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter design migrate:production; fi"
 publish = "templates/design/dist"
 functions = "templates/design/.netlify/functions-internal"
 

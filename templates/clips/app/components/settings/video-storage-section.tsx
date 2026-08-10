@@ -1,27 +1,11 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconCheck,
-  IconChevronDown,
-  IconCloud,
-  IconExternalLink,
-  IconKey,
-  IconLoader2,
-  IconServer,
-  IconTrash,
-} from "@tabler/icons-react";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { IconCheck, IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
@@ -31,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SecretStatus } from "@/hooks/use-secret-status";
 import type { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
-import { cn } from "@/lib/utils";
 
 import type { BuilderConnection } from "./types";
 
@@ -232,212 +215,152 @@ export function VideoStorageSection({
   }
 
   return (
-    <Card id="video-storage" className="scroll-mt-16">
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <IconCloud className="size-4 text-primary" />
-          {t("settings.videoStorage")}
-        </CardTitle>
-        <CardDescription>
-          {t("settings.videoStorageDescription")}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div
-          className={cn(
-            "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
-            builder.connected
-              ? "border-primary/35 bg-primary/5"
-              : "border-border bg-accent/30",
-          )}
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              {builder.connected ? (
-                <IconCheck className="h-4 w-4 text-primary" />
-              ) : (
-                <IconKey className="h-4 w-4 text-muted-foreground" />
-              )}
-              {builder.loading
-                ? t("settings.checkingBuilder")
+    <SettingsGroup id="video-storage" title={t("settings.videoStorage")}>
+      <Collapsible open={expanded} onOpenChange={setExpanded}>
+        <SettingsRow
+          label="Builder.io"
+          description={
+            builder.loading
+              ? t("settings.checkingBuilder")
+              : s3Configured && storageConfigured && activeProviderName
+                ? t("settings.s3CurrentProvider", {
+                    providerName: activeProviderName,
+                  })
                 : builder.connected
-                  ? t("settings.builderConnected")
-                  : t("settings.connectBuilder")}
-            </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {builder.connected
-                ? builder.orgName
-                  ? t("settings.builderConnectedFor", {
-                      orgName: builder.orgName,
-                    })
-                  : t("settings.builderConnectedGeneric")
-                : t("settings.builderIncludes")}
-            </p>
-          </div>
-          {builder.connected ? (
-            <Badge variant="secondary" className="shrink-0">
-              {t("common.connected")}
-            </Badge>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() =>
-                builder.start({
-                  trackingSource: "clips_settings_video_storage",
-                  trackingFlow: "video_storage",
-                })
-              }
-              disabled={builder.connecting || builder.loading}
-            >
-              {builder.connecting ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
+                  ? builder.orgName
+                    ? t("settings.builderConnectedFor", {
+                        orgName: builder.orgName,
+                      })
+                    : t("settings.builderConnectedGeneric")
+                  : t("settings.builderIncludes")
+          }
+          control={
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {builder.connected ? (
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+                  <IconCheck className="h-4 w-4" />
+                  {t("common.connected")}
+                </span>
               ) : (
-                <IconExternalLink className="h-4 w-4" />
-              )}
-              {t("settings.connectBuilder")}
-            </Button>
-          )}
-        </div>
-
-        <Collapsible open={expanded} onOpenChange={setExpanded}>
-          <div className="rounded-md border border-border">
-            <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                  <IconServer className="h-4 w-4 text-muted-foreground" />
-                  {t("settings.s3Title")}
-                  <Badge variant="outline" className="text-[10px]">
-                    {t("settings.secondary")}
-                  </Badge>
-                  {s3Configured ? (
-                    <Badge variant="secondary" className="text-[10px]">
-                      {t("settings.active")}
-                    </Badge>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() =>
+                    builder.start({
+                      trackingSource: "clips_settings_video_storage",
+                      trackingFlow: "video_storage",
+                    })
+                  }
+                  disabled={builder.connecting || builder.loading}
+                >
+                  {builder.connecting ? (
+                    <IconLoader2 className="h-4 w-4 animate-spin" />
                   ) : null}
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {builder.connected
-                    ? t("settings.s3BuilderConnectedDescription")
-                    : storageConfigured && activeProviderName
-                      ? t("settings.s3CurrentProvider", {
-                          providerName: activeProviderName,
-                        })
-                      : t("settings.s3OwnBucketDescription")}
-                </p>
-              </div>
+                  {t("settings.connectBuilder")}
+                </Button>
+              )}
               <CollapsibleTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  {expanded
+                    ? t("settings.hideS3")
+                    : s3Configured
+                      ? t("settings.providerManage")
+                      : t("settings.configureS3")}
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+          }
+        />
+
+        <CollapsibleContent>
+          <div className="space-y-4 border-t border-border px-5 py-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {S3_STORAGE_FIELDS.map((field) => {
+                const configured = Boolean(secrets.configured[field.key]);
+                const last4 = secrets.last4[field.key];
+                return (
+                  <div key={field.key} className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor={field.key}>{t(field.labelKey)}</Label>
+                      {configured ? (
+                        <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
+                          <IconCheck className="h-3 w-3" />
+                          {last4 ? `••••${last4}` : t("settings.keySet")}
+                        </span>
+                      ) : null}
+                    </div>
+                    <Input
+                      id={field.key}
+                      type={
+                        "secret" in field && field.secret ? "password" : "text"
+                      }
+                      value={values[field.key] ?? ""}
+                      onChange={(event) => {
+                        setValues((current) => ({
+                          ...current,
+                          [field.key]: event.target.value,
+                        }));
+                        if (errors[field.key]) {
+                          setErrors((current) => {
+                            const next = { ...current };
+                            delete next[field.key];
+                            return next;
+                          });
+                        }
+                      }}
+                      placeholder={
+                        configured
+                          ? t("settings.replaceKey")
+                          : field.placeholder
+                      }
+                      autoComplete="off"
+                      disabled={saving}
+                      className={
+                        errors[field.key] ? "border-destructive" : undefined
+                      }
+                    />
+                    {errors[field.key] ? (
+                      <p className="text-[11px] text-destructive">
+                        {errors[field.key]}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              {S3_STORAGE_FIELDS.some(
+                (field) => secrets.configured[field.key],
+              ) ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="shrink-0"
+                  onClick={handleClearAll}
+                  disabled={clearing || saving}
+                  className="text-muted-foreground hover:text-destructive"
                 >
-                  {expanded ? t("settings.hideS3") : t("settings.configureS3")}
-                  <IconChevronDown
-                    className={cn(
-                      "h-4 w-4 transition-transform",
-                      expanded && "rotate-180",
-                    )}
-                  />
+                  {clearing ? (
+                    <IconLoader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <IconTrash className="h-4 w-4" />
+                  )}
+                  {t("settings.clearAllS3")}
                 </Button>
-              </CollapsibleTrigger>
+              ) : null}
+              <Button
+                onClick={handleSave}
+                disabled={saving || storageStatus.isLoading}
+              >
+                {saving && <IconLoader2 className="h-4 w-4 animate-spin" />}
+                {t("settings.saveStorage")}
+              </Button>
             </div>
-
-            <CollapsibleContent>
-              <div className="space-y-4 border-t border-border px-3 py-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {S3_STORAGE_FIELDS.map((field) => {
-                    const configured = Boolean(secrets.configured[field.key]);
-                    const last4 = secrets.last4[field.key];
-                    return (
-                      <div key={field.key} className="space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label htmlFor={field.key}>{t(field.labelKey)}</Label>
-                          {configured ? (
-                            <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
-                              <IconCheck className="h-3 w-3" />
-                              {last4 ? `••••${last4}` : t("settings.keySet")}
-                            </span>
-                          ) : null}
-                        </div>
-                        <Input
-                          id={field.key}
-                          type={
-                            "secret" in field && field.secret
-                              ? "password"
-                              : "text"
-                          }
-                          value={values[field.key] ?? ""}
-                          onChange={(event) => {
-                            setValues((current) => ({
-                              ...current,
-                              [field.key]: event.target.value,
-                            }));
-                            if (errors[field.key]) {
-                              setErrors((current) => {
-                                const next = { ...current };
-                                delete next[field.key];
-                                return next;
-                              });
-                            }
-                          }}
-                          placeholder={
-                            configured
-                              ? t("settings.replaceKey")
-                              : field.placeholder
-                          }
-                          autoComplete="off"
-                          disabled={saving}
-                          className={
-                            errors[field.key] ? "border-destructive" : undefined
-                          }
-                        />
-                        {errors[field.key] ? (
-                          <p className="text-[11px] text-destructive">
-                            {errors[field.key]}
-                          </p>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="flex items-center justify-end gap-2">
-                  {S3_STORAGE_FIELDS.some(
-                    (field) => secrets.configured[field.key],
-                  ) ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearAll}
-                      disabled={clearing || saving}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      {clearing ? (
-                        <IconLoader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <IconTrash className="h-4 w-4" />
-                      )}
-                      {t("settings.clearAllS3")}
-                    </Button>
-                  ) : null}
-                  <Button
-                    onClick={handleSave}
-                    disabled={saving || storageStatus.isLoading}
-                  >
-                    {saving && <IconLoader2 className="h-4 w-4 animate-spin" />}
-                    {t("settings.saveStorage")}
-                  </Button>
-                </div>
-              </div>
-            </CollapsibleContent>
           </div>
-        </Collapsible>
-      </CardContent>
-    </Card>
+        </CollapsibleContent>
+      </Collapsible>
+    </SettingsGroup>
   );
 }

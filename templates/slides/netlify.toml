@@ -2,7 +2,7 @@
 ignore = "node ./scripts/netlify-ignore-build.mjs slides"
 # Rebuild Core explicitly so a cached Netlify install cannot bundle an older
 # agent loop or A2A handler into Slides' server functions.
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter slides build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter slides build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter slides migrate:production; fi"
 publish = "templates/slides/dist"
 functions = "templates/slides/.netlify/functions-internal"
 

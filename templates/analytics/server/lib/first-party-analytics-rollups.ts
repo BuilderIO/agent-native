@@ -23,15 +23,6 @@ export interface FirstPartyAnalyticsRollupResult {
   userDayCount: number;
 }
 
-/**
- * Shared with the historical backfill so live ingest and migration work hold
- * the same transaction-scoped Postgres lock while they update rollups.
- */
-export const FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY =
-  "agent-native:analytics-rollup-backfill";
-export const FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL =
-  "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))";
-
 interface DailyRollupRow {
   id: string;
   tenantKey: string;
@@ -150,6 +141,10 @@ export async function upsertFirstPartyAnalyticsRollups(
   }
 
   const writeRollups = async (tx: any) => {
+    // Do not take the historical backfill advisory lock here. Foreground
+    // ingest must not wait behind a long-running rebuild; the incremental
+    // conflict update and the backfill's GREATEST upsert are both monotonic,
+    // and Postgres serializes the conflicting row updates itself.
     const dailyRows = [...dailyRollups.values()];
     await tx
       .insert(schema.analyticsEventDailyRollups)

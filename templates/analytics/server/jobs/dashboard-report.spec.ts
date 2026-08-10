@@ -360,7 +360,7 @@ describe("dashboard report sweep", () => {
     );
   });
 
-  it("omits the delivery deadline off Netlify", async () => {
+  it("also sets a delivery deadline off Netlify, as a hang backstop for the in-process cron", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
@@ -368,7 +368,7 @@ describe("dashboard report sweep", () => {
     await runDashboardReportsOnce();
 
     const options = mocks.sendDashboardReportSubscription.mock.calls[0][1];
-    expect(options).not.toHaveProperty("deadlineAt");
+    expect(options).toHaveProperty("deadlineAt", expect.any(Number));
   });
 
   it("claims one report per sweep on Netlify regardless of the override", async () => {
@@ -457,7 +457,8 @@ describe("dashboard report sweep", () => {
     const workerSections = [
       ["emitBackgroundWorker", "emitAlertScheduledTrigger"],
       ["emitAlertBackgroundWorker", "emitUptimeScheduledTrigger"],
-      ["emitUptimeBackgroundWorker", "isDirectRun"],
+      ["emitUptimeBackgroundWorker", "emitRollupScheduledTrigger"],
+      ["emitRollupBackgroundWorker", "isDirectRun"],
     ] as const;
 
     for (const [startName, endName] of workerSections) {
@@ -467,11 +468,15 @@ describe("dashboard report sweep", () => {
       const marker = workerSource.indexOf(
         "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
       );
+      const lowConnectionMarker = workerSource.indexOf(
+        "globalThis.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true",
+      );
       const serverImport = workerSource.indexOf('await import("./main.mjs")');
 
       expect(start).toBeGreaterThan(-1);
       expect(end).toBeGreaterThan(start);
       expect(marker).toBeGreaterThan(-1);
+      expect(lowConnectionMarker).toBeGreaterThan(marker);
       expect(serverImport).toBeGreaterThan(marker);
     }
   });

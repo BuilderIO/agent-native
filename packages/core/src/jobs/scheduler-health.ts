@@ -1,13 +1,63 @@
+import { randomUUID } from "node:crypto";
+
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 
 const TABLE = "automation_scheduler_health";
 const DEFAULT_APP_ID = "default";
 const MAX_ERROR_LENGTH = 500;
+
+export const AUTOMATION_SCHEDULER_LEASE_MS = 10 * 60_000;
+export const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60_000;
+
+/** Authoritative release-time schema for recurring scheduler health. */
+export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[] = [
+  {
+    version: 1,
+    name: "automation-scheduler-health-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS ${TABLE} (
+        id TEXT PRIMARY KEY,
+        app_id TEXT NOT NULL DEFAULT 'default',
+        org_id TEXT,
+        last_checked_at INTEGER,
+        last_dispatched_at INTEGER,
+        last_error TEXT,
+        runtime TEXT,
+        updated_at INTEGER NOT NULL DEFAULT 0
+      );
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT 'default';
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS org_id TEXT;
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_checked_at INTEGER;
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_dispatched_at INTEGER;
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS last_error TEXT;
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS runtime TEXT;
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)
+    `,
+  },
+  {
+    version: 2,
+    name: "automation-scheduler-health-lease",
+    sql: `
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_owner TEXT;
+      ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at INTEGER;
+    `,
+  },
+];
+
+export async function runAutomationSchedulerHealthMigrations(
+  nitroApp: unknown,
+): Promise<void> {
+  await runMigrations(AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS, {
+    table: "_automation_scheduler_health_migrations",
+  })(nitroApp);
+}
 
 function normalizeAppId(appId: string | undefined): string {
   const normalized = appId?.trim();
@@ -42,7 +92,9 @@ async function ensureHealthTable(): Promise<void> {
           last_dispatched_at ${intType()},
           last_error TEXT,
           runtime TEXT,
-          updated_at ${intType()} NOT NULL
+          updated_at ${intType()} NOT NULL,
+          lease_owner TEXT,
+          lease_expires_at ${intType()}
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_updated ON ${TABLE} (updated_at)`;
@@ -83,6 +135,16 @@ async function ensureHealthTable(): Promise<void> {
           "updated_at",
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS updated_at ${intType()}`,
         );
+        await ensureColumnExists(
+          TABLE,
+          "lease_owner",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_owner TEXT`,
+        );
+        await ensureColumnExists(
+          TABLE,
+          "lease_expires_at",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS lease_expires_at ${intType()}`,
+        );
         await ensureIndexExists(`idx_${TABLE}_updated`, indexSql);
         return;
       }
@@ -101,6 +163,8 @@ async function ensureHealthTable(): Promise<void> {
         ["last_error", "TEXT"],
         ["runtime", "TEXT"],
         ["updated_at", `${intType()} NOT NULL DEFAULT 0`],
+        ["lease_owner", "TEXT"],
+        ["lease_expires_at", `${intType()}`],
       ] as const) {
         if (columns.has(name)) continue;
         try {
@@ -126,6 +190,99 @@ async function ensureHealthTable(): Promise<void> {
     });
   }
   return initPromise;
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown } | null;
+  return (
+    candidate?.code === "23505" ||
+    /unique|duplicate|already exists/i.test(String(candidate?.message ?? error))
+  );
+}
+
+function leaseRowId(appId: string): string {
+  return rowIdForScope(appId, null);
+}
+
+/** Claim one recurring scheduler across all deployments of an app. */
+export async function acquireAutomationSchedulerLease(
+  input: {
+    appId?: string;
+    now?: number;
+    leaseMs?: number;
+  } = {},
+): Promise<string | null> {
+  await ensureHealthTable();
+  const appId = normalizeAppId(input.appId);
+  const id = leaseRowId(appId);
+  const now = input.now ?? Date.now();
+  const leaseMs = Math.max(
+    input.leaseMs ?? AUTOMATION_SCHEDULER_LEASE_MS,
+    AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS * 2,
+  );
+  const owner = randomUUID();
+  const expiresAt = now + leaseMs;
+  const client = getDbExec();
+
+  try {
+    await client.execute({
+      sql: `INSERT INTO ${TABLE}
+        (id, app_id, org_id, last_checked_at, last_dispatched_at, last_error, runtime, updated_at, lease_owner, lease_expires_at)
+        VALUES (?, ?, NULL, NULL, NULL, NULL, 'recurring-jobs', ?, ?, ?)`,
+      args: [id, appId, now, owner, expiresAt],
+    });
+    return owner;
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+  }
+
+  const result = await client.execute({
+    sql: `UPDATE ${TABLE}
+          SET lease_owner = ?, lease_expires_at = ?, updated_at = ?
+          WHERE id = ?
+            AND (lease_owner IS NULL OR lease_expires_at IS NULL OR lease_expires_at <= ?)`,
+    args: [owner, expiresAt, now, id, now],
+  });
+  return Number(result.rowsAffected ?? 0) > 0 ? owner : null;
+}
+
+/** Renew a lease while a slow sweep is still executing. */
+export async function renewAutomationSchedulerLease(input: {
+  appId?: string;
+  owner: string;
+  now?: number;
+  leaseMs?: number;
+}): Promise<boolean> {
+  await ensureHealthTable();
+  const now = input.now ?? Date.now();
+  const expiresAt =
+    now + Math.max(input.leaseMs ?? AUTOMATION_SCHEDULER_LEASE_MS, 0);
+  const result = await getDbExec().execute({
+    sql: `UPDATE ${TABLE}
+          SET lease_expires_at = ?, updated_at = ?
+          WHERE id = ? AND lease_owner = ?`,
+    args: [
+      expiresAt,
+      now,
+      leaseRowId(normalizeAppId(input.appId)),
+      input.owner,
+    ],
+  });
+  return Number(result.rowsAffected ?? 0) > 0;
+}
+
+/** Release only the lease owned by this invocation. */
+export async function releaseAutomationSchedulerLease(input: {
+  appId?: string;
+  owner: string;
+}): Promise<void> {
+  await ensureHealthTable();
+  await getDbExec().execute({
+    sql: `UPDATE ${TABLE}
+          SET lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+          WHERE id = ? AND lease_owner = ?`,
+    args: [Date.now(), leaseRowId(normalizeAppId(input.appId)), input.owner],
+  });
 }
 
 function fromRow(row: Record<string, unknown>): AutomationSchedulerHealth {

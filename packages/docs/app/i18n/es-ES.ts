@@ -1491,7 +1491,6 @@ const esES = {
     templatesSection: "Apps",
     gettingStarted: "Primeros pasos",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "¿Qué es Agent-Native?",
     agentSurfaces: "Superficies del Agent",

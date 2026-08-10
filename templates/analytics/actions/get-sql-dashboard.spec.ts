@@ -40,6 +40,9 @@ vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
 
+import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "../server/lib/canonical-first-party-dashboard-repair";
+import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
+
 const { default: getSqlDashboard } = await import("./get-sql-dashboard");
 
 describe("get-sql-dashboard seed fallback", () => {
@@ -115,6 +118,42 @@ describe("get-sql-dashboard seed fallback", () => {
     expect(result.panels).toEqual([]);
     expect(result.layout.panelOrder).toEqual([]);
     expect(result.ownerEmail).toBe("alice@example.com");
+  });
+
+  it("repairs legacy SQL when reading the persisted first-party dashboard", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      id: FIRST_PARTY_DASHBOARD_ID,
+      kind: "sql",
+      config: {
+        name: "Agent Native Templates (First-party)",
+        panels: [
+          {
+            id: "new-vs-recurring-users",
+            source: "first-party",
+            sql: LEGACY_NEW_VS_RECURRING_USERS_SQL,
+          },
+        ],
+      },
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      visibility: "org",
+      role: "owner",
+      canEdit: true,
+      canManage: true,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    });
+
+    const result = (await getSqlDashboard.run({
+      id: FIRST_PARTY_DASHBOARD_ID,
+      includeConfig: true,
+    })) as { panels: Array<{ sql?: string }> };
+
+    expect(result.panels[0]?.sql).not.toBe(LEGACY_NEW_VS_RECURRING_USERS_SQL);
+    expect(result.panels[0]?.sql).toContain("<> 'www'");
   });
 
   it("omits full panel SQL by default and returns it when includeConfig is true", async () => {

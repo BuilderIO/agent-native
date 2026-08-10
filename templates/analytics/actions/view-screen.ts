@@ -7,7 +7,6 @@ import {
 import { z } from "zod";
 
 import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
-import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
@@ -390,25 +389,6 @@ export default defineAction({
             lastUsedAt: key.lastUsedAt,
           })),
         };
-      }
-    } else if (nav?.view === "catalog") {
-      screen.page = "catalog";
-      const email = getRequestUserEmail();
-      if (email) {
-        const catalog = await listDashboardCatalog({
-          email,
-          orgId: getRequestOrgId() || null,
-        });
-        screen.dashboardTemplates = catalog.map((template) => ({
-          id: template.id,
-          name: template.name,
-          category: template.category,
-          dataSources: template.dataSources,
-          installed: template.installed,
-          installedDashboardIds: template.installedDashboards.map(
-            (dashboard) => dashboard.id,
-          ),
-        }));
       }
     } else if (nav?.view === "agents") {
       screen.page = "agents";

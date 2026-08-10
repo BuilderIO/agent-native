@@ -4,12 +4,8 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconBrandSlack,
-  IconExternalLink,
-  IconLoader2,
-  IconTrash,
-} from "@tabler/icons-react";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { IconBrandSlack, IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -24,13 +20,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 interface SlackInstallation {
   id: string;
@@ -188,103 +177,72 @@ export function SlackSection() {
 
   return (
     <>
-      <Card id="slack" className="scroll-mt-16">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <IconBrandSlack className="size-4 text-primary" />
-            {t("settings.slackTitle")}
-          </CardTitle>
-          <CardDescription>{t("settings.slackDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <IconBrandSlack className="h-4 w-4 text-muted-foreground" />
-                {slackStatus.isLoading
-                  ? t("settings.checkingSlack")
-                  : connected
-                    ? t("settings.slackConnected", {
-                        count: installations.length,
-                      })
-                    : oauthConfigured
-                      ? t("common.notConnected")
-                      : t("settings.slackOauthNeeded")}
-              </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {t("settings.slackPreviewDescription")}
-              </p>
-            </div>
+      <SettingsGroup
+        id="slack"
+        title={t("settings.slackTitle")}
+        description={t("settings.slackDescription")}
+      >
+        <SettingsRow
+          label={
+            slackStatus.isLoading
+              ? t("settings.checkingSlack")
+              : connected
+                ? t("settings.slackConnected", {
+                    count: installations.length,
+                  })
+                : oauthConfigured
+                  ? t("common.notConnected")
+                  : t("settings.slackOauthNeeded")
+          }
+          description={
+            !oauthConfigured
+              ? t("settings.slackClientMissing")
+              : !signingConfigured
+                ? t("settings.slackSigningMissing")
+                : t("settings.slackPreviewDescription")
+          }
+          icon={<IconBrandSlack className="text-primary" />}
+          control={
             <Button
               type="button"
-              variant="outline"
+              variant="default"
               size="sm"
-              className="shrink-0"
               onClick={handleConnect}
               disabled={connecting || slackStatus.isLoading || !oauthConfigured}
             >
-              {connecting ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <IconExternalLink className="h-4 w-4" />
-              )}
+              {connecting ? <IconLoader2 className="animate-spin" /> : null}
               {t("settings.connectSlack")}
             </Button>
-          </div>
+          }
+        />
 
-          {!oauthConfigured ? (
-            <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-              {t("settings.slackClientMissing")}
-            </div>
-          ) : null}
-
-          {!signingConfigured ? (
-            <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-              {t("settings.slackSigningMissing")}
-            </div>
-          ) : null}
-
-          {installations.length > 0 ? (
-            <div className="space-y-2">
-              {installations.map((installation) => (
-                <div
-                  key={installation.id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
-                      {installation.teamName || installation.teamId}
-                    </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                      <span>{installation.status}</span>
-                      {installation.enterpriseName ? (
-                        <span>{installation.enterpriseName}</span>
-                      ) : null}
-                      <span>
-                        {t("settings.connectedBy", {
-                          email: installation.ownerEmail,
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0"
-                    aria-label={t("settings.disconnectSlackLabel", {
-                      team: installation.teamName || installation.teamId,
-                    })}
-                    onClick={() => setDisconnectTarget(installation)}
-                  >
-                    <IconTrash className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+        {installations.map((installation) => (
+          <SettingsRow
+            key={installation.id}
+            label={installation.teamName || installation.teamId}
+            description={[
+              installation.status,
+              installation.enterpriseName,
+              t("settings.connectedBy", { email: installation.ownerEmail }),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            control={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("settings.disconnectSlackLabel", {
+                  team: installation.teamName || installation.teamId,
+                })}
+                onClick={() => setDisconnectTarget(installation)}
+              >
+                <IconTrash />
+              </Button>
+            }
+          />
+        ))}
+      </SettingsGroup>
 
       <AlertDialog
         open={!!disconnectTarget}

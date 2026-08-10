@@ -18,33 +18,9 @@ import {
   type DocsLocale,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
+import { DOCS_SLUG_REDIRECTS } from "../components/docs-slug-redirects";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
-
-/** Legacy slug -> current slug. Keep in sync with docs.$slug.tsx. */
-const SLUG_REDIRECTS: Record<string, string> = {
-  "core-philosophy": "key-concepts",
-  "database-adapters": "deployment",
-  resources: "agent-resources",
-  secrets: "security",
-  workspace: "agent-resources",
-  "visual-plans": "template-plan",
-  // Toolkit -ui pages merged into their parent kit doc.
-  "toolkit-app-adapters": "toolkit-ui",
-  "toolkit-shell-hooks": "toolkit-ui",
-  "toolkit-collaboration-ui": "toolkit-collaboration",
-  "toolkit-sharing-ui": "toolkit-sharing",
-  // Migration workbench folded into the code-agents-ui /migrate section.
-  "migration-workbench": "code-agents-ui",
-  // server.mdx split into the Server section (server-overview, -database,
-  // -middleware, -plugins, -routes).
-  server: "server-overview",
-  // client.mdx split into the Client section (client-overview, -data,
-  // -agent-chat, -routing, -advanced, -sync-internals, -entry-points).
-  client: "client-overview",
-  // routing.mdx superseded by the Client section's own routing page.
-  routing: "client-routing",
-};
 
 function requireLocale(value: unknown): DocsLocale {
   if (isDocsLocale(value)) return value;
@@ -60,7 +36,7 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
     throw redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 301);
   }
 
-  const target = SLUG_REDIRECTS[slug];
+  const target = DOCS_SLUG_REDIRECTS[slug];
   if (target) {
     throw redirect(docsPathForSlug(target, locale), 301);
   }

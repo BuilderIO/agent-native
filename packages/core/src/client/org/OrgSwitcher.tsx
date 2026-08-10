@@ -126,9 +126,9 @@ const SWITCHER_BUTTON_CLASS =
 const COMPACT_SWITCHER_BUTTON_CLASS =
   "flex items-center justify-center rounded-md border-0 bg-accent/50 p-1.5 text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
-const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
-const DEFAULT_PROFILE_PATH = "/settings#account";
-const DEFAULT_AGENT_PATH = "/agent";
+const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings/organization";
+const DEFAULT_PROFILE_PATH = "/settings/account";
+const DEFAULT_AGENT_PATH = "/settings/agent";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,

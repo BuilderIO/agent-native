@@ -334,7 +334,7 @@ export default function DictationCaptureScreen() {
                 onChangeText={setText}
                 placeholder="Your transcript"
                 placeholderTextColor="#52525b"
-                selectionColor="#c7f36b"
+                selectionColor="#d4d4d8"
                 className="bg-card-dark border border-border-dark rounded-2xl text-text-light flex-1 text-lg leading-6 mt-3.5 p-4"
                 textAlignVertical="top"
                 value={text}

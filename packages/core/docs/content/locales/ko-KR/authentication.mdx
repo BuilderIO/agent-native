@@ -102,6 +102,14 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 
 </Callout>
 
+## 로컬 개발 로그인 {#local-development-sign-in}
+
+루프백 개발 서버에서는 공유 로그인 페이지에 **Continue as local dev**가 먼저 표시됩니다. 실제 Better Auth 개발자 계정과 세션을 생성하거나 재사용하므로 앱의 다른 곳과 동일한 인증 흐름을 사용합니다.
+
+**Show full sign in options**를 선택하면 일반 가입, 비밀번호, magic link, 소셜 공급자 옵션이 표시됩니다. 로컬 세션을 만들 수 없으면 페이지가 이 옵션을 자동으로 표시하므로 표준 인증을 계속할 수 있습니다.
+
+이 기능은 개발 또는 테스트 환경에서 브라우저가 `localhost`, `127.0.0.0/8` 또는 `::1`을 통해 연결할 때만 사용할 수 있습니다. 배포 미리보기와 호스팅된 프로덕션에서는 비활성화됩니다. 인증 우회가 아닙니다. `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`을 설정하면 이 기능을 선택 해제하고 로컬 개발에서 일반 로그인 페이지를 표시합니다.
+
 ## 더 나은 인증(기본값) {#better-auth}
 
 기본적으로 Better Auth는 인증을 강화합니다. 다음을 제공합니다:
@@ -380,7 +388,7 @@ function MyComponent() {
 **공개 페이지**(링크 공유, 삽입, 마케팅 페이지 공유)가 있는 템플릿에는 익명의 시청자에게 로그인을 요청하고 원래 있던 페이지로 다시 연결하는 페이지 내 CTA가 필요한 경우가 많습니다. 프레임워크는 이에 대한 단일 진입점을 제공합니다.
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 익명의 뷰어가 이 URL를 조회하면 프레임워크의 로그인 페이지가 제공됩니다. 로그인에 성공하면(토큰, 이메일/비밀번호 또는 구글 OAuth 등 모든 흐름) 브라우저는 `return`로 돌아갑니다.
@@ -395,8 +403,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -404,13 +411,13 @@ function SignInCta() {
 
 ### 북마크된 비공개 경로
 
-일반 앱 페이지는 모든 방문자에게 동일한 비개인화 공개 캐시 가능 SSR 셸을 사용합니다. `AppProviders`가 클라이언트에서 세션을 확인하며, `/dashboard` 같은 비공개 경로에서는 비공개 UI를 마운트하기 전에 익명 방문자를 `/_agent-native/sign-in?return=%2Fdashboard`로 리디렉션합니다. 로그인 후에는 `/dashboard`로 돌아옵니다. 공개/SEO 경로에는 `isPublicPath`를, MCP 임베드 토큰처럼 별도의 제한된 인증 방식을 사용하는 화면에는 `sessionBypass`를 지정하세요.
+일반 앱 페이지는 모든 방문자에게 동일한 비개인화 공개 캐시 가능 SSR 셸을 사용합니다. `AppProviders`가 클라이언트에서 세션을 확인하며, `/dashboard` 같은 비공개 경로에서는 비공개 UI를 마운트하기 전에 익명 방문자를 `/sign-in?return=%2Fdashboard`로 리디렉션합니다. 로그인 후에는 `/dashboard`로 돌아옵니다. 공개/SEO 경로에는 `isPublicPath`를, MCP 임베드 토큰처럼 별도의 제한된 인증 방식을 사용하는 화면에는 `sessionBypass`를 지정하세요.
 
 셸이 캐시되는 기간은 배포 전체 설정입니다 — `AGENT_NATIVE_SSR_CACHE`에 대해서는 [SSR Caching](/docs/deployment#ssr-caching)을 참조하세요. 캐시를 단축하거나 비활성화해도 기간만 바뀔 뿐, SSR은 여전히 쿠키가 제거된 익명 분기를 렌더링합니다.
 
 ### 비하인드 스토리: 구글 OAuth
 
-두 흐름(명시적 `/_agent-native/sign-in` 진입점 및 북마크된 경로 사례) 모두 OAuth 상태를 통해 반환 URL를 스레드합니다. 상태는 HMAC로 서명되어 있으므로 전송 중에 위조될 수 없습니다. 콜백에서 반환된 URL는 리디렉션 전에 동일 출처로 재검증되므로 유출된 서명 키는 여전히 공개 리디렉션 오라클로 전환될 수 없습니다.
+두 흐름(명시적 `/sign-in` 진입점 및 북마크된 경로 사례) 모두 OAuth 상태를 통해 반환 URL를 스레드합니다. 상태는 HMAC로 서명되어 있으므로 전송 중에 위조될 수 없습니다. 콜백에서 반환된 URL는 리디렉션 전에 동일 출처로 재검증되므로 유출된 서명 키는 여전히 공개 리디렉션 오라클로 전환될 수 없습니다.
 
 템플릿이 `/_agent-native/google/auth-url`를 직접 래핑하는 경우(예: 메일 및 달력 템플릿은 범위를 넓히기 위해) `?return=<path>` 쿼리를 수락하고 `encodeOAuthState`의 옵션 개체 형식을 통해 전달합니다.
 

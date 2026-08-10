@@ -69,6 +69,7 @@ import {
   type StyleBrief,
 } from "../shared/api.js";
 import {
+  imageArtifactLinks,
   requireGenerationSessionInLibrary,
   serializeAsset,
 } from "./_helpers.js";
@@ -1109,9 +1110,14 @@ export default defineAction({
         ...serialized,
         runId,
         artifactType: "image",
-        Artifacts: [
-          `Image: ${serialized.url} (ID: ${asset.id}, Run: ${runId})`,
-        ],
+        // Cross-app callers embed the artifact in HTML. `url` is the Assets
+        // detail page; previewUrl is the actual media response.
+        Artifacts: imageArtifactLinks({
+          id: asset.id,
+          runId,
+          previewUrl: serialized.previewUrl,
+          downloadUrl: serialized.downloadUrl,
+        }),
         ...creativeContextProvenance,
       };
     } catch (err) {

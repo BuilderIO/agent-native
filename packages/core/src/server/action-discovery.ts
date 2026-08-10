@@ -29,6 +29,7 @@ import nodePath from "node:path";
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
+import { CORE_ACTION_GROUPS } from "../framework-tools.js";
 import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -580,6 +581,34 @@ export async function autoDiscoverActions(
   return registry;
 }
 
+// `CORE_ACTION_GROUPS` lives in `framework-tools.ts` so the group filter can
+// resolve a kit by name without importing this module. Re-exported here
+// because this is where callers have always found it.
+export { CORE_ACTION_GROUPS };
+
+/**
+ * Core actions with no `frameworkTools` switch, and why:
+ *
+ * - `upload-image` is load-bearing for ordinary work.
+ * - The email catalog is mounted everywhere on purpose so Dispatch can ask any
+ *   app what it sends without that app opting in (see its comment below). It is
+ *   a read surface, not the `email` group's send capability.
+ * - MCP tools and org service tokens are already governed by `mcp.enabled`.
+ */
+export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
+  "upload-image",
+  "list-transactional-emails",
+  "render-transactional-email-preview",
+  "list-email-log",
+  "list-email-activity",
+  "list-email-engagement",
+  "create-org-service-token",
+  "list-org-service-tokens",
+  "revoke-org-service-token",
+  "list-mcp-tools",
+  "call-mcp-tool",
+]);
+
 export async function mergeCoreSharingActions(
   registry: Record<string, ActionEntry>,
 ): Promise<void> {
@@ -817,6 +846,12 @@ export async function mergeCoreSharingActions(
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),
+          // Pre-resolved copy of what `resolveFrameworkGroup` would compute
+          // from the name anyway. Kept so an entry read in isolation still
+          // reports its kit; the filters no longer depend on it.
+          ...(CORE_ACTION_GROUPS[name]
+            ? { frameworkGroup: CORE_ACTION_GROUPS[name] }
+            : {}),
         };
       }
     } catch {

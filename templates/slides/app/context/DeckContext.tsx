@@ -138,6 +138,46 @@ export interface Deck {
   aspectRatio?: AspectRatio;
 }
 
+export type DeckPersistenceResult =
+  | { persisted: true }
+  | { persisted: false; reason: "request-failed"; error: unknown }
+  | { persisted: false; reason: "not-found" };
+
+/**
+ * Ask the server whether a deck row exists, keeping "absent" and "could not
+ * check" distinct — a rejected write is not by itself proof the row is missing.
+ */
+async function probeDeckPersisted(id: string): Promise<DeckPersistenceResult> {
+  try {
+    const result = await callAction<unknown>(
+      "get-deck",
+      { id },
+      {
+        method: "GET",
+      },
+    );
+    return normalizeActionDeck(result)
+      ? { persisted: true }
+      : { persisted: false, reason: "not-found" };
+  } catch (error) {
+    return { persisted: false, reason: "request-failed", error };
+  }
+}
+
+export function describeDeckPersistenceFailure(
+  result: DeckPersistenceResult,
+  fallback: string,
+): string {
+  if (result.persisted || result.reason === "not-found") return fallback;
+  if (result.error instanceof Error && result.error.message.trim()) {
+    return result.error.message;
+  }
+  if (typeof result.error === "string" && result.error.trim()) {
+    return result.error;
+  }
+  return fallback;
+}
+
 interface DeckContextType {
   decks: Deck[];
   loading: boolean;
@@ -146,7 +186,7 @@ interface DeckContextType {
     title?: string,
     options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
   ) => Deck;
-  ensureDeckPersisted: (id: string) => Promise<boolean>;
+  ensureDeckPersisted: (id: string) => Promise<DeckPersistenceResult>;
   /**
    * Optimistically duplicate a deck. Inserts a copy into local state with the
    * supplied `newId` immediately so the UI can navigate without awaiting the
@@ -159,6 +199,7 @@ interface DeckContextType {
     sourceDeckId: string,
     newId: string,
     title?: string,
+    onFailure?: () => void,
   ) => Deck | null;
   deleteDeck: (id: string) => void;
   updateDeck: (
@@ -167,6 +208,7 @@ interface DeckContextType {
   ) => void;
   reloadDecks: () => Promise<void>;
   reloadDecksWithStatus: () => Promise<DeckReloadStatus>;
+  refreshOpenDeck: (deckId: string) => Promise<Deck | null>;
   getDeck: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
@@ -831,18 +873,52 @@ async function fetchDeckListLightFromAPI(): Promise<{ id: string }[] | null> {
   }
 }
 
+const DECK_FETCH_RETRY_ATTEMPTS = 3;
+const DECK_FETCH_RETRY_DELAY_MS = 400;
+
+// `get-deck` returns a real 404/403 only when the deck is genuinely gone or
+// the caller genuinely lacks access (see actions/get-deck.ts). A network blip
+// or 5xx is transient and must not be coerced into the same "not found" null
+// the caller uses to show the owner-facing "deck unavailable" pane — that
+// flashed a wrong message on brief server hiccups even though the deck still
+// existed.
+function isConfirmedDeckAbsence(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return status === 404 || status === 403;
+}
+
+// A timeout already made the caller wait the full action timeout window once
+// (see DEFAULT_ACTION_TIMEOUT_MS in use-action.ts); retrying would multiply
+// that wait instead of surfacing the failure — same reasoning as
+// `isActionTimeout` in the shared action-query retry policy.
+function isDeckFetchTimeout(err: unknown): boolean {
+  return (err as { timedOut?: unknown } | null)?.timedOut === true;
+}
+
 async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
-  try {
-    const result = await callAction<unknown>(
-      "get-deck",
-      { id },
-      { method: "GET" },
-    );
-    return normalizeActionDeck(result);
-  } catch (err) {
-    console.error(`Failed to fetch deck ${id}:`, err);
-    return null;
+  for (let attempt = 1; attempt <= DECK_FETCH_RETRY_ATTEMPTS; attempt++) {
+    try {
+      const result = await callAction<unknown>(
+        "get-deck",
+        { id },
+        { method: "GET" },
+      );
+      return normalizeActionDeck(result);
+    } catch (err) {
+      if (
+        isConfirmedDeckAbsence(err) ||
+        isDeckFetchTimeout(err) ||
+        attempt === DECK_FETCH_RETRY_ATTEMPTS
+      ) {
+        console.error(`Failed to fetch deck ${id}:`, err);
+        return null;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, attempt * DECK_FETCH_RETRY_DELAY_MS),
+      );
+    }
   }
+  return null;
 }
 
 export function deckIdFromPathname(pathname: string): string | null {
@@ -885,7 +961,22 @@ async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
 }
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
-  await callAction("delete-deck", { id }, { method: "DELETE" });
+  try {
+    await callAction("delete-deck", { id }, { method: "DELETE" });
+  } catch (error) {
+    // Deleting an optimistic deck is intentionally idempotent. A create can
+    // fail after the server committed the row, or before it created one.
+    if (
+      !(
+        error &&
+        typeof error === "object" &&
+        "status" in error &&
+        (error as { status?: unknown }).status === 404
+      )
+    ) {
+      throw error;
+    }
+  }
 }
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
@@ -1081,7 +1172,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const deletion = pendingCreate
         ? pendingCreate.then(
             () => deleteDeckFromAPI(deckId),
-            () => undefined,
+            () => deleteDeckFromAPI(deckId),
           )
         : deleteDeckFromAPI(deckId);
       void deletion.catch((err) => {
@@ -1267,11 +1358,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   //   - Dirty deck / unsaved local create → additive merge only: surface
   //     agent-added slides without ever overwriting or dropping local slides.
   const refetchOpenDeckIfChanged = useCallback(
-    async (currentOpenId: string) => {
+    async (currentOpenId: string): Promise<Deck | null> => {
       const serverDeck = await fetchDeckFromAPI(currentOpenId);
       // Null means 404 (row not created yet), a transient failure, or a
       // still-pending create — nothing authoritative to reconcile.
-      if (!serverDeck) return;
+      if (!serverDeck) return null;
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
 
       const hasLocalEdits =
@@ -1281,7 +1372,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (hasLocalEdits && clientDeck) {
         // Content-preserving: only ADD server slides missing locally.
         const merged = mergeServerAddedSlides(clientDeck, serverDeck);
-        if (merged === clientDeck) return; // nothing new to surface
+        if (merged === clientDeck) return serverDeck; // nothing new to surface
         lastExternalUpdateRef.current = Date.now();
         setDecks((prev) => {
           const idx = prev.findIndex((d) => d.id === currentOpenId);
@@ -1290,16 +1381,17 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           next[idx] = merged;
           return next;
         });
-        return;
+        return serverDeck;
       }
 
       const changed =
         !clientDeck ||
         clientDeck.updatedAt !== serverDeck.updatedAt ||
-        clientDeck.slides.length !== serverDeck.slides.length;
-      if (!changed) return;
+        deckContentSignature(clientDeck) !== deckContentSignature(serverDeck);
+      if (!changed) return serverDeck;
       lastExternalUpdateRef.current = Date.now();
       applyRemoteDeckUpdate(serverDeck);
+      return serverDeck;
     },
     [applyRemoteDeckUpdate],
   );
@@ -1728,22 +1820,30 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [noteLocalCreate, setDecksLocal],
   );
 
-  const ensureDeckPersisted = useCallback(async (id: string) => {
-    const pendingCreate = pendingCreatePromisesRef.current.get(id);
-    if (pendingCreate) {
-      try {
-        await pendingCreate;
-        return true;
-      } catch {
-        return false;
+  const ensureDeckPersisted = useCallback(
+    async (id: string): Promise<DeckPersistenceResult> => {
+      const pendingCreate = pendingCreatePromisesRef.current.get(id);
+      if (pendingCreate) {
+        try {
+          await pendingCreate;
+          return { persisted: true };
+        } catch (error) {
+          return { persisted: false, reason: "request-failed", error };
+        }
       }
-    }
 
-    return (await fetchDeckFromAPI(id)) !== null;
-  }, []);
+      return probeDeckPersisted(id);
+    },
+    [],
+  );
 
   const duplicateDeck = useCallback(
-    (sourceDeckId: string, newId: string, title?: string): Deck | null => {
+    (
+      sourceDeckId: string,
+      newId: string,
+      title?: string,
+      onFailure?: () => void,
+    ): Deck | null => {
       if (pendingDuplicateSourceIdsRef.current.has(sourceDeckId)) return null;
       const source = decks.find((d) => d.id === sourceDeckId);
       if (!source) return null;
@@ -1793,10 +1893,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       ).then(() => undefined);
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
       duplicatePromise
-        .catch((err) => {
+        .catch(async (err) => {
+          // A rejected request is not proof the row is missing: a timeout or
+          // dropped response can land after the server committed the insert.
+          // Discarding the copy then would delete work that actually exists
+          // and tell the user it failed, so confirm against the server first.
+          const probe = await probeDeckPersisted(newId);
+          if (probe.persisted) {
+            console.warn(
+              `Duplicate request for ${newId} failed but the deck persisted:`,
+              err,
+            );
+            return;
+          }
           console.error("Duplicate failed:", err);
-          // Roll back: drop the optimistic deck from local state.
+          // Roll back: drop the optimistic deck from local state. The caller
+          // (via onFailure) is responsible for navigating away if the user is
+          // still sitting on this now-gone deck's route — otherwise they're
+          // stranded on a "Deck unavailable" screen with no way back.
           setDecks((prev) => prev.filter((d) => d.id !== newId));
+          onFailure?.();
         })
         .finally(() => {
           pendingCreateIdsRef.current.delete(newId);
@@ -2150,6 +2266,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         updateDeck,
         reloadDecks,
         reloadDecksWithStatus,
+        refreshOpenDeck: refetchOpenDeckIfChanged,
         getDeck,
         addSlide,
         updateSlide,

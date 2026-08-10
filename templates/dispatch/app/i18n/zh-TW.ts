@@ -1,3 +1,5 @@
+import { chatFirstPageTranslations } from "../chat-first-pages";
+
 const messages = {
   root: {
     commandActions: "操作",
@@ -29,6 +31,16 @@ const messages = {
     deliveryTitle: "投遞",
     deliveryDescription: "管理訊息目的地並查看出站投遞佇列。",
     openDelivery: "開啟投遞",
+    chatFirstTitle: "聊天優先工作區",
+    chatFirstDescription:
+      "讓聊天保持核心位置，並在旁邊的情境面板中開啟工作區應用程式。此偏好只會變更你在 Dispatch 的本機外觀。",
+    chatFirstAriaLabel: "使用聊天優先導覽",
+    chatFirstSessionWatchDescription:
+      "工作階段監看與後續訊息也能在此瀏覽器面板中運作。本機 CLI 訂閱偵測會保留在 Electron 應用程式；Dispatch 使用工作區／提供者憑證。",
+    chatFirstStorageUnavailable:
+      "此瀏覽器不允許本機偏好設定，因此無法儲存聊天優先模式。",
+    chatFirstStorageBlocked:
+      "此瀏覽器封鎖了本機偏好設定，因此未變更聊天優先模式。",
     agentTitle: "管理代理",
     agentDescription:
       "管理代理的模型、API 金鑰、語音和其他控制項。排程與事件觸發的工作請使用自動化頁面。",
@@ -248,6 +260,7 @@ const messages = {
   },
   dispatch: {
     nav: {
+      admin: "管理",
       automations: "自動化",
       approvals: "核准",
       delivery: "投遞",
@@ -258,6 +271,17 @@ const messages = {
       agent: "代理",
     },
     pages: {
+      adminDescription: "工作區控制與營運",
+      adminNavigation: "管理導覽",
+      adminWelcome: "工作區控制中心",
+      adminChooseArea: "在同一處管理應用程式、連線、自動化和營運工具。",
+      adminChooseAreaHint: "從管理導覽中選擇區域。",
+      adminWorkspace: "工作區",
+      adminOperations: "營運",
+      adminAutomation: "自動化與投遞",
+      adminConnections: "連線",
+      adminAgentPlatform: "代理平台",
+      adminWorkspaceExtensions: "工作區擴充功能",
       dataLoadFailed: "無法載入資料",
       dataLoadFailedDescription: "Dispatch 無法載入這些資料。",
       tryAgain: "再試一次",
@@ -344,6 +368,7 @@ const messages = {
       threadDebugRefreshThreads: "重新整理討論串",
       threadDebugNoThreads: "找不到討論串。",
       threadDebugSelectPrompt: "選取失敗執行或討論串以進行檢查。",
+      ...chatFirstPageTranslations["zh-TW"],
     },
   },
 };

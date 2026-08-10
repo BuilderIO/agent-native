@@ -145,6 +145,15 @@ export * from "./untrusted-reference.js";
 export * from "./media.js";
 export * from "./native-resource-capture.js";
 export * from "./safe-native-preview.js";
+export {
+  brandKitDataFromExtraction,
+  buildDesignMarkdown,
+  extractRenderedDesignSystemFromUrl,
+  styleBriefFromRenderedDesign,
+  type ExtractRenderedDesignOptions,
+  type RenderedDesignExtraction,
+  type RenderedDesignExtractionStatus,
+} from "../connectors/rendered-design.js";
 export { serializePrivateBlobHandle } from "../connectors/private-artifacts.js";
 export { resolveNativeContextCloneReference } from "../store/contexts.js";
 export {

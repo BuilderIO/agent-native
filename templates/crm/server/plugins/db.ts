@@ -616,7 +616,7 @@ const nativeAttributeTypeBackfill = [
   `UPDATE crm_field_policies SET attribute_type = 'text' WHERE field_name IN ('name', 'industry', 'ownerName', 'firstName', 'lastName', 'title') AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
 ].join(";\n");
 
-const runCrmMigrations = runMigrations(
+export const runCrmMigrations = runMigrations(
   [
     { version: 1, name: "crm-initial-thin-mirror-schema", sql: initialSchema },
     { version: 2, name: "crm-signals-engine-schema", sql: signalsSchema },
@@ -635,6 +635,17 @@ const runCrmMigrations = runMigrations(
       version: 6,
       name: "crm-native-field-attribute-backfill",
       sql: nativeAttributeTypeBackfill,
+    },
+    {
+      version: 7,
+      name: "backfill-native-stage-options",
+      // Run-only: a Drizzle join plus per-policy writes that SQL alone cannot
+      // express. It used to sit in the plugin body, so every cold start paid
+      // the lookup before the app could serve even though it is a one-time
+      // backfill of historical policies. A throw leaves it unrecorded and it
+      // retries on the next boot.
+      sql: {},
+      run: backfillNativeStageOptions,
     },
   ],
   { table: "crm_migrations" },
@@ -724,14 +735,6 @@ export default async (nitroApp: unknown): Promise<void> => {
   } catch (error) {
     console.warn(
       "[crm/db] additive schema check failed",
-      error instanceof Error ? error.message : error,
-    );
-  }
-  try {
-    await backfillNativeStageOptions();
-  } catch (error) {
-    console.warn(
-      "[crm/db] native stage option backfill failed",
       error instanceof Error ? error.message : error,
     );
   }

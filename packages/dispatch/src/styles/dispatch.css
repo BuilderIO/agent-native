@@ -7,6 +7,35 @@
 @source "../components/**/*.{js,mjs,ts,tsx}";
 @source "../hooks/**/*.{js,mjs,ts,tsx}";
 @source "../routes/**/*.{js,mjs,ts,tsx}";
+@source "../../../core/src/client/chat-first/**/*.{ts,tsx}";
+
+.dispatch-chat-first-chats .an-chat-history-rail__new-chat {
+  display: none;
+}
+
+.dispatch-chat-first-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.35);
+  padding: 0.5rem 0.75rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.dispatch-chat-first-notice button {
+  flex: none;
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  .dispatch-chat-first-surface {
+    position: relative;
+  }
+}
 
 .dispatch-chat-panel [data-agent-empty-state="centered"] {
   justify-content: center;
@@ -20,7 +49,7 @@
 .dispatch-chat-panel [data-agent-empty-state="centered"] .dispatch-chat-intro {
   display: grid;
   width: 100%;
-  max-width: min(684px, 90%);
+  max-width: min(750px, 90%);
   gap: 0.5rem;
   margin: 0 auto 1rem;
   text-align: center;
@@ -50,7 +79,7 @@
 
 .dispatch-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
   width: 100%;
-  max-width: min(684px, 90%);
+  max-width: min(750px, 90%);
   padding: 0;
 }
 

@@ -20,6 +20,7 @@ import {
 } from "./cron.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
@@ -29,7 +30,13 @@ import {
   getAutomationRun,
   listAutomationRuns,
 } from "./run-history.js";
-import { recordAutomationSchedulerHealth } from "./scheduler-health.js";
+import {
+  acquireAutomationSchedulerLease,
+  recordAutomationSchedulerHealth,
+  releaseAutomationSchedulerLease,
+  renewAutomationSchedulerLease,
+  AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS,
+} from "./scheduler-health.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -74,7 +81,10 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
 }
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
+const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
+const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
 const _activeScheduledJobs = new Set<string>();
+const _preflightingScheduledJobs = new Set<string>();
 
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
@@ -143,10 +153,60 @@ function subscribeToJobsResourceEvents(): void {
  * one job cannot run twice while leaving other due jobs waiting behind it.
  */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
+  const leaseOwner = await acquireAutomationSchedulerLease({
+    appId: deps.appId,
+  });
+  if (!leaseOwner) return;
+
+  const leaseRenewal = setInterval(() => {
+    void renewAutomationSchedulerLease({
+      appId: deps.appId,
+      owner: leaseOwner,
+    }).catch((error) => {
+      console.warn(
+        "[recurring-jobs] Scheduler lease renewal failed:",
+        error instanceof Error ? error.message : error,
+      );
+    });
+  }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
+
+  let primaryFailed = false;
+  try {
+    await processRecurringJobsWithLease(deps);
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
+  } finally {
+    clearInterval(leaseRenewal);
+    try {
+      await releaseAutomationSchedulerLease({
+        appId: deps.appId,
+        owner: leaseOwner,
+      });
+    } catch (releaseError) {
+      console.warn(
+        "[recurring-jobs] Scheduler lease release failed:",
+        releaseError instanceof Error ? releaseError.message : releaseError,
+      );
+      if (!primaryFailed) throw releaseError;
+    }
+  }
+}
+
+async function processRecurringJobsWithLease(
+  deps: SchedulerDeps,
+): Promise<void> {
   subscribeToJobsResourceEvents();
 
   // Skip if we recently confirmed there are no job resources to run.
   const nowMs = Date.now();
+  // Write a global heartbeat before the resource scan. A slow or failed scan
+  // must not make a healthy worker look idle until the finally block runs.
+  await recordSchedulerHealthForScopes({
+    appId: deps.appId,
+    orgIds: [],
+    checkedAt: nowMs,
+  });
   if (
     _hasJobsCache === false &&
     nowMs - _lastJobsCheck < JOBS_CHECK_INTERVAL_MS
@@ -174,7 +234,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     if (!_hasJobsCache) return;
     const now = new Date();
 
-    const dueJobs: Array<{
+    const dueJobCandidates: Array<{
       key: string;
       resource: Resource;
       meta: JobFrontmatter;
@@ -187,6 +247,11 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       if (resource.path.endsWith(".keep")) continue;
 
       const { meta, body } = parseJobFrontmatter(resource.content);
+      // Jobs written before app ownership was persisted remain compatible with
+      // the shared scheduler. Once a job declares an owner, only that app may
+      // evaluate or execute it. Without this boundary every app's scheduled
+      // worker can claim the same organization resource.
+      if (!jobBelongsToApp(meta, deps.appId)) continue;
       healthOrgIds.add(meta.orgId ?? null);
 
       // Skip disabled or missing schedule
@@ -226,13 +291,69 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       // Skip if body is empty
       if (!body.trim()) continue;
 
-      const key = `${resource.owner}:${resource.path}`;
-      if (_activeScheduledJobs.has(key)) continue;
-      if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) continue;
+      if (hasRecentIdentityFailure(meta, now)) continue;
 
-      _activeScheduledJobs.add(key);
-      reservedJobKeys.add(key);
-      dueJobs.push({ key, resource, meta, body });
+      const key = `${resource.owner}:${resource.path}`;
+      if (
+        _activeScheduledJobs.has(key) ||
+        _preflightingScheduledJobs.has(key)
+      ) {
+        continue;
+      }
+      dueJobCandidates.push({ key, resource, meta, body });
+    }
+
+    const preflightCandidates: typeof dueJobCandidates = [];
+    for (const candidate of dueJobCandidates) {
+      if (
+        _activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS ||
+        preflightCandidates.length >= MAX_IDENTITY_PREFLIGHTS_PER_TICK
+      ) {
+        break;
+      }
+      if (
+        _activeScheduledJobs.has(candidate.key) ||
+        _preflightingScheduledJobs.has(candidate.key)
+      ) {
+        continue;
+      }
+      preflightCandidates.push(candidate);
+    }
+
+    // Identity checks can reject stale jobs that remain due for admin review.
+    // Bound the checks so a large blocked backlog cannot consume the whole
+    // invocation or make valid jobs wait behind an unbounded stale queue.
+    const dueJobs: typeof dueJobCandidates = [];
+    for (const candidate of preflightCandidates) {
+      _preflightingScheduledJobs.add(candidate.key);
+      try {
+        const identity = await resolveBackgroundAutomationIdentity({
+          name: candidate.resource.path
+            .replace(/^jobs\//, "")
+            .replace(/\.md$/, ""),
+          meta: candidate.meta,
+          body: candidate.body,
+          resource: candidate.resource,
+        });
+        if (!identity.ok) {
+          await recordIdentityFailure(
+            candidate.resource,
+            candidate.meta,
+            candidate.body,
+            now,
+            identity.reason,
+          );
+          continue;
+        }
+        if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) {
+          break;
+        }
+        _activeScheduledJobs.add(candidate.key);
+        reservedJobKeys.add(candidate.key);
+        dueJobs.push(candidate);
+      } finally {
+        _preflightingScheduledJobs.delete(candidate.key);
+      }
     }
 
     if (dueJobs.length > 0) dispatchedAt = Date.now();
@@ -334,6 +455,50 @@ interface ExecuteJobOptions {
   manual?: boolean;
 }
 
+async function recordIdentityFailure(
+  resource: Resource,
+  meta: JobFrontmatter,
+  body: string,
+  now: Date,
+  reason: string,
+  historyId?: string,
+): Promise<JobExecutionResult> {
+  const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+  console.warn(
+    `[recurring-jobs] Skipping job "${jobName}": ${reason}. ` +
+      `User/membership no longer valid — leaving cron entry for admin review.`,
+  );
+  // Keep blocked jobs due so an admin can find them, but do not let their
+  // persistent failure consume an execution slot on every scheduler sweep.
+  const alreadyRecorded =
+    meta.lastStatus === "skipped" && meta.lastError === reason;
+  meta.lastCheck = now.toISOString();
+  meta.lastStatus = "skipped";
+  meta.lastError = reason;
+  if (!alreadyRecorded) await updateResource(resource, meta, body);
+  if (historyId) {
+    await finishAutomationRun(
+      historyId,
+      "error",
+      `Automation did not run: ${reason}. No delivery was confirmed.`,
+    );
+  }
+  return { status: "skipped", error: reason };
+}
+
+function hasRecentIdentityFailure(meta: JobFrontmatter, now: Date): boolean {
+  if (meta.lastStatus !== "skipped" || !meta.lastCheck || !meta.lastError) {
+    return false;
+  }
+  const lastCheckMs = Date.parse(meta.lastCheck);
+  const elapsedMs = now.getTime() - lastCheckMs;
+  return (
+    Number.isFinite(lastCheckMs) &&
+    elapsedMs >= 0 &&
+    elapsedMs < IDENTITY_FAILURE_RETRY_MS
+  );
+}
+
 async function executeJob(
   resource: Resource,
   meta: JobFrontmatter,
@@ -358,29 +523,14 @@ async function executeJob(
   // failure; leave the cron entry alone so an admin can purge after
   // investigation.
   if (!identity.ok) {
-    console.warn(
-      `[recurring-jobs] Skipping job "${jobName}": ${identity.reason}. ` +
-        `User/membership no longer valid — leaving cron entry for admin review.`,
+    return recordIdentityFailure(
+      resource,
+      meta,
+      body,
+      now,
+      identity.reason,
+      options.historyId,
     );
-    // Mark as skipped without resetting nextRun so an admin can find it.
-    // `lastRun` is deliberately untouched: the job did not run, and stamping
-    // it here made a permanently blocked job look like it ran every minute.
-    // Re-writing an unchanged resource on every tick also churns the poll
-    // stream, so only persist when the failure state actually changed.
-    const alreadyRecorded =
-      meta.lastStatus === "skipped" && meta.lastError === identity.reason;
-    meta.lastCheck = now.toISOString();
-    meta.lastStatus = "skipped";
-    meta.lastError = identity.reason;
-    if (!alreadyRecorded) await updateResource(resource, meta, body);
-    if (options.historyId) {
-      await finishAutomationRun(
-        options.historyId,
-        "error",
-        `Automation did not run: ${identity.reason}. No delivery was confirmed.`,
-      );
-    }
-    return { status: "skipped", error: identity.reason };
   }
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
@@ -462,6 +612,13 @@ async function executeJob(
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
         actionCaller: "automation" as const,
+        actionAutomation: {
+          triggerId: resource.id,
+          triggerName: jobName,
+          ...(meta.delegatedPolicyId
+            ? { policyId: meta.delegatedPolicyId }
+            : {}),
+        },
       },
       deps,
     );
@@ -516,6 +673,11 @@ export async function runQueuedAutomation(
 ): Promise<{ skipped: boolean; runId?: string; error?: string }> {
   const queued = await getAutomationRun(historyId);
   if (!queued) throw new Error(`Automation run "${historyId}" not found.`);
+  const queuedAppId = queued.appId?.trim() || null;
+  const workerAppId = deps.appId?.trim() || null;
+  if (queuedAppId && queuedAppId !== workerAppId) {
+    return { skipped: true };
+  }
   if (!(await claimAutomationRun(historyId))) {
     return { skipped: true };
   }

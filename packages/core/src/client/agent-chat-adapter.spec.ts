@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getPendingTurn } from "./active-run-state.js";
 import {
   activeRunLooksAlive,
+  BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
   MAX_FOLLOWED_BACKGROUND_RUNS,
 } from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
@@ -96,7 +100,7 @@ function emptySseResponse(runId = "run-empty"): Response {
   );
 }
 
-function idleSseResponse(runId = "run-idle"): Response {
+function idleSseResponse(runId = "run-idle", dispatchMode?: string): Response {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return new Response(
     new ReadableStream<Uint8Array>({
@@ -120,6 +124,7 @@ function idleSseResponse(runId = "run-idle"): Response {
       headers: {
         "Content-Type": "text/event-stream",
         "X-Run-Id": runId,
+        ...(dispatchMode ? { "X-Dispatch-Mode": dispatchMode } : {}),
       },
     },
   );
@@ -1007,6 +1012,82 @@ describe("createAgentChatAdapter", () => {
         },
       },
     });
+  });
+
+  it("does not replay a turn after a non-retryable database response", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const databaseMessage =
+      "The database became unavailable while processing this request. Refresh before deciding whether to retry.";
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          error: databaseMessage,
+          code: "database_unavailable",
+          retryable: false,
+        },
+        503,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-database-unavailable",
+      threadId: "thread-database-unavailable",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "search all calls" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(results.at(-1)).toMatchObject({
+      content: [
+        { type: "text", text: `Something went wrong: ${databaseMessage}` },
+      ],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: databaseMessage,
+            errorCode: "database_unavailable",
+            recoverable: false,
+          },
+        },
+      },
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "database_unavailable",
+          recoverable: false,
+        }),
+      }),
+    );
+    expect(JSON.stringify(results)).not.toContain('"retryable":false');
   });
 
   it("treats authentication failures as auth errors, not AI setup", async () => {
@@ -6578,6 +6659,81 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("never condemns a run because the /runs/active poll itself failed", async () => {
+    // "The poll failed" is not "the run is gone". A 5xx from this route used
+    // to coerce to active=false, fall into the no-active-run branch, and drive
+    // a DURABLE abort of a run that was still working — the same
+    // unreadable-as-absent shape CLAUDE.md names. A flaky network tick must
+    // never kill a healthy background turn.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let abortCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-poll-flap",
+        );
+      }
+      if (url.includes("/abort")) {
+        abortCount += 1;
+        return jsonResponse({ ok: true });
+      }
+      // The route is down for the entire window.
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ error: "upstream unavailable" }, 503);
+      }
+      if (url.includes("/runs/run-poll-flap/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-poll-flap",
+      threadId: "thread-poll-flap",
+    });
+    let settled = false;
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "long job" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    ).then((r) => {
+      settled = true;
+      return r;
+    });
+    promise.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 15_000,
+    );
+
+    // Well past the idle window with an unreadable route: still following,
+    // and it never reached for the durable abort.
+    expect(abortCount).toBe(0);
+    expect(settled).toBe(false);
+  });
+
   it("does not surface a fatal terminal outcome for a deferred successor still inside its redispatch bound (awaitingRedispatch)", async () => {
     // The server marks a `chainServerDrivenContinuation` deferral's successor
     // row `awaitingRedispatch: true` on /runs/active for as long as it is
@@ -6788,6 +6944,70 @@ describe("createAgentChatAdapter", () => {
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     );
   });
+
+  it("re-reads server progress before condemning a run the attach outran", async () => {
+    // The kill verdict was rendered against a /runs/active snapshot fetched
+    // BEFORE the attach that had just blocked for its whole duration — so a run
+    // that streamed text and a full tool-argument payload DURING the attach
+    // still looked frozen and got durably aborted. Fleet-wide, 23 of 24
+    // client-watchdog kills hit runs that had progressed within 90s.
+    const source = readFileSync(
+      new URL("./agent-chat-adapter.ts", import.meta.url),
+      "utf8",
+    );
+    const verdictIdx = source.indexOf("const serverProgressAdvanced");
+    expect(verdictIdx).toBeGreaterThan(0);
+    const window = source.slice(
+      source.indexOf("const snapshotSaysStalled"),
+      verdictIdx,
+    );
+    // A second read of the authoritative progress value must happen between the
+    // attach and the verdict, and it must be gated so the healthy path pays
+    // nothing.
+    // Count-based, so renaming a variable cannot satisfy it: the authoritative
+    // progress route must be read TWICE — once for the pre-attach snapshot and
+    // once after the attach, before the verdict.
+    const activeReads = source.split("/runs/active?threadId=").length - 1;
+    expect(activeReads).toBeGreaterThanOrEqual(2);
+    // ...and the second read must sit between the attach and the verdict.
+    expect(window.split("/runs/active?threadId=").length - 1).toBe(1);
+    // ...gated, so a healthy run pays nothing for it.
+    expect(/if \(\w*[Ss]talled\w*\)/.test(window)).toBe(true);
+  });
+
+  it("per-turn follow budgets stay above the server's own ceilings", async () => {
+    // Regression pin for the top non-auth cause of "the chat just stopped".
+    // These client budgets were 10 min / 6 runs while ONE legal background
+    // chunk may run 13 min and the server allows a 90-min turn over 20
+    // continuations — so the client killed healthy turns that the server was
+    // still streaming, measured in prod as aborts at 11-25 minutes with
+    // progress recorded right up to the abort.
+    //
+    // The client is a backstop for a silent server, not the primary limit:
+    // it fires on a clock and cannot tell looping from working. Anything that
+    // is NOT progressing is already caught by BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
+    // and the repeated-terminal-reason detector. Imports the REAL server
+    // constants so this breaks the moment either side drifts.
+    const { BACKGROUND_SOFT_TIMEOUT_CEILING_MS } =
+      await import("../agent/run-manager.js");
+    const { MAX_TURN_WALL_CLOCK_MS, MAX_BACKGROUND_RUN_CONTINUATIONS } =
+      await import("../agent/production-agent.js");
+
+    // A single full-length chunk must fit inside the whole-turn client budget
+    // with room for more than one of them; this is the exact inversion that
+    // shipped.
+    expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS * 2).toBeLessThan(
+      MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+    );
+    // The server terminates first, so the turn ends with a terminal reason
+    // written by the side that can actually distinguish progress from a loop.
+    expect(MAX_TURN_WALL_CLOCK_MS).toBeLessThan(
+      MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+    );
+    expect(MAX_BACKGROUND_RUN_CONTINUATIONS).toBeLessThan(
+      MAX_FOLLOWED_BACKGROUND_RUNS,
+    );
+  }, 10_000);
 
   it("still self-POSTs a foreground continuation after run_timeout (foreground behavior pin)", async () => {
     // Foreground regression pin for the background follow-mode change: a run
@@ -7347,6 +7567,99 @@ describe("background follow per-turn budget", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("re-polls a live run after a silent reattach instead of losing its completion", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    let eventRequestCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "started " },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-follow-watchdog",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        const completed = eventRequestCount > 0;
+        return jsonResponse({
+          active: true,
+          runId: "run-follow-watchdog",
+          threadId: "thread-follow-watchdog",
+          turnId: requestTurnId,
+          status: completed ? "completed" : "running",
+          dispatchMode: "background-processing",
+          terminalReason: completed ? "done" : null,
+          heartbeatAt: Date.now(),
+          lastProgressAt: completed ? Date.now() : 1_000,
+        });
+      }
+      if (url.includes("/runs/run-follow-watchdog/events")) {
+        eventRequestCount += 1;
+        return eventRequestCount === 1
+          ? idleSseResponse("run-follow-watchdog", "background-processing")
+          : backgroundSseResponse(
+              [
+                { type: "text", text: "finished after reattach" },
+                { type: "done" },
+              ],
+              "run-follow-watchdog",
+            );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-follow-watchdog",
+      threadId: "thread-follow-watchdog",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS + 5_000,
+    );
+    const results = await promise;
+
+    expect(eventRequestCount).toBe(2);
+    expect(
+      results.some(
+        (result: any) =>
+          result.status?.type === "incomplete" &&
+          result.status?.reason === "error",
+      ),
+    ).toBe(false);
+    expect((results.at(-1) as any).content.at(-1).text).toContain(
+      "finished after reattach",
+    );
   });
 
   it("stops following after too many successor runs in one turn", async () => {

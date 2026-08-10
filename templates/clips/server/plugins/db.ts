@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 import {
   runMigrations,
+  deferMigration,
   getDbExec,
   isPostgres,
   ensureAdditiveColumns,
+  type MigrationRunResult,
 } from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
@@ -67,14 +71,52 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["meeting_participants", "is_organizer", false],
     ["clips_meetings", "share_transcript", false],
   ];
+  // One probe for all of them, not one per column. This runs on every cold
+  // start, and eleven serialized information_schema round-trips before the
+  // process can serve is exactly the startup cost that made these apps slow —
+  // the same reason `ensureAdditiveColumns` batches its own introspection.
+  // After the first deploy every column already matches and the loop below
+  // does nothing, so the probes were the entire remaining cost.
+  const typesByColumn = new Map<string, string>();
+  try {
+    const probe = await exec.execute({
+      // `information_schema` columns are the `name` type; the explicit
+      // ::text[] casts are what make the comparison legal.
+      sql: `SELECT table_name, column_name, data_type
+            FROM information_schema.columns
+            WHERE table_name = ANY($1::text[]) AND column_name = ANY($2::text[])`,
+      args: [
+        `{${[...new Set(alters.map(([t]) => t))].join(",")}}`,
+        `{${[...new Set(alters.map(([, c]) => c))].join(",")}}`,
+      ],
+    });
+    for (const row of probe.rows as Array<{
+      table_name?: string;
+      column_name?: string;
+      data_type?: string;
+    }>) {
+      if (row.table_name && row.column_name && row.data_type) {
+        typesByColumn.set(
+          `${row.table_name}.${row.column_name}`,
+          row.data_type,
+        );
+      }
+    }
+  } catch (err) {
+    // Probing is the optimization; a failure here must not skip the retype and
+    // silently leave int columns behind. Fall through with an empty map so each
+    // column is attempted individually below, as it was before batching.
+    console.warn(
+      "[db] batched boolean-column probe failed; retrying per column:",
+      (err as Error)?.message ?? err,
+    );
+  }
+
   for (const [table, column, defaultTrue] of alters) {
     try {
-      const probe = await exec.execute({
-        sql: `SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
-        args: [table, column],
-      });
-      const row = (probe.rows as Array<{ data_type?: string }>)[0];
-      if (!row || row.data_type === "boolean") continue;
+      const known = typesByColumn.get(`${table}.${column}`);
+      if (known === "boolean") continue;
+      if (!known && typesByColumn.size > 0) continue; // absent column, nothing to retype
       const def = defaultTrue ? "TRUE" : "FALSE";
       await exec.execute(
         `ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT, ALTER COLUMN ${column} TYPE BOOLEAN USING (${column} <> 0), ALTER COLUMN ${column} SET DEFAULT ${def}`,
@@ -89,11 +131,112 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
   }
 }
 
+const RECORDING_ORG_ID_BACKFILL_BATCH_SIZE = 250;
+const RECORDING_ORG_ID_BACKFILL_LEASE_MS = 30_000;
+const RECORDING_ORG_ID_BACKFILL_DELAY_MS = 100;
+const RECORDING_ORG_ID_BACKFILL_LEASE_KEY = "recording-org-id";
+const recordingOrgIdBackfillHolder = randomUUID();
+
+async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
+  const exec = getDbExec();
+  const now = Date.now();
+  const expiresAt = now + RECORDING_ORG_ID_BACKFILL_LEASE_MS;
+  await exec.execute({
+    sql: `INSERT INTO clips_backfill_leases (lease_key, holder, expires_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT (lease_key) DO UPDATE SET
+        holder = excluded.holder,
+        expires_at = excluded.expires_at
+      WHERE clips_backfill_leases.expires_at <= ?`,
+    args: [
+      RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+      recordingOrgIdBackfillHolder,
+      expiresAt,
+      now,
+    ],
+  });
+  const result = await exec.execute({
+    sql: `SELECT holder FROM clips_backfill_leases
+      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+    args: [
+      RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+      recordingOrgIdBackfillHolder,
+      now,
+    ],
+  });
+  return result.rows.length > 0;
+}
+
+async function renewRecordingOrgIdBackfillLease(): Promise<boolean> {
+  const result = await getDbExec().execute({
+    sql: `UPDATE clips_backfill_leases
+      SET expires_at = ?
+      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+    args: [
+      Date.now() + RECORDING_ORG_ID_BACKFILL_LEASE_MS,
+      RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+      recordingOrgIdBackfillHolder,
+      Date.now(),
+    ],
+  });
+  return result.rowsAffected > 0;
+}
+
+async function backfillRecordingOrgIdsInBatches(): Promise<void> {
+  if (!(await acquireRecordingOrgIdBackfillLease())) return;
+  const exec = getDbExec();
+  try {
+    for (;;) {
+      if (!(await renewRecordingOrgIdBackfillLease())) return;
+      // guard:allow-unscoped — this is a leased, bounded one-time repair over
+      // historical recordings whose org id was never populated.
+      const result = await exec.execute({
+        sql: `UPDATE recordings
+          SET org_id = workspace_id
+          WHERE id IN (
+            SELECT id FROM recordings
+            WHERE org_id IS NULL AND workspace_id IS NOT NULL
+            ORDER BY id
+            LIMIT ?
+          )`,
+        args: [RECORDING_ORG_ID_BACKFILL_BATCH_SIZE],
+      });
+      if (result.rowsAffected === 0) return;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, RECORDING_ORG_ID_BACKFILL_DELAY_MS),
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[db] recording org-id backfill failed; it will retry in a later process:",
+      (err as Error)?.message ?? err,
+    );
+  } finally {
+    await exec
+      .execute({
+        sql: `DELETE FROM clips_backfill_leases
+          WHERE lease_key = ? AND holder = ?`,
+        args: [
+          RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+          recordingOrgIdBackfillHolder,
+        ],
+      })
+      .catch(() => undefined);
+  }
+}
+
+function scheduleRecordingOrgIdBackfill(): void {
+  const timer = setTimeout(() => {
+    void backfillRecordingOrgIdsInBatches();
+  }, 1_000);
+  if (typeof timer.unref === "function") timer.unref();
+}
+
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v41 incident documented on v41 below.
-const migrations = runMigrations(
+export const migrations = runMigrations(
   [
     // ---------------------------------------------------------------------------
     // Workspaces & members
@@ -946,6 +1089,71 @@ const migrations = runMigrations(
     CREATE UNIQUE INDEX IF NOT EXISTS recording_playback_positions_recording_viewer_key_unique_idx
       ON recording_playback_positions (recording_id, viewer_key)`,
     },
+    {
+      version: 59,
+      name: "backfill-recording-org-id",
+      // Keep the repair's lease in schema migrations, but run the historical
+      // data update below in bounded background batches after boot.
+      sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
+        lease_key TEXT PRIMARY KEY,
+        holder TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      )`,
+    },
+    {
+      version: 60,
+      name: "backfill-legacy-clips-tables",
+      // Run-only: this copies legacy rows forward in a way SQL alone cannot
+      // express. It used to sit in the plugin body and re-ran on every cold
+      // start; nothing writes the legacy tables any more, so it is a one-time
+      // historical migration and belongs here. A throw leaves it unrecorded
+      // and it retries on the next boot.
+      sql: {},
+      run: backfillLegacyClipsTables,
+    },
+    {
+      version: 61,
+      name: "sync-workspaces-to-organizations",
+      // Run-only, and ordered after the legacy backfill exactly as the plugin
+      // body ran them. Nothing inserts into `workspaces` anywhere in the app
+      // any more, so this is a one-time backfill of historical rows rather
+      // than an ongoing reconciliation — there is nothing new to sync. It
+      // returns `deferMigration()` while the framework's org tables are still
+      // missing, so a first-boot race leaves it pending instead of applied.
+      sql: {},
+      run: syncWorkspacesToOrganizations,
+    },
+    {
+      version: 62,
+      name: "retype-boolean-columns-postgres",
+      // Run-only: the retype is driven by a fixed historical list of columns
+      // that predate BOOLEAN, and it probes information_schema to decide. Once
+      // applied it can never have anything left to do, so recording it removes
+      // the probe from the boot path entirely instead of paying it forever.
+      // No-ops on SQLite, which never had the wrong type.
+      sql: {},
+      run: retypeBooleanColumnsOnPostgres,
+    },
+    {
+      version: 63,
+      name: "recording-org-id-backfill-lease-table",
+      // v59 was already applied on some deployments before the data repair was
+      // moved off startup. This additive no-op makes the lease table available
+      // there as well, without re-running or blocking on the old UPDATE.
+      sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
+        lease_key TEXT PRIMARY KEY,
+        holder TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      )`,
+    },
+    {
+      version: 64,
+      name: "recording-transcripts-failure-code",
+      // Additive. Existing rows keep failure_code NULL and their prose; new
+      // failures record a code that owns retryability instead of having it
+      // re-derived by regex over the message.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN failure_code TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -966,7 +1174,7 @@ const migrations = runMigrations(
  * inserts are guarded with WHERE-NOT-EXISTS so it only writes rows that
  * aren't there yet.
  */
-async function syncWorkspacesToOrganizations(): Promise<void> {
+async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   const exec = getDbExec();
   const pg = isPostgres();
 
@@ -1000,7 +1208,12 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
     !(await hasTable("org_members")) ||
     !(await hasTable("organization_settings"))
   ) {
-    return;
+    // As a tracked migration this must NOT be recorded as applied when the
+    // framework's org tables simply have not been created yet — recording it
+    // would mean the sync never runs and historical workspaces never become
+    // organizations. Deferring leaves the entry pending so the next boot
+    // retries it, without logging a startup failure.
+    return deferMigration();
   }
 
   // 1) Copy workspaces → organizations. Use the workspace id as the org id
@@ -1225,20 +1438,6 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
   } catch (err) {
     console.warn(
       `[db] active-org-id user-setting backfill failed:`,
-      (err as Error)?.message ?? err,
-    );
-  }
-}
-
-async function backfillRecordingOrgId(): Promise<void> {
-  const exec = getDbExec();
-  try {
-    await exec.execute(
-      `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
-    );
-  } catch (err) {
-    console.warn(
-      "[db] backfill recording org_id failed:",
       (err as Error)?.message ?? err,
     );
   }
@@ -1483,10 +1682,6 @@ async function backfillLegacyClipsTables(): Promise<void> {
  */
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
-  await retypeBooleanColumnsOnPostgres();
-  await backfillLegacyClipsTables();
-  await syncWorkspacesToOrganizations();
-  await backfillRecordingOrgId();
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),
@@ -1506,6 +1701,7 @@ export default async (nitroApp: any): Promise<void> => {
       err instanceof Error ? err.message : err,
     );
   }
+  scheduleRecordingOrgIdBackfill();
 
   // ---------------------------------------------------------------------------
   // Register Clips template events for the automations system.

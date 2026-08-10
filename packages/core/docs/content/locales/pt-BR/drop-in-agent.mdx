@@ -9,7 +9,7 @@ description: "Monte o chat do agente + recursos do agente em qualquer aplicativo
 
 Você não precisa criar um agente nativo do zero. O bate-papo do agente, a guia Recursos do Agente, o terminal CLI, a entrada de voz e toda a infraestrutura relacionada são fornecidos como um punhado de componentes React que você coloca em qualquer aplicativo.
 
-> **Pré-requisito:** o servidor deve estar executando o `agent-chat-plugin` (ele é montado automaticamente em cada modelo). Se você está começando do zero, consulte [Server](/docs/server).
+> **Pré-requisito:** o servidor deve estar executando o `agent-chat-plugin` (ele é montado automaticamente em cada modelo). Se você está começando do zero, consulte [Server](/docs/server-overview).
 >
 > Precisa do mapa público API em vez de um tutorial? Consulte [Component API](/docs/components).
 
@@ -136,11 +136,11 @@ as crianças ficam na área principal do aplicativo. O chat do agente é o paine
   ]}
 />
 
-É isso. O usuário agora tem um agente alternável em cada página – com histórico de bate-papo, guia Recursos do Agente, terminal CLI, entrada de voz e modo de tela cheia. O estado persiste durante as recargas via `localStorage`.
+É isso. O usuário agora tem um agente alternável em cada página – com histórico de bate-papo, guia Recursos do Agente, terminal CLI, entrada de voz e um painel mais largo. O estado persiste durante as recargas via `localStorage`.
 
 ### Acessórios
 
-- **`children`** — layout e rotas normais do seu aplicativo. Renderizado na área principal; o painel do agente é montado ao lado dele no desktop e acima dele no celular/tela cheia.
+- **`children`** — layout e rotas normais do seu aplicativo. Renderizado na área principal; o painel do agente é montado ao lado dele no desktop e acima dele no celular.
 - **`emptyStateText`** — saudação mostrada quando o chat não tem mensagens. Padrão: `"How can I help you?"`.
 - **`suggestions`** — prompts iniciais renderizados como chips clicáveis quando vazios.
 - **`dynamicSuggestions`** — chips de prompt com reconhecimento de contexto mesclados com `suggestions`. Habilitado por padrão; passe `false` para mostrar apenas sugestões estáticas ou `{ max, includeStatic, getSuggestions }` para personalizar.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` ou `"cli"`. Padrão: `"chat"`.
 - **`className`** — Classe CSS para o contêiner externo.
 - **`onCollapse`** — se fornecido, um botão de recolhimento aparece no cabeçalho.
-- **`isFullscreen`** / **`onToggleFullscreen`** — conecte o estado de tela cheia externa se desejar uma coluna centralizada no estilo Claude.
+- **`isFullscreen`** — defina esta opção se quiser uma coluna centralizada no estilo Claude em uma superfície de página ou painel personalizado. A barra lateral usa o painel mais largo.
 - **`storageKey`** — namespace para chaves `localStorage`. Útil quando você renderiza vários painéis (diferentes instâncias de aplicativos ou espaços de trabalho) na mesma página.
 
 Acessórios completos: `AgentPanelProps` em `@agent-native/core/client`.
@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,6 +204,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — crie uma conversa de bate-papo separada para este prompt.
 - **`background`** — com `newTab`, execute sem focar o novo thread. A execução oculta é rastreada em `RunsTray`.
 - **`openSidebar`** — definido como `false` para envios em segundo plano/silenciosos. O padrão abre a barra lateral para que o usuário veja a resposta.
+- **Para trabalho de IA visível iniciado pelo usuário**, use `openSidebar: true`. Use `false` apenas para trabalho em segundo plano ou iniciado pelo sistema que seja explicitamente silencioso e mantenha os acompanhamentos no mesmo thread do AgentSidebar.
 - **`type`** — `"content"` (padrão) mantém o trabalho no agente incorporado, que usa ferramentas do aplicativo. `"code"` roteia para um frame separado com capacidade de código para alterações no repositório; a escrita só fica disponível quando o host concede intencionalmente ferramentas de repository/workspace. Consulte [Frames](/docs/frames).
 
 `sendToAgentChat` retorna um `tabId` estável que você pode usar para monitorar a execução do chat.
@@ -222,6 +224,7 @@ sendToAgentChat({
 
 Este ainda é um agente completo executado com ferramentas, actions, estado do thread e execução
 rastreamento. Ele simplesmente não rouba o foco do estado atual da barra lateral do usuário.
+Mantenha os prompts de acompanhamento e revisão no thread existente da barra lateral. Não adicione um segundo campo de texto livre ao lado do resultado; use formulários locais apenas para valores estruturados que a interface precise validar.
 
 Quando a mesma rota é incorporada como um aplicativo MCP, enviado
 As chamadas `sendToAgentChat()` são encaminhadas para o chat do host quando houver suporte; veja
@@ -258,6 +261,10 @@ Qualquer camada que você escolher, mantenha o estado do aplicativo com suporte 
 e evite postar diretamente em `/_agent-native/agent-chat` do produto UI. Se um
 o auxiliar nomeado está faltando para uma superfície personalizada real, adicione esse auxiliar primeiro, então
 o código do cliente não aprende um segundo transporte ad hoc.
+
+## Escolhendo entre o chat do agente e uma ação {#agent-or-action}
+
+Use `useActionQuery` ou `useActionMutation` diretamente para operações locais determinísticas, como CRUD, validação, leituras de provedores e persistência. Se o usuário vivenciar o fluxo como pesquisa, análise, geração, recomendação, síntese ou raciocínio em várias etapas, inicie-o com `sendToAgentChat({ openSidebar: true })` e deixe o agente orquestrar ações focadas. Uma implementação determinística, por si só, não é motivo para esconder um fluxo semelhante a IA dentro de uma ação opaca.
 
 ## Typesafe actions do UI: `useActionMutation()` {#use-action-mutation}
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

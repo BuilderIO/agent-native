@@ -196,7 +196,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 | ------------------------------------- | ------------------------------------------------------------------ |
 | **[資料庫](/docs/server-database)**   | 使用 `table()` 幫手定義架構、`getDb`，以及可共用表的模式           |
 | **[中間件](/docs/server-middleware)** | `server/middleware/` 中的驗證守衛，以及為何在此執行而非放在外掛中  |
-| **[外掛](/docs/server-plugins)**      | 每個應用都會附帶的三個啟動外掛：資料庫遷移、驗證，以及 agent-chat  |
+| **[外掛](/docs/server-plugins)**      | 用於驗證和 agent-chat 的啟動外掛，以及可選的應用程式自有資料庫遷移 |
 | **[路由](/docs/server-routes)**       | 基於檔案的路由、SSR 全捕獲路由，以及將自訂路由範圍限定給請求使用者 |
 
 ## Nitro {#nitro}
@@ -204,7 +204,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 [Nitro](https://nitro.build) 是驅動 Agent-Native HTTP 層的伺服器工具套件。您在 `server/` 中設定的內容大多是 Nitro：基於檔案的路由、啟動外掛，以及中間件。
 
 - **基於檔案的路由**：檔名直接對應到 HTTP 方法與 URL 路徑，無需註冊。`server/routes/api/health.get.ts` 會自動變成 `GET /api/health`。詳情請參閱 [路由](/docs/server-routes)。
-- **外掛**：僅在伺服器啟動時執行一次的程式碼，早於任何請求被服務之前。資料庫遷移、驗證設定，以及 agent-chat 的掛載都發生在 `server/plugins/` 中。詳情請參閱 [外掛](/docs/server-plugins)。
+- **外掛**：在伺服器啟動時註冊並載入一次的程式碼。框架輔助函式會初始化驗證與 agent-chat；選用的應用程式自有資料庫遷移在第一個請求抵達時可能仍在執行。詳情請參閱 [外掛](/docs/server-plugins)。
 - **中間件**：在每個傳入請求抵達路由之前執行的程式碼。驗證守衛就位於 `server/middleware/` 中。詳情請參閱 [中間件](/docs/server-middleware)。
 
 Nitro 同時也與部署平台無關。同一個應用可以無須修改程式碼就部署到 Node.js、Cloudflare Workers、Netlify、Vercel 及其他執行環境，只需設定對應的 preset。請參閱 [部署](/docs/deployment)。

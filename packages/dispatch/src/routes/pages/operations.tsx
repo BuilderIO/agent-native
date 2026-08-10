@@ -30,17 +30,17 @@ function OperationsShortcuts() {
 
   const tools = [
     {
-      to: "/thread-debug",
+      to: "/admin/thread-debug",
       icon: IconMessages,
       title: t("dispatch.nav.threadDebug", { defaultValue: "Thread debug" }),
     },
     {
-      to: "/audit",
+      to: "/admin/audit",
       icon: IconHistory,
       title: t("dispatch.nav.audit"),
     },
     {
-      to: "/destinations",
+      to: "/admin/destinations",
       icon: IconSend,
       title: t("dispatch.pages.deliveryQueue"),
     },

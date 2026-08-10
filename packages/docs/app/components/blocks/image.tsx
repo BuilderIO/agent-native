@@ -15,7 +15,9 @@ export function ImageBlock({ data, ctx }: BlockReadProps<ImageData>) {
       caption={data.caption}
       text={data.text}
       ctx={ctx}
-      media={<img src={data.src} alt={data.alt} loading="lazy" />}
+      media={
+        <img src={data.src} alt={data.alt} loading="lazy" decoding="async" />
+      }
       expandable
     />
   );

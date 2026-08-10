@@ -1,0 +1,79 @@
+---
+title: "Añadir una página"
+description: "Crea una ruta de React que invoque tu acción y muestre su resultado."
+---
+
+# Añadir una página
+
+Esta es la tercera parte de la serie Primeros pasos. En [Añadir una acción](/docs/getting-started-actions)
+creaste `analyze-text`. Aquí invocarás esa misma acción desde una ruta. Este
+ejemplo no necesita una tabla de base de datos nueva. Chat ya guarda el historial
+del chat en SQL; añade tus propias tablas cuando necesites conservar datos del
+dominio.
+
+## Crea la ruta {#add-a-page}
+
+El servidor de desarrollo lee los archivos de ruta al iniciarse. Crea
+`app/routes/text-analyses.tsx` y reinicia `pnpm dev` si ya está en ejecución. La
+ruta estará disponible en
+`http://localhost:8080/text-analyses`.
+
+```tsx filename="app/routes/text-analyses.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
+};
+
+export default function TextAnalysesRoute() {
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
+  );
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">The same action, on a page.</p>
+      </header>
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery` llama a la misma acción de solo lectura que utiliza el agente. La
+página no necesita una ruta de API personalizada, una segunda capa de datos ni SQL
+todavía.
+
+Abre `http://localhost:8080/text-analyses` o pídele al agente:
+
+> Navigate to `/text-analyses`.
+
+La ruta es suficiente para este tutorial. Añade una entrada en la barra lateral más
+adelante si se convierte en un flujo de trabajo principal. Para conocer los patrones
+completos de `view-screen`, `navigate` y el estado de la aplicación,
+consulta [Conciencia del contexto](/docs/context-awareness).
+
+## Continúa
+
+Has creado una aplicación de chat con una acción y una página que invoca la misma
+fuente de verdad. Explora [Conceptos clave](/docs/key-concepts) y
+[Superficies del agente](/docs/agent-surfaces).

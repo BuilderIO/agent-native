@@ -113,7 +113,7 @@ export function Layout({ children }: LayoutProps) {
           chatViewTransition
           storageKey="tasks"
           browserTabId={TAB_ID}
-          agentPageHref="/agent"
+          agentPageHref="/settings/agent"
           onFullscreenRequest={() => focusAgentChat()}
           emptyStateText={t("agent.emptyState")}
           dynamicSuggestions={false}

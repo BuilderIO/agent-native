@@ -475,6 +475,10 @@ class SyncTransport {
     // collab on its fast presence cadence against the local stream. Subscribers
     // are re-notified via the close/connect cycle below.
     this.capabilities = [];
+    // The failure count was earned against the gateway. Carrying it over would
+    // back the local endpoint off by 2^failures (already 8min at the threshold)
+    // before its first poll, even though it just served this page.
+    this.consecutiveFailures = 0;
     if (this.gatewayReconnectTimer) {
       clearTimeout(this.gatewayReconnectTimer);
       this.gatewayReconnectTimer = null;
@@ -1496,7 +1500,17 @@ export function useDbSync(
             // the independent framework prefixes, while pure action batches
             // retain their narrow storm-resistant invalidation.
             if (!hasActionEvent) {
-              invalidateWithoutCancel({ queryKey: ["action"] });
+              // Honour the app's predicate here too. Without it the contract was
+              // silently conditional: a batch carrying an `action` event
+              // respected the predicate (above), while a batch carrying only
+              // `db`/`collab`/`settings`/`screen-refresh` blew away every
+              // ["action"] query regardless of what the app opted out of — and
+              // an app cannot work around it, because both the prefix and this
+              // call are framework-owned.
+              const predicate = actionInvalidatePredicateRef.current;
+              invalidateWithoutCancel(
+                predicate ? { predicate } : { queryKey: ["action"] },
+              );
             }
             if (!hasActionEvent || hasFrameworkPrefixEvent) {
               invalidateWithoutCancel({ queryKey: ["extension"] });

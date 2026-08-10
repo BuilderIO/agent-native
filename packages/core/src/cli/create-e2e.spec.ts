@@ -296,6 +296,21 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
+
+  it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
+    await createApp("test-app", { template: "chat" });
+    const root = path.join(tmpDir, "test-app");
+    const pkg = readPkg(root);
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(pkg.pnpm).toBeUndefined();
+    expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("tesseract.js: true");
+    expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
+  });
 });
 
 describe("installed package template discovery", () => {
@@ -1001,6 +1016,17 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain("tailwindcss");
   });
 
+  it("allows Tesseract builds in workspace settings", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(wsYaml).toContain("allowBuilds:");
+    expect(wsYaml).toContain("tesseract.js: true");
+  });
+
   it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const wsYaml = fs.readFileSync(
@@ -1563,6 +1589,36 @@ describe("workspace scaffold defaults", () => {
 });
 
 describe("Netlify scaffold rewrite", () => {
+  it("generates a release migration step so a new app never migrates on requests", () => {
+    // "Create an app, connect Netlify, it works" has to include schema. Without
+    // this step the app falls back to migrating at nitro plugin init, which on
+    // serverless means EVERY cold start — the shape that took analytics down
+    // for hours. Generated for every app rather than opt-in, because a flag you
+    // must remember is a flag half the fleet will not have.
+    const appDir = path.join(tmpDir, "standalone-release");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && NITRO_PRESET=netlify pnpm build"',
+        '  publish = "templates/chat/dist"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "my-app", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("migrate:production");
+    // Only on a real production deploy — previews must not migrate.
+    expect(netlify).toContain('if [ \\"${CONTEXT:-}\\" = \\"production\\" ]');
+    // ...and after the build, so the built app is what migrates.
+    expect(netlify.indexOf("pnpm build")).toBeLessThan(
+      netlify.indexOf("migrate:production"),
+    );
+  });
+
   it("preserves database env setup while removing template install commands", () => {
     const appDir = path.join(tmpDir, "app");
     fs.mkdirSync(appDir, { recursive: true });
@@ -1592,7 +1648,7 @@ describe("Netlify scaffold rewrite", () => {
     };
 
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/dispatch VITE_APP_BASE_PATH=/dispatch NITRO_PRESET=netlify pnpm --filter dispatch build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/dispatch VITE_APP_BASE_PATH=/dispatch NITRO_PRESET=netlify pnpm --filter dispatch build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter dispatch migrate:production; fi"',
     );
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "apps/dispatch/dist"');
@@ -1632,11 +1688,37 @@ describe("Netlify scaffold rewrite", () => {
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" NITRO_PRESET=netlify pnpm build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" NITRO_PRESET=netlify pnpm build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" pnpm migrate:production; fi"',
+    );
+    expect(netlify).toContain(
+      'then DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" pnpm migrate:production; fi',
     );
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "dist"');
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
+  });
+
+  it("keeps the unpooled override when the template command already has escaped quotes", () => {
+    // Every template's build command now contains \" from the release-migration
+    // CONTEXT test. A naive [^"]* match stops at the first one, so the unpooled
+    // override silently vanished for the four templates that use it — and the
+    // app would come up pointed at the pooled URL for its build.
+    const appDir = path.join(tmpDir, "unpooled-escaped-quotes");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter mail build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter mail migrate:production; fi"',
+        '  publish = "templates/mail/dist"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "mail", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NETLIFY_DATABASE_URL_UNPOOLED");
   });
 
   it("keeps unpooled database overrides for unindented template netlify commands", () => {
@@ -1668,7 +1750,7 @@ describe("Netlify scaffold rewrite", () => {
       path.join(appDir, "netlify.toml"),
       [
         "[build]",
-        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"',
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter chat migrate:production; fi"',
         'publish = "templates/chat/dist"',
         'functions = "templates/chat/.netlify/functions-internal"',
         "",
@@ -1702,7 +1784,7 @@ describe("Netlify scaffold rewrite", () => {
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/chat VITE_APP_BASE_PATH=/chat NITRO_PRESET=netlify pnpm --filter chat build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/chat VITE_APP_BASE_PATH=/chat NITRO_PRESET=netlify pnpm --filter chat build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter chat migrate:production; fi"',
     );
     expect(netlify).toContain('  APP_BASE_PATH = "/chat"');
     expect(netlify).toContain('  VITE_APP_BASE_PATH = "/chat"');

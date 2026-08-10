@@ -93,7 +93,8 @@ vi.mock("../server/lib/dashboards-store", () => ({
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
-const { buildPanel } = await import("../server/lib/first-party-metric-catalog");
+const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES } =
+  await import("../server/lib/first-party-metric-catalog");
 
 const LARGE_METRICS = [
   "total-signups",
@@ -309,6 +310,35 @@ describe("compose-dashboard", () => {
     }
   });
 
+  it("keeps template-facing catalog metrics on the first-party allow-list", () => {
+    const allowList = FIRST_PARTY_TEMPLATE_NAMES.map(
+      (name) => `'${name}'`,
+    ).join(", ");
+    for (const metric of [
+      "total-signups",
+      "signups-over-time",
+      "signups-by-template",
+      "total-template-clicks",
+      "total-demo-clicks",
+      "total-cli-copies",
+      "template-interest-over-time",
+      "demo-clicks-over-time",
+      "cli-copies-over-time",
+      "pageviews-over-time",
+      "sessions-by-app",
+      "repeat-users",
+      "recurring-users-by-template",
+      "recurring-users-by-template-bar",
+      "retention-over-time",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+      "dau-over-time",
+      "wau-over-time",
+    ]) {
+      expect(buildPanel(metric)!.sql).toContain(`IN (${allowList})`);
+    }
+  });
+
   it("excludes unassigned telemetry from per-template activity panels", () => {
     for (const metric of [
       "dau-over-time",
@@ -473,6 +503,59 @@ describe("compose-dashboard", () => {
     expect(store.get("growth")!.config.name).toBe("Growth");
   });
 
+  it("refreshes matching catalog panels in place without replacing unrelated panels", async () => {
+    store.set("refreshable", {
+      config: {
+        name: "Refreshable",
+        panels: [
+          {
+            id: "unrelated",
+            title: "Keep me",
+            chartType: "metric",
+            source: "first-party",
+            width: 1,
+            sql: "SELECT 1 AS value FROM analytics_events WHERE event_date >= '2020-01-01'",
+            config: {},
+          },
+          {
+            id: "pageviews-over-time",
+            title: "Stale pageviews",
+            chartType: "area",
+            source: "first-party",
+            width: 2,
+            sql: "SELECT 'stale' AS template",
+            config: { description: "stale" },
+          },
+        ],
+      },
+    });
+
+    const result: any = await composeDashboard.run(
+      {
+        dashboardId: "refreshable",
+        metrics: ["pageviews-over-time", "sessions-by-app"],
+        refreshExisting: true,
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    expect(result.saved).toBe(true);
+    expect(result.refreshedExistingIds).toEqual(["pageviews-over-time"]);
+    expect(result.skippedExistingIds).toEqual([]);
+    expect(result.panelCount).toBe(3);
+    const panels = store.get("refreshable")!.config.panels as Array<
+      Record<string, any>
+    >;
+    expect(panels.map((panel) => panel.id)).toEqual([
+      "unrelated",
+      "pageviews-over-time",
+      "sessions-by-app",
+    ]);
+    expect(panels[0].title).toBe("Keep me");
+    expect(panels[1].sql).toContain("event_name = 'pageview'");
+    expect(panels[1].sql).toContain("{{timeRange}}");
+  });
+
   it("recomputes the append against fresh state on retry so a concurrent writer's panel is never dropped", async () => {
     // Simulates two interleaved writers: this call appends "sessions-by-app",
     // but its first fenced write is lost because a concurrent writer already
@@ -595,6 +678,7 @@ describe("compose-dashboard", () => {
       { userEmail: "alice@example.com", orgId: null, caller: "tool" },
     );
     expect(result.panelCount).toBe(2);
+    expect(result.changed).toBe(false);
     expect(result.skippedExistingIds).toEqual([
       "total-signups",
       "sessions-by-app",

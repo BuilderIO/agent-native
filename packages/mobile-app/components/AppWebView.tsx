@@ -76,7 +76,10 @@ const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const FORCE_REDIRECT_AUTH_SCRIPT = `
   (function () {
     try {
-      if (location.pathname.indexOf('/_agent-native/sign-in') !== -1) {
+      if (
+        location.pathname.endsWith('/sign-in') ||
+        location.pathname.endsWith('/_agent-native/sign-in')
+      ) {
         window.open = function () { return null; };
       }
     } catch (e) {}
@@ -88,11 +91,17 @@ const SESSION_BRIDGE_SCRIPT = `
   (function () {
     if (window.__agentNativeSessionBridgeRunning) return true;
     window.__agentNativeSessionBridgeRunning = true;
+    var tokenFetchInFlight = false;
     var postToken = function () {
+      if (document.hidden || tokenFetchInFlight) return;
+      tokenFetchInFlight = true;
+      var controller = new AbortController();
+      var abortTimer = setTimeout(function () { controller.abort(); }, 20000);
       fetch('/_agent-native/auth/session', {
         cache: 'no-store',
         credentials: 'include',
-        headers: { Accept: 'application/json' }
+        headers: { Accept: 'application/json' },
+        signal: controller.signal
       })
         .then(function (response) { return response.json(); })
         .then(function (data) {
@@ -115,12 +124,17 @@ const SESSION_BRIDGE_SCRIPT = `
             }));
           }
         })
-        .catch(function () {});
+        // coercion-ok: the page keeps its current session and the 5s repost retries
+        .catch(function () {})
+        .then(function () { clearTimeout(abortTimer); tokenFetchInFlight = false; });
     };
     postToken();
     setTimeout(postToken, 1000);
     setInterval(postToken, 5000);
     window.addEventListener('focus', postToken);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) postToken();
+    });
     return true;
   })();
   true;
