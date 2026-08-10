@@ -191,8 +191,18 @@ export async function exportDeckAsPdf(
         // get served the original tainted (no-CORS) response from the HTTP
         // cache, and an anonymous-CORS request mode so the response itself
         // is usable on a clean canvas.
+        //
+        // `same-origin` rather than `omit`: images the preload rewrote to
+        // /api/image-proxy are same-origin and that route needs the session
+        // cookie, so omitting credentials would 401 exactly the images this
+        // is meant to rescue. Cross-origin requests still go out anonymously,
+        // which is what CORS mode requires.
         fetch: {
-          requestInit: { cache: "no-cache", mode: "cors", credentials: "omit" },
+          requestInit: {
+            cache: "no-cache",
+            mode: "cors",
+            credentials: "same-origin",
+          },
         },
       });
     } finally {

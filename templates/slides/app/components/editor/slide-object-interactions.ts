@@ -538,6 +538,34 @@ export function isDeletableFlowImage(element: HTMLElement): boolean {
   );
 }
 
+/**
+ * The persisted image object that owns `element`, if any.
+ *
+ * PPTX/PDF import wraps each picture in an absolutely positioned
+ * `.fmd-pptx-image` div carrying the durable `data-slide-object-id`, with the
+ * `<img>` (or an empty placeholder) inside it. Deleting the inner node alone
+ * leaves that wrapper behind as an invisible object that still occupies its
+ * slot and still round-trips through save. Matching on the image wrapper
+ * specifically — rather than any positioned ancestor — keeps this from
+ * swallowing a whole card or column that merely contains a picture.
+ */
+export function findPersistedImageObject(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  let current: HTMLElement | null = element;
+  while (current && current !== root && root.contains(current)) {
+    const isImageWrapper =
+      current.classList.contains("fmd-pptx-image") ||
+      current.getAttribute("data-pptx-element-kind") === "image";
+    if (isImageWrapper && current.getAttribute("data-slide-object-id")) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,

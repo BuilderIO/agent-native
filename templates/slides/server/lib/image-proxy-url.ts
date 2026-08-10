@@ -1,4 +1,3 @@
-import { lookup } from "node:dns/promises";
 import net from "node:net";
 
 /**
@@ -45,18 +44,114 @@ export function isPrivateAddress(address: string): boolean {
   }
 
   if (version === 6) {
-    const addr = address.toLowerCase();
-    if (addr === "::" || addr === "::1") return true;
-    // Unique-local (fc00::/7) and link-local (fe80::/10).
-    if (/^f[cd]/.test(addr) || addr.startsWith("fe8") || addr.startsWith("fe9"))
+    // Classify on the expanded hextets, never on the text. `::ffff:127.0.0.1`
+    // and `::ffff:7f00:1` are the same address, and a prefix-matching check
+    // sees only the first.
+    const hextets = expandIpv6(address);
+    if (!hextets) return true;
+
+    const embedsIpv4 =
+      hextets.slice(0, 5).every((part) => part === 0) &&
+      (hextets[5] === 0xffff || hextets[5] === 0);
+    if (embedsIpv4 && (hextets[6] !== 0 || hextets[7] !== 0)) {
+      const ipv4 = [
+        hextets[6] >> 8,
+        hextets[6] & 0xff,
+        hextets[7] >> 8,
+        hextets[7] & 0xff,
+      ].join(".");
+      return isPrivateAddress(ipv4);
+    }
+
+    // Unspecified (::) and loopback (::1).
+    if (hextets.every((part) => part === 0)) return true;
+    if (hextets.slice(0, 7).every((part) => part === 0) && hextets[7] === 1) {
       return true;
-    if (addr.startsWith("fea") || addr.startsWith("feb")) return true;
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(addr);
-    if (mapped) return isPrivateAddress(mapped[1]);
+    }
+    // Unique-local fc00::/7, link-local fe80::/10, multicast ff00::/8.
+    if ((hextets[0] & 0xfe00) === 0xfc00) return true;
+    if ((hextets[0] & 0xffc0) === 0xfe80) return true;
+    if ((hextets[0] & 0xff00) === 0xff00) return true;
+    // NAT64 well-known prefix 64:ff9b::/96 tunnels an IPv4 destination.
+    if (hextets[0] === 0x0064 && hextets[1] === 0xff9b) {
+      const ipv4 = [
+        hextets[6] >> 8,
+        hextets[6] & 0xff,
+        hextets[7] >> 8,
+        hextets[7] & 0xff,
+      ].join(".");
+      return isPrivateAddress(ipv4);
+    }
     return false;
   }
 
   return true;
+}
+
+/**
+ * Expand any textual IPv6 form into its 8 hextets, including `::` elision and
+ * a dotted IPv4 tail. Returns null when the input is not parseable.
+ */
+export function expandIpv6(address: string): number[] | null {
+  // Zone indices ("fe80::1%eth0") are routing hints, not part of the address.
+  const bare = address.toLowerCase().split("%")[0];
+  if (!bare) return null;
+
+  let head = bare;
+  let tail = "";
+  const elision = bare.indexOf("::");
+  if (elision !== -1) {
+    head = bare.slice(0, elision);
+    tail = bare.slice(elision + 2);
+  }
+
+  const parseGroups = (segment: string): string[] =>
+    segment.length === 0 ? [] : segment.split(":");
+
+  const headGroups = parseGroups(head);
+  const tailGroups = parseGroups(tail);
+  const all = [...headGroups, ...tailGroups];
+
+  // A dotted IPv4 tail occupies the final two hextets.
+  const last = all[all.length - 1];
+  let ipv4Tail: number[] | null = null;
+  if (last?.includes(".")) {
+    if (net.isIP(last) !== 4) return null;
+    const octets = last.split(".").map((part) => Number(part));
+    if (octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255))
+      return null;
+    ipv4Tail = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
+    if (tailGroups.length > 0) tailGroups.pop();
+    else headGroups.pop();
+  }
+
+  const toHextets = (groups: string[]): number[] | null => {
+    const out: number[] = [];
+    for (const group of groups) {
+      if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+      out.push(parseInt(group, 16));
+    }
+    return out;
+  };
+
+  const headParts = toHextets(headGroups);
+  const tailParts = toHextets(tailGroups);
+  if (!headParts || !tailParts) return null;
+
+  const explicit = [
+    ...headParts,
+    ...tailParts,
+    ...(ipv4Tail ? ipv4Tail : []),
+  ].length;
+  if (explicit > 8) return null;
+
+  if (elision === -1) {
+    if (explicit !== 8) return null;
+    return [...headParts, ...(ipv4Tail ?? [])];
+  }
+
+  const fill = new Array(8 - explicit).fill(0) as number[];
+  return [...headParts, ...fill, ...tailParts, ...(ipv4Tail ?? [])];
 }
 
 /**
@@ -92,27 +187,7 @@ export function parseProxyableImageUrl(raw: string): URL | null {
   return url;
 }
 
-/**
- * Resolve the hostname and confirm every address it maps to is public.
- * `parseProxyableImageUrl` alone cannot catch a public name that resolves to
- * 169.254.169.254, which is the usual way SSRF filters get bypassed.
- */
-export async function resolvesToPublicAddress(
-  hostname: string,
-): Promise<boolean> {
-  const literal = hostname.startsWith("[")
-    ? hostname.slice(1, -1)
-    : hostname.toLowerCase().replace(/\.$/, "");
-
-  if (net.isIP(literal)) return !isPrivateAddress(literal);
-
-  try {
-    const records = await lookup(literal, { all: true });
-    if (records.length === 0) return false;
-    return records.every((record) => !isPrivateAddress(record.address));
-  } catch {
-    // coercion-ok: fail closed. A hostname we cannot resolve is one we cannot
-    // prove is public, so it must be refused rather than fetched.
-    return false;
-  }
-}
+// A hostname is no longer validated here before fetching. Resolving once for
+// the check and again for the connection let a DNS-rebinding host answer
+// differently each time, so the address check now lives in the socket's
+// `lookup` — see `publicOnlyLookup` in fetch-remote-image.ts.

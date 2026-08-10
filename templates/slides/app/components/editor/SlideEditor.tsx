@@ -119,6 +119,7 @@ import {
   getSlideTextBoxDefaultColor,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  findPersistedImageObject,
   isDeletableFlowImage,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
@@ -2411,7 +2412,13 @@ export default function SlideEditor({
           removeSlideObjectAndLayoutSpacer(element);
         } else if (isDeletableFlowImage(element)) {
           e.preventDefault();
-          element.remove();
+          // An imported PPTX/PDF image is an <img> (or placeholder) nested in
+          // an absolutely positioned wrapper that carries the persisted object
+          // id. Removing only the inner node would leave that wrapper and its
+          // durable metadata behind as an invisible ghost object.
+          const owner = findPersistedImageObject(element, slideContent);
+          if (owner) removeSlideObjectAndLayoutSpacer(owner);
+          else element.remove();
           setSelectedImg(null);
           setImageOverlay(null);
         } else {

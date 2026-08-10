@@ -81,6 +81,31 @@ describe("isPrivateAddress", () => {
     expect(isPrivateAddress("::ffff:8.8.8.8")).toBe(false);
   });
 
+  it("unwraps the hexadecimal spelling of IPv4-mapped addresses", () => {
+    // The same addresses as above, written without the dotted tail. A
+    // prefix/regex check on the text sees these as ordinary public IPv6.
+    expect(isPrivateAddress("::ffff:7f00:1")).toBe(true);
+    expect(isPrivateAddress("::ffff:a9fe:a9fe")).toBe(true);
+    expect(isPrivateAddress("::ffff:c0a8:1")).toBe(true);
+    expect(isPrivateAddress("::ffff:0808:0808")).toBe(false);
+  });
+
+  it("treats IPv4-compatible and NAT64 embeddings as their inner address", () => {
+    expect(isPrivateAddress("::7f00:1")).toBe(true);
+    expect(isPrivateAddress("64:ff9b::7f00:1")).toBe(true);
+    expect(isPrivateAddress("64:ff9b::8.8.8.8")).toBe(false);
+  });
+
+  it("ignores a zone index when classifying", () => {
+    expect(isPrivateAddress("fe80::1%eth0")).toBe(true);
+  });
+
+  it("catches fully expanded spellings", () => {
+    expect(isPrivateAddress("0:0:0:0:0:0:0:1")).toBe(true);
+    expect(isPrivateAddress("fd00:0:0:0:0:0:0:1")).toBe(true);
+    expect(isPrivateAddress("ff02::1")).toBe(true);
+  });
+
   it("treats anything unparseable as private", () => {
     expect(isPrivateAddress("nonsense")).toBe(true);
   });

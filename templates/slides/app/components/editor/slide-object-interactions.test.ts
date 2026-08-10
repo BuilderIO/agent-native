@@ -19,6 +19,7 @@ import {
   freezeSlideElementForFreeform,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  findPersistedImageObject,
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
   removeSlideObjectAndLayoutSpacer,
@@ -763,5 +764,68 @@ describe("isDeletableFlowImage", () => {
     const heading = document.createElement("h1");
     heading.textContent = "Low LIGHT";
     expect(isDeletableFlowImage(heading)).toBe(false);
+  });
+});
+
+describe("findPersistedImageObject", () => {
+  function importedSlide(): { root: HTMLElement; img: HTMLElement } {
+    const root = document.createElement("div");
+    root.className = "fmd-slide";
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-pptx-element-kind="image" ' +
+      'data-slide-object-id="pdf-img-1-0" style="position:absolute">' +
+      '<img src="plant.png" />' +
+      "</div>";
+    const img = root.querySelector("img") as HTMLElement;
+    return { root, img };
+  }
+
+  it("returns the wrapper that carries the persisted object id", () => {
+    const { root, img } = importedSlide();
+    const owner = findPersistedImageObject(img, root);
+    expect(owner?.getAttribute("data-slide-object-id")).toBe("pdf-img-1-0");
+  });
+
+  it("resolves an empty placeholder to the same wrapper", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-slide-object-id="pdf-img-2-0">' +
+      '<div class="fmd-img-placeholder"></div>' +
+      "</div>";
+    const placeholder = root.querySelector(
+      ".fmd-img-placeholder",
+    ) as HTMLElement;
+    expect(
+      findPersistedImageObject(placeholder, root)?.getAttribute(
+        "data-slide-object-id",
+      ),
+    ).toBe("pdf-img-2-0");
+  });
+
+  it("returns null for an ordinary flow image so only the image is removed", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<div class="card"><img src="a.png" /><p>Label</p></div>';
+    const img = root.querySelector("img") as HTMLElement;
+    expect(findPersistedImageObject(img, root)).toBeNull();
+  });
+
+  it("does not escape past the slide root", () => {
+    const outer = document.createElement("div");
+    outer.className = "fmd-pptx-image";
+    outer.setAttribute("data-slide-object-id", "outside");
+    const root = document.createElement("div");
+    outer.appendChild(root);
+    const img = document.createElement("img");
+    root.appendChild(img);
+    expect(findPersistedImageObject(img, root)).toBeNull();
+  });
+
+  it("ignores a positioned container that is not an image wrapper", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" ' +
+      'data-slide-object-id="shape-1"><img src="a.png" /></div>';
+    const img = root.querySelector("img") as HTMLElement;
+    expect(findPersistedImageObject(img, root)).toBeNull();
   });
 });
