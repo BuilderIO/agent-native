@@ -305,12 +305,6 @@ h4 {
   line-height: 1.2;
 }
 
-.docs-content h1 + p {
-  font-size: 16px;
-  color: var(--fg-secondary);
-  margin-bottom: 16px;
-}
-
 .docs-content h2 {
   font-size: 24px;
   margin-top: 32px;
