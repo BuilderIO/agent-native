@@ -6,14 +6,16 @@ description: "Crea una ruta de React que invoque tu acción y muestre su resulta
 # Añadir una página
 
 Esta es la tercera parte de la serie Primeros pasos. En [Añadir una acción](/docs/getting-started-actions)
-creaste `analyze-text`. Aquí invocarás esa misma acción desde una ruta. Todavía no
-necesitas una base de datos: Chat ya incluye el entorno de SQL para cuando necesites
-persistir datos del dominio.
+creaste `analyze-text`. Aquí invocarás esa misma acción desde una ruta. Este
+ejemplo no necesita una tabla de base de datos nueva. Chat ya guarda el historial
+del chat en SQL; añade tus propias tablas cuando necesites conservar datos del
+dominio.
 
 ## Crea la ruta {#add-a-page}
 
-Los archivos de ruta en `app/routes/` se detectan automáticamente. Crea
-`app/routes/text-analyses.tsx`; estará disponible en
+El servidor de desarrollo lee los archivos de ruta al iniciarse. Crea
+`app/routes/text-analyses.tsx` y reinicia `pnpm dev` si ya está en ejecución. La
+ruta estará disponible en
 `http://localhost:8080/text-analyses`.
 
 ```tsx filename="app/routes/text-analyses.tsx"

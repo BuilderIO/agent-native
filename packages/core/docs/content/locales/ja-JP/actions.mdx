@@ -91,7 +91,7 @@ Actions は、アプリの動作に関する唯一の信頼できる情報源で
 
 UI とエージェントの両方が何かを行う必要がある場合は、カスタムではなくアクションを実行します
 ルート。ルート型プロトコルが適切な呼び出しである場合については、「Actions を優先する
-アプリ操作用](/docs/server#actions-first)。
+アプリ操作用](/docs/server-overview#actions-first)。
 
 ## まずは 1 つのアクションから始めましょう {#hello-action}
 
@@ -378,12 +378,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -189,6 +194,6 @@ export default createH3SSRHandler(
 ## 다음 단계 {#whats-next}
 
 - [**Actions**](/docs/actions): 앱 작업을 위해 선호되는 표면입니다. 맞지 않을 때만 라우트를 사용하세요.
-- [**플러그인**](/docs/server-plugins): 라우트가 제공되기 전에 실행되는 시작 플러그인
+- [**플러그인**](/docs/server-plugins): 시작 플러그인과 초기화 동작
 - [**미들웨어**](/docs/server-middleware): `/api/*`를 포함한 모든 라우트를 보호하는 인증 가드
 - [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess`와 전체 데이터 범위 지정 모델

@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@agent-native/toolkit/ui";
 import {
+  IconApps,
   IconChevronDown,
   IconChevronUp,
   IconPin,
@@ -176,6 +177,7 @@ export function ChatFirstAppsRail({
   onLayoutError,
   onRetry,
   onOpenApp,
+  onOpenAllApps,
   onCreateApp,
   createAppTrigger,
   renderIcon,
@@ -290,6 +292,18 @@ export function ChatFirstAppsRail({
                 {renderIcon(app)}
               </button>
             ))}
+        {onOpenAllApps ? (
+          <button
+            type="button"
+            data-chat-first-all-apps
+            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            onClick={onOpenAllApps}
+            aria-label={copy("allApps")}
+            title={copy("allApps")}
+          >
+            <IconApps size={16} aria-hidden="true" />
+          </button>
+        ) : null}
         {error ? (
           <span
             className="size-1.5 rounded-full bg-destructive"
@@ -365,6 +379,19 @@ export function ChatFirstAppsRail({
           )}
           {showAllApps ? copy("showLess") : copy("showMore")}
         </button>
+      ) : null}
+      {onOpenAllApps ? (
+        <div className="mt-1 border-t border-sidebar-border/60 pt-1">
+          <button
+            type="button"
+            data-chat-first-all-apps
+            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            onClick={onOpenAllApps}
+          >
+            <IconApps size={14} aria-hidden="true" />
+            <span>{copy("allApps")}</span>
+          </button>
+        </div>
       ) : null}
       {error ? (
         <Tooltip>

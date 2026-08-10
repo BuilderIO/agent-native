@@ -1567,6 +1567,7 @@ export default function CodeAgentsHub({
                   }
                   onCreateApp={onCreateApp}
                   onOpenApp={(app) => openChatFirstApp(app.id)}
+                  onOpenAllApps={() => openChatFirstApp("dispatch", "/apps")}
                   renderIcon={(app) => (
                     <CodeAgentsAppIcon
                       id={app.id}

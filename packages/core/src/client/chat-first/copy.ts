@@ -5,6 +5,7 @@ const DEFAULT_COPY: Record<string, string> = {
   newChat: "New chat",
   search: "Search",
   workspaceApps: "Apps",
+  allApps: "All apps",
   integrations: "Integrations",
   scheduled: "Scheduled",
   createWorkspaceApp: "Create app",

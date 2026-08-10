@@ -19,7 +19,6 @@ packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Agent-Native routes
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|route · selection
-packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|same actions · same SQL · same agent loop
 packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/de-DE/messaging.mdx|Microsoft Teams
@@ -81,7 +80,6 @@ packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|One action surface, 
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|SQL state
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|The surface spectrum
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|route · selection
-packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|same actions · same SQL · same agent loop
 packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/hi-IN/messaging.mdx|Microsoft Teams

@@ -194,19 +194,19 @@ Les requêtes du navigateur, la boucle de l'agent et les clients d'API externes 
 
 Voici les répertoires et fichiers présents dans `server/` que toute application native d'agent embarque. Chacun correspond à un élément précis de la couche serveur : ce qu'il fait, quand y recourir, et comment il s'articule avec le reste du framework.
 
-| Page                                         | Ce qu'elle couvre                                                                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **[Base de données](/docs/server-database)** | Définition du schéma avec les assistants `table()`, `getDb`, et les modèles de tables ownable                                   |
-| **[Middleware](/docs/server-middleware)**    | Les gardes d'authentification dans `server/middleware/`, et pourquoi ils s'exécutent là plutôt que dans un plugin               |
-| **[Plugins](/docs/server-plugins)**          | Les trois plugins de démarrage que chaque application embarque : migrations de base de données, authentification, et agent-chat |
-| **[Routes](/docs/server-routes)**            | Les routes basées sur des fichiers, le catch-all SSR, et le cadrage des routes personnalisées à l'utilisateur de la requête     |
+| Page                                         | Ce qu'elle couvre                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **[Base de données](/docs/server-database)** | Définition du schéma avec les assistants `table()`, `getDb`, et les modèles de tables ownable                                        |
+| **[Middleware](/docs/server-middleware)**    | Les gardes d'authentification dans `server/middleware/`, et pourquoi ils s'exécutent là plutôt que dans un plugin                    |
+| **[Plugins](/docs/server-plugins)**          | Les plugins de démarrage pour l'authentification et agent-chat, plus les migrations de base de données facultatives de l'application |
+| **[Routes](/docs/server-routes)**            | Les routes basées sur des fichiers, le catch-all SSR, et le cadrage des routes personnalisées à l'utilisateur de la requête          |
 
 ## Nitro {#nitro}
 
 [Nitro](https://nitro.build) est la boîte à outils serveur qui alimente la couche HTTP des applications natives d'agent. La majeure partie de ce que vous configurerez dans `server/` relève de Nitro : routes basées sur des fichiers, plugins de démarrage, et middleware.
 
 - **Routage basé sur des fichiers** : le nom du fichier correspond directement à une méthode HTTP et à un chemin d'URL, sans aucun enregistrement nécessaire. `server/routes/api/health.get.ts` devient automatiquement `GET /api/health`. Consultez [Routes](/docs/server-routes) pour plus de détails.
-- **Plugins** : du code qui s'exécute une seule fois au démarrage du serveur, avant qu'aucune requête ne soit servie. Les migrations de base de données, la configuration de l'authentification et le montage de l'agent-chat se font tous dans `server/plugins/`. Consultez [Plugins](/docs/server-plugins) pour plus de détails.
+- **Plugins** : du code enregistré au démarrage du serveur et chargé une seule fois. Les helpers du framework initialisent l'authentification et agent-chat ; les migrations facultatives de l'application peuvent encore être en cours à l'arrivée de la première requête. Consultez [Plugins](/docs/server-plugins) pour plus de détails.
 - **Middleware** : du code qui s'exécute à chaque requête entrante avant qu'elle n'atteigne une route. Le garde d'authentification se trouve dans `server/middleware/`. Consultez [Middleware](/docs/server-middleware) pour plus de détails.
 
 Nitro est également indépendant du mode de déploiement. La même application se déploie sur Node.js, Cloudflare Workers, Netlify, Vercel et d'autres environnements d'exécution sans aucune modification de code. Il suffit de définir un preset. Voir [Deployment](/docs/deployment).

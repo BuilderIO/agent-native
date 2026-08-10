@@ -105,7 +105,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-從此範本本機路徑匯入 `getDb` - 路由中的 `../../server/db/index.js`，actions 中的 `../server/db/index.js` - 而不是直接從 `@agent-native/core` 匯入。核心匯出返回一個通用的無型別執行個體；範本的 `getDb()` 包含您的架構型別。請參閱 [Server](/docs/server#request-context) 了解 actions 和自訂路由如何匯入它。
+從此範本本機路徑匯入 `getDb` - 路由中的 `../../server/db/index.js`，actions 中的 `../server/db/index.js` - 而不是直接從 `@agent-native/core` 匯入。核心匯出返回一個通用的無型別執行個體；範本的 `getDb()` 包含您的架構型別。請參閱 [Server](/docs/server-routes#request-context) 了解 actions 和自訂路由如何匯入它。
 
 ## 與方言無關的架構和查詢 {#schema}
 

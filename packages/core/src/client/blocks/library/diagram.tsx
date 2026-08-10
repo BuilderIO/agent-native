@@ -75,7 +75,7 @@ import {
 
 /** The rough-overlay selector for diagram bordered boxes (mirrors the plan). */
 const DIAGRAM_ROUGH_SELECTOR =
-  "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr";
+  "[data-rough],.diagram-panel,.diagram-node,.diagram-box,.diagram-pill,.diagram-card,.diagram-arrow[data-arrow],[class*='card'],[class*='box'],[class*='panel'],[class*='pill'],[class*='chip'],[class*='badge'],hr";
 
 function HtmlDiagram({
   data,

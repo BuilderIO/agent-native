@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,7 +101,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -116,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 사용자 정의 백엔드, 공급자 레지스트리 API 또는 일괄 처리/싱글톤 내부가 필요합니까? 마지막에 있는 [Advanced: custom providers & internals](#advanced)를 참조하세요.
@@ -358,5 +358,5 @@ interface TrackingEvent {
 ## 다음 단계
 
 - [**Actions**](/docs/actions) — 대부분의 추적 통화가 발생하는 곳
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()`는 시작 시 핵심 경로 플러그인에서 실행됩니다.
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()`는 시작 시 핵심 경로 플러그인에서 실행됩니다.
 - [**보안 — 비밀 관리**](/docs/security#secrets) — 추적 제공자를 위한 API 키 관리
