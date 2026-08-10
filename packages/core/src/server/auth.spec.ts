@@ -8,6 +8,8 @@ import {
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH_MESSAGE,
   PASSWORD_MIN_LENGTH,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
@@ -2142,6 +2144,15 @@ describe("server/auth", () => {
       expect(tooShortResult).toEqual({ error: PASSWORD_MIN_LENGTH_MESSAGE });
       expect(signUpEmail).not.toHaveBeenCalled();
 
+      const tooLongResult = await registerHandler(
+        createJsonPostEvent("/_agent-native/auth/register", {
+          email: "steve+1@builder.io",
+          password: "p".repeat(PASSWORD_MAX_LENGTH + 1),
+        }),
+      );
+      expect(tooLongResult).toEqual({ error: PASSWORD_MAX_LENGTH_MESSAGE });
+      expect(signUpEmail).not.toHaveBeenCalled();
+
       const event = createJsonPostEvent(
         "/_agent-native/auth/register",
         {
@@ -2222,6 +2233,59 @@ describe("server/auth", () => {
         error: "Enter a valid email address, like you@example.com.",
       });
       expect(signUpEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it("hides Better Auth adapter details from signup errors", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async () => {
+        throw new Error(
+          'Failed query: select "id", "name" from "user" where "user"."email" = $1',
+        );
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const event = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "steve+1@builder.io",
+        password: "secret-password",
+      });
+      const result = await registerHandler(event);
+
+      expect(event.res.status).toBe(500);
+      expect(result).toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+      });
+      expect(JSON.stringify(result)).not.toContain("Failed query");
+      expect(JSON.stringify(result)).not.toContain('select "id"');
     });
 
     it("accepts HEAD on the auth session endpoint", async () => {
@@ -2428,7 +2492,7 @@ describe("server/auth", () => {
       );
       expect(response).toBeInstanceOf(Response);
       await expect((response as Response).text()).resolves.toContain(
-        "The user denied access",
+        "Google sign-in was cancelled. Try again when you&#39;re ready.",
       );
 
       const result = await exchangeHandler(
@@ -2439,8 +2503,8 @@ describe("server/auth", () => {
       );
 
       expect(result).toMatchObject({
-        error: "Google sign-in failed: The user denied access",
-        message: "Google sign-in failed: The user denied access",
+        error: "Google sign-in was cancelled. Try again when you're ready.",
+        message: "Google sign-in was cancelled. Try again when you're ready.",
         code: "access_denied",
       });
     });
@@ -2509,6 +2573,70 @@ describe("server/auth", () => {
       await baHandler(event);
 
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
+    });
+
+    it("sanitizes raw Better Auth JSON errors on direct auth routes", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  message:
+                    'Failed query: select "id", "name" from "user" where "user"."email" = $1',
+                }),
+                {
+                  status: 500,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-up/email", {
+          email: "user@example.com",
+          password: "secret-password",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(500);
+      const body = await (response as Response).json();
+      expect(body).toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+        message: "We couldn't create your account right now. Please try again.",
+      });
+      expect(JSON.stringify(body)).not.toContain("Failed query");
+      expect(JSON.stringify(body)).not.toContain('select "id"');
     });
 
     it("sanitizes resend verification callback URLs before forwarding to Better Auth", async () => {
@@ -2644,7 +2772,7 @@ describe("server/auth", () => {
       const response = await baHandler(event);
 
       expect(response.headers.get("location")).toBe(
-        "/_agent-native/sign-in?error=INVALID_TOKEN",
+        "/_agent-native/sign-in?error=verification_link_invalid",
       );
     });
 

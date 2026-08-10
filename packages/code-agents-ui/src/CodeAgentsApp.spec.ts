@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  groupCodeAgentModelOptions,
+  normalizeModelSelection,
   resolveNewSessionExtensionComposerState,
   shouldCloseWatchedChatFirstSession,
   type CodeAgentsNewSessionExtension,
@@ -9,6 +11,7 @@ import {
   mergeSessionWatchTranscriptEvents,
   SESSION_WATCH_TRANSCRIPT_EVENT_LIMIT,
 } from "./SessionWatchPanel.js";
+import type { CodeAgentModelOption } from "./types.js";
 import type { CodeAgentTranscriptEvent } from "./types.js";
 
 const extension: CodeAgentsNewSessionExtension = {
@@ -33,6 +36,46 @@ describe("CodeAgentsApp new-session extension seam", () => {
       useDefaultModeControl: true,
       showModelSelector: true,
     });
+  });
+});
+
+describe("code-agent model selection", () => {
+  const models: CodeAgentModelOption[] = [
+    {
+      engine: "claude-cli",
+      engineLabel: "Anthropic",
+      model: "claude-sonnet-5",
+      label: "Claude Sonnet 5",
+      configured: true,
+      statusLabel: "Claude subscription",
+      isSubscription: true,
+    },
+  ];
+
+  it("migrates the legacy Auto selection to a concrete model", () => {
+    expect(
+      normalizeModelSelection(
+        { engine: "auto", model: "auto", effort: "medium" },
+        models,
+      ),
+    ).toEqual({
+      engine: "claude-cli",
+      model: "claude-sonnet-5",
+      effort: "medium",
+    });
+  });
+
+  it("keeps native subscription status on the right-aligned provider group", () => {
+    expect(groupCodeAgentModelOptions(models)).toEqual([
+      {
+        engine: "claude-cli",
+        label: "Anthropic",
+        models: ["claude-sonnet-5"],
+        configured: true,
+        statusLabel: "Claude subscription",
+        isSubscription: true,
+      },
+    ]);
   });
 });
 

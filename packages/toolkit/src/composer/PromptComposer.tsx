@@ -99,6 +99,8 @@ export interface PromptComposerProps {
   preserveDraftOnSubmit?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
+  /** Show the legacy provider-level Auto model option (default: true). */
+  showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
@@ -472,6 +474,7 @@ function PromptComposerInner({
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,
+  showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
@@ -665,6 +668,7 @@ function PromptComposerInner({
           selectedModel={composerModel}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
+          showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}

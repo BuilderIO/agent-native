@@ -26,7 +26,7 @@ export function ChatFirstPrimaryNavigation({
       {onNewChat ? (
         <button
           type="button"
-          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onNewChat}
         >
           <IconPlus size={15} className="shrink-0" aria-hidden="true" />
@@ -35,7 +35,7 @@ export function ChatFirstPrimaryNavigation({
       ) : null}
       <button
         type="button"
-        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onOpenIntegrations}
       >
         <IconPlugConnected size={15} className="shrink-0" aria-hidden="true" />
@@ -43,7 +43,7 @@ export function ChatFirstPrimaryNavigation({
       </button>
       <button
         type="button"
-        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onOpenScheduled}
       >
         <IconClock size={15} className="shrink-0" aria-hidden="true" />
@@ -52,7 +52,7 @@ export function ChatFirstPrimaryNavigation({
       {onSearch ? (
         <button
           type="button"
-          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onSearch}
         >
           <IconSearch size={15} className="shrink-0" aria-hidden="true" />

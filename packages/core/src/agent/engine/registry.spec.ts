@@ -269,6 +269,79 @@ describe("AgentEngine registry", () => {
     ).resolves.toBe(true);
   });
 
+  it("captures scoped Builder credentials for engine construction and preflight", async () => {
+    const identity = {
+      userEmail: "owner@example.com",
+      orgId: "org-builder",
+    };
+    const resolveBuilderCredentialsDetailed = vi.fn(
+      async (receivedIdentity?: typeof identity) =>
+        receivedIdentity?.userEmail === identity.userEmail &&
+        receivedIdentity.orgId === identity.orgId
+          ? {
+              privateKey: "bpk-scoped",
+              publicKey: "space-scoped",
+              userId: "builder-user",
+              orgName: "Builder Space",
+              source: "org" as const,
+              lookupFailed: false,
+            }
+          : {
+              privateKey: null,
+              publicKey: null,
+              lookupFailed: false,
+            },
+    );
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal()),
+        resolveBuilderCredentialsDetailed,
+      }),
+    );
+
+    const {
+      registerAgentEngine,
+      resolveEngine,
+      isResolvedEngineUsableForRequest,
+    } = await import("./registry.js");
+    const builderEngine = { name: "builder", stream: vi.fn() } as any;
+    const create = vi.fn().mockReturnValue(builderEngine);
+    registerAgentEngine({
+      name: "builder",
+      label: "Builder",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "builder-model",
+      supportedModels: ["builder-model"],
+      requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      create,
+    });
+
+    const resolved = await resolveEngine({
+      engineOption: "builder",
+      credentialIdentity: identity,
+    });
+
+    expect(resolved).toBe(builderEngine);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: {
+          privateKey: "bpk-scoped",
+          publicKey: "space-scoped",
+          userId: "builder-user",
+          orgName: "Builder Space",
+        },
+      }),
+    );
+    expect(resolveBuilderCredentialsDetailed).toHaveBeenCalledWith(identity);
+    await expect(
+      isResolvedEngineUsableForRequest(resolved, {
+        credentialIdentity: identity,
+      }),
+    ).resolves.toBe(true);
+  });
+
   describe("getStoredModelForEngine", () => {
     beforeEach(() => {
       vi.resetModules();

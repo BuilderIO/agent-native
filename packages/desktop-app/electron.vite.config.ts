@@ -196,9 +196,21 @@ const desktopSentryDefines = {
   ),
 };
 
+// Local packaged builds should behave like development builds. Release CI
+// sets CI=true, while AGENT_NATIVE_DESKTOP_BUILD_CHANNEL lets packaging jobs
+// override that default explicitly when they need to.
+const desktopBuildChannel =
+  firstNonEmpty(process.env.AGENT_NATIVE_DESKTOP_BUILD_CHANNEL) ||
+  (process.env.CI === "true" || process.env.CI === "1" ? "release" : "dev");
+
+const desktopDefines = {
+  ...desktopSentryDefines,
+  __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__: JSON.stringify(desktopBuildChannel),
+};
+
 export default defineConfig({
   main: {
-    define: desktopSentryDefines,
+    define: desktopDefines,
     plugins: [
       externalizeDepsPlugin({
         exclude: [
@@ -232,7 +244,7 @@ export default defineConfig({
     },
   },
   preload: {
-    define: desktopSentryDefines,
+    define: desktopDefines,
     plugins: [
       externalizeDepsPlugin({
         exclude: [
@@ -263,7 +275,7 @@ export default defineConfig({
     },
   },
   renderer: {
-    define: desktopSentryDefines,
+    define: desktopDefines,
     optimizeDeps: {
       exclude: workspaceRendererPackages,
     },

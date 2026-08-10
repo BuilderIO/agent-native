@@ -1417,7 +1417,7 @@ describe("chat connection suggestion alignment", () => {
       ".agent-composer-area:not(.agent-composer-area--compact)",
     );
     expect(panelSource).toContain("padding-left:0;padding-right:0;");
-    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),684px)]");
+    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),750px)]");
     expect(suggestionSource).toContain(
       "agent-mcp-connection-suggestion-error--composer",
     );

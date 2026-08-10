@@ -26,6 +26,10 @@ export interface EngineModelGroup {
   label: string;
   models: string[];
   configured: boolean;
+  /** Provider-owned connection state shown at the far edge of the row. */
+  statusLabel?: string;
+  /** Marks a configured local subscription so setup CTAs can stay hidden. */
+  isSubscription?: boolean;
 }
 
 export interface ComposerModelState {

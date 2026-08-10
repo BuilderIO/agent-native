@@ -282,7 +282,7 @@ GitHub أو عناوين URL لأشجار GitHub أو أدلتها الفرعي�
 npx @agent-native/core@latest create my-platform
 ```
 
-سوف تحصل على منتقي متعدد التحديد. اختر تطبيقًا واحدًا (مستقلًا) أو عدة تطبيقات (مساحة العمل - تتشارك التطبيقات في المصادقة والعلامة التجارية وتكوين الوكيل وقاعدة البيانات). يتم دمج كل تطبيق تم اختياره في `apps/<name>/` مع كل ملف تحتاجه. بالنسبة إلى automation بلا UI في المتصفح بدلاً من UI التطبيق، استخدم `npx @agent-native/core@latest create my-agent --headless`.
+يسأل CLI أولًا **كيف تريد البدء؟** اختر **Chat** لمساحة عمل بسيطة تضم Chat وDispatch، أو **First-party template(s)** لفتح منتقي التطبيقات المتعدد. أما Community وHeadless فهما مساران لتطبيق مستقل. تشارك تطبيقات مساحة العمل المصادقة والعلامة التجارية وتكوين الوكيل وقاعدة البيانات، ويُضاف كل تطبيق إلى `apps/<name>/` مع كل ملف تحتاجه. بالنسبة إلى automation بلا UI في المتصفح بدلاً من UI التطبيق، استخدم `npx @agent-native/core@latest create my-agent --headless`.
 
 املأ `.env` (غالبًا `ANTHROPIC_API_KEY` و`DATABASE_URL`)، و`pnpm install`، و`pnpm dev`، وسيعمل. لا يوجد "TODO: تنفيذ تسجيل الدخول،" ولا توجد مسارات نائبة.
 

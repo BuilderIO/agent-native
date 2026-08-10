@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
-import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -191,14 +194,53 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("uses clear client-side validation and hides technical auth errors", () => {
+    const html = getOnboardingHtml();
+    const resetHtml = getResetPasswordHtml();
+
+    expect(html).toContain("function __anAuthErrorText(data, fallback)");
+    expect(html).toContain("function __anBindPasswordValidation(input)");
+    expect(html).toContain(
+      "input.setCustomValidity(__anT('passwordMinPlaceholder'))",
+    );
+    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+    expect(html).toContain(
+      "We couldn't create your account. Please try again.",
+    );
+    expect(html).toContain(
+      "We couldn't reach the server. Check your connection and try again.",
+    );
+    expect(html).toContain("function __anVerificationRedirectError()");
+    expect(html).toContain("verification_link_invalid");
+    expect(html).toContain(
+      "This verification link is invalid or expired. Request a new one.",
+    );
+    expect(resetHtml).toContain(
+      "This password reset link is missing or invalid. Request a new one.",
+    );
+    expect(resetHtml).toContain(
+      "We couldn't update your password. The link may have expired; request a new one.",
+    );
+    expect(resetHtml).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    const resetScript = resetHtml.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(resetScript).toBeTruthy();
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+    expect(() => new Function(resetScript!)).not.toThrow();
+  });
+
   it("renders the policy password minimum in signup and reset forms", () => {
     const html = getOnboardingHtml();
     const resetHtml = getResetPasswordHtml();
 
     expect(html).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
     expect(html).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
     expect(html).not.toContain('minlength="8"');
     expect(resetHtml).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(resetHtml).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
     expect(resetHtml).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
     expect(resetHtml).not.toContain('minlength="8"');
   });

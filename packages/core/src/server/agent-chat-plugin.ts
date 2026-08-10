@@ -1492,7 +1492,8 @@ export function createAgentChatPlugin(
           if (!entry) {
             return {
               status: "failed" as const,
-              output: "Unknown or unavailable read-only action",
+              output:
+                "Unknown or unavailable read-only action. Direct cross-app action mode only accepts explicitly exposed read-only operations; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
             };
           }
 

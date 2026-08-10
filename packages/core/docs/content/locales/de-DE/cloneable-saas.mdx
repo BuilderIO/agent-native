@@ -307,7 +307,7 @@ Wenn Sie jetzt ein Gerüst erstellen, lautet der CLI-Befehl:
 npx @agent-native/core@latest create my-platform
 ```
 
-Sie erhalten eine Mehrfachauswahl-Auswahl. Wählen Sie eine App (eigenständig) oder mehrere (Arbeitsbereich – Apps teilen sich Authentifizierung, Marke, Agentenkonfiguration und Datenbank). Jede ausgewählte App wird mit jeder benötigten Datei in `apps/<name>/` eingebunden. Für eine Automation ohne Browser-UI anstelle einer App-UI verwenden Sie `npx @agent-native/core@latest create my-agent --headless`.
+Die CLI fragt zuerst **Wie möchten Sie beginnen?** Wählen Sie **Chat** für einen minimalen Workspace mit Chat und Dispatch oder **First-party template(s)** für die Mehrfachauswahl. Community und Headless sind die eigenständigen Einstiege. Workspace-Apps teilen Authentifizierung, Marke, Agentenkonfiguration und Datenbank; jede App wird mit allen benötigten Dateien in `apps/<name>/` eingebunden. Für eine Automation ohne Browser-UI anstelle einer App-UI verwenden Sie `npx @agent-native/core@latest create my-agent --headless`.
 
 Geben Sie `.env` (hauptsächlich `ANTHROPIC_API_KEY` und `DATABASE_URL`), `pnpm install`, `pnpm dev` ein und es funktioniert. Kein „TODO: Login implementieren“, keine Platzhalterrouten.
 

@@ -633,12 +633,16 @@ export interface TiptapComposerProps {
   selectedModel?: string;
   /** Selected reasoning effort override for this conversation */
   selectedEffort?: ReasoningEffort;
+  /** Show the legacy provider-level Auto model option (default: true). */
+  showAutoModelOption?: boolean;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
     label: string;
     models: string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
@@ -844,7 +848,7 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
-  "codex-cli": "ChatGPT subscription",
+  "codex-cli": "Codex",
   "claude-fable-5": "Fable 5",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
@@ -1046,6 +1050,7 @@ function ModelSelector({
   model,
   effort,
   engines,
+  showAutoModelOption = true,
   modelListLoading = false,
   onChange,
   onEffortChange,
@@ -1061,7 +1066,10 @@ function ModelSelector({
     label: string;
     models: string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
+  showAutoModelOption?: boolean;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
@@ -1075,7 +1083,9 @@ function ModelSelector({
   const reasoning = adapters.models?.reasoning;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
   const [open, setOpen] = useState(false);
-  const autoModelGroup = engines.find((group) => group.models.includes("auto"));
+  const autoModelGroup = showAutoModelOption
+    ? engines.find((group) => group.models.includes("auto"))
+    : undefined;
   const providerGroups = useMemo(
     () =>
       engines
@@ -1155,12 +1165,16 @@ function ModelSelector({
   const hasConfiguredBuilderModels = providerGroups.some(
     (group) => group.engine === "builder" && group.configured,
   );
+  const hasConnectedSubscription = providerGroups.some(
+    (group) => group.configured && group.isSubscription,
+  );
   const showBuilderCta =
     (builderFlow.hasFetchedStatus ||
       (!providerConnectStatusEnabled && !!onConnectProvider)) &&
     !builderFlow.configured &&
     !builderFlow.envManaged &&
-    !hasConfiguredBuilderModels;
+    !hasConfiguredBuilderModels &&
+    !hasConnectedSubscription;
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
     showBuilderCta,
     providerGroups,
@@ -1352,6 +1366,17 @@ function ModelSelector({
             const groupKey = `${group.engine}:${group.label}`;
             const isExpanded = expandedGroups.has(groupKey);
             const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
+            const isLocalRuntime =
+              group.engine === "codex-cli" || group.engine === "claude-cli";
+            const canConnectLocalRuntime =
+              isLocalRuntime && Boolean(onConnectLocalRuntime);
+            const statusLabel =
+              group.statusLabel ??
+              (!group.configured
+                ? canConnectLocalRuntime
+                  ? "sign in"
+                  : "needs API key"
+                : undefined);
             return (
               <div key={groupKey}>
                 <div className="flex items-center hover:bg-accent/30">
@@ -1371,20 +1396,23 @@ function ModelSelector({
                       </span>
                     )}
                   </button>
-                  {!group.configured && (
+                  {!group.configured && statusLabel && (
                     <button
                       type="button"
-                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
+                      className="ms-auto max-w-[9rem] shrink-0 text-end text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
                       onClick={() =>
-                        group.engine === "codex-cli" && onConnectLocalRuntime
+                        canConnectLocalRuntime
                           ? connectLocalRuntime(group.engine)
                           : openLlmSettings()
                       }
                     >
-                      {group.engine === "codex-cli" && onConnectLocalRuntime
-                        ? "sign in"
-                        : "needs API key"}
+                      {statusLabel}
                     </button>
+                  )}
+                  {group.configured && statusLabel && (
+                    <span className="ms-auto max-w-[9rem] shrink-0 pe-3 text-end text-[10px] text-muted-foreground/70">
+                      {statusLabel}
+                    </span>
                   )}
                 </div>
                 {isExpanded &&
@@ -1394,10 +1422,7 @@ function ModelSelector({
                       type="button"
                       onClick={() => {
                         if (!group.configured) {
-                          if (
-                            group.engine === "codex-cli" &&
-                            onConnectLocalRuntime
-                          ) {
+                          if (canConnectLocalRuntime) {
                             connectLocalRuntime(group.engine);
                           } else {
                             openLlmSettings();
@@ -1540,6 +1565,7 @@ export function TiptapComposer({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
   selectedEffort,
+  showAutoModelOption = true,
   availableModels,
   modelListLoading,
   onModelChange,
@@ -2985,6 +3011,7 @@ export function TiptapComposer({
             model={selectedModel}
             effort={selectedEffort}
             engines={availableModels}
+            showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
             onChange={onModelChange}
             onEffortChange={onEffortChange}

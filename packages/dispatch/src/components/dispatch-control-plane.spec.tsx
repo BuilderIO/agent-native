@@ -8,6 +8,7 @@ import { DispatchControlPlane } from "./dispatch-control-plane";
 import { TooltipProvider } from "./ui/tooltip";
 
 const clientState = vi.hoisted(() => ({
+  inBuilderFrame: false,
   navigateWithTransition: vi.fn(),
   promptComposerProps: null as Record<string, unknown> | null,
   workspaceApps: [] as Array<Record<string, unknown>>,
@@ -69,7 +70,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
-  isInBuilderFrame: () => false,
+  isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -79,7 +80,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("./create-app-popover", () => ({
-  CreateAppPopover: () => <div>Create app</div>,
+  CreateAppPopover: ({ trigger }: { trigger?: React.ReactNode }) => (
+    <div>
+      {trigger}
+      <span>Create app</span>
+    </div>
+  ),
 }));
 
 describe("DispatchControlPlane", () => {
@@ -88,6 +94,7 @@ describe("DispatchControlPlane", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    clientState.inBuilderFrame = false;
     clientState.navigateWithTransition.mockReset();
     clientState.promptComposerProps = null;
     clientState.workspaceApps = [];
@@ -149,6 +156,36 @@ describe("DispatchControlPlane", () => {
             selectedModel: "auto",
             selectedEngine: "",
             selectedEffort: "medium",
+          }),
+        },
+      }),
+    );
+  });
+
+  it("keeps overview submissions on Dispatch Chat inside Builder frames", async () => {
+    clientState.inBuilderFrame = true;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <DispatchControlPlane />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-placeholder]")?.click();
+    });
+
+    expect(clientState.navigateWithTransition).toHaveBeenCalledWith(
+      expect.any(Function),
+      "/chat",
+      expect.objectContaining({
+        state: {
+          dispatchPrompt: expect.objectContaining({
+            message: "Route onboarding work",
           }),
         },
       }),
@@ -230,11 +267,10 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Mail");
     expect(container.textContent).toContain("Clips");
     expect(container.textContent).toContain("Analytics");
-    expect(container.textContent).toContain("Your apps");
-    expect(container.textContent).toContain("Other apps");
-    expect(container.textContent?.indexOf("Your apps")).toBeLessThan(
-      container.textContent?.indexOf("Other apps") ?? -1,
-    );
+    expect(container.textContent).toContain("Apps");
+    expect(container.textContent).toContain("New");
+    expect(container.textContent).not.toContain("Other apps");
+    expect(container.textContent).not.toContain("available");
     expect(container.textContent).not.toContain("Archived app");
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");

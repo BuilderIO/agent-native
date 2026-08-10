@@ -9,7 +9,9 @@ import { toast } from "sonner";
 
 import {
   NewDeckReferenceStep,
+  type ImportedReference,
   type NewDeckReferenceSelection,
+  type NewDeckReferenceSource,
 } from "@/components/editor/NewDeckReferenceStep";
 import {
   uploadPromptFiles,
@@ -204,37 +206,99 @@ export function FirstDeckOnboardingFlow({
   );
 
   const handleReferenceImport = useCallback(
-    async (files: File[]) => {
+    async (files: File[]): Promise<ImportedReference | null> => {
       setReferenceImporting(true);
       try {
         const uploaded = await uploadPromptFiles(files);
         const pptxReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".pptx"),
         );
-        let referenceSelection: NewDeckReferenceSelection = {
-          designSystemId: null,
-          referenceDeckId: null,
-        };
+        const pdfReference = uploaded.find((file) =>
+          file.originalName.toLowerCase().endsWith(".pdf"),
+        );
+        let importedReference: ImportedReference | null = null;
         let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction("import-pptx", {
             filePath: pptxReference.path,
-          })) as { id?: unknown };
-          if (typeof imported.id !== "string" || !imported.id) {
+          })) as {
+            id?: unknown;
+            imported?: unknown;
+            slideCount?: unknown;
+            title?: unknown;
+          };
+          if (
+            typeof imported.id !== "string" ||
+            !imported.id ||
+            imported.imported !== true ||
+            typeof imported.slideCount !== "number" ||
+            imported.slideCount < 1
+          ) {
             throw new Error("The imported presentation did not create a deck.");
           }
-          await reloadDecks();
-          rememberReference({ id: imported.id, kind: "deck" });
-          referenceSelection = {
-            designSystemId: null,
-            referenceDeckId: imported.id,
+          importedReference = {
+            id: imported.id,
+            title:
+              typeof imported.title === "string" && imported.title
+                ? imported.title
+                : t("home.importedReferenceDeck"),
+            source: "pptx",
           };
           generationFiles = uploaded.filter((file) => file !== pptxReference);
+        } else if (pdfReference) {
+          const referenceDeck = createDeck(undefined, {
+            noDefaultSlides: true,
+          });
+          const persisted = await ensureDeckPersisted(referenceDeck.id);
+          if (!persisted.persisted) {
+            deleteDeck(referenceDeck.id);
+            throw new Error(
+              describeDeckPersistenceFailure(
+                persisted,
+                "The PDF reference deck could not be saved.",
+              ),
+            );
+          }
+          try {
+            const imported = (await callAction("import-file", {
+              filePath: pdfReference.path,
+              format: "pdf",
+              deckId: referenceDeck.id,
+              importIntoDeck: true,
+            })) as {
+              imported?: unknown;
+              deckId?: unknown;
+              pageCount?: unknown;
+              title?: unknown;
+            };
+            if (
+              imported.imported !== true ||
+              imported.deckId !== referenceDeck.id ||
+              typeof imported.pageCount !== "number" ||
+              imported.pageCount < 1
+            ) {
+              throw new Error("The PDF reference deck could not be imported.");
+            }
+            importedReference = {
+              id: referenceDeck.id,
+              title:
+                typeof imported.title === "string" && imported.title
+                  ? imported.title
+                  : t("home.importedReferenceDeck"),
+              source: "pdf",
+            };
+            generationFiles = uploaded.filter((file) => file !== pdfReference);
+          } catch (error) {
+            deleteDeck(referenceDeck.id);
+            throw error;
+          }
         }
-        await startGeneration(
-          [...promptFiles, ...generationFiles],
-          referenceSelection,
-        );
+        setPromptFiles((current) => [...current, ...generationFiles]);
+        if (importedReference) {
+          await reloadDecks();
+          rememberReference({ id: importedReference.id, kind: "deck" });
+        }
+        return importedReference;
       } catch (error) {
         toast.error(t("editorToolbar.uploadFailed"), {
           description:
@@ -242,11 +306,72 @@ export function FirstDeckOnboardingFlow({
               ? error.message
               : t("editorToolbar.importFailedDescription"),
         });
+        return null;
       } finally {
         setReferenceImporting(false);
       }
     },
-    [promptFiles, reloadDecks, rememberReference, startGeneration, t],
+    [
+      callAction,
+      createDeck,
+      deleteDeck,
+      ensureDeckPersisted,
+      reloadDecks,
+      rememberReference,
+      t,
+    ],
+  );
+
+  const handleReferenceSourceImport = useCallback(
+    async (
+      source: NewDeckReferenceSource,
+    ): Promise<ImportedReference | null> => {
+      if (source.kind !== "google-docs") return null;
+      setReferenceImporting(true);
+      try {
+        const imported = (await callAction("import-google-slides-reference", {
+          presentationUrl: source.value,
+        })) as {
+          id?: unknown;
+          imported?: unknown;
+          slideCount?: unknown;
+          title?: unknown;
+        };
+        if (
+          typeof imported.id !== "string" ||
+          !imported.id ||
+          imported.imported !== true ||
+          typeof imported.slideCount !== "number" ||
+          imported.slideCount < 1
+        ) {
+          throw new Error(
+            "The Google Slides presentation did not create a deck.",
+          );
+        }
+        const importedReference: ImportedReference = {
+          id: imported.id,
+          title:
+            typeof imported.title === "string" && imported.title
+              ? imported.title
+              : t("home.importedReferenceDeck"),
+          source: "google-slides",
+        };
+        await reloadDecks();
+        rememberReference({ id: importedReference.id, kind: "deck" });
+        return importedReference;
+      } catch (error) {
+        toast.error(t("editorToolbar.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("editorToolbar.importFailedDescription"),
+        });
+        return null;
+      } finally {
+        setReferenceImporting(false);
+      }
+    },
+    [callAction, reloadDecks, rememberReference, t],
   );
 
   const handleReferenceSkip = useCallback(() => {
@@ -267,6 +392,7 @@ export function FirstDeckOnboardingFlow({
         recentReferences={recentReferences}
         onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
+        onImportSource={handleReferenceSourceImport}
         onSkip={handleReferenceSkip}
         onOpenChange={(open) => {
           if (!open) setStep("prompt");
@@ -278,7 +404,6 @@ export function FirstDeckOnboardingFlow({
         chooseDeckLabel={t("home.referenceDeckPlaceholder")}
         importingLabel={t("raw.uploading")}
         skipLabel={t("home.referenceDeckNone")}
-        defaultSuffix={t("home.defaultSuffix")}
         starredLabel={t("home.referenceDeckStarredGroup")}
         otherDecksLabel={t("home.referenceDeckOtherGroup")}
         searchDecksLabel={t("root.searchDecks")}
