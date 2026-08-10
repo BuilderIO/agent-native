@@ -50,6 +50,7 @@ export interface OAuthCredential {
 interface CredentialSnapshot<T extends OAuthCredential> {
   credential: T;
   revision: number;
+  legacyRevision: number;
 }
 
 export type OAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
@@ -57,6 +58,7 @@ export type OAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
   | {
       kind: "malformed";
       revision: number;
+      legacyRevision: number;
       reason: "structure" | "identity" | "validation";
     }
   | ({
@@ -289,6 +291,7 @@ export async function readOAuthCredentialState<
     return {
       kind: "malformed",
       revision: stored.revision,
+      legacyRevision: stored.legacyRevision,
       reason: "structure",
     };
   }
@@ -300,6 +303,7 @@ export async function readOAuthCredentialState<
     return {
       kind: "malformed",
       revision: stored.revision,
+      legacyRevision: stored.legacyRevision,
       reason: "identity",
     };
   }
@@ -308,6 +312,7 @@ export async function readOAuthCredentialState<
     return {
       kind: "malformed",
       revision: stored.revision,
+      legacyRevision: stored.legacyRevision,
       reason: "validation",
     };
   }
@@ -316,6 +321,7 @@ export async function readOAuthCredentialState<
       kind: "reconnect_required",
       credential,
       revision: stored.revision,
+      legacyRevision: stored.legacyRevision,
     };
   }
   const now = options.now ?? Date.now();
@@ -323,9 +329,19 @@ export async function readOAuthCredentialState<
     typeof credential.tokenExpiresAt === "number" &&
     credential.tokenExpiresAt <= now
   ) {
-    return { kind: "expired", credential, revision: stored.revision };
+    return {
+      kind: "expired",
+      credential,
+      revision: stored.revision,
+      legacyRevision: stored.legacyRevision,
+    };
   }
-  return { kind: "connected", credential, revision: stored.revision };
+  return {
+    kind: "connected",
+    credential,
+    revision: stored.revision,
+    legacyRevision: stored.legacyRevision,
+  };
 }
 
 async function markReconnectRequired<T extends OAuthCredential>(
@@ -338,6 +354,7 @@ async function markReconnectRequired<T extends OAuthCredential>(
     storageAccountId(identity, legacyAccountKey),
     ownerKey(identity.owner),
     snapshot.revision,
+    snapshot.legacyRevision,
     withLifecycle(identity, snapshot.credential, "refresh_failed"),
   );
 }
@@ -508,6 +525,7 @@ export async function resolveOAuthCredentialAccess<
           storageAccountId(identity, options.legacyAccountKey),
           ownerKey(identity.owner),
           state.revision,
+          state.legacyRevision,
           refreshed,
         );
         const latest = await readOAuthCredentialState<T>(identity, {
@@ -630,6 +648,7 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
     storageAccountId(identity, options.legacyAccountKey),
     ownerKey(identity.owner),
     state.revision,
+    state.legacyRevision,
   );
   return { remote, local: deleted ? "deleted" : "replaced" };
 }

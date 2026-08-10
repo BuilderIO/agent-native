@@ -169,6 +169,7 @@ export interface OAuthTokenSnapshot {
   tokens: Record<string, unknown>;
   owner: string | null;
   revision: number;
+  legacyRevision: number;
 }
 
 /**
@@ -184,14 +185,15 @@ export async function getOAuthTokenSnapshot(
   const client = getDbExec();
   const table = oauthTokensTable();
   const { rows } = await client.execute({
-    sql: `SELECT owner, tokens, revision FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ?`,
+    sql: `SELECT owner, tokens, revision, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ?`,
     args: [provider, accountId, owner],
   });
   if (rows.length === 0) return null;
   return {
     tokens: parseStoredTokens(rows[0].tokens as string),
     owner: (rows[0].owner as string) ?? null,
-    revision: Number(rows[0].revision),
+    revision: Number(rows[0].revision ?? 0),
+    legacyRevision: Number(rows[0].updated_at),
   };
 }
 
@@ -205,6 +207,7 @@ export async function replaceOAuthTokensIfRevision(
   accountId: string,
   owner: string,
   expectedRevision: number,
+  expectedLegacyRevision: number,
   tokens: Record<string, unknown>,
 ): Promise<boolean> {
   await ensureTable();
@@ -212,7 +215,7 @@ export async function replaceOAuthTokensIfRevision(
   const table = oauthTokensTable();
   const nextRevision = Math.max(Date.now(), expectedRevision + 1);
   const result = await client.execute({
-    sql: `UPDATE ${table} SET tokens = ?, revision = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND revision = ?`,
+    sql: `UPDATE ${table} SET tokens = ?, revision = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ?`,
     args: [
       serializeTokens(tokens),
       nextRevision,
@@ -221,6 +224,7 @@ export async function replaceOAuthTokensIfRevision(
       accountId,
       owner,
       expectedRevision,
+      expectedLegacyRevision,
     ],
   });
   return result.rowsAffected === 1;
@@ -232,13 +236,20 @@ export async function deleteOAuthTokensIfRevision(
   accountId: string,
   owner: string,
   expectedRevision: number,
+  expectedLegacyRevision: number,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
   const result = await client.execute({
-    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND revision = ?`,
-    args: [provider, accountId, owner, expectedRevision],
+    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ?`,
+    args: [
+      provider,
+      accountId,
+      owner,
+      expectedRevision,
+      expectedLegacyRevision,
+    ],
   });
   return result.rowsAffected === 1;
 }

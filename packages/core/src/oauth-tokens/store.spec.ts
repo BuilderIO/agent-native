@@ -16,6 +16,7 @@ const execCalls: ExecCall[] = [];
 let existingOwner: string | null = null;
 let existingTokens: Record<string, unknown> | null = null;
 let existingRevision = 100;
+let existingLegacyRevision = 100;
 let mockPostgres = false;
 let conflictOwnerAfterUpsert: string | null = null;
 let upsertAttempted = false;
@@ -44,7 +45,9 @@ const mockDb = {
     }
 
     if (
-      /SELECT owner, tokens, revision FROM (?:public\.)?oauth_tokens/i.test(sql)
+      /SELECT owner, tokens, revision, updated_at FROM (?:public\.)?oauth_tokens/i.test(
+        sql,
+      )
     ) {
       return {
         rows: existingOwner
@@ -53,6 +56,7 @@ const mockDb = {
                 owner: existingOwner,
                 tokens: JSON.stringify(existingTokens ?? {}),
                 revision: existingRevision,
+                updated_at: existingRevision,
               },
             ]
           : [],
@@ -79,7 +83,31 @@ const mockDb = {
       };
     }
 
-    if (/^(?:UPDATE\s+|DELETE\s+FROM\s+)(?:public\.)?oauth_tokens/i.test(sql)) {
+    if (/^UPDATE\s+(?:public\.)?oauth_tokens SET tokens/i.test(sql)) {
+      return {
+        rows: [],
+        rowsAffected:
+          existingOwner &&
+          args.at(-2) === existingRevision &&
+          args.at(-1) === existingLegacyRevision
+            ? 1
+            : 0,
+      };
+    }
+
+    if (/^DELETE\s+FROM\s+(?:public\.)?oauth_tokens/i.test(sql)) {
+      return {
+        rows: [],
+        rowsAffected:
+          existingOwner &&
+          args.at(-2) === existingRevision &&
+          args.at(-1) === existingLegacyRevision
+            ? 1
+            : 0,
+      };
+    }
+
+    if (/^UPDATE\s+(?:public\.)?oauth_tokens/i.test(sql)) {
       return { rows: [], rowsAffected: existingOwner ? 1 : 0 };
     }
 
@@ -114,6 +142,7 @@ describe("oauth token store", () => {
     existingOwner = null;
     existingTokens = null;
     existingRevision = 100;
+    existingLegacyRevision = 100;
     mockPostgres = false;
     conflictOwnerAfterUpsert = null;
     upsertAttempted = false;
@@ -197,6 +226,7 @@ describe("oauth token store", () => {
         "managed-ai",
         "user:alice@example.com",
         100,
+        100,
         { access_token: "new-access", refresh_token: "new-refresh" },
       ),
     ).resolves.toBe(true);
@@ -204,11 +234,13 @@ describe("oauth token store", () => {
     const conditionalUpdate = execCalls.find((call) =>
       /^UPDATE\s+(?:public\.)?oauth_tokens/i.test(call.sql),
     );
-    expect(conditionalUpdate?.sql).toContain("AND revision = ?");
-    expect(conditionalUpdate?.args.slice(-4)).toEqual([
+    expect(conditionalUpdate?.sql).toContain("COALESCE(revision, 0) = ?");
+    expect(conditionalUpdate?.sql).toContain("AND updated_at = ?");
+    expect(conditionalUpdate?.args.slice(-5)).toEqual([
       "builder",
       "managed-ai",
       "user:alice@example.com",
+      100,
       100,
     ]);
     const encrypted = conditionalUpdate?.args[0] as string;
@@ -228,19 +260,55 @@ describe("oauth token store", () => {
         "managed-ai",
         "user:alice@example.com",
         100,
+        100,
       ),
     ).resolves.toBe(true);
 
     const conditionalDelete = execCalls.find((call) =>
       /^DELETE\s+FROM\s+(?:public\.)?oauth_tokens/i.test(call.sql),
     );
-    expect(conditionalDelete?.sql).toContain("AND revision = ?");
+    expect(conditionalDelete?.sql).toContain("COALESCE(revision, 0) = ?");
+    expect(conditionalDelete?.sql).toContain("AND updated_at = ?");
     expect(conditionalDelete?.args).toEqual([
       "builder",
       "managed-ai",
       "user:alice@example.com",
       100,
+      100,
     ]);
+  });
+
+  it("rejects replace and delete after a legacy writer advances updated_at", async () => {
+    existingOwner = "user:alice@example.com";
+    existingTokens = { access_token: "old-access" };
+    const snapshot = await getOAuthTokenSnapshot(
+      "builder",
+      "managed-ai",
+      "user:alice@example.com",
+    );
+    expect(snapshot).toMatchObject({ revision: 100, legacyRevision: 100 });
+
+    existingLegacyRevision = 101;
+
+    await expect(
+      replaceOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+        { access_token: "stale-replacement" },
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      deleteOAuthTokensIfRevision(
+        "builder",
+        "managed-ai",
+        "user:alice@example.com",
+        snapshot!.revision,
+        snapshot!.legacyRevision,
+      ),
+    ).resolves.toBe(false);
   });
 
   it("qualifies the real oauth_tokens table on Postgres so temp scoped views cannot shadow OAuth callbacks", async () => {

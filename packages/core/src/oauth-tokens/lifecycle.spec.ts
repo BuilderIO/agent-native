@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
       tokens: Record<string, unknown>;
       owner: string;
       revision: number;
+      legacyRevision: number;
     }
   >(),
   settings: new Map<string, Record<string, unknown>>(),
@@ -25,10 +26,12 @@ vi.mock("./store.js", () => ({
       tokens: Record<string, unknown>,
       owner: string,
     ) => {
+      const revision = state.revision++;
       state.rows.set(rowKey(provider, accountId), {
         tokens,
         owner,
-        revision: state.revision++,
+        revision,
+        legacyRevision: revision,
       });
     },
   ),
@@ -44,17 +47,24 @@ vi.mock("./store.js", () => ({
       accountId: string,
       owner: string,
       expectedRevision: number,
+      expectedLegacyRevision: number,
       tokens: Record<string, unknown>,
     ) => {
       const key = rowKey(provider, accountId);
       const row = state.rows.get(key);
-      if (row?.owner !== owner || row.revision !== expectedRevision) {
+      if (
+        row?.owner !== owner ||
+        row.revision !== expectedRevision ||
+        row.legacyRevision !== expectedLegacyRevision
+      ) {
         return false;
       }
+      const revision = state.revision++;
       state.rows.set(key, {
         tokens,
         owner,
-        revision: state.revision++,
+        revision,
+        legacyRevision: revision,
       });
       return true;
     },
@@ -65,10 +75,15 @@ vi.mock("./store.js", () => ({
       accountId: string,
       owner: string,
       expectedRevision: number,
+      expectedLegacyRevision: number,
     ) => {
       const key = rowKey(provider, accountId);
       const row = state.rows.get(key);
-      if (row?.owner !== owner || row.revision !== expectedRevision) {
+      if (
+        row?.owner !== owner ||
+        row.revision !== expectedRevision ||
+        row.legacyRevision !== expectedLegacyRevision
+      ) {
         return false;
       }
       state.rows.delete(key);
