@@ -110,6 +110,16 @@ vi.mock("./identity-sso-store.js", () => ({
       return false;
     }
   },
+  isCanonicalAgentNativeAppRequest: (
+    host: string | undefined,
+    protocol: string | undefined,
+  ) =>
+    (!protocol || protocol === "https") &&
+    [
+      "mail.agent-native.com",
+      "calendar.agent-native.com",
+      "dispatch.agent-native.com",
+    ].includes(host ?? ""),
   identitySsoLoginButtonHtml: () =>
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL ? "<a>sso</a>" : "",
   createSsoState: vi.fn(async (returnPath: string | null) => {

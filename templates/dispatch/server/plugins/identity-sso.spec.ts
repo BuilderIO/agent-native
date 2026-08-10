@@ -26,8 +26,11 @@ vi.mock("@agent-native/core/shared", () => ({
   signInJourney: vi.fn(() => ({ signInHref: "/_agent-native/sign-in" })),
 }));
 
-const { canAttemptWorkspaceSso, isWorkspaceSsoEnabledForSession } =
-  await import("./identity-sso.js");
+const {
+  canAttemptWorkspaceSso,
+  isDesktopWorkspaceSsoRequest,
+  isWorkspaceSsoEnabledForSession,
+} = await import("./identity-sso.js");
 
 describe("Desktop workspace SSO rollout availability", () => {
   beforeEach(() => {
@@ -42,6 +45,15 @@ describe("Desktop workspace SSO rollout availability", () => {
       updatedBy: null,
     });
     featureFlagMocks.isEnabled.mockResolvedValue(false);
+  });
+
+  it("scopes the rollout flag to packaged Desktop requests", () => {
+    expect(
+      isDesktopWorkspaceSsoRequest(
+        "Mozilla/5.0 AgentNativeDesktopSsoCanary/0.1.0",
+      ),
+    ).toBe(true);
+    expect(isDesktopWorkspaceSsoRequest("Mozilla/5.0 Chrome/140")).toBe(false);
   });
 
   it.each([

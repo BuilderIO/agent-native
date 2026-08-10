@@ -8,8 +8,8 @@
  *      unauthenticated visitor here with:
  *        ?app=<id>&redirect_uri=<https url>&state=<opaque>
  *
- *   2. We validate `redirect_uri` against the strict allowlist
- *      (`isAllowedRedirectUri`). An invalid/forbidden value is rejected
+ *   2. We bind `app` and `redirect_uri` against the strict allowlist
+ *      (`isAllowedIdentityRedirect`). An invalid/forbidden pair is rejected
  *      with 400 BEFORE any session work — an attacker-controlled
  *      `redirect_uri` must never receive a token. This is the single most
  *      important control on this endpoint.
@@ -63,7 +63,7 @@ import {
 import { getOrgDomain } from "@agent-native/core/org";
 import { getH3App, getSession } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
-import { defineEventHandler, getMethod } from "h3";
+import { defineEventHandler, getHeader, getMethod } from "h3";
 import type { H3Event } from "h3";
 
 import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
@@ -76,6 +76,13 @@ import {
 
 const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
+const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+
+export function isDesktopWorkspaceSsoRequest(
+  userAgent: string | undefined,
+): boolean {
+  return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
+}
 
 function getRequestUrl(event: H3Event): string {
   return (event as any).node?.req?.url ?? (event as any).path ?? "/";
@@ -169,6 +176,9 @@ const authorizeHandler = defineEventHandler(
     const redirectUri = search.get("redirect_uri");
     const appId = search.get("app");
     const state = search.get("state");
+    const isDesktopRequest = isDesktopWorkspaceSsoRequest(
+      getHeader(event, "user-agent"),
+    );
 
     // ---- Control 1: redirect_uri allowlist (BEFORE any session work) ----
     // An attacker-supplied redirect_uri must never reach the mint path.
@@ -187,7 +197,7 @@ const authorizeHandler = defineEventHandler(
     // Narrowed to string by isAllowedIdentityRedirect.
     const safeRedirectUri = redirectUri as string;
 
-    if (!(await canAttemptWorkspaceSso())) {
+    if (isDesktopRequest && !(await canAttemptWorkspaceSso())) {
       return jsonResponse({ error: "not_found" }, 404);
     }
 
@@ -220,7 +230,7 @@ const authorizeHandler = defineEventHandler(
       return redirect(signInHref);
     }
 
-    if (!(await isWorkspaceSsoEnabledForSession(session))) {
+    if (isDesktopRequest && !(await isWorkspaceSsoEnabledForSession(session))) {
       return jsonResponse({ error: "not_found" }, 404);
     }
 

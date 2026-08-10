@@ -70,7 +70,7 @@ import {
   getIdentityHubUrl,
   isIdentitySsoEnabled,
   identitySsoLoginButtonHtml,
-  isCanonicalAgentNativeAppOrigin,
+  isCanonicalAgentNativeAppRequest,
   isDesktopSsoCanaryUserAgent,
 } from "./identity-sso-store.js";
 
@@ -117,7 +117,14 @@ export function resolveIdentityHubUrl(event: H3Event): string | undefined {
   }
 
   try {
-    if (!isCanonicalAgentNativeAppOrigin(getOrigin(event))) return undefined;
+    if (
+      !isCanonicalAgentNativeAppRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      )
+    ) {
+      return undefined;
+    }
     return DESKTOP_IDENTITY_HUB_URL;
   } catch {
     return undefined;

@@ -172,6 +172,12 @@ describe("isAllowedIdentityRedirect — app and redirect binding", () => {
         "https://mail.agent-native.com/_agent-native/identity/callback",
       ),
     ).toBe(true);
+    expect(
+      isAllowedIdentityRedirect(
+        "dispatch",
+        "https://dispatch.agent-native.com/_agent-native/identity/callback",
+      ),
+    ).toBe(true);
   });
 
   it("rejects a mismatched app id and canonical origin", () => {

@@ -173,7 +173,7 @@ import {
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
 import {
-  isCanonicalAgentNativeAppOrigin,
+  isCanonicalAgentNativeAppRequest,
   isDesktopSsoCanaryUserAgent,
   isIdentitySsoEnabled,
 } from "./identity-sso-store.js";
@@ -2170,7 +2170,10 @@ function createAuthGuardFn(): (
       p === "/_agent-native/identity/callback";
     const isDesktopCanaryIdentityRequest =
       isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent")) &&
-      isCanonicalAgentNativeAppOrigin(getOrigin(event));
+      isCanonicalAgentNativeAppRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
     if (
       isIdentitySsoEntryPath &&
       (isIdentitySsoEnabled() || isDesktopCanaryIdentityRequest)

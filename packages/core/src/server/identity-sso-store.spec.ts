@@ -147,6 +147,11 @@ describe("Desktop SSO Canary request classifiers", () => {
       store.isCanonicalAgentNativeAppOrigin("https://mail.agent-native.com"),
     ).toBe(true);
     expect(
+      store.isCanonicalAgentNativeAppOrigin(
+        "https://dispatch.agent-native.com",
+      ),
+    ).toBe(true);
+    expect(
       store.isCanonicalAgentNativeAppOrigin("https://unknown.agent-native.com"),
     ).toBe(false);
     expect(
@@ -156,6 +161,21 @@ describe("Desktop SSO Canary request classifiers", () => {
       store.isCanonicalAgentNativeAppOrigin(
         "https://mail.agent-native.com.evil.example",
       ),
+    ).toBe(false);
+  });
+
+  it("classifies the actual request host instead of a configured fallback", () => {
+    expect(
+      store.isCanonicalAgentNativeAppRequest("mail.agent-native.com", "https"),
+    ).toBe(true);
+    expect(
+      store.isCanonicalAgentNativeAppRequest(
+        "unknown.agent-native.com",
+        "https",
+      ),
+    ).toBe(false);
+    expect(
+      store.isCanonicalAgentNativeAppRequest("mail.agent-native.com", "http"),
     ).toBe(false);
   });
 });

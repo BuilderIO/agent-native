@@ -53,6 +53,7 @@ export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
   clips: "https://clips.agent-native.com",
   content: "https://content.agent-native.com",
   design: "https://design.agent-native.com",
+  dispatch: "https://dispatch.agent-native.com",
   forms: "https://forms.agent-native.com",
   mail: "https://mail.agent-native.com",
   plan: "https://plan.agent-native.com",

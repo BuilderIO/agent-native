@@ -1402,6 +1402,18 @@ describe("server/auth", () => {
       await expect(
         guard(
           createMockEvent({
+            path: "/_agent-native/identity/login",
+            headers: {
+              host: "untrusted.example",
+              "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+            },
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+
+      await expect(
+        guard(
+          createMockEvent({
             path: "/_agent-native/identity/desktop-complete",
           }),
         ),
