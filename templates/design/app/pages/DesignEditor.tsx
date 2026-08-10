@@ -1699,6 +1699,8 @@ function DesignBottomToolbar({
   hasActiveFile,
   onMove,
   onFrame,
+  frameToolDraws,
+  onFrameToolDrawsChange,
   onShape,
   onText,
   onPen,
@@ -1717,6 +1719,8 @@ function DesignBottomToolbar({
   hasActiveFile: boolean;
   onMove: () => void;
   onFrame: () => void;
+  frameToolDraws: "screen" | "frame";
+  onFrameToolDrawsChange: (value: "screen" | "frame") => void;
   onShape: (tool: ShapeTool) => void;
   onText: () => void;
   onPen: () => void;
@@ -1890,12 +1894,25 @@ function DesignBottomToolbar({
       onClick: onFrame,
       options: [
         {
+          key: "screen",
+          label: t("designEditor.tools.screen"),
+          icon: <IconFrame className="size-4" />,
+          shortcut: "F",
+          active: activeTool === "frame" && frameToolDraws === "screen",
+          onSelect: () => {
+            onFrameToolDrawsChange("screen");
+            onFrame();
+          },
+        },
+        {
           key: "frame",
           label: t("designEditor.tools.frame"),
           icon: <IconFrame className="size-4" />,
-          shortcut: "F",
-          active: activeTool === "frame",
-          onSelect: onFrame,
+          active: activeTool === "frame" && frameToolDraws === "frame",
+          onSelect: () => {
+            onFrameToolDrawsChange("frame");
+            onFrame();
+          },
         },
       ],
     },
@@ -2181,6 +2198,11 @@ function DesignEditor() {
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
+  // The frame tool draws a top-level SCREEN or a plain FRAME container. Made
+  // explicit because deciding it from where the drag started is unguessable.
+  const [frameToolDraws, setFrameToolDraws] = useState<"screen" | "frame">(
+    "screen",
+  );
   const activeToolRef = useRef(activeTool);
   useEffect(() => {
     activeToolRef.current = activeTool;
@@ -31365,6 +31387,8 @@ function DesignEditor() {
               hasActiveFile={Boolean(activeFile)}
               onMove={handleMoveTool}
               onFrame={handleFrameTool}
+              frameToolDraws={frameToolDraws}
+              onFrameToolDrawsChange={setFrameToolDraws}
               onShape={handleShapeTool}
               onText={handleTextTool}
               onPen={handlePenTool}
@@ -31936,6 +31960,7 @@ function DesignEditor() {
                           boardFileId ? handleBoardTextContentChange : undefined
                         }
                         onCreateScreenFrame={handleCreateScreenFrame}
+                        frameToolDraws={frameToolDraws}
                         onDeleteSelection={handleDeleteOverviewSelection}
                         onNudgeSelection={handleOverviewNudgeSelection}
                         onSelectionChange={handleOverviewScreenSelectionChange}

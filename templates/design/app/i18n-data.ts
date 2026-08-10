@@ -730,6 +730,7 @@ const enUS = {
     tools: {
       move: "Move",
       frame: "Frame",
+      screen: "Screen",
       rect: "Rectangle",
       line: "Line",
       arrow: "Arrow",

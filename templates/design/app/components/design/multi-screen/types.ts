@@ -195,6 +195,8 @@ export interface MultiScreenCanvasProps {
     placement: "before" | "after" | "inside";
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
+  /** Whether the frame tool commits a top-level screen or a plain frame. */
+  frameToolDraws?: "screen" | "frame";
   onDeleteSelection?: (ids: string[]) => boolean | void;
   /** Return false to keep the arrow key: the host's real selection is an
    * element inside a screen, and this canvas still lists that screen in

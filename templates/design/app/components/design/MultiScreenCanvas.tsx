@@ -51,6 +51,7 @@ import {
   IconHandClick,
   IconPlus,
 } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
 import {
   memo,
   useRef,
@@ -474,6 +475,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onPrimitiveCreated,
   onPrimitiveReparent,
   onCreateScreenFrame,
+  frameToolDraws = "screen",
   onDeleteSelection,
   onNudgeSelection,
   onZoomChange,
@@ -523,6 +525,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onDropFiles,
   cameraCommand,
 }: MultiScreenCanvasProps) {
+  const { resolvedTheme } = useTheme();
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -642,6 +645,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       height: surfaceSize.height / scale,
     };
   }, [canvasZoom, pan.x, pan.y, surfaceSize.height, surfaceSize.width]);
+  // The board iframe cannot read the host's CSS vars, so the themed canvas
+  // colour has to be resolved out here or the board stays dark in light mode.
+  const boardSurfaceBackground = useMemo(() => {
+    if (typeof window === "undefined") return BOARD_SURFACE_BACKGROUND;
+    const themed = window
+      .getComputedStyle(document.documentElement)
+      .getPropertyValue("--design-editor-canvas-bg")
+      .trim();
+    return themed || BOARD_SURFACE_BACKGROUND;
+  }, [resolvedTheme]);
+
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
     const focusGeometry = boardSurfaceFocusPoint
@@ -4495,6 +4509,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // originating screen.
         if (
           state.tool === "frame" &&
+          frameToolDraws === "screen" &&
           !state.originFrameId &&
           onCreateScreenFrame
         ) {
@@ -8117,7 +8132,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   zoom={100}
                   deviceFrame="none"
                   boardSurface
-                  embeddedFrameBackground={BOARD_SURFACE_BACKGROUND}
+                  embeddedFrameBackground={boardSurfaceBackground}
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
