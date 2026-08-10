@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowUpRight,
@@ -17,7 +16,6 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import type { ConnectedAppSummary } from "../lib/other-apps";
-import { submitOverviewPrompt } from "../lib/overview-chat";
 import { cn } from "../lib/utils";
 import type { WorkspaceAppSummary } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
@@ -83,11 +81,6 @@ function CommandPanel() {
   function send(message: string) {
     const trimmed = message.trim();
     if (!trimmed) return;
-
-    if (isInBuilderFrame()) {
-      submitOverviewPrompt(trimmed, selectedModel);
-      return;
-    }
 
     navigateWithAgentChatViewTransition(navigate, "/chat", {
       state: {

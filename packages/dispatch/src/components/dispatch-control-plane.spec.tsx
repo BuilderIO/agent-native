@@ -8,6 +8,7 @@ import { DispatchControlPlane } from "./dispatch-control-plane";
 import { TooltipProvider } from "./ui/tooltip";
 
 const clientState = vi.hoisted(() => ({
+  inBuilderFrame: false,
   navigateWithTransition: vi.fn(),
   promptComposerProps: null as Record<string, unknown> | null,
   workspaceApps: [] as Array<Record<string, unknown>>,
@@ -69,7 +70,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/host", () => ({
-  isInBuilderFrame: () => false,
+  isInBuilderFrame: () => clientState.inBuilderFrame,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -93,6 +94,7 @@ describe("DispatchControlPlane", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    clientState.inBuilderFrame = false;
     clientState.navigateWithTransition.mockReset();
     clientState.promptComposerProps = null;
     clientState.workspaceApps = [];
@@ -154,6 +156,36 @@ describe("DispatchControlPlane", () => {
             selectedModel: "auto",
             selectedEngine: "",
             selectedEffort: "medium",
+          }),
+        },
+      }),
+    );
+  });
+
+  it("keeps overview submissions on Dispatch Chat inside Builder frames", async () => {
+    clientState.inBuilderFrame = true;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <DispatchControlPlane />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-placeholder]")?.click();
+    });
+
+    expect(clientState.navigateWithTransition).toHaveBeenCalledWith(
+      expect.any(Function),
+      "/chat",
+      expect.objectContaining({
+        state: {
+          dispatchPrompt: expect.objectContaining({
+            message: "Route onboarding work",
           }),
         },
       }),
