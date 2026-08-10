@@ -1154,14 +1154,6 @@ export default function DeckEditor() {
                     setActiveSlideId(slideId);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
-                  onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
-                  onDeleteSlide={(slideId) => {
-                    const idx = deck.slides.findIndex((s) => s.id === slideId);
-                    const nextSlide =
-                      deck.slides[idx + 1] || deck.slides[idx - 1];
-                    deleteSlideWithUndo(id, slideId);
-                    if (nextSlide) setActiveSlideId(nextSlide.id);
-                  }}
                   readOnly={!canEdit}
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
