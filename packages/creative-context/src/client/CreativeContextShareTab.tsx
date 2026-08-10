@@ -316,10 +316,7 @@ function ContextSelect({
           and without data-agent-native-share-overlay the popover's
           onInteractOutside treats clicks in this portal as "outside" and
           closes the whole Share dialog. */}
-      <SelectContent
-        data-agent-native-share-overlay=""
-        className="z-[100020]"
-      >
+      <SelectContent data-agent-native-share-overlay="" className="z-[100020]">
         {contexts.map((context) => (
           <SelectItem key={context.id} value={context.id}>
             {context.name}
