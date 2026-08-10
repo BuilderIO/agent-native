@@ -345,6 +345,18 @@ export default function DeckEditor() {
     if (!generating) setAddSlideGenerating(false);
   }, [generating]);
 
+  // Below `md` the rail is a drawer behind a full-viewport dimming scrim; at
+  // `md` and up it's docked with no scrim. `sidebarOpen` is seeded from the
+  // width at mount only, so a window that starts wide and is then narrowed
+  // (or an editor opened in a resizable preview pane) keeps `sidebarOpen`
+  // true while the scrim stops being `md:hidden` — dimming the whole editor
+  // with no way to dismiss it.
+  useEffect(() => {
+    const onResize = () => setSidebarOpen(window.innerWidth >= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   const previousSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
     const currentSlideIds = deck?.slides.map((slide) => slide.id) ?? [];
