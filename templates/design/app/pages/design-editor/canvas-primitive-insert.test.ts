@@ -151,7 +151,10 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
       }) ?? "";
     const innerAt = html.indexOf('data-agent-native-node-id="inner"');
     const deepAt = html.indexOf('data-agent-native-node-id="deep"');
-    expect(deepAt, "the rect must nest into the innermost containing frame").toBeGreaterThan(innerAt);
+    expect(
+      deepAt,
+      "the rect must nest into the innermost containing frame",
+    ).toBeGreaterThan(innerAt);
   });
 
   it("gives text in a dark frame a light fill even on a light page", () => {
