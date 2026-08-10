@@ -1355,7 +1355,7 @@ describe("server/auth", () => {
       });
     });
 
-    it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
+    it("bypasses only the two federated-SSO entry routes", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
@@ -1371,20 +1371,42 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      // Env UNSET → the identity routes are NOT bypassed: the guard must
-      // treat them like any other unauthenticated /_agent-native/* request
-      // (it returns a 401 body, i.e. NOT `undefined`). This is the
-      // regression assertion for the env-unset-no-op invariant.
+      // Ordinary requests remain protected while direct web SSO is unset.
       for (const path of [
         "/_agent-native/identity/login",
         "/_agent-native/identity/callback",
       ]) {
-        const result = await guard(createMockEvent({ path }));
-        expect(result).not.toBeUndefined();
+        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
+          error: "Unauthorized",
+        });
       }
 
-      // Env SET → both routes bypass the blanket guard so the handler can
-      // run its own signature/CSRF verification.
+      vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(
+          guard(
+            createMockEvent({
+              path,
+              headers: {
+                host: "mail.agent-native.com",
+                "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+              },
+            }),
+          ),
+        ).resolves.toBeUndefined();
+      }
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/desktop-complete",
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",

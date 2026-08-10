@@ -17,6 +17,13 @@ type UpdateStatus =
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
 
+type DesktopIdentityStatus =
+  | "idle"
+  | "signing-in"
+  | "signed-in"
+  | "sign-in-required"
+  | "failed";
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -693,6 +700,12 @@ interface ElectronAPI {
       cb: (request: DesktopShortcutActivationRequest) => void,
     ): () => void;
     ackActivation(requestId: string, appId?: string): void;
+  };
+
+  identity: {
+    getStatus(): Promise<DesktopIdentityStatus>;
+    signOut(): Promise<boolean>;
+    onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
   };
 
   setActiveApp(appId: string): void;

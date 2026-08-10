@@ -323,3 +323,7 @@ Beim Rollout werden Benutzer abgemeldet, wenn jede App aktiviert wird (sie authe
 - [Dispatch](/docs/dispatch) – die Workspace-Identitätsbehörde und der Routing-Hub.
 - [Security & Data Scoping](/docs/security) – Nur additive Datenschreibvorgänge und Scoping pro Konto.
 - [Multi-App Workspaces](/docs/multi-app-workspace) – die einheitliche Single-Origin-Bereitstellung, die domänenübergreifendes SSO vollständig vermeidet.
+
+Das standardmäßig deaktivierte Dispatch-Flag `desktop.workspace-sso` steuert nur die Verfügbarkeit; Authentifizierung, Signatur-, Nonce-, Origin-, Callback-, Sitzungs- und Widerrufsprüfungen bleiben immer verpflichtend. Ist das Flag aus oder nicht lesbar, verändert Desktop weder App-Anmeldung noch Abmeldung oder Einstellungen.
+Die Canary-Kennung im User-Agent ist nur ein Verfügbarkeitshinweis und keine Remote-Attestierung; Authentifizierung und Autorisierung vertrauen ihr nicht.
+Kanonische gehostete Apps erkennen Anfragen der paketierten Desktop SSO Canary ohne eine Identity-Hub-Umgebungsvariable pro App. Normale Browser und selbst gehostete Apps benötigen weiterhin `AGENT_NATIVE_IDENTITY_HUB_URL`. Stabile Desktop-Builds initialisieren den Broker erst nach einer separat genehmigten späteren Veröffentlichung.

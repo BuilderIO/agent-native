@@ -172,6 +172,26 @@ Each hosted `*.agent-native.com` app has its **own user store**, so "sign in onc
 - **Invariant (do not break):** identity rows are only ever **added** — never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the only thing that crosses the trust boundary; the app never trusts a user id, role, or org from the wire.
 - **Canary rollout:** deploy with the env unset everywhere (no-op) → set it on **one** app (mail) only → verify (logout → SSO → Dispatch → back to the same pre-existing account, data intact, direct logins still work) → expand app-by-app → rollback = unset the env on that app's deploy (instant, no data change).
 
+### Packaged Desktop workspace sign-in
+
+For canonical first-party hosted apps, the packaged Desktop SSO Canary may compose the same
+federation into one workspace sign-in. Dispatch owns the default-off
+`desktop.workspace-sso` availability flag; every app still owns its local
+session. The flag is never an auth or authorization boundary. Keep nonce,
+signature, exact origin/callback, authenticated-session, app-binding, cookie
+allowlist, revocation, and credential-custody checks unconditional. When the
+flag is Off or unreadable, Desktop must leave ordinary per-app sign-in, sign-out,
+and Settings unchanged. Never extend the broker to custom or third-party apps,
+and never expose cookies, identity tokens, or provider credentials through IPC.
+Canonical hosted apps recognize packaged Desktop requests without per-app
+identity-hub environment configuration. Ordinary browsers and self-hosted apps
+still require `AGENT_NATIVE_IDENTITY_HUB_URL`.
+Stable Desktop builds must not initialize the broker until a later release is
+separately approved.
+Treat the Canary user-agent marker only as an availability hint, never as
+remote attestation or an authentication boundary. Bind supervised acceptance
+to exact signed-artifact provenance.
+
 Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 
 ## Builder Browser Access

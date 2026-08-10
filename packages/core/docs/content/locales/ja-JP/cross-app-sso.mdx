@@ -323,3 +323,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - [Dispatch](/docs/dispatch) — ワークスペース ID 権限およびルーティング ハブ。
 - [Security & Data Scoping](/docs/security) — 加算専用のデータ書き込みとアカウントごとのスコープ。
 - [Multi-App Workspaces](/docs/multi-app-workspace) — クロスドメイン SSO を完全に回避する統合シングルオリジン デプロイ。
+
+既定で無効な Dispatch の `desktop.workspace-sso` フラグは利用可否だけを制御し、認証、署名、nonce、オリジン、コールバック、セッション、失効の検証は常に必須です。フラグが無効または読み取れない場合、Desktop はアプリごとのサインイン、サインアウト、設定を変更しません。
+User-Agent の Canary マーカーは利用可否のヒントにすぎず、リモートアテステーションではありません。認証と認可はこれを信頼しません。
+正規のホスト型アプリは、アプリごとの ID ハブ環境設定なしでパッケージ版 Desktop SSO Canary のリクエストを認識します。通常のブラウザとセルフホスト型アプリでは、引き続き `AGENT_NATIVE_IDENTITY_HUB_URL` が必要です。安定版 Desktop は、後続リリースが別途承認されるまでブローカーを初期化しません。

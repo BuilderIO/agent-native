@@ -323,3 +323,7 @@ A implementação desconecta os usuários à medida que cada aplicativo é ativa
 - [Dispatch](/docs/dispatch) — a autoridade de identidade do espaço de trabalho e hub de roteamento.
 - [Security & Data Scoping](/docs/security) — gravações de dados somente aditivas e escopo por conta.
 - [Multi-App Workspaces](/docs/multi-app-workspace) — a implantação unificada de origem única que evita totalmente SSO entre domínios.
+
+A flag do Dispatch `desktop.workspace-sso`, desativada por padrão, controla apenas a disponibilidade; as verificações de autenticação, assinatura, nonce, origem, callback, sessão e revogação continuam sempre obrigatórias. Com a flag desativada ou ilegível, o Desktop não altera o login, o logout nem os ajustes de cada app.
+O marcador Canary do agente do usuário é apenas uma indicação de disponibilidade, não uma atestação remota; autenticação e autorização não confiam nele.
+Os apps hospedados canônicos reconhecem solicitações do Desktop SSO Canary empacotado sem configuração de hub de identidade por app. Navegadores comuns e apps auto-hospedados ainda exigem `AGENT_NATIVE_IDENTITY_HUB_URL`. Builds estáveis do Desktop não inicializam o intermediário até que uma versão posterior seja aprovada separadamente.

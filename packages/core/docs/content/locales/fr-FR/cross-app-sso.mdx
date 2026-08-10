@@ -323,3 +323,7 @@ Le déploiement déconnecte les utilisateurs lorsque chaque application est acti
 - [Dispatch](/docs/dispatch) : l'autorité d'identité de l'espace de travail et le hub de routage.
 - [Security & Data Scoping](/docs/security) : écritures de données additives uniquement et portée par compte.
 - [Multi-App Workspaces](/docs/multi-app-workspace) : le déploiement unifié à origine unique qui évite entièrement SSO inter-domaines.
+
+Le flag Dispatch `desktop.workspace-sso`, désactivé par défaut, ne contrôle que la disponibilité ; les contrôles d’authentification, de signature, de nonce, d’origine, de callback, de session et de révocation restent toujours obligatoires. Si le flag est désactivé ou illisible, Desktop ne modifie ni la connexion, ni la déconnexion, ni les réglages propres à chaque application.
+Le marqueur Canary de l’agent utilisateur est seulement un indice de disponibilité, pas une attestation distante ; l’authentification et l’autorisation ne lui font pas confiance.
+Les applications hébergées canoniques reconnaissent les requêtes de Desktop SSO Canary empaqueté sans configuration du hub d’identité pour chaque application. Les navigateurs ordinaires et les applications auto-hébergées nécessitent toujours `AGENT_NATIVE_IDENTITY_HUB_URL`. Les versions stables de Desktop n’initialisent pas le courtier avant l’approbation séparée d’une version ultérieure.

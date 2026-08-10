@@ -39,6 +39,8 @@ vi.mock("./google-oauth.js", () => ({
   createOAuthSession: (...a: any[]) => createOAuthSessionMock(...a),
   getOrigin: (event: any) =>
     `https://${event.headers?.host ?? "mail.agent-native.com"}`,
+  isElectron: (event: any) =>
+    /AgentNativeDesktop/i.test(event.headers?.["user-agent"] ?? ""),
 }));
 
 vi.mock("./app-name.js", () => ({ getAppName: () => "mail" }));
@@ -92,6 +94,22 @@ vi.mock("./identity-sso-store.js", () => ({
     }
   },
   isIdentitySsoEnabled: () => !!process.env.AGENT_NATIVE_IDENTITY_HUB_URL,
+  isDesktopSsoCanaryUserAgent: (userAgent: string | undefined) =>
+    /AgentNativeDesktopSsoCanary\//i.test(userAgent ?? ""),
+  isCanonicalAgentNativeAppOrigin: (origin: string | undefined) => {
+    if (!origin) return false;
+    try {
+      const parsed = new URL(origin);
+      return (
+        parsed.protocol === "https:" &&
+        /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.agent-native\.com$/.test(
+          parsed.hostname,
+        )
+      );
+    } catch {
+      return false;
+    }
+  },
   identitySsoLoginButtonHtml: () =>
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL ? "<a>sso</a>" : "",
   createSsoState: vi.fn(async (returnPath: string | null) => {
@@ -115,16 +133,25 @@ vi.mock("./identity-sso-store.js", () => ({
   }),
 }));
 
-const { handleIdentitySso } = await import("./identity-sso.js");
+const { handleIdentitySso, isIdentitySsoBypassPath, resolveIdentityHubUrl } =
+  await import("./identity-sso.js");
 
 const HUB = "https://dispatch.agent-native.com";
 const SECRET = "test-a2a-secret";
 
-function ev(opts: { method?: string; path?: string; host?: string }): any {
+function ev(opts: {
+  method?: string;
+  path?: string;
+  host?: string;
+  userAgent?: string;
+}): any {
   const path = opts.path ?? "/";
   return {
     method: opts.method ?? "GET",
-    headers: { host: opts.host ?? "mail.agent-native.com" },
+    headers: {
+      host: opts.host ?? "mail.agent-native.com",
+      "user-agent": opts.userAgent,
+    },
     node: { req: { url: path } },
     path,
     url: { pathname: path.split("?")[0] },
@@ -187,6 +214,44 @@ describe("identity SSO — env-unset is a no-op", () => {
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
     expect(mod.identitySsoLoginButtonHtml()).not.toBe("");
   });
+
+  it("allows only packaged Desktop requests on canonical HTTPS app origins", () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const desktop = "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3";
+
+    expect(
+      resolveIdentityHubUrl(
+        ev({ host: "mail.agent-native.com", userAgent: desktop }),
+      ),
+    ).toBe(HUB);
+    expect(
+      resolveIdentityHubUrl(
+        ev({
+          host: "mail.agent-native.com",
+          userAgent: "Mozilla/5.0 AgentNativeDesktop/1.2.3",
+        }),
+      ),
+    ).toBeUndefined();
+    expect(
+      resolveIdentityHubUrl(ev({ host: "evil.example", userAgent: desktop })),
+    ).toBeUndefined();
+  });
+
+  it("starts Desktop federation without per-app environment configuration", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const res = await handleIdentitySso(
+      ev({
+        path: "/login?return=/inbox",
+        userAgent: "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+      }),
+      "/login",
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toMatch(
+      /^https:\/\/dispatch\.agent-native\.com\/_agent-native\/identity\/authorize\?/,
+    );
+  });
 });
 
 describe("identity SSO — /login", () => {
@@ -218,6 +283,44 @@ describe("identity SSO — /login", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/inbox");
     expect(stateRows.size).toBe(0);
+  });
+});
+
+describe("identity SSO — Desktop completion", () => {
+  const nonce = "desktop_completion_nonce_12345678901234567890";
+
+  it("requires a valid nonce and an authenticated app-local session", async () => {
+    expect(
+      (
+        await handleIdentitySso(
+          ev({ path: "/desktop-complete?nonce=short" }),
+          "/desktop-complete",
+        )
+      ).status,
+    ).toBe(400);
+
+    const unauthenticated = await handleIdentitySso(
+      ev({ path: `/desktop-complete?nonce=${nonce}` }),
+      "/desktop-complete",
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    getSessionMock.mockResolvedValue({ email: "example.user@example.com" });
+    const authenticated = await handleIdentitySso(
+      ev({ path: `/desktop-complete?nonce=${nonce}` }),
+      "/desktop-complete",
+    );
+    expect(authenticated.status).toBe(200);
+    expect(authenticated.headers.get("Cache-Control")).toBe("no-store");
+    const body = await authenticated.text();
+    expect(body).not.toContain(nonce);
+    expect(body).not.toContain("example.user@example.com");
+  });
+
+  it("does not make the completion page an auth-guard bypass", () => {
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/desktop-complete"),
+    ).toBe(false);
   });
 });
 

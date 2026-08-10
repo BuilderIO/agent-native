@@ -183,7 +183,7 @@ The flow is a standard authorize → signed-token → callback redirect, with em
 
 ### Opting in {#opt-in}
 
-An app participates **only** when this environment variable is set on its deployment:
+An app's ordinary web sign-in participates **only** when this environment variable is set on its deployment:
 
 ```bash
 AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
@@ -200,7 +200,7 @@ The whole model rests on a few deliberately small guarantees:
 - **Strict `redirect_uri` allowlist.** Dispatch only ever redirects to `*.agent-native.com` or localhost by default. Arbitrary, scheme-relative (`//host`), and cross-origin redirect targets are rejected, so the authority can't be turned into an open-redirect or token-exfiltration oracle.
 - **Email-only join from a verified token.** The _only_ thing that crosses the trust boundary is the verified email in a signed token. The app does not accept a user id, role, org membership, or any privileged state from the wire — it derives everything locally from the matched account.
 - **Additive-only identity writes.** Linking either reuses an existing same-email account untouched or inserts a new one. No update, rename, repoint, or delete of identity rows ever happens on this path.
-- **Off by default.** With `AGENT_NATIVE_IDENTITY_HUB_URL` unset the entire feature is inert.
+- **Off by default.** With `AGENT_NATIVE_IDENTITY_HUB_URL` unset, ordinary browser federation is inert. The separately gated packaged Desktop path is described below.
 
 <Callout id="doc-block-18qhl3m" tone="success">
 
@@ -264,6 +264,31 @@ The just-in-time link is a single decision keyed entirely on the verified email:
 ```
 
 </Diagram>
+
+## Packaged Desktop workspace {#desktop-workspace}
+
+The signed Agent Native Desktop SSO Canary uses this same federation flow as the
+ordinary sign-in front door for canonical first-party apps. A dedicated
+Electron partition holds the Dispatch authority session; each target app still
+mints its own local session, and Desktop transfers only that app's allowlisted
+session cookie into its isolated `persist:app-<id>` partition. Custom,
+user-added, and third-party apps are excluded.
+
+Dispatch registers the default-off `desktop.workspace-sso` rollout flag. The
+flag controls whether Desktop may begin the ceremony; it does not authorize a
+user or weaken nonce, signature, origin, callback, app-binding, cookie,
+revocation, or credential-custody checks. With the flag Off or unavailable,
+Desktop leaves ordinary per-app sign-in, sign-out, and Settings unchanged.
+Canonical hosted apps recognize the packaged Desktop request without requiring
+`AGENT_NATIVE_IDENTITY_HUB_URL` on every deployment; ordinary web browsers and
+self-hosted apps still require that explicit configuration.
+Stable Desktop builds do not initialize the broker until a later release is
+separately approved.
+The Canary user-agent marker is an availability hint, not remote attestation;
+the server cannot infer code signature from HTTP. No authentication or
+authorization decision trusts it. Supervised acceptance therefore binds the
+tested client through the signed artifact's exact commit, manifest, hashes, and
+notarization evidence.
 
 ## Self-hosting {#self-hosting}
 

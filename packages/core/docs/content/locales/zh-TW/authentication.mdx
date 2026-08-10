@@ -455,3 +455,7 @@ const state = encodeOAuthState({
 | `ACCESS_TOKEN`                          | MCP/連線用戶端的靜態承載回退；不是瀏覽器驗證                                                                         |
 | `ACCESS_TOKENS`                         | MCP/connect 用戶端的逗號分隔靜態承載回退；不是瀏覽器驗證                                                             |
 | `A2A_SECRET`                            | JWT 簽名的 A2A 跨應用驗證的共用金鑰，以及 MCP OAuth 存取權杖簽名（如果存在）                                         |
+
+Dispatch 的 `desktop.workspace-sso` 旗標預設關閉，且只控制可用性；驗證、簽章、nonce、來源、回呼、工作階段及撤銷檢查一律強制執行。旗標關閉或無法讀取時，Desktop 不會變更逐一應用程式登入、登出或設定。
+User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗證與授權皆不信任該標記。
+標準託管應用程式無需為每個應用程式設定身分中心環境變數，即可辨識封裝版 Desktop SSO Canary 的要求。一般瀏覽器和自行託管的應用程式仍需設定 `AGENT_NATIVE_IDENTITY_HUB_URL`。穩定版 Desktop 在後續版本獲得單獨核准前不會初始化代理程式。

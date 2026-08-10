@@ -6,12 +6,15 @@
  * an identity authority (Dispatch) so a user logged in there can land in this
  * app without re-entering credentials.
  *
- * Opt-in, OFF by default, fully reversible. Everything here is gated on the
- * single env var `AGENT_NATIVE_IDENTITY_HUB_URL`:
+ * Opt-in, OFF by default, fully reversible. Direct web federation is gated on
+ * `AGENT_NATIVE_IDENTITY_HUB_URL`; the packaged Desktop SSO Canary may use the
+ * canonical Dispatch authority on canonical hosted apps, where Dispatch's
+ * default-off feature flag controls rollout:
  *
- *   - UNSET  → `isIdentitySsoEnabled()` is false. The route handler 404s, the
- *     auth-guard bypass does not apply, and the login page renders no SSO
- *     button. Existing auth is byte-for-byte unchanged.
+ *   - UNSET  → normal browser requests remain protected and the login page
+ *     renders no SSO button. Packaged Canary requests on canonical app origins
+ *     may reach the flow, but Dispatch refuses them unless its rollout flag
+ *     allows the user.
  *   - SET    (e.g. `https://dispatch.agent-native.com`) → two routes mount:
  *       GET /_agent-native/identity/login
  *         302 → `<HUB>/_agent-native/identity/authorize?app=<id>
@@ -45,7 +48,7 @@
 import { createHash } from "node:crypto";
 
 import type { H3Event } from "h3";
-import { getMethod } from "h3";
+import { getHeader, getMethod } from "h3";
 import * as jose from "jose";
 
 import {
@@ -67,6 +70,8 @@ import {
   getIdentityHubUrl,
   isIdentitySsoEnabled,
   identitySsoLoginButtonHtml,
+  isCanonicalAgentNativeAppOrigin,
+  isDesktopSsoCanaryUserAgent,
 } from "./identity-sso-store.js";
 
 export { getIdentityHubUrl, isIdentitySsoEnabled, identitySsoLoginButtonHtml };
@@ -88,8 +93,36 @@ export const IDENTITY_SSO_PROVIDER_ID = "agent-native";
  */
 export const IDENTITY_SSO_SCOPE = "identity";
 
+export const IDENTITY_SSO_DESKTOP_COMPLETE_PATH =
+  "/_agent-native/identity/desktop-complete";
+
+const DESKTOP_COMPLETION_NONCE = /^[A-Za-z0-9_-]{32,128}$/;
+const DESKTOP_IDENTITY_HUB_URL = "https://dispatch.agent-native.com";
+
 /** Identity tokens older than this are rejected even if `exp` is generous. */
 const MAX_TOKEN_AGE_SECONDS = 10 * 60;
+
+/**
+ * Direct web federation stays explicitly configured through
+ * `AGENT_NATIVE_IDENTITY_HUB_URL`. The packaged Desktop SSO Canary may use the
+ * canonical Dispatch authority without per-app deployment configuration, but
+ * only for canonical HTTPS Agent Native app origins. Dispatch's default-off
+ * feature flag remains the authoritative rollout gate.
+ */
+export function resolveIdentityHubUrl(event: H3Event): string | undefined {
+  const configured = getIdentityHubUrl();
+  if (configured) return configured;
+  if (!isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent"))) {
+    return undefined;
+  }
+
+  try {
+    if (!isCanonicalAgentNativeAppOrigin(getOrigin(event))) return undefined;
+    return DESKTOP_IDENTITY_HUB_URL;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * A stable id for THIS app, sent to the hub as `?app=` so the authority can
@@ -356,7 +389,7 @@ export async function handleIdentitySso(
   event: H3Event,
   subpath: string,
 ): Promise<Response> {
-  const hub = getIdentityHubUrl();
+  const hub = resolveIdentityHubUrl(event);
   if (!hub) {
     return new Response("Not found", { status: 404 });
   }
@@ -505,16 +538,54 @@ export async function handleIdentitySso(
     return redirect(event, dest);
   }
 
+  if (sub === "/desktop-complete") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+
+    let nonce = "";
+    try {
+      const url = new URL(
+        (event as any).node?.req?.url ?? event.path ?? "/",
+        "http://an.invalid",
+      );
+      nonce = url.searchParams.get("nonce") || "";
+    } catch {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+
+    const current = await getSession(event).catch(() => null);
+    if (!current?.email) {
+      return new Response("Authentication required", { status: 401 });
+    }
+
+    return new Response(
+      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
+          "Referrer-Policy": "no-referrer",
+        },
+      },
+    );
+  }
+
   return new Response("Not found", { status: 404 });
 }
 
 /**
  * Whether the given (already base-path-stripped) request path is one of the
- * SSO routes that must bypass the blanket auth guard. Both routes resolve /
- * mint the browser session themselves: `/login` is the unauthenticated entry
- * point, and `/callback` is hit by a user who is (by definition) not yet
- * signed in to THIS app. Returns false when the feature is disabled, so the
- * guard's behaviour is unchanged with the env unset.
+ * two SSO routes that must bypass the blanket auth guard. The handler makes
+ * the request-scoped enablement decision and fails closed with 404; no other
+ * identity subpath bypasses authentication.
  */
 export function isIdentitySsoBypassPath(p: string): boolean {
   if (!isIdentitySsoEnabled()) return false;

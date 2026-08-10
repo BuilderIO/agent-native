@@ -323,3 +323,7 @@ Rollout cierra la sesión de los usuarios cuando se habilita cada aplicación (s
 - [Dispatch](/docs/dispatch): autoridad de identidad del espacio de trabajo y centro de enrutamiento.
 - [Security & Data Scoping](/docs/security): escrituras de datos solo aditivas y alcance por cuenta.
 - [Multi-App Workspaces](/docs/multi-app-workspace): la implementación unificada de origen único que evita por completo el SSO entre dominios.
+
+La marca de Dispatch `desktop.workspace-sso`, desactivada de forma predeterminada, solo controla la disponibilidad; las comprobaciones de autenticación, firma, nonce, origen, callback, sesión y revocación siguen siendo obligatorias. Si la marca está desactivada o no se puede leer, Desktop no cambia el inicio de sesión, el cierre de sesión ni los ajustes de cada app.
+La marca Canary del agente de usuario es solo una señal de disponibilidad, no una atestación remota; la autenticación y la autorización no confían en ella.
+Las apps alojadas canónicas reconocen las solicitudes de Desktop SSO Canary empaquetado sin configuración del centro de identidad por app. Los navegadores normales y las apps autoalojadas aún requieren `AGENT_NATIVE_IDENTITY_HUB_URL`. Las compilaciones estables de Desktop no inicializan el intermediario hasta que una versión posterior se apruebe por separado.

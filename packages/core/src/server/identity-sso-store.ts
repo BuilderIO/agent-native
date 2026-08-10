@@ -34,6 +34,10 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
+const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+const CANONICAL_AGENT_NATIVE_APP_HOST =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.agent-native\.com$/;
+
 // ---------------------------------------------------------------------------
 // Feature switch — the SINGLE source of truth for whether the federated-SSO
 // client is active. Lives here (a leaf module with no dependency on auth.ts)
@@ -68,6 +72,27 @@ export function getIdentityHubUrl(): string | undefined {
  */
 export function isIdentitySsoEnabled(): boolean {
   return !!getIdentityHubUrl();
+}
+
+export function isDesktopSsoCanaryUserAgent(
+  userAgent: string | undefined,
+): boolean {
+  return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
+}
+
+export function isCanonicalAgentNativeAppOrigin(
+  origin: string | undefined,
+): boolean {
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === "https:" &&
+      CANONICAL_AGENT_NATIVE_APP_HOST.test(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

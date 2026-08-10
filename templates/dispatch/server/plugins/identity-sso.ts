@@ -49,33 +49,24 @@
  *   This is documented as the chosen trade-off.
  *
  * Auth-guard reachability:
- *   `/_agent-native/*` is 401'd by the core auth guard when there is no
- *   session, which would break the logged-OUT bounce. So this plugin
- *   registers the exact path `/_agent-native/identity/authorize` as a
- *   `publicPath` via a second `createAuthPlugin({ publicPaths })` call.
- *   When two `createAuthPlugin` calls run in the same server boot on the
- *   same Nitro app, the framework APPENDS publicPaths to the live guard
- *   config (it does not clobber Dispatch's googleOnly/marketing/onboarding
- *   — verified in packages/core/src/server/auth.ts). The path is matched
- *   exactly (or as a `/`-segment prefix), so ONLY the authorize endpoint
- *   becomes public; any future `/_agent-native/identity/*` route stays
- *   protected. The handler then resolves the session ITSELF (exactly the
- *   `/_agent-native/open` pattern) — public-path only means "guard does not
- *   pre-empt", not "no auth": logged-out users are still bounced to login,
- *   and a token is only minted for a real session.
+ *   Dispatch's primary auth plugin receives the exact public paths from
+ *   `setupDispatch`. These handlers still resolve the session themselves;
+ *   public-path only means the guard does not pre-empt the logged-out bounce.
  */
 
 import { signA2AToken } from "@agent-native/core/a2a";
-import { getOrgDomain } from "@agent-native/core/org";
 import {
-  createAuthPlugin,
-  getH3App,
-  getSession,
-} from "@agent-native/core/server";
+  getFeatureFlagRules,
+  isFeatureFlagEnabled,
+  normalizeFeatureFlagRules,
+} from "@agent-native/core/feature-flags";
+import { getOrgDomain } from "@agent-native/core/org";
+import { getH3App, getSession } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
 import { defineEventHandler, getMethod } from "h3";
 import type { H3Event } from "h3";
 
+import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
   IDENTITY_TOKEN_TTL,
   buildIdentityClaims,
@@ -83,7 +74,7 @@ import {
   isAllowedRedirectUri,
 } from "../lib/identity-sso.js";
 
-/** Exact path. Registered as a publicPath so the guard does not 401 it. */
+const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
 
 function getRequestUrl(event: H3Event): string {
@@ -93,7 +84,10 @@ function getRequestUrl(event: H3Event): string {
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+    },
   });
 }
 
@@ -117,6 +111,45 @@ async function resolveOrgDomain(
     return undefined;
   }
 }
+
+export async function canAttemptWorkspaceSso(): Promise<boolean> {
+  const stored = await getFeatureFlagRules(
+    DESKTOP_WORKSPACE_SSO_FLAG.key,
+    {},
+  ).catch(() => null);
+  if (!stored) return false;
+  const rules = normalizeFeatureFlagRules(stored);
+  if (rules.mode === "off") return false;
+  if (rules.mode === "on") return true;
+  return (
+    rules.emails.length > 0 || rules.orgIds.length > 0 || rules.percentage > 0
+  );
+}
+
+export async function isWorkspaceSsoEnabledForSession(
+  session: Awaited<ReturnType<typeof getSession>>,
+): Promise<boolean> {
+  if (!session?.email) return false;
+  return isFeatureFlagEnabled(DESKTOP_WORKSPACE_SSO_FLAG, {
+    userEmail: session.email,
+    userKey: session.email,
+    orgId: session.orgId,
+  }).catch(() => false);
+}
+
+const availabilityHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    const method = getMethod(event);
+    if (method !== "GET" && method !== "HEAD") {
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+    const session = await getSession(event).catch(() => null);
+    const available = session?.email
+      ? await isWorkspaceSsoEnabledForSession(session)
+      : await canAttemptWorkspaceSso();
+    return jsonResponse({ available }, 200);
+  },
+);
 
 const authorizeHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
@@ -153,6 +186,10 @@ const authorizeHandler = defineEventHandler(
     // Narrowed to string by isAllowedRedirectUri.
     const safeRedirectUri = redirectUri as string;
 
+    if (!(await canAttemptWorkspaceSso())) {
+      return jsonResponse({ error: "not_found" }, 404);
+    }
+
     // ---- Resolve the EXISTING Dispatch session --------------------------
     const session = await getSession(event).catch(() => null);
 
@@ -180,6 +217,10 @@ const authorizeHandler = defineEventHandler(
         );
       }
       return redirect(signInHref);
+    }
+
+    if (!(await isWorkspaceSsoEnabledForSession(session))) {
+      return jsonResponse({ error: "not_found" }, 404);
     }
 
     // ---- Mint the short-lived identity token ----------------------------
@@ -238,13 +279,10 @@ const authorizeHandler = defineEventHandler(
 );
 
 /**
- * Dispatch identity-SSO plugin. Mounts the authorize route and registers
- * its exact path as a public path so the core auth guard does not 401 the
- * logged-out bounce. The `createAuthPlugin({ publicPaths })` call is
- * additive — it appends to the live guard config without disturbing the
- * primary Dispatch auth plugin's googleOnly/marketing/onboarding config.
+ * Dispatch identity-SSO plugin. The primary Dispatch auth plugin owns the
+ * exact public-path registration; this plugin owns only these handlers.
  */
 export default async (nitroApp: any) => {
+  getH3App(nitroApp).use(AVAILABILITY_PATH, availabilityHandler);
   getH3App(nitroApp).use(AUTHORIZE_PATH, authorizeHandler);
-  return createAuthPlugin({ publicPaths: [AUTHORIZE_PATH] })(nitroApp);
 };
