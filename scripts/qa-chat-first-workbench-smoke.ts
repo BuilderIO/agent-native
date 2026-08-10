@@ -137,18 +137,6 @@ async function createContext(
   }, enabled);
   const page = await context.newPage();
   const embedRequests: Array<Record<string, unknown>> = [];
-  if (process.env.CHAT_FIRST_DEBUG) {
-    page.on("response", (response) => {
-      if (!response.url().includes("create_embed_session")) return;
-      void response
-        .text()
-        .then((body) =>
-          console.error(
-            `[chat-first] embed response ${response.status()}: ${body}`,
-          ),
-        );
-    });
-  }
   if (enabled) {
     await page.route("**/_agent-native/application-state*", async (route) => {
       if (route.request().method() !== "GET") {
@@ -641,6 +629,12 @@ async function runElectronSmoke(): Promise<void> {
     });
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(5_000);
+
+    await page.evaluate(async () => {
+      await window.electronAPI.frame.update({ chatFirstMode: false });
+      location.reload();
+    });
     await page.waitForTimeout(5_000);
 
     await openElectronAgentSurface(page);
