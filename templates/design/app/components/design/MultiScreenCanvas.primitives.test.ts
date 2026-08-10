@@ -2052,4 +2052,3 @@ describe("board surface background follows the editor theme", () => {
     expect(preview("   ")).toContain("hsl(0, 0%, 10%)");
   });
 });
-

@@ -576,18 +576,35 @@ test.describe("reparenting and reordering", () => {
   test("dragging within an auto-layout row reorders it", async ({ page }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
-    await selectViaTree(page, "Chip 1");
     const first = (await node(page, "chip-1").boundingBox())!;
     const third = (await node(page, "chip-3").boundingBox())!;
+    // Select on the canvas, not via the tree: the bridge owns drag state and
+    // a Layers-panel selection does not arm it.
+    await page.mouse.click(
+      first.x + first.width / 2,
+      first.y + first.height / 2,
+    );
+    await page.waitForTimeout(1200);
     await page.mouse.move(
       first.x + first.width / 2,
       first.y + first.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(third.x + third.width, third.y + third.height / 2, {
-      steps: 20,
-    });
-    await page.waitForTimeout(500);
+    // A short first move starts the native drag; jumping straight to the
+    // target never leaves the source and no reorder is ever computed.
+    await page.mouse.move(
+      first.x + first.width / 2 + 12,
+      first.y + first.height / 2,
+      { steps: 5 },
+    );
+    await page.mouse.move(
+      third.x + third.width - 4,
+      third.y + third.height / 2,
+      {
+        steps: 24,
+      },
+    );
+    await page.waitForTimeout(800);
     await page.mouse.up();
     await page.waitForTimeout(2500);
 
