@@ -10,7 +10,7 @@ search: "agentic app rich chat native chat UI full app automation headless BYO a
 
 ## Surfaces एक-दूसरे से कैसे संबंधित हैं
 
-चार मुख्य उत्पाद आकार सबसे इंटरैक्टिव से पूरी तरह headless तक एक स्पेक्ट्रम पर हैं। जो चीज़ उन्हें composable बनाती है वह यह है कि नींव पूरे समय एक ही रहती है: समान actions, समान SQL डेटाबेस, और समान agent loop हर आकार को शक्ति देता है। एक नई surface जोड़ने का मतलब यह नहीं है कि नीचे की चीज़ों को फिर से लिखना होगा — आप बस उसी operations तक पहुंचने का एक नया तरीका जोड़ रहे हैं।
+चार मुख्य उत्पाद आकार सबसे इंटरैक्टिव से पूरी तरह headless तक एक स्पेक्ट्रम पर हैं। जो चीज़ उन्हें composable बनाती है वह यह है कि वे समान actions और SQL-backed app state साझा करते हैं। जिस surface को agent चाहिए, वहाँ framework agent loop का उपयोग करें। एक नई surface जोड़ने का मतलब यह नहीं है कि नीचे की चीज़ों को फिर से लिखना होगा — आप बस उसी operations तक पहुंचने का एक नया तरीका जोड़ रहे हैं।
 
 <Diagram id="doc-block-hvdxgh" title="The surface spectrum" summary={"One action surface, four product shapes, each adding UI without changing the operation underneath."}>
 
@@ -38,7 +38,7 @@ search: "agentic app rich chat native chat UI full app automation headless BYO a
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >साझा actions · SQL-आधारित स्थिति · ज़रूरत पर agent loop</span
+    >समान actions · SQL-backed state · जरूरत होने पर agent loop</span
   >
 </div>
 ```
@@ -182,7 +182,7 @@ Full apps उसी action और agent contract के चारों ओर p
 
 ### SQL state
 
-App data, navigation, settings, और chat history सभी टिकाऊ हैं। एजेंट उन्हीं rows को पढ़ता और लिखता है जो UI करता है।
+App data, navigation, settings, और chat history SQL में टिकाऊ हैं। एजेंट उन्हीं rows को पढ़ता और लिखता है जो UI करता है।
 
 ### Context awareness
 
@@ -190,7 +190,7 @@ App data, navigation, settings, और chat history सभी टिकाऊ �
 
 ### Live sync
 
-एजेंट के बदलाव UI को real time में अपडेट करते हैं, और UI के बदलाव एजेंट के context को अपडेट करते हैं। कोई polling नहीं, कोई refresh नहीं।
+एजेंट के बदलाव live sync के ज़रिए UI को अपडेट करते हैं, और UI के बदलाव एजेंट के context को अपडेट करते हैं। Framework SSE और polling fallback का उपयोग करता है, इसलिए users को manually refresh करने की ज़रूरत नहीं होती।
 
 ### Deep links
 
