@@ -320,6 +320,26 @@ describe("patch-deck agent schema", () => {
       type: "string",
     });
   });
+
+  // An untyped `animations` array sends callers probing a live deck to learn
+  // the shape, and hides that the field is a whole-list replacement.
+  it("spells out the animation entry shape and its replace semantics", () => {
+    const parameters = patchDeckAction.tool.parameters as any;
+    const slidePatch = parameters.properties.operations.items.anyOf.find(
+      (operation: any) => operation.properties?.op?.const === "patch-slide",
+    );
+    const animations = slidePatch.properties.fields.properties.animations;
+
+    expect(animations.description).toMatch(/replaces the stored one/i);
+    expect(animations.items.properties.type.enum).toEqual([
+      "appear",
+      "fade",
+      "slide-up",
+      "zoom",
+    ]);
+    expect(animations.items.required).toContain("id");
+    expect(animations.items.properties).toHaveProperty("elementPath");
+  });
 });
 
 // ---------------------------------------------------------------------------

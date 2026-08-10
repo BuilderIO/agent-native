@@ -73,7 +73,11 @@ To edit a slide's content:
    `slideId`, and `fullContent`. Do not write deck rows directly or add raw
    full-deck writes for normal slide edits; use `patch-deck` for browser/editor
    changes.
-5. For browser/editor code, enqueue granular deck operations through
+5. **Land the whole request in one write.** Several changes to one slide are one
+   call carrying the finished state, not one call per change. Compose the final
+   HTML and the final field values first, then send them together — a second
+   call targeting the same slide replaces what the first one wrote.
+6. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
 6. For factual edits, compare changed text against the retrieved source and
@@ -83,6 +87,22 @@ To edit a slide's content:
 If retrieval produces a new immutable context pack, keep its `contextPackId`
 and reuse labels with the deck provenance. Existing slide HTML is not proof of
 which source version influenced it.
+
+## Element Animations
+
+A slide's click-through reveals live in its `animations` field, not in its HTML,
+so they are a `patch-deck` `patch-slide` write rather than an `update-slide`
+content edit. Each entry targets one element and takes a `type` of `appear`,
+`fade`, `slide-up`, or `zoom`; array order is reveal order.
+
+The field is a full replacement, so send the complete list the slide should end
+with. Three reveals is one operation carrying three entries — patching them in
+one at a time leaves the slide with only the last.
+
+Prefer `elementPath`, the child-index path from the outer `.fmd-slide` wrapper,
+since it survives sibling edits that shift a flat `elementIndex`. Read the
+current list with `get-deck` before changing it so an edit preserves the reveals
+the user already has.
 
 ## Freeform Canvas Objects
 

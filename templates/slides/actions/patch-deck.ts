@@ -66,6 +66,26 @@ export function withDeckLock<T>(
 // Operation schemas
 // ---------------------------------------------------------------------------
 
+// Mirrors `SlideAnimation` in app/context/DeckContext.tsx. Spelled out rather
+// than left as `unknown` so a caller can build a reveal without first probing
+// the shape against a live deck.
+const SlideAnimationSchema = z.object({
+  id: z.string().describe("Stable id for this reveal step"),
+  elementIndex: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("Child index of the target element within the slide content"),
+  elementPath: z
+    .array(z.number().int().min(0))
+    .optional()
+    .describe(
+      "Preferred target: child-index path from the outer .fmd-slide wrapper",
+    ),
+  type: z.enum(["appear", "fade", "slide-up", "zoom"]),
+});
+
 const SlideFieldsSchema = z.object({
   content: z.string().optional(),
   notes: z.string().optional(),
@@ -76,7 +96,14 @@ const SlideFieldsSchema = z.object({
   imagePrompt: z.string().optional(),
   excalidrawData: z.string().optional(),
   transition: z.string().optional(),
-  animations: z.array(z.unknown()).optional(),
+  animations: z
+    .array(SlideAnimationSchema)
+    .optional()
+    .describe(
+      "The slide's complete ordered reveal list, which replaces the stored one. " +
+        "Send every animation the slide should end with — sending them one per " +
+        "call leaves only the last one.",
+    ),
 });
 
 /** Update fields on a single existing slide */
@@ -171,9 +198,9 @@ export function assertSourceImportOperationsPreserved(
   );
 }
 
-// The browser uses the full operation union above. Agents additionally use
-// this action for one bounded, deck-wide layout repair: one patch-slide per
-// slide in a single SQL transaction, followed by a fresh read for verification.
+// The browser uses the full operation union above. Agents get a narrowed union:
+// patch-slide plus a deck title change, applied in a single SQL transaction and
+// followed by a fresh read for verification.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
   operations: z
@@ -192,7 +219,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "One patch-slide operation per slide that needs a structural HTML repair. Use patch-deck-fields only for a deck title change.",
+      "Every change for this turn, in one call: one patch-slide operation per affected slide, carrying all of that slide's changed fields together. Repeating the same slide across separate calls overwrites the earlier ones. Use patch-deck-fields only for a deck title change.",
     ),
 });
 
@@ -390,9 +417,10 @@ export default defineAction({
   description:
     "Granular deck patch used by the browser editor for concurrent-safe writes. " +
     "Each operation touches only the target slide or field — concurrent writers " +
-    "on different slides never overwrite each other's work. For a deck-wide " +
-    "layout repair, send one patch-slide operation per affected slide in one " +
-    "call, then call get-deck to verify the persisted HTML before reporting success.",
+    "on different slides never overwrite each other's work. Send every change for " +
+    "the current turn as a single call: one patch-slide operation per affected " +
+    "slide, with all of that slide's changed fields in it. Then call get-deck to " +
+    "verify the persisted state before reporting success.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     operations: z
