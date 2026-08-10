@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../../.generated/actions-registry.js", () => ({
+  default: {},
+}));
 
 import { DOCS_AGENT_SYSTEM_PROMPT } from "./agent-chat";
 
