@@ -657,6 +657,24 @@ async function gotoCommitted(
   throw lastError;
 }
 
+/**
+ * Console/HTTP noise that is expected during dev warmup and therefore never
+ * fails the smoke. It is still the most common explanation for a page that
+ * renders blank (an outdated optimized dep 504s, so the app never mounts), so
+ * keep the tail around to attach to readiness timeouts.
+ */
+const suppressedBrowserNoise: string[] = [];
+
+function recordSuppressedNoise(entry: string): void {
+  suppressedBrowserNoise.push(entry);
+  if (suppressedBrowserNoise.length > 40) suppressedBrowserNoise.shift();
+}
+
+function suppressedNoiseBlock(): string {
+  if (suppressedBrowserNoise.length === 0) return "";
+  return `\nSuppressed browser noise:\n${suppressedBrowserNoise.join("\n")}`;
+}
+
 function isBenignConsoleError(text: string): boolean {
   if (text.startsWith("Failed to load resource:")) return true;
   if (text.includes("favicon")) return true;
@@ -800,6 +818,19 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
+/**
+ * An empty preview is ambiguous: it means both "app rendered nothing" and "the
+ * read raced a reload". Distinguish them so timeouts point at the right cause.
+ */
+async function readBodyPreview(page: Page): Promise<string> {
+  try {
+    return await page.locator("body").innerText({ timeout: 2_000 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `<unreadable: ${message.split("\n")[0]}>`;
+  }
+}
+
 async function gotoAndWaitForAgentPage(
   page: Page,
   running: RunningDev,
@@ -810,6 +841,7 @@ async function gotoAndWaitForAgentPage(
   const deadline = Date.now() + (isCi ? 90_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
+  let lastUrl = "";
 
   while (Date.now() < deadline) {
     browserErrors.length = 0;
@@ -830,10 +862,8 @@ async function gotoAndWaitForAgentPage(
       return;
     } catch (err) {
       lastError = err;
-      lastBody = await page
-        .locator("body")
-        .innerText({ timeout: 2_000 })
-        .catch(() => "");
+      lastBody = await readBodyPreview(page);
+      lastUrl = page.url();
       if (Date.now() >= deadline) break;
       if (verbose || isCi) {
         const message = err instanceof Error ? err.message : String(err);
@@ -849,7 +879,9 @@ async function gotoAndWaitForAgentPage(
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
     `${path} did not show Agent or Settings sections tabs before timeout: ${message}\n` +
-      `Body preview: ${lastBody.slice(0, 400)}`,
+      `Last URL: ${lastUrl}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}` +
+      suppressedNoiseBlock(),
   );
 }
 
@@ -863,6 +895,7 @@ async function gotoAndWaitForChatPage(
   const deadline = Date.now() + (isCi ? 90_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
+  let lastUrl = "";
 
   while (Date.now() < deadline) {
     browserErrors.length = 0;
@@ -884,10 +917,8 @@ async function gotoAndWaitForChatPage(
       return;
     } catch (err) {
       lastError = err;
-      lastBody = await page
-        .locator("body")
-        .innerText({ timeout: 2_000 })
-        .catch(() => "");
+      lastBody = await readBodyPreview(page);
+      lastUrl = page.url();
       if (Date.now() >= deadline) break;
       if (verbose || isCi) {
         const message = err instanceof Error ? err.message : String(err);
@@ -903,7 +934,9 @@ async function gotoAndWaitForChatPage(
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
     `${path} did not render the Chat surface before timeout: ${message}\n` +
-      `Body preview: ${lastBody.slice(0, 400)}`,
+      `Last URL: ${lastUrl}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}` +
+      suppressedNoiseBlock(),
   );
 }
 
@@ -1050,7 +1083,10 @@ async function main(): Promise<void> {
     page.on("console", (message) => {
       if (message.type() !== "error") return;
       const text = message.text();
-      if (isBenignConsoleError(text)) return;
+      if (isBenignConsoleError(text)) {
+        recordSuppressedNoise(text);
+        return;
+      }
       browserErrors.push(text);
     });
     page.on("response", (response) => {
@@ -1058,7 +1094,10 @@ async function main(): Promise<void> {
       if (status < 400) return;
       const url = response.url();
       if (!url.startsWith(running.baseUrl)) return;
-      if (isBenignHttpError(status, url)) return;
+      if (isBenignHttpError(status, url)) {
+        recordSuppressedNoise(`${status} ${url}`);
+        return;
+      }
       httpErrors.push(`${status} ${url}`);
     });
 
