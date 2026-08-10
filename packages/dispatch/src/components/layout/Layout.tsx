@@ -1005,6 +1005,10 @@ export function NavContent({
         onChatFirstAppOpen?.(app);
         onNavigate?.();
       }}
+      onOpenAllApps={() => {
+        navigate(dispatchNavLinkTarget("/apps"));
+        onNavigate?.();
+      }}
       createAppTrigger={chatFirstCreateAppTrigger}
       renderIcon={(app) => (
         <AppIcon

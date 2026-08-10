@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminShell } from "../admin-navigation";
@@ -86,6 +86,14 @@ vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => null,
   OrgSwitcher: () => <div>Organization</div>,
 }));
+
+function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
+  const location = useLocation();
+  React.useEffect(() => {
+    onChange(location.pathname);
+  }, [location.pathname, onChange]);
+  return null;
+}
 
 describe("formatThreadAge", () => {
   const now = 2_000_000_000_000;
@@ -336,6 +344,44 @@ describe("Dispatch NavContent", () => {
     expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+
+  it("keeps an All apps destination below the chat-first app list", async () => {
+    const paths: string[] = [];
+    const apps = Array.from({ length: 6 }, (_, index) => ({
+      id: `app-${index}`,
+      name: `App ${index}`,
+    }));
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent chatFirstMode chatFirstApps={apps} />
+            <LocationProbe onChange={(path) => paths.push(path)} />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(5);
+    const showMore = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Show more",
+    );
+    expect(showMore).toBeDefined();
+    await act(async () => {
+      showMore?.click();
+    });
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(6);
+
+    const allApps = container.querySelector<HTMLButtonElement>(
+      "[data-chat-first-all-apps]",
+    );
+    expect(allApps?.textContent?.trim()).toBe("All apps");
+    await act(async () => {
+      allApps?.click();
+    });
+    expect(paths.at(-1)).toBe("/apps");
   });
 
   it("uses the shared chat history rail and retains thread actions", async () => {
