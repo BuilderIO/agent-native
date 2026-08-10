@@ -4591,6 +4591,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       activeTool,
       commitDraftPrimitive,
       finishDrag,
+      frameToolDraws,
       getCanvasPoint,
       getFrameEntryAtPoint,
       installDragListeners,

@@ -202,7 +202,27 @@ function absoluteRect(
   const w = read(style.width);
   const h = read(style.height);
   if (x === null || y === null || w === null || h === null) return null;
-  return { x, y, w, h };
+  // Inline left/top are relative to the nearest positioned ancestor, so a
+  // nested frame must add its own offsets or it matches the wrong origin.
+  let originX = 0;
+  let originY = 0;
+  for (
+    let ancestor = element.parentElement;
+    ancestor && ancestor.tagName.toLowerCase() !== "body";
+    ancestor = ancestor.parentElement
+  ) {
+    const position = ancestor.style.position;
+    if (
+      position !== "absolute" &&
+      position !== "relative" &&
+      position !== "fixed"
+    ) {
+      continue;
+    }
+    originX += read(ancestor.style.left) ?? 0;
+    originY += read(ancestor.style.top) ?? 0;
+  }
+  return { x: originX + x, y: originY + y, w, h };
 }
 
 /**
@@ -266,6 +286,10 @@ export function appendCanvasPrimitiveToHtml(
     const height = Math.max(1, Math.round(geometry.height));
     const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
+    // Resolved once so every primitive kind nests identically, and so text can
+    // pick a fill that is legible against its actual container.
+    const host = deepestFrameContaining(doc.body, left, top, width, height);
+    const hostOrBody: Element = host?.element ?? doc.body;
 
     if (
       primitive.kind === "path" ||
@@ -385,7 +409,7 @@ export function appendCanvasPrimitiveToHtml(
           .join(";"),
       );
       svg.appendChild(path);
-      doc.body.appendChild(svg);
+      hostOrBody.appendChild(svg);
       return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     }
 
@@ -428,7 +452,7 @@ export function appendCanvasPrimitiveToHtml(
           .join(";"),
       );
       svg.appendChild(polygon);
-      doc.body.appendChild(svg);
+      hostOrBody.appendChild(svg);
       return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     }
 
@@ -490,9 +514,11 @@ export function appendCanvasPrimitiveToHtml(
       // it is invisible on any dark surface — the always-dark board, and
       // equally a screen whose own background is dark. Light screens keep
       // "currentColor" so text still inherits their theme.
+      // Measure the frame the text actually lands in: a dark frame on a light
+      // page would otherwise keep currentColor and render invisible.
       const autoTextNeedsLightFill =
         options?.isBoardTarget === true ||
-        !destinationBackgroundIsLightForNode(doc.body);
+        !destinationBackgroundIsLightForNode(hostOrBody);
       const resolvedTextColor =
         primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;
@@ -534,14 +560,11 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    const host = deepestFrameContaining(doc.body, left, top, width, height);
     if (host) {
       element.style.left = `${left - host.x}px`;
       element.style.top = `${top - host.y}px`;
-      host.element.appendChild(element);
-    } else {
-      doc.body.appendChild(element);
     }
+    hostOrBody.appendChild(element);
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return null;

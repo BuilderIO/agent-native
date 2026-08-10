@@ -173,50 +173,37 @@ export default async function globalSetup(config: FullConfig) {
     BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {},
   );
   const context = await browser.newContext();
-  const page = await context.newPage();
 
   try {
-    await page.goto(`${baseURL}/sign-in`, {
-      waitUntil: "domcontentloaded",
-    });
-
-    const isSignIn = async () => /sign in/i.test(await page.title());
-
-    if (await isSignIn()) {
-      const signupForm = page.locator("#signup-form");
-      if (!(await signupForm.isVisible())) {
-        const passwordLink = page.locator("#use-password-link");
-        if (await passwordLink.isVisible()) await passwordLink.click();
-        await page.locator('[data-tab="signup"]').click();
-        await signupForm.waitFor({ state: "visible" });
-      }
-
-      // Try to create the account; if it already exists, fall back to sign in.
-      await page.locator("#s-email").fill(E2E_EMAIL);
-      await page.locator("#s-pass").fill(E2E_PASSWORD);
-      await page.locator("#s-pass2").fill(E2E_PASSWORD);
-      await page.locator("#signup-form button[type='submit']").click();
-      await Promise.race([
-        page.waitForFunction(() => !/sign in/i.test(document.title)),
-        page.locator("#s-msg.show").waitFor({ state: "visible" }),
-      ]).catch(() => {});
-
-      if (await isSignIn()) {
-        // Account exists; switch to the Sign in tab and log in.
-        await page.locator('[data-tab="login"]').click();
-        await page.locator("#login-form").waitFor({ state: "visible" });
-        await page.locator("#l-email").fill(E2E_EMAIL);
-        await page.locator("#l-pass").fill(E2E_PASSWORD);
-        await page.locator("#login-form button[type='submit']").click();
-        await page.waitForFunction(() => !/sign in/i.test(document.title));
-      }
+    const registration = await context.request.post(
+      `${baseURL}/_agent-native/auth/register`,
+      {
+        data: {
+          email: E2E_EMAIL,
+          password: E2E_PASSWORD,
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    if (!registration.ok() && registration.status() !== 409) {
+      throw new Error(
+        `registration failed: ${registration.status()} ${await registration.text()}`,
+      );
     }
 
-    await page
-      .waitForFunction(() => !/sign in/i.test(document.title), null, {
-        timeout: 20_000,
-      })
-      .catch(() => {});
+    const login = await context.request.post(
+      `${baseURL}/_agent-native/auth/login`,
+      {
+        data: {
+          email: E2E_EMAIL,
+          password: E2E_PASSWORD,
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    if (!login.ok()) {
+      throw new Error(`login failed: ${login.status()} ${await login.text()}`);
+    }
 
     await context.storageState({ path: STATE_PATH });
 

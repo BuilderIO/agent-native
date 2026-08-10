@@ -2084,17 +2084,30 @@ function isSupersededSelectionEcho(
  * rect, so the inspector shows 0 for anything the source does not state
  * (hug sizing, in-flow position). Measure the live preview node instead.
  */
-function withMeasuredGeometry(info: ElementInfo): ElementInfo {
+function withMeasuredGeometry(
+  info: ElementInfo,
+  screenId?: string,
+): ElementInfo {
   const rect = info.boundingRect;
   if (rect && (rect.width > 0 || rect.height > 0)) return info;
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
-  for (const frame of Array.from(
-    document.querySelectorAll<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    ),
-  )) {
+  // Selectors and stamped ids are per-screen, so an unscoped scan can measure
+  // identical markup on a different screen.
+  const owning = screenId
+    ? document.querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+      )
+    : null;
+  const frames = owning
+    ? [owning]
+    : Array.from(
+        document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      );
+  for (const frame of frames) {
     let node: Element | null = null;
     try {
       node = frame.contentDocument?.querySelector(selector) ?? null;
@@ -18455,7 +18468,11 @@ function DesignEditor() {
       // below instead, as Figma aligns whatever is selected.
       if (
         viewModeRef.current === "overview" &&
-        selectedLayerIdsState.length === 0
+        !overviewSelectionTargetsElement({
+          selectedElement,
+          selectedLayerIds: selectedLayerIdsState,
+          fileIds: files.map((file) => file.id),
+        })
       ) {
         if (overviewSelectedScreenIds.length < 2) return;
         const before = getCanvasFrameGeometry(designDataJsonRef.current);
@@ -19023,7 +19040,11 @@ function DesignEditor() {
     // element path below, as Figma applies Shift+A to whatever is selected.
     if (
       viewModeRef.current === "overview" &&
-      selectedLayerIdsState.length === 0
+      !overviewSelectionTargetsElement({
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+        fileIds: files.map((file) => file.id),
+      })
     ) {
       if (overviewSelectedScreenIds.length === 0) return;
       if (overviewSelectedScreenIds.length !== 1 || selectedElement !== null) {
@@ -26622,10 +26643,10 @@ function DesignEditor() {
     () =>
       selectedLayerTargets.length > 0
         ? selectedLayerTargets.map((target) =>
-            withMeasuredGeometry(target.elementInfo),
+            withMeasuredGeometry(target.elementInfo, target.fileId),
           )
         : selectedElement
-          ? [withMeasuredGeometry(selectedElement)]
+          ? [withMeasuredGeometry(selectedElement, activeFile?.id)]
           : [],
     [selectedElement, selectedLayerTargets],
   );

@@ -12591,6 +12591,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       } else {
         positionOverlay(selectionOverlay, target);
       }
+      // The combined box spans selectedEl plus the passive selection, so a
+      // host-driven change leaves it on the previous geometry without this.
+      positionMultiSelectionBounds();
       if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
       // A host-driven selection (e.g. picking a layer in the Layers panel)
       // only ever moved the overlay above — it never sent the rich

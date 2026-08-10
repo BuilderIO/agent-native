@@ -367,6 +367,13 @@ export function PositionLayoutProperties({
   const authoredTransform = authoredStyleValue(element, "transform");
   const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
+  // position:absolute/fixed takes a child out of the parent's flex flow, so it
+  // still anchors and keeps constraints.
+  const constraintsSuppressed =
+    element.isFlexChild &&
+    !["absolute", "fixed"].includes(
+      (element.computedStyles?.position ?? "").toLowerCase(),
+    );
   // 3D rotation/perspective progressive-disclosure expander — mirrors
   // CornerRadiusControl's showIndependentCorners pattern. Default-expanded
   // when the authored transform already has non-zero X/Y rotation or
@@ -545,8 +552,9 @@ export function PositionLayoutProperties({
             />
           </div>
           {/* Figma: constraints cannot apply to a child of an auto layout
-              frame — the parent's layout owns the position. */}
-          {element.isFlexChild ? null : (
+              frame — the parent's layout owns the position. An absolutely
+              positioned descendant is out of that flow and still anchors. */}
+          {constraintsSuppressed ? null : (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -576,7 +584,7 @@ export function PositionLayoutProperties({
             </Tooltip>
           )}
         </div>
-        {constraintsExpanded && !element.isFlexChild ? (
+        {constraintsExpanded && !constraintsSuppressed ? (
           <ConstraintsWidget
             value={constraintsValue}
             onChange={handleConstraintsChange}

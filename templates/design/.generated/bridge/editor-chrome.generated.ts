@@ -8889,6 +8889,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           positionOverlay(selectionOverlay, target);
         }
+        positionMultiSelectionBounds();
         if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
         if (selectionChangedByHost) {
           postElementSelect(target);
