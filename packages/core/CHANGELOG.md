@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.148.0
+
+### Minor Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- 061896a: Keep imported Agent Plugin skills in the agent-visible workspace skills tree, including namespaced plugin skills.
+- 061896a: Add a bounded read-only tool-orchestration action for fan-out, aggregation, and reduction over discovered tools.
+- 061896a: Use the recap CLI package as the single implementation source for Core's recap skill, Plan block, and publish-token helpers while preserving Core compatibility exports.
+- 061896a: Consolidate shared pure brand analysis and code token extraction used by the Design and Slides templates.
+- 061896a: Expose the shared wireframe and diagram sanitizer through the Core blocks surface so Plan uses one client-side implementation.
+- 061896a: Add a reusable i18n catalog helper for standalone template locale loaders.
+- 061896a: Preserve scheduled automation lineage so app actions can link their work to the exact background run.
+- 061896a: Prevent duplicate recurring automation dispatch across multiple app deployments and preserve verified Builder credentials for detached background runs.
+- 061896a: Keep organization automations scoped to their owning app so unrelated schedulers cannot execute them with the wrong credentials.
+- 061896a: Document prerendering in the scaffolded app's `react-router.config.ts`: a commented, correct example with the three conditions a path must meet (public, build-time constant, never redirecting), left off by default because every route the scaffold ships is signed-in and a prerendered file is served without auth middleware running.
+- 061896a: Repair structured route metadata before it can appear as a serialized payload in browser tab titles.
+- 061896a: Unify agent provider setup across chat recovery and Settings with searchable support for cloud, gateway, and local providers.
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+  - @agent-native/recap-cli@0.5.4
+  - @agent-native/toolkit@0.13.7
+
 ## 0.147.0
 
 ### Minor Changes
