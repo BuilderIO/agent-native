@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MultiFrontierIpcEvent } from "../../../shared/multi-frontier-ipc.js";
 import {
+  chatFirstAppSurfaceTab,
   chatFirstPreviewPartitionKey,
   isChatFirstSurfaceTabActive,
   MultiFrontierModeControl,
@@ -262,6 +263,23 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(chatFirstPreviewPartitionKey(undefined)).toBe(
       "persist:chat-first-browser",
     );
+  });
+
+  it("builds app surface tabs without losing arbitrary route state", () => {
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "calendar", name: "Calendar" },
+        "/events/42?mode=week#details",
+        "event",
+      ),
+    ).toEqual({
+      id: "app:calendar:/events/42?mode=week#details:event",
+      kind: "app",
+      title: "Calendar",
+      appId: "calendar",
+      path: "/events/42?mode=week#details",
+      view: "event",
+    });
   });
 
   it("renders a live provider update in the subscription usage popover", async () => {

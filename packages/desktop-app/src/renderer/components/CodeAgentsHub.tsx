@@ -157,6 +157,22 @@ export function chatFirstPreviewPartitionKey(
     : "persist:chat-first-browser";
 }
 
+export function chatFirstAppSurfaceTab(
+  app: Pick<AppConfig, "id" | "name">,
+  path?: string,
+  view?: string,
+): ChatFirstSurfaceTab {
+  const target = [app.id, path ?? "/", view ?? ""].join(":");
+  return {
+    id: chatFirstSurfaceTabId("app", target),
+    kind: "app",
+    title: app.name,
+    appId: app.id,
+    ...(path ? { path } : {}),
+    ...(view ? { view } : {}),
+  };
+}
+
 function DesktopAppsGrid({
   apps,
   onCreateApp,
@@ -301,11 +317,6 @@ export default function CodeAgentsHub({
       ) ?? null,
     [chatFirstSurfaceTabs],
   );
-  const [chatFirstAppSelection, setChatFirstAppSelection] = useState<{
-    appId: string;
-    path?: string;
-    view?: string;
-  } | null>(null);
   const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -355,10 +366,10 @@ export default function CodeAgentsHub({
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
       closeChatFirstSessionWatch();
-      setChatFirstSurfacePanelOpen(false);
-      setChatFirstAppSelection({ appId: app.id, path, view });
+      chatFirstSurfaceTabsStore.open(chatFirstAppSurfaceTab(app, path, view));
+      setChatFirstSurfacePanelOpen(true);
     },
-    [apps, setChatFirstSurfacePanelOpen],
+    [apps, chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
   );
 
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(
@@ -413,7 +424,6 @@ export default function CodeAgentsHub({
         );
         return;
       }
-      setChatFirstAppSelection(null);
       setChatFirstNotice(null);
       closeChatFirstSessionWatch();
       chatFirstSurfaceTabsStore.open({
@@ -460,7 +470,6 @@ export default function CodeAgentsHub({
 
   useEffect(() => {
     if (!chatFirstMode) {
-      setChatFirstAppSelection(null);
       setChatFirstBrowserSelection(null);
       setChatFirstNotice(null);
       chatFirstSurfaceTabsStore.closeAll();
@@ -484,7 +493,6 @@ export default function CodeAgentsHub({
   useEffect(() => {
     const target = chatFirstSessionWatch.target;
     if (!chatFirstMode || !target) return;
-    setChatFirstAppSelection(null);
     setChatFirstBrowserSelection(null);
     chatFirstSurfaceTabsStore.open({
       id: chatFirstSurfaceTabId("side-chat", target.sessionId),
@@ -537,21 +545,14 @@ export default function CodeAgentsHub({
       if (tab.kind === "app" && tab.appId) {
         closeChatFirstSessionWatch();
         setChatFirstBrowserSelection(null);
-        setChatFirstAppSelection({
-          appId: tab.appId,
-          ...(tab.path ? { path: tab.path } : {}),
-          ...(tab.view ? { view: tab.view } : {}),
-        });
         return;
       }
       if (tab.kind === "browser" && tab.url) {
         closeChatFirstSessionWatch();
-        setChatFirstAppSelection(null);
         setChatFirstBrowserSelection({ url: tab.url, title: tab.title });
         return;
       }
       if (tab.kind === "side-chat" && tab.session) {
-        setChatFirstAppSelection(null);
         setChatFirstBrowserSelection(null);
         emitChatFirstSessionWatch(tab.session);
       }
@@ -562,7 +563,6 @@ export default function CodeAgentsHub({
   const closeChatFirstSurfaceTab = useCallback(
     (tab: ChatFirstSurfaceTab) => {
       const isActive = chatFirstSurfaceTabs.activeTabId === tab.id;
-      if (tab.kind === "app") setChatFirstAppSelection(null);
       if (tab.kind === "browser") setChatFirstBrowserSelection(null);
       if (tab.kind === "side-chat" && isActive) {
         closeChatFirstSessionWatch();
@@ -573,7 +573,6 @@ export default function CodeAgentsHub({
   );
 
   const closeAllChatFirstSurfaceTabs = useCallback(() => {
-    setChatFirstAppSelection(null);
     setChatFirstBrowserSelection(null);
     closeChatFirstSessionWatch();
     chatFirstSurfaceTabsStore.closeAll();
@@ -1591,7 +1590,7 @@ export default function CodeAgentsHub({
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
           mainToolbarSlot={
-            chatFirstMode && !chatFirstAppSelection ? (
+            chatFirstMode ? (
               <ChatFirstSurfacePanelToggle
                 open={chatFirstSurfacePanel.open}
                 onToggle={chatFirstSurfacePanel.toggle}
@@ -1642,10 +1641,9 @@ export default function CodeAgentsHub({
                 <ChatFirstAppsRail
                   apps={chatFirstAppItems}
                   activeAppId={
-                    chatFirstAppSelection?.appId ??
-                    (activeChatFirstSurfaceTab?.kind === "app"
+                    activeChatFirstSurfaceTab?.kind === "app"
                       ? activeChatFirstSurfaceTab.appId
-                      : undefined)
+                      : undefined
                   }
                   createAppTrigger={
                     onChatFirstAppCreated ? (
@@ -1694,33 +1692,6 @@ export default function CodeAgentsHub({
           }
           newSessionExtension={multiFrontierExtension}
           openDetailRequest={multiFrontierOpenDetailRequest}
-          chatFirstMainKind={chatFirstAppSelection ? "agent" : "code"}
-          onChatFirstMainKindChange={(kind) => {
-            if (kind === "code") setChatFirstAppSelection(null);
-          }}
-          renderChatFirstMainSurface={
-            chatFirstAppSelection
-              ? (() => {
-                  const app = apps.find(
-                    (candidate) =>
-                      candidate.id === chatFirstAppSelection.appId &&
-                      candidate.enabled,
-                  );
-                  if (!app) return null;
-                  return (
-                    <div className="code-agents-primary-app-surface">
-                      <AppWebview
-                        app={toAppDefinition(app)}
-                        appConfig={app}
-                        isActive={isActive}
-                        urlPath={chatFirstAppSelection.path}
-                        urlParams={{ embedded: "1", chatFirst: "1" }}
-                      />
-                    </div>
-                  );
-                })()
-              : undefined
-          }
           renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
             <div className="code-agents-embedded-app-surface">
               <AppWebview
@@ -1739,32 +1710,34 @@ export default function CodeAgentsHub({
             onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
             copy={defaultChatFirstCopy}
           >
-            <ChatFirstSurfaceTabs
-              tabs={chatFirstSurfaceTabs.tabs}
-              activeTabId={chatFirstSurfaceTabs.activeTabId}
-              onActivate={activateChatFirstSurfaceTab}
-              onClose={closeChatFirstSurfaceTab}
-              onCloseOthers={(tab) => {
-                activateChatFirstSurfaceTab(tab);
-                chatFirstSurfaceTabsStore.closeOthers(tab.id);
-              }}
-              onCloseToRight={(tab) => {
-                const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
-                  (candidate) => candidate.id === tab.id,
-                );
-                const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
-                  (candidate) =>
-                    candidate.id === chatFirstSurfaceTabs.activeTabId,
-                );
-                if (activeIndex > targetIndex) {
+            {activeChatFirstSurfaceTab?.kind !== "app" ? (
+              <ChatFirstSurfaceTabs
+                tabs={chatFirstSurfaceTabs.tabs}
+                activeTabId={chatFirstSurfaceTabs.activeTabId}
+                onActivate={activateChatFirstSurfaceTab}
+                onClose={closeChatFirstSurfaceTab}
+                onCloseOthers={(tab) => {
                   activateChatFirstSurfaceTab(tab);
-                }
-                chatFirstSurfaceTabsStore.closeToRight(tab.id);
-              }}
-              onCloseAll={closeAllChatFirstSurfaceTabs}
-              onOpenSurface={openChatFirstSurface}
-              copy={defaultChatFirstCopy}
-            />
+                  chatFirstSurfaceTabsStore.closeOthers(tab.id);
+                }}
+                onCloseToRight={(tab) => {
+                  const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                    (candidate) => candidate.id === tab.id,
+                  );
+                  const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                    (candidate) =>
+                      candidate.id === chatFirstSurfaceTabs.activeTabId,
+                  );
+                  if (activeIndex > targetIndex) {
+                    activateChatFirstSurfaceTab(tab);
+                  }
+                  chatFirstSurfaceTabsStore.closeToRight(tab.id);
+                }}
+                onCloseAll={closeAllChatFirstSurfaceTabs}
+                onOpenSurface={openChatFirstSurface}
+                copy={defaultChatFirstCopy}
+              />
+            ) : null}
             {chatFirstSurfaceTabs.tabs.length > 0 ? (
               <ChatFirstSurfaceContent
                 tabs={chatFirstSurfaceTabs.tabs}
