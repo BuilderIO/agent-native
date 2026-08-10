@@ -463,10 +463,10 @@ function ActionSurfaceSection({
   const t = useT();
 
   return (
-    <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
+    <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
         <div className="min-w-0 max-w-[400px]">
-          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight !text-white md:text-4xl">
             {t("home.actionSurface.title")}
           </h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-white/58">
