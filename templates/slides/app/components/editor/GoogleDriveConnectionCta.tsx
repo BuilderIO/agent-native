@@ -13,6 +13,7 @@ import { Button } from "../ui/button";
 interface GoogleDocsStatus {
   configured: boolean;
   connected: boolean;
+  googleSlidesUrlImportReady?: boolean;
   error?: string;
   message?: string;
 }
@@ -97,6 +98,12 @@ export function GoogleDriveConnectionCta({
     void refreshStatus();
   }, [refreshStatus]);
 
+  const needsReconnect =
+    status?.connected === true && status.googleSlidesUrlImportReady === false;
+  const requiresUrlImportAccess =
+    status?.connected === true ||
+    status?.googleSlidesUrlImportReady !== undefined;
+
   const connect = useCallback(async () => {
     if (connecting) return;
     setConnecting(true);
@@ -138,23 +145,27 @@ export function GoogleDriveConnectionCta({
       while (Date.now() < deadline && !popup.closed) {
         await new Promise((resolve) => window.setTimeout(resolve, 1_200));
         const next = await refreshStatus();
-        if (next?.connected) {
+        const nextHasUrlImportAccess =
+          next?.googleSlidesUrlImportReady ?? !requiresUrlImportAccess;
+        if (next?.connected && nextHasUrlImportAccess) {
           popup.close();
           onConnected?.();
           return;
         }
       }
       const next = await refreshStatus();
-      if (next?.connected) onConnected?.();
+      const nextHasUrlImportAccess =
+        next?.googleSlidesUrlImportReady ?? !requiresUrlImportAccess;
+      if (next?.connected && nextHasUrlImportAccess) onConnected?.();
     } catch (caught) {
       popup?.close();
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setConnecting(false);
     }
-  }, [connecting, onConnected, refreshStatus]);
+  }, [connecting, onConnected, refreshStatus, requiresUrlImportAccess]);
 
-  if (loading || status?.connected) return null;
+  if (loading || (status?.connected && !needsReconnect)) return null;
 
   const displayStatus = status ?? { configured: false, connected: false };
 

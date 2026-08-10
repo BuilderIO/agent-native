@@ -153,16 +153,15 @@ describe("WorkspaceTemplateCard", () => {
     );
   });
 
-  it("keeps add app inside the catalog split-button menu", async () => {
+  it("keeps add app out of the catalog split-button menu", async () => {
     await act(async () => {
       root.render(<WorkspaceTemplateCard template={template} catalog />);
     });
 
-    expect(
-      Array.from(container.querySelectorAll("button")).some((button) =>
-        button.textContent?.includes("Add app"),
-      ),
-    ).toBe(false);
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
+    );
+    expect(addButton).toBeDefined();
 
     const optionsButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Open options for Weekly report"]',
@@ -177,8 +176,8 @@ describe("WorkspaceTemplateCard", () => {
     const addItem = Array.from(
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.includes("Add app"));
-    expect(addItem).not.toBeUndefined();
-    await act(async () => addItem?.click());
+    expect(addItem).toBeUndefined();
+    await act(async () => addButton?.click());
     expect(document.body.textContent).toContain("Choose the URL-safe id");
   });
 

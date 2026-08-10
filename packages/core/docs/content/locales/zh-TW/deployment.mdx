@@ -304,17 +304,18 @@ npx @agent-native/core@latest deploy --preset netlify
 
 ### Keep-warm 與縮容至零的資料庫 {#netlify-keep-warm}
 
-Netlify 建置會產生一個排程函式，**每分鐘**請求一次 `/_agent-native/health`。這會讓伺服器函式與其資料庫保持溫熱，使閒置一段時間後的下一位訪客不必承擔冷啟動（在 Neon 上為 1–5 秒）。在預先配置的運算上，這是正確的預設值。
+啟用後，Netlify 建置會產生一個排程函式，**每分鐘**請求一次 `/_agent-native/health`。這會讓伺服器函式與其資料庫保持溫熱，使閒置一段時間後的下一位訪客不必承擔冷啟動（在 Neon 上為 1–5 秒）。
 
-**在按量計費、可縮容至零的資料庫上，這是錯誤的預設值。** 每分鐘喚醒一次代表自動暫停永遠不會觸發，於是即使沒人使用應用程式，資料庫也會按持續喚醒計費並耗用配額。在 Neon 免費方案上，這會耗盡運算配額，之後資料庫會在工作階段中拒絕**所有**讀取——症狀是應用程式完全無法使用，而不是變慢。
+Keep-warm **預設為關閉**，因為每分鐘喚醒會阻止按量計費、可縮容至零的資料庫自動暫停。只有當下一位訪客的低延遲值得資料庫持續運行時，才設定 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`。
 
 | 變數                                        | 效果                                                                                                                   |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 完全略過該排程函式。資料庫可以自動暫停；閒置後的下一位訪客承擔其冷啟動。                                               |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 以 5 欄位 cron 運算式覆寫節奏，例如 `*/5 * * * *`。無法解析的值會**使建置失敗**，而不是靜默回退到每分鐘一次。          |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 僅取消背景函式的預熱，仍保持伺服器溫熱。預熱 `server` 只是一個請求；預熱 `-background` 會啟動新容器並重新探測 schema。 |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 啟用伺服器與資料庫的排程預熱。預設未設定。                                                                                                      |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 相容性停用開關；設定後優先於啟用標誌。                                                                                                             |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 啟用後覆寫節奏；預設值為 `* * * * *`，無法解析的值會使建置失敗。                                                                                   |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 啟用 keep-warm 後僅取消背景函式預熱，仍保持伺服器溫熱。                                                                                            |
 
-如果你使用免費或受配額限制的資料庫方案，請設定 `AGENT_NATIVE_DISABLE_KEEP_WARM=1` 或選擇更慢的節奏。
+如果你使用免費或受配額限制的資料庫方案，請不要設定 `AGENT_NATIVE_ENABLE_KEEP_WARM`。如果啟用它，請選擇更慢的節奏或設定 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`。
 
 ### 按需 schema DDL {#skip-ensure-tables}
 
@@ -418,9 +419,10 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `APP_BASE_PATH`                             | 將應用程式安裝在前綴下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自動設定；保持未設定為獨立。                                                                                                                                                                              |
 | `AGENT_PROD_CODE_EXECUTION`                 | 可選的正式環境程式碼執行模式：`off`（預設）、`sandboxed` 或 `trusted`。參見[Production Code Execution](#production-code-execution)。                                                                                                                                                      |
 | `AGENT_NATIVE_SSR_CACHE`                    | 部署範圍的 SSR 外殼快取策略：未設定/`on` 保持預設硬快取，`off` 傳送 `no-store`，或使用一個時長（例如 `30s` / `5m`）設定更短的新鮮度。參見 [SSR Caching](#ssr-caching)。                                                                                                                   |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 略過 Netlify keep-warm 排程函式，讓可縮容至零的資料庫能夠自動暫停。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                 |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 以 5 欄位 cron 運算式覆寫 keep-warm 節奏（預設 `* * * * *`）。無法解析的值會使建置失敗。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                            |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 僅取消背景函式的預熱，仍保持伺服器溫熱。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                            |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 啟用 Netlify keep-warm 排程函式；預設未設定。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                                             |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify keep-warm 排程函式的相容性停用開關。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                                                      |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 啟用後覆寫 keep-warm 節奏（預設 `* * * * *`）。無法解析的值會使建置失敗。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                      |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 啟用 keep-warm 後僅取消背景函式預熱。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                                                                     |
 | `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 關閉行程內的後備清掃計時器（自動化重新派送、agent-teams 對帳、沙箱執行復原）。在 serverless 上它們會依每個溫實例執行，因此查詢速率隨實例數成長。**僅**在已有持久排程器驅動相同復原時才設定，否則排隊的工作不會被重試。                                                                    |
 | `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 完全略過按需 schema DDL。移除每次冷啟動在做任何工作前都要支付的 schema 探測往返。要求 schema 已經遷移完畢 —— 參見 [按需 schema DDL](#skip-ensure-tables)。                                                                                                                                |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用於預覽安全的 Builder 授權中繼的專用 32+ 字元共用 HMAC 金鑰。只有當授權結果必須寫入隔離的預覽資料庫時，才在核准的企業回呼部署和預覽部署上設定相同的值。                                                                                                                                  |

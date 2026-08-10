@@ -20,12 +20,14 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
 import {
   isPendingBuilderHref,
   workspaceAppHref,
+  workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
@@ -273,6 +275,7 @@ function WorkspaceAppOpenActions({
   app: WorkspaceAppSummary;
   href: string | null;
 }) {
+  const navigate = useNavigate();
   const openInNewTab = isPendingBuilderHref(app);
 
   if (!href) {
@@ -290,6 +293,9 @@ function WorkspaceAppOpenActions({
       target={openInNewTab ? "_blank" : undefined}
       rel={openInNewTab ? "noreferrer" : undefined}
       showInlineOption
+      onOpenInline={() => {
+        navigate(workspaceAppRoute(app.id));
+      }}
       showNewTabOption
     />
   );

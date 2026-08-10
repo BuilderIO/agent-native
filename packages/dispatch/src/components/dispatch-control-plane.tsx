@@ -10,7 +10,7 @@ import {
   IconArrowUpRight,
   IconChevronDown,
   IconClockHour4,
-  IconApps,
+  IconPlus,
 } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -52,26 +52,6 @@ function SectionHeader({
         {title}
       </h2>
       {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function AppGroupHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-start gap-2">
-      <IconApps size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0">
-        <h3 className="truncate text-sm font-semibold text-foreground">
-          {title}
-        </h3>
-        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-      </div>
     </div>
   );
 }
@@ -204,12 +184,23 @@ function AppsPanel({
       <SectionHeader
         title="Apps"
         action={
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/apps">
-              View all
-              <IconArrowUpRight size={14} />
-            </Link>
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/apps">
+                View all
+                <IconArrowUpRight size={14} />
+              </Link>
+            </Button>
+            <CreateAppPopover
+              align="end"
+              trigger={
+                <Button variant="ghost" size="sm" className="gap-1.5">
+                  <IconPlus size={14} />
+                  {t("dispatch.pages.newApp", { defaultValue: "New" })}
+                </Button>
+              }
+            />
+          </div>
         }
       />
       {showSkeletons ? (
@@ -217,27 +208,21 @@ function AppsPanel({
       ) : (
         <>
           {activeApps.length > 0 ? (
-            <div className="space-y-3">
-              <AppGroupHeader
-                title={t("dispatch.pages.yourApps", {
-                  defaultValue: "Your apps",
-                })}
-                description={t("dispatch.pages.activeCount", {
-                  count: activeApps.length,
-                })}
-              />
-              <AppList className={APP_LIST_GRID_CLASS}>
-                {activeApps.map((app) => (
-                  <WorkspaceAppCard
-                    key={app.id}
-                    app={app}
-                    className={APP_LIST_GRID_ROW_CLASS}
-                  />
-                ))}
-              </AppList>
-            </div>
+            <AppList className={APP_LIST_GRID_CLASS}>
+              {activeApps.map((app) => (
+                <WorkspaceAppCard
+                  key={app.id}
+                  app={app}
+                  className={APP_LIST_GRID_ROW_CLASS}
+                />
+              ))}
+            </AppList>
           ) : (
-            <CreateAppPopover />
+            <p className="text-sm text-muted-foreground">
+              {t("dispatch.pages.noApps", {
+                defaultValue: "No apps yet.",
+              })}
+            </p>
           )}
           <OtherAppsSection
             templates={curatedTemplates}
@@ -249,6 +234,7 @@ function AppsPanel({
             connectedAppsError={connectedAppsError}
             onRetryTemplates={onRetryCuratedTemplates}
             onRetryConnectedApps={onRetryConnectedApps}
+            heading={null}
           />
         </>
       )}

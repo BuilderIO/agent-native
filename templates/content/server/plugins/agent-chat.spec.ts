@@ -34,4 +34,19 @@ describe("Content agent chat plugin", () => {
       }),
     );
   });
+
+  it("tells the agent to reuse bounded screen context before rereading it", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt?: string;
+    };
+
+    expect(options.systemPrompt).toContain(
+      "The current screen is already included as bounded context",
+    );
+    expect(options.systemPrompt).toContain(
+      "Do not call view-screen at the start of a turn or repeatedly",
+    );
+  });
 });

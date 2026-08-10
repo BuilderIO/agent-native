@@ -1,4 +1,5 @@
 import { ConnectionsTab } from "@agent-native/core/client/agent-chat";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
   McpServersApiProvider,
   type McpServersApi,
@@ -48,6 +49,7 @@ import {
   IconWorld,
   IconX,
 } from "@tabler/icons-react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import {
   useState,
   useCallback,
@@ -59,6 +61,8 @@ import {
 
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
+
+const desktopSettingsQueryClient = createAgentNativeQueryClient();
 
 interface AppSettingsProps {
   apps: AppConfig[];
@@ -1416,88 +1420,92 @@ export default function AppSettings({
   ];
 
   return (
-    <div
-      className={
-        "settings-overlay" + (isClosing ? " settings-overlay--closing" : "")
-      }
-    >
-      <div className="settings-panel settings-panel--page">
-        <div className="settings-page-backbar">
-          <button
-            type="button"
-            className="settings-page-back"
-            onClick={() => requestClose()}
-          >
-            <IconArrowLeft size={15} aria-hidden="true" />
-            Back to app
-          </button>
-        </div>
-        <div className="settings-page-tabs">
-          <SettingsSurfaceProvider surface="page">
-            <SettingsTabsPage
-              general={
-                <div className="w-full max-w-3xl space-y-8">
-                  <SettingsGroup
-                    title="General"
-                    description="Control how Agent Native runs on this computer."
-                  >
-                    {frameSettings ? (
-                      <SettingsRow
-                        label="App mode"
-                        description={
-                          allMode === "dev"
-                            ? "All apps run in development mode."
-                            : allMode === "prod"
-                              ? "All apps run in production mode."
-                              : "Some apps use a custom mode."
-                        }
-                        control={
-                          <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
-                            {(["prod", "dev"] as const).map((mode) => (
-                              <button
-                                key={mode}
-                                type="button"
-                                className={
-                                  allMode === mode
-                                    ? "px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-foreground"
-                                    : "px-3 py-1.5 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                                }
-                                onClick={() => handleAllToMode(mode)}
-                              >
-                                {mode === "prod" ? "Production" : "Development"}
-                              </button>
-                            ))}
-                          </div>
-                        }
-                      />
-                    ) : null}
-                  </SettingsGroup>
-                  <SettingsGroup
-                    title="Software updates"
-                    description="Keep Agent Native current."
-                  >
-                    <SoftwareUpdateCard />
-                  </SettingsGroup>
-                </div>
-              }
-              extraTabs={settingsTabs}
-              enableSearch
-              searchPlaceholder="Search settings…"
-              className="h-full"
-              navClassName="settings-page-tabs-nav"
-              contentClassName="settings-page-tabs-content"
+    <QueryClientProvider client={desktopSettingsQueryClient}>
+      <div
+        className={
+          "settings-overlay" + (isClosing ? " settings-overlay--closing" : "")
+        }
+      >
+        <div className="settings-panel settings-panel--page">
+          <div className="settings-page-backbar">
+            <button
+              type="button"
+              className="settings-page-back"
+              onClick={() => requestClose()}
+            >
+              <IconArrowLeft size={15} aria-hidden="true" />
+              Back to app
+            </button>
+          </div>
+          <div className="settings-page-tabs">
+            <SettingsSurfaceProvider surface="page">
+              <SettingsTabsPage
+                general={
+                  <div className="w-full max-w-3xl space-y-8">
+                    <SettingsGroup
+                      title="General"
+                      description="Control how Agent Native runs on this computer."
+                    >
+                      {frameSettings ? (
+                        <SettingsRow
+                          label="App mode"
+                          description={
+                            allMode === "dev"
+                              ? "All apps run in development mode."
+                              : allMode === "prod"
+                                ? "All apps run in production mode."
+                                : "Some apps use a custom mode."
+                          }
+                          control={
+                            <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
+                              {(["prod", "dev"] as const).map((mode) => (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  className={
+                                    allMode === mode
+                                      ? "px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-foreground"
+                                      : "px-3 py-1.5 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                                  }
+                                  onClick={() => handleAllToMode(mode)}
+                                >
+                                  {mode === "prod"
+                                    ? "Production"
+                                    : "Development"}
+                                </button>
+                              ))}
+                            </div>
+                          }
+                        />
+                      ) : null}
+                    </SettingsGroup>
+                    <SettingsGroup
+                      title="Software updates"
+                      description="Keep Agent Native current."
+                    >
+                      <SoftwareUpdateCard />
+                    </SettingsGroup>
+                  </div>
+                }
+                extraTabs={settingsTabs}
+                enableSearch
+                searchPlaceholder="Search settings…"
+                className="h-full"
+                navClassName="settings-page-tabs-nav"
+                contentClassName="settings-page-tabs-content"
+              />
+            </SettingsSurfaceProvider>
+          </div>
+          {editingApp ? (
+            <AppEditForm
+              app={editingApp}
+              onSave={handleSave}
+              onCancel={() => setEditingId(null)}
             />
-          </SettingsSurfaceProvider>
+          ) : null}
         </div>
-        {editingApp ? (
-          <AppEditForm
-            app={editingApp}
-            onSave={handleSave}
-            onCancel={() => setEditingId(null)}
-          />
-        ) : null}
       </div>
-    </div>
+    </QueryClientProvider>
   );
 }
 

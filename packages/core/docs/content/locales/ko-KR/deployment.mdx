@@ -304,17 +304,18 @@ npx @agent-native/core@latest deploy --preset netlify
 
 ### Keep-warm 및 제로 스케일 데이터베이스 {#netlify-keep-warm}
 
-Netlify 빌드는 **매분** `/_agent-native/health` 를 요청하는 예약 함수를 생성합니다. 이를 통해 서버 함수와 데이터베이스가 웜 상태로 유지되어, 유휴 기간 후 다음 방문자가 콜드 스타트(Neon에서 1~5초)를 부담하지 않습니다. 프로비저닝된 컴퓨트에서는 이것이 올바른 기본값입니다.
+활성화된 경우 Netlify 빌드는 **매분** `/_agent-native/health` 를 요청하는 예약 함수를 생성합니다. 이를 통해 서버 함수와 데이터베이스가 웜 상태로 유지되어, 유휴 기간 후 다음 방문자가 콜드 스타트(Neon에서 1~5초)를 부담하지 않습니다.
 
-**사용량 과금 제로 스케일 데이터베이스에서는 잘못된 기본값입니다.** 분당 한 번 깨우면 자동 일시 중단이 전혀 발생하지 않으므로, 아무도 앱을 쓰지 않아도 계속 깨어 있는 것처럼 과금되고 할당량이 제한됩니다. Neon 무료 등급에서는 컴퓨트 할당량이 소진되고, 이후 데이터베이스는 세션 중 **모든** 읽기를 거부합니다. 증상은 느린 앱이 아니라 죽은 앱입니다.
+Keep-warm은 사용량 과금 제로 스케일 데이터베이스에서 자동 일시 중단을 막기 때문에 **기본적으로 비활성화**됩니다. 다음 방문자의 지연 시간 감소가 데이터베이스 활성 시간의 가치가 있을 때 `AGENT_NATIVE_ENABLE_KEEP_WARM=1` 을 설정하세요.
 
 | 변수                                        | 효과                                                                                                                                                                 |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 예약 함수를 완전히 건너뜁니다. 데이터베이스가 자동 일시 중단될 수 있으며, 유휴 기간 후 다음 방문자가 콜드 스타트를 부담합니다.                                       |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5필드 cron 표현식(예: `*/5 * * * *`)으로 주기를 재정의합니다. 파싱할 수 없는 값은 조용히 분당 1회로 되돌리지 않고 **빌드를 실패시킵니다**.                           |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 백그라운드 함수 워밍만 중단하고 서버는 웜 상태로 유지합니다. `server` 워밍은 요청 한 번이지만, `-background` 워밍은 새 컨테이너를 시작해 스키마를 다시 프로브합니다. |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 서버와 데이터베이스의 예약 워밍을 활성화합니다. 기본적으로 설정되지 않습니다.                                                                                                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 호환성을 위한 비활성화 스위치이며, 설정되면 옵트인 플래그보다 우선합니다.                                                                                                     |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 활성화된 경우 주기를 재정의합니다. 기본값은 `* * * * *`이며 파싱할 수 없는 값은 빌드를 실패시킵니다.                                                                                 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Keep-warm이 활성화된 경우 백그라운드 함수 워밍만 중단하고 서버는 웜 상태로 유지합니다.                                                                                |
 
-무료 또는 할당량이 제한된 데이터베이스 등급을 사용한다면 `AGENT_NATIVE_DISABLE_KEEP_WARM=1` 을 설정하거나 더 느린 주기를 선택하세요.
+무료 또는 할당량이 제한된 데이터베이스 등급을 사용한다면 `AGENT_NATIVE_ENABLE_KEEP_WARM` 을 설정하지 마세요. 활성화한다면 더 느린 주기를 선택하거나 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` 을 설정하세요.
 
 ### 온디맨드 스키마 DDL {#skip-ensure-tables}
 
@@ -418,9 +419,10 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `APP_BASE_PATH`                             | 접두사(예: `/mail`) 아래에 앱을 마운트합니다. `npx @agent-native/core@latest deploy`에 의해 자동으로 설정됩니다. 독립 실행형의 경우 설정하지 않은 상태로 둡니다.                                                                                                                                                                                                           |
 | `AGENT_PROD_CODE_EXECUTION`                 | 선택적 프로덕션 코드 실행 모드: `off`(기본값), `sandboxed` 또는 `trusted`. [Production Code Execution](#production-code-execution)를 참조하세요.                                                                                                                                                                                                                           |
 | `AGENT_NATIVE_SSR_CACHE`                    | 배포 전체 SSR 셸 캐시 정책: 미설정/`on`은 기본 하드 캐시를 유지하고, `off`는 `no-store`를 보내며, `30s` / `5m` 같은 기간을 지정하면 신선도 기간이 짧아집니다. [SSR Caching](#ssr-caching)을 참조하세요.                                                                                                                                                                    |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 제로 스케일 데이터베이스가 자동 일시 중단될 수 있도록 Netlify keep-warm 예약 함수를 건너뜁니다. [Keep-warm](#netlify-keep-warm) 참조.                                                                                                                                                                                                                                      |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | keep-warm 주기를 5필드 cron 표현식으로 재정의합니다(기본값 `* * * * *`). 파싱할 수 없는 값은 빌드를 실패시킵니다. [Keep-warm](#netlify-keep-warm) 참조.                                                                                                                                                                                                                    |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 백그라운드 함수 워밍만 중단하고 서버는 웜 상태로 유지합니다. [Keep-warm](#netlify-keep-warm) 참조.                                                                                                                                                                                                                                                                         |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Netlify keep-warm 예약 함수를 활성화합니다. 기본적으로 설정되지 않습니다. [Keep-warm](#netlify-keep-warm) 참조.                                                                                                                                                                                                                                      |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify keep-warm 예약 함수의 호환성 비활성화 스위치입니다. [Keep-warm](#netlify-keep-warm) 참조.                                                                                                                                                                                                                                                 |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 활성화된 경우 keep-warm 주기를 재정의합니다(기본값 `* * * * *`). 파싱할 수 없는 값은 빌드를 실패시킵니다. [Keep-warm](#netlify-keep-warm) 참조.                                                                                                                                                                                   |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Keep-warm이 활성화된 경우 백그라운드 함수 워밍만 중단합니다. [Keep-warm](#netlify-keep-warm) 참조.                                                                                                                                                                                                                                               |
 | `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 프로세스 내 백스톱 스윕 타이머(자동화 재디스패치, agent-teams 정합, 샌드박스 실행 복구)를 끕니다. 서버리스에서는 웜 컨테이너마다 실행되므로 쿼리 발생률이 인스턴스 수에 비례합니다. 동일한 복구를 담당하는 지속형 스케줄러가 이미 있는 경우에**만** 설정하세요. 그렇지 않으면 대기 중인 작업이 재시도되지 않습니다.                                                        |
 | `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 온디맨드 스키마 DDL을 완전히 건너뜁니다. 모든 콜드 스타트가 작업 전에 지불하는 스키마 프로브 왕복을 제거합니다. 스키마가 이미 마이그레이션되어 있어야 합니다 — [온디맨드 스키마 DDL](#skip-ensure-tables) 참조.                                                                                                                                                            |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 미리 보기에서 안전한 Builder 권한 부여 릴레이를 위한 전용 32자 이상의 공유 HMAC 비밀입니다. 권한 부여 결과가 격리된 미리 보기 데이터베이스에 저장되어야 할 때만 승인된 기업 콜백 배포와 미리 보기 배포 양쪽에 동일한 값을 설정하세요.                                                                                                                                      |

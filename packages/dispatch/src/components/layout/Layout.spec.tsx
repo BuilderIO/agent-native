@@ -384,6 +384,52 @@ describe("Dispatch NavContent", () => {
     expect(paths.at(-1)).toBe("/apps");
   });
 
+  it("omits the Chats section when chat-first has no chats", async () => {
+    clientState.threads = [];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Chats");
+    expect(container.querySelector("[data-chat-first-app]")).not.toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-app] span[style]"),
+    ).toBeNull();
+  });
+
+  it("opens a workspace app in the main app route from the left rail", async () => {
+    const paths: string[] = [];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+              onChatFirstAppOpen={(app) => paths.push(`/apps/${app.id}`)}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-chat-first-app]")
+        ?.click();
+    });
+    expect(paths).toEqual(["/apps/mail"]);
+  });
+
   it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(

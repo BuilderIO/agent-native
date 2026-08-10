@@ -25,6 +25,8 @@ export function ChatFirstChatHistory({
   className,
   ...props
 }: ChatFirstChatHistoryProps) {
+  if (items.length === 0) return null;
+
   return (
     <section
       data-chat-first-chat-history

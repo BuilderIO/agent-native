@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "./ui/tooltip";
@@ -44,17 +45,19 @@ describe("WorkspaceAppCard", () => {
   it("uses one explicit open action and one settings control", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "analytics",
-              name: "Analytics",
-              path: "/analytics",
-              description: "Explore product and growth performance.",
-              status: "ready",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                description: "Explore product and growth performance.",
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 
@@ -78,13 +81,13 @@ describe("WorkspaceAppCard", () => {
         new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
       );
     });
-    const openInlineLink = Array.from(
-      document.querySelectorAll<HTMLAnchorElement>('[role="menu"] a'),
-    ).find((anchor) => anchor.textContent?.includes("Open inline"));
+    const openInlineItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Open inline"));
     const openNewTabLink = Array.from(
       document.querySelectorAll<HTMLAnchorElement>('[role="menu"] a'),
     ).find((anchor) => anchor.textContent?.includes("Open in new tab"));
-    expect(openInlineLink?.getAttribute("target")).toBeNull();
+    expect(openInlineItem).toBeDefined();
     expect(openNewTabLink?.getAttribute("target")).toBe("_blank");
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
@@ -107,17 +110,19 @@ describe("WorkspaceAppCard", () => {
   it("labels per-app context as agent resources while preserving workspace scope", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "analytics",
-              name: "Analytics",
-              path: "/analytics",
-              description: "Explore product and growth performance.",
-              status: "ready",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                description: "Explore product and growth performance.",
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 
@@ -149,17 +154,19 @@ describe("WorkspaceAppCard", () => {
   it("opens pending Builder apps in a new tab", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "new-app",
-              name: "New app",
-              path: "/new-app",
-              builderUrl: "https://builder.example.com/projects/new-app",
-              status: "pending",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "new-app",
+                name: "New app",
+                path: "/new-app",
+                builderUrl: "https://builder.example.com/projects/new-app",
+                status: "pending",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 
@@ -177,20 +184,22 @@ describe("WorkspaceAppCard", () => {
   it("shows ownership metadata in the settings menu", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "analytics",
-              name: "Analytics",
-              path: "/analytics",
-              createdAt: "2026-07-28T12:00:00.000Z",
-              createdBy: "creator@example.com",
-              owner: "owner@example.com",
-              teams: ["Growth", "Operations"],
-              status: "ready",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                createdAt: "2026-07-28T12:00:00.000Z",
+                createdBy: "creator@example.com",
+                owner: "owner@example.com",
+                teams: ["Growth", "Operations"],
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 

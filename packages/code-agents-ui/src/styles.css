@@ -343,9 +343,17 @@
 }
 
 .code-agents-run-list {
+  display: flex;
   min-height: 0;
-  overflow-y: auto;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0 var(--code-agents-rail-gutter) var(--code-agents-rail-gutter);
+}
+
+.code-agents-run-list > .an-chat-history {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 /* Align the shared ChatHistoryList rail-variant insets with the existing
@@ -621,6 +629,10 @@
   color: hsl(var(--foreground));
   font-size: 24px;
   font-weight: 500;
+}
+
+.code-agents-overview-footer {
+  width: 100%;
 }
 
 .code-agents-overview-skeleton {

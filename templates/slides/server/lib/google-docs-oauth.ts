@@ -15,12 +15,25 @@ const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
 
 export const GOOGLE_DOCS_PROVIDER = "google-docs";
+export const GOOGLE_DRIVE_READONLY_SCOPE =
+  "https://www.googleapis.com/auth/drive.readonly";
 export const GOOGLE_DOCS_SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
+  GOOGLE_DRIVE_READONLY_SCOPE,
   "https://www.googleapis.com/auth/presentations.readonly",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
+
+export function hasGoogleDriveExportScope(scope?: string): boolean {
+  const grantedScopes = new Set(
+    (scope ?? "").split(/\s+/).filter((value) => value.length > 0),
+  );
+  return (
+    grantedScopes.has("https://www.googleapis.com/auth/drive") ||
+    grantedScopes.has(GOOGLE_DRIVE_READONLY_SCOPE)
+  );
+}
 
 interface GoogleDocsTokens {
   access_token: string;

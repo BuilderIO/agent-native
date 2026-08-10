@@ -79,7 +79,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("./create-app-popover", () => ({
-  CreateAppPopover: () => <div>Create app</div>,
+  CreateAppPopover: ({ trigger }: { trigger?: React.ReactNode }) => (
+    <div>
+      {trigger}
+      <span>Create app</span>
+    </div>
+  ),
 }));
 
 describe("DispatchControlPlane", () => {
@@ -230,11 +235,10 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Mail");
     expect(container.textContent).toContain("Clips");
     expect(container.textContent).toContain("Analytics");
-    expect(container.textContent).toContain("Your apps");
-    expect(container.textContent).toContain("Other apps");
-    expect(container.textContent?.indexOf("Your apps")).toBeLessThan(
-      container.textContent?.indexOf("Other apps") ?? -1,
-    );
+    expect(container.textContent).toContain("Apps");
+    expect(container.textContent).toContain("New");
+    expect(container.textContent).not.toContain("Other apps");
+    expect(container.textContent).not.toContain("available");
     expect(container.textContent).not.toContain("Archived app");
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");

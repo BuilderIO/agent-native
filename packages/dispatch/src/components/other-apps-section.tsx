@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconStack2 } from "@tabler/icons-react";
 
 import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import type { WorkspaceAppId } from "../lib/other-apps";
@@ -80,6 +79,7 @@ export function OtherAppsSection({
   onRetryConnectedApps,
   templateLabels,
   onRemixSuccess,
+  heading = "Other apps",
   className,
 }: {
   templates?: CuratedWorkspaceTemplatesResult;
@@ -96,6 +96,7 @@ export function OtherAppsSection({
     result: unknown,
     template: CuratedWorkspaceTemplate,
   ) => void;
+  heading?: string | null;
   className?: string;
 }) {
   const t = useT();
@@ -110,25 +111,14 @@ export function OtherAppsSection({
   if (!isLoading && !hasError && entries.length === 0) return null;
 
   return (
-    <section className={cn("space-y-3 border-t pt-6", className)}>
-      <div className="flex min-w-0 items-start gap-2">
-        <IconStack2
-          size={16}
-          className="mt-0.5 shrink-0 text-muted-foreground"
-        />
-        <div className="min-w-0">
+    <section className={cn("space-y-3", className)}>
+      {heading ? (
+        <div className="flex min-w-0 items-center">
           <h2 className="truncate text-sm font-semibold text-foreground">
-            {t("dispatch.pages.otherApps", { defaultValue: "Other apps" })}
+            {t("dispatch.pages.otherApps", { defaultValue: heading })}
           </h2>
-          {entries.length > 0 ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {t("dispatch.pages.availableCount", {
-                count: entries.length,
-              })}
-            </p>
-          ) : null}
         </div>
-      </div>
+      ) : null}
 
       {templatesError ? (
         <ActionQueryError

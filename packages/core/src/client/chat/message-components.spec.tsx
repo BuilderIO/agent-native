@@ -10,6 +10,7 @@ import {
   assistantMessageHasUnresolvedTool,
   completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
+  getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
   InlineRunErrorNotice,
   isAlwaysVisibleAssistantTool,
@@ -545,6 +546,18 @@ describe("shouldShowAssistantWorkSummary", () => {
         chatRunning: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("getAssistantWorkSummaryDurationMs", () => {
+  it("shows a turn duration only on the first folded work segment", () => {
+    expect(getAssistantWorkSummaryDurationMs(11_000, 2, 2)).toBe(11_000);
+    expect(getAssistantWorkSummaryDurationMs(11_000, 5, 2)).toBeNull();
+  });
+
+  it("does not invent a duration when the turn has none", () => {
+    expect(getAssistantWorkSummaryDurationMs(null, 2, 2)).toBeNull();
+    expect(getAssistantWorkSummaryDurationMs(undefined, 2, 2)).toBeUndefined();
   });
 });
 

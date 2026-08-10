@@ -314,13 +314,13 @@ function GeneratingSlideSkeleton({
     <button
       type="button"
       className={`group relative block w-full rounded-lg text-left transition-colors ${
-        selected ? "bg-accent ring-1 ring-ring" : "hover:bg-accent/50"
+        selected ? "ring-1 ring-primary" : "hover:ring-1 hover:ring-primary/50"
       }`}
       aria-label={t("editorSidebar.generatingSlide")}
       aria-current={selected ? "true" : undefined}
       onClick={onSelect}
     >
-      <div className="w-full flex items-start gap-1.5 p-1.5 rounded-lg bg-accent/30">
+      <div className="flex w-full items-start gap-1.5 rounded-lg p-1.5">
         <span className="flex-shrink-0 w-4 text-center text-[10px] font-medium leading-5 text-muted-foreground/70">
           {index + 1}
         </span>
@@ -543,6 +543,7 @@ export default function EditorSidebar({
             edits={recentEdits}
             resolveRect={resolveThumbRect}
             containerRef={thumbScrollRef}
+            outlineOnly
           />
         )}
       </div>

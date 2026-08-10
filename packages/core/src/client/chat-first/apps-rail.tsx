@@ -80,7 +80,7 @@ function AppRows({
                 data-chat-first-app
                 data-app-id={app.id}
                 className={cn(
-                  "group flex h-6 w-full min-w-0 items-center gap-1 rounded-md px-1 text-sm transition-colors",
+                  "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-1 text-sm transition-colors",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -328,7 +328,7 @@ export function ChatFirstAppsRail({
       {loading && apps.length === 0 ? (
         <div className="space-y-0.5 px-1">
           {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-7 w-full rounded-md" />
+            <Skeleton key={index} className="h-8 w-full rounded-md" />
           ))}
         </div>
       ) : apps.length === 0 ? (
@@ -369,7 +369,7 @@ export function ChatFirstAppsRail({
       {hasMoreApps || showAllApps ? (
         <button
           type="button"
-          className="mt-0.5 flex h-6 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          className="mt-0.5 flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
           onClick={() => setShowAllApps((value) => !value)}
         >
           {showAllApps ? (
@@ -385,7 +385,7 @@ export function ChatFirstAppsRail({
           <button
             type="button"
             data-chat-first-all-apps
-            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
             onClick={onOpenAllApps}
           >
             <IconApps size={14} aria-hidden="true" />

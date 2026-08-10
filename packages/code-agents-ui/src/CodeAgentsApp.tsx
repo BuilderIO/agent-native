@@ -178,6 +178,7 @@ export interface CodeAgentsHost {
     request?: CodeAgentTerminalRequest,
   ) => Promise<CodeAgentTerminalResult>;
   openCodexLogin?: () => Promise<CodeAgentTerminalResult>;
+  openClaudeLogin?: () => Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus?: () => Promise<CodeAgentRemoteConnectorStatus>;
   setRemoteConnectorEnabled?: (
     enabled: boolean,
@@ -277,6 +278,8 @@ export interface CodeAgentsAppProps {
   railWorkspaceSlot?: ReactNode;
   /** Optional actions pinned to the bottom of the rail. */
   railFooterSlot?: ReactNode;
+  /** Optional content shown below the empty new-chat composer. */
+  overviewFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
   newSessionExtension?: CodeAgentsNewSessionExtension;
   openDetailRequest?: { detailId: string; nonce: number };
@@ -441,11 +444,12 @@ const CODE_AGENT_REASONING_EFFORTS: Array<{
 
 const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   {
-    engine: "auto",
-    engineLabel: "Auto",
-    model: "auto",
-    label: "Default model",
-    description: "Use the connected provider and saved default.",
+    engine: "ai-sdk:openai",
+    engineLabel: "OpenAI",
+    model: "gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    description: "Model list is loading.",
+    configured: false,
   },
 ];
 
@@ -522,6 +526,7 @@ export default function CodeAgentsApp({
   railNavigationSlot,
   railWorkspaceSlot,
   railFooterSlot,
+  overviewFooterSlot,
   renderAppSurface,
   newSessionExtension,
   openDetailRequest,
@@ -764,7 +769,7 @@ export default function CodeAgentsApp({
 
   const loadRuns = useCallback(
     async (_busy = false) => {
-      setRunsLoaded(false);
+      if (_busy) setRunsLoaded(false);
       try {
         const result = await withHostCallTimeout(
           host.listRuns(selectedGoal.id),
@@ -772,7 +777,11 @@ export default function CodeAgentsApp({
         );
         setStatus(result.status);
         setError(result.error ?? null);
-        setRuns(result.runs);
+        setRuns((current) =>
+          areCodeAgentRunListsEqual(current, result.runs)
+            ? current
+            : result.runs,
+        );
         if (result.status === "ok") setRunsLoaded(true);
         if (result.status === "ok" && !viewedRunIdsInitializedRef.current) {
           const initialIds = result.runs.map((run) => run.id);
@@ -783,7 +792,7 @@ export default function CodeAgentsApp({
       } catch (err) {
         setStatus("unavailable");
         setError(err instanceof Error ? err.message : String(err));
-        setRuns([]);
+        setRuns((current) => (current.length === 0 ? current : []));
       } finally {
         setLoading(false);
       }
@@ -1047,8 +1056,13 @@ export default function CodeAgentsApp({
 
   const connectLocalRuntime = useCallback(
     async (engine: string) => {
-      if (engine !== "codex-cli") return;
-      if (!host.openCodexLogin) {
+      const openLogin =
+        engine === "claude-cli"
+          ? host.openClaudeLogin
+          : engine === "codex-cli"
+            ? host.openCodexLogin
+            : undefined;
+      if (!openLogin) {
         toast("Local sign-in is only available in Agent Native Desktop", {
           description: "Open Settings to manage hosted providers instead.",
         });
@@ -1056,18 +1070,23 @@ export default function CodeAgentsApp({
         return;
       }
       try {
-        const result = await host.openCodexLogin();
+        const result = await openLogin();
         if (!result.ok) {
-          toast("Codex sign-in was not opened", {
-            description: result.error,
-          });
+          toast(
+            `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+            {
+              description: result.error,
+            },
+          );
           return;
         }
-        toast("Codex sign-in opened", {
-          description:
-            "Finish the ChatGPT sign-in in Terminal. The runtime picker will refresh when it is ready.",
-          duration: 4800,
-        });
+        toast(
+          `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in opened`,
+          {
+            description: `Finish the ${engine === "claude-cli" ? "Claude" : "ChatGPT"} sign-in in Terminal. The runtime picker will refresh when it is ready.`,
+            duration: 4800,
+          },
+        );
 
         let attempts = 0;
         const refresh = async (): Promise<void> => {
@@ -1084,12 +1103,15 @@ export default function CodeAgentsApp({
             if (
               modelResult.models.some(
                 (option) =>
-                  option.engine === "codex-cli" && option.configured === true,
+                  option.engine === engine && option.configured === true,
               )
             ) {
-              toast("ChatGPT subscription connected", {
-                description: "This computer is ready for local Agent tasks.",
-              });
+              toast(
+                `${engine === "claude-cli" ? "Claude" : "ChatGPT"} connected`,
+                {
+                  description: "This computer is ready for local Agent tasks.",
+                },
+              );
               return;
             }
           }
@@ -1098,9 +1120,12 @@ export default function CodeAgentsApp({
         };
         void refresh();
       } catch (err) {
-        toast("Codex sign-in was not opened", {
-          description: err instanceof Error ? err.message : String(err),
-        });
+        toast(
+          `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+          {
+            description: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     },
     [host, onOpenSettings],
@@ -1145,12 +1170,12 @@ export default function CodeAgentsApp({
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
-  // `listModels` only includes Codex when the local CLI is installed. Keep
-  // sign-in hidden until that capability has been confirmed by the host so a
-  // fresh install does not offer a command that cannot launch.
-  const codexCliAvailable = modelOptions.some(
-    (option) => option.engine === "codex-cli",
-  );
+  // `listModels` only includes local runtimes when their CLI is installed.
+  // Keep sign-in hidden until the host has confirmed the capability.
+  const localRuntimeEngine = modelOptions.find(
+    (option) => option.engine === "codex-cli" || option.engine === "claude-cli",
+  )?.engine;
+  const localRuntimeAvailable = Boolean(localRuntimeEngine);
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -1234,7 +1259,10 @@ export default function CodeAgentsApp({
           return;
         }
         setModelOptions(result.models);
-        if (!modelSelection.model && result.selected) {
+        if (
+          (!modelSelection.model || modelSelection.model === "auto") &&
+          result.selected
+        ) {
           setModelSelection(result.selected);
         }
       })
@@ -2221,14 +2249,14 @@ export default function CodeAgentsApp({
                             onOpenSettings={onOpenSettings}
                             onConnectProvider={connectBuilderProvider}
                             onConnectLocalRuntime={
-                              !chatFirstMode && codexCliAvailable
+                              !chatFirstMode && localRuntimeAvailable
                                 ? connectLocalRuntime
                                 : undefined
                             }
                           />
                         ) : (
                           <div className="code-agents-start">
-                            <h2>What outcome do you want?</h2>
+                            <h2>What should we do today?</h2>
                             {!activeNewSessionExtension &&
                               providerGate.blocked && (
                                 <ProviderGateNotice
@@ -2238,9 +2266,11 @@ export default function CodeAgentsApp({
                                   onConnectBuilder={connectBuilderProvider}
                                   onOpenSettings={onOpenSettings}
                                   onConnectLocalRuntime={
-                                    !chatFirstMode && codexCliAvailable
+                                    !chatFirstMode && localRuntimeAvailable
                                       ? () =>
-                                          void connectLocalRuntime("codex-cli")
+                                          void connectLocalRuntime(
+                                            localRuntimeEngine ?? "codex-cli",
+                                          )
                                       : undefined
                                   }
                                 />
@@ -2291,7 +2321,7 @@ export default function CodeAgentsApp({
                               onConnectLocalRuntime={
                                 !chatFirstMode &&
                                 !activeNewSessionExtension &&
-                                codexCliAvailable
+                                localRuntimeAvailable
                                   ? connectLocalRuntime
                                   : undefined
                               }
@@ -2308,6 +2338,11 @@ export default function CodeAgentsApp({
                                 onChoose={chooseProjectFolder}
                               />
                             )}
+                            {overviewFooterSlot ? (
+                              <div className="code-agents-overview-footer">
+                                {overviewFooterSlot}
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </>
@@ -2869,12 +2904,18 @@ function CodeAgentComposer({
       modeControl={modeControl}
       actionButton={stopButton}
       showModelSelector={showModelSelector}
+      showAutoModelOption={false}
       availableModels={showModelSelector ? availableModels : undefined}
       selectedModel={
-        showModelSelector ? (normalizedModel.model ?? "auto") : undefined
+        showModelSelector
+          ? (normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model)
+          : undefined
       }
       selectedEngine={
-        showModelSelector ? (normalizedModel.engine ?? "auto") : undefined
+        showModelSelector
+          ? (normalizedModel.engine ??
+            DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine)
+          : undefined
       }
       selectedEffort={showModelSelector ? normalizedModel.effort : undefined}
       onModelChange={(model, engine) =>
@@ -2947,7 +2988,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Builder.io (free tier available), sign in with your ChatGPT subscription, or add an API key.",
+        "Connect Builder.io (free tier available), sign in with ChatGPT or Claude, or add an API key.",
     };
   }
   return {
@@ -3052,7 +3093,7 @@ function CodeProviderNotice({
   );
 }
 
-function normalizeModelSelection(
+export function normalizeModelSelection(
   value: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
@@ -3061,11 +3102,6 @@ function normalizeModelSelection(
     models.find(
       (model) => model.engine === value.engine && model.model === value.model,
     ) ?? first;
-  if (selected.engine === "auto" && selected.model === "auto") {
-    return {
-      effort: normalizeReasoningEffort(value.effort ?? "auto"),
-    };
-  }
   return {
     engine: selected.engine,
     model: selected.model,
@@ -3073,7 +3109,7 @@ function normalizeModelSelection(
   };
 }
 
-function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
+export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
   const groups = new Map<
     string,
     {
@@ -3081,6 +3117,8 @@ function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
       label: string;
       models: string[];
       configured: boolean;
+      statusLabel?: string;
+      isSubscription?: boolean;
     }
   >();
   for (const option of models) {
@@ -3091,6 +3129,8 @@ function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
       label: option.engineLabel,
       models: [],
       configured,
+      ...(option.statusLabel ? { statusLabel: option.statusLabel } : {}),
+      ...(option.isSubscription ? { isSubscription: true } : {}),
     };
     if (!group.models.includes(option.model)) group.models.push(option.model);
     groups.set(key, group);
@@ -3300,6 +3340,18 @@ function normalizePromptForSelectedGoal(
 
 function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
+}
+
+function areCodeAgentRunListsEqual(
+  current: CodeAgentRun[],
+  next: CodeAgentRun[],
+): boolean {
+  return (
+    current.length === next.length &&
+    current.every(
+      (run, index) => JSON.stringify(run) === JSON.stringify(next[index]),
+    )
+  );
 }
 
 function sortRunsForRail(runs: CodeAgentRun[]): CodeAgentRun[] {
@@ -3977,6 +4029,21 @@ function RunDetailCard({
     : false;
   const showApprovalBanner =
     Boolean(pendingApproval) && !hasInlineApprovalAffordance;
+  const localRuntimeOption =
+    modelOptions.find(
+      (option) =>
+        option.engine === modelSelection.engine &&
+        (option.engine === "codex-cli" || option.engine === "claude-cli"),
+    ) ??
+    modelOptions.find(
+      (option) =>
+        option.engine === "codex-cli" || option.engine === "claude-cli",
+    );
+  const localRuntimeEngine = localRuntimeOption?.engine;
+  const localRuntimeLabel =
+    localRuntimeEngine === "claude-cli"
+      ? "Sign in with Claude"
+      : "Sign in with ChatGPT";
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
@@ -3986,17 +4053,17 @@ function RunDetailCard({
           title="Provider needed"
           description={
             builderConnectMessage ??
-            "Connect Builder.io (free tier available), run codex login for Codex CLI, or add your own API key."
+            "Connect Builder.io (free tier available), sign in with ChatGPT or Claude, or add your own API key."
           }
           primaryActionLabel={
             builderConnecting ? "Waiting..." : "Connect Builder.io"
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
-          localRuntimeActionLabel="Sign in with ChatGPT"
+          localRuntimeActionLabel={localRuntimeLabel}
           onConnectLocalRuntime={
-            onConnectLocalRuntime
-              ? () => onConnectLocalRuntime("codex-cli")
+            onConnectLocalRuntime && localRuntimeEngine
+              ? () => onConnectLocalRuntime(localRuntimeEngine)
               : undefined
           }
           secondaryActionLabel="API keys"
@@ -4109,8 +4176,10 @@ function TranscriptPanel({
   onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
-  const selectedModel = normalizedModel.model ?? "auto";
-  const selectedEngine = normalizedModel.engine ?? "auto";
+  const selectedModel =
+    normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model;
+  const selectedEngine =
+    normalizedModel.engine ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine;
   const selectedEffort = normalizeReasoningEffort(
     normalizedModel.effort ?? "auto",
   );
@@ -4124,9 +4193,9 @@ function TranscriptPanel({
   const permissionModeRef = useRef<string | undefined>(permissionMode);
   permissionModeRef.current = permissionMode;
   const modelRef = useRef<string | undefined>(selectedModel);
-  modelRef.current = selectedModel === "auto" ? undefined : selectedModel;
+  modelRef.current = selectedModel;
   const engineRef = useRef<string | undefined>(selectedEngine);
-  engineRef.current = selectedEngine === "auto" ? undefined : selectedEngine;
+  engineRef.current = selectedEngine;
   const effortRef = useRef<CodeAgentReasoningEffort | undefined>(
     selectedEffort,
   );
