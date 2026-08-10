@@ -134,6 +134,39 @@ describe("AgentJobsTab blocked automation", () => {
     expect(row?.textContent).toContain("Last checked");
   });
 
+  it("makes failed run details and its agent thread discoverable", () => {
+    jobMocks.useAutomationRuns.mockReturnValue(
+      queryResult([
+        {
+          id: "run-1",
+          automation: "competitive-intelligence-daily-email",
+          scope: "personal",
+          runId: "run-1",
+          threadId: "thread-1",
+          status: "error",
+          startedAt: Date.now(),
+          finishedAt: Date.now() + 1000,
+          error: "The worker failed.",
+        },
+      ]),
+    );
+
+    act(() => {
+      root.render(<AgentJobsTab />);
+    });
+
+    const detailsButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "View details",
+    );
+    expect(detailsButton).toBeDefined();
+
+    act(() => {
+      detailsButton?.click();
+    });
+
+    expect(document.body.textContent).toContain("Open thread");
+  });
+
   it("submits a new cron expression from the edit dialog", () => {
     act(() => {
       root.render(<AgentJobsTab />);

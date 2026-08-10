@@ -14,6 +14,7 @@ export {
   type AgentNativeDiagnosticsConfig,
   type AgentNativeFirstRunOnboardingMode,
   type AgentNativeFirstRunOnboardingSetting,
+  type AgentNativeInstructionsConfig,
   type AgentNativeRuntimeAuthConfig,
   type AgentNativeRuntimeConfig,
   type AgentNativeRuntimeDatabaseConfig,
@@ -28,7 +29,10 @@ export {
   actionTypesPlugin,
   generateActionRegistryForProject,
 } from "./action-types-plugin.js";
-export { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+export {
+  agentsBundlePlugin,
+  type AgentsBundlePluginOptions,
+} from "./agents-bundle-plugin.js";
 export {
   createAgentWebVitePlugin,
   type AgentWebVitePluginOptions,

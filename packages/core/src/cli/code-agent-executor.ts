@@ -59,6 +59,15 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
+import {
+  codexMcpConfigArgs,
+  mergeCodeAgentMcpConfig,
+  restrictCodeAgentMcpConfig,
+} from "./code-agent-mcp-config.js";
 import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   addCodeAgentCommandToAllowlist,
@@ -605,20 +614,32 @@ async function executeCodexCliRun(options: {
   const streamToolOutputToStdout =
     options.streamToolOutputToStdout ??
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   const args = [
+    ...codexMcpConfigArgs(),
     "--ask-for-approval",
     "never",
-    "exec",
+    "--sandbox",
+    codexSandboxForPermissionMode(options.permissionMode),
     "--cd",
     cwd,
+    "exec",
     "--color",
     "never",
     "--skip-git-repo-check",
-    "--sandbox",
-    codexSandboxForPermissionMode(options.permissionMode),
+    "--ignore-user-config",
     "--output-last-message",
     outputPath,
   ];
+  if (additionalSkillsRoot && fs.existsSync(additionalSkillsRoot)) {
+    args.splice(
+      args.indexOf("--output-last-message"),
+      0,
+      "--add-dir",
+      additionalSkillsRoot,
+    );
+  }
   if (model) args.push("--model", model);
   args.push("-");
 
@@ -847,9 +868,16 @@ function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     mode === "Plan"
       ? "Inspect and explain only. Do not edit files or run mutating commands."
       : "Edit and verify as needed. Do not create, switch, reset, rebase, or stash git branches.";
+  const additionalSkillsRoot =
+    process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
+    ...(additionalSkillsRoot
+      ? [
+          `Additional installed Agent Plugin skills are available under ${additionalSkillsRoot}. Read any relevant SKILL.md files before acting.`,
+        ]
+      : []),
     `Run mode: ${mode} (${permissionMode}). ${modeInstruction}`,
     "",
     "# User request",
@@ -1171,9 +1199,17 @@ async function startCodeAgentMcpManager(
     });
     return null;
   });
-  if (!config || Object.keys(config.servers ?? {}).length === 0) return null;
+  const effectiveConfig = restrictCodeAgentMcpConfig(
+    mergeCodeAgentMcpConfig(config),
+  );
+  if (
+    !effectiveConfig ||
+    Object.keys(effectiveConfig.servers ?? {}).length === 0
+  ) {
+    return null;
+  }
 
-  const manager = new McpClientManager(config);
+  const manager = new McpClientManager(effectiveConfig);
   await manager.start().catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     appendCodeAgentTranscriptEvent({
@@ -1622,12 +1658,25 @@ export async function buildCodeAgentSystemPrompt(
   cwd: string,
   permissionMode: CodeAgentPermissionMode,
 ): Promise<string> {
-  const bundle = readAgentsBundleFromFs(cwd);
+  const appConfig = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext("serve", "development"),
+  );
+  const bundle = readAgentsBundleFromFs(cwd, null, {
+    instructions: appConfig.instructions,
+    additionalSkillDirs: (process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT ?? "")
+      .split(path.delimiter)
+      .map((value) => value.trim())
+      .filter(Boolean),
+  });
 
   // If the bundle has no AGENTS.md, try CLAUDE.md as a fallback — many repos
   // use that name for agent instructions (e.g. Claude Code projects).
-  let agentsMdContent = bundle.agentsMd;
-  if (!agentsMdContent.trim()) {
+  let agentsMdContent = bundle.developmentAgentsMd ?? bundle.agentsMd;
+  if (
+    !agentsMdContent.trim() &&
+    appConfig.instructions?.development === undefined
+  ) {
     try {
       const fs = await import("node:fs");
       const path = await import("node:path");

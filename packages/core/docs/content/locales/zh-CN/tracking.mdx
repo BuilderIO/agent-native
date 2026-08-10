@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,7 +101,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -116,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 需要自定义后端、提供程序注册表 API 或批处理/单例内部组件？见最后的[Advanced: custom providers & internals](#advanced)。
@@ -358,5 +358,5 @@ interface TrackingEvent {
 ## 下一步是什么
 
 - [**Actions**](/docs/actions) — 大多数跟踪调用的发起位置
-- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
+- [**Server Plugins**](/docs/server-plugins) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
 - [**安全 — 密钥管理**](/docs/security#secrets) — 管理用于跟踪提供商的 API 密钥

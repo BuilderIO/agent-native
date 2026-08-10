@@ -58,12 +58,23 @@ export interface AppConfig {
 /** Frame UI port */
 export const FRAME_PORT = 3334;
 
+/** The first five apps shown in the chat-first rail on every client. */
+export const CHAT_FIRST_DEFAULT_APP_IDS = [
+  "content",
+  "design",
+  "mail",
+  "calendar",
+  "clips",
+] as const;
+
 /** Settings for the local dev frame (persisted by the desktop app) */
 export interface FrameSettings {
   /** Whether the frame is enabled */
   enabled: boolean;
   /** Whether to show the Agent-Native Code tab in Desktop */
   showCodeTab: boolean;
+  /** Opt into the chat-first Codex/T3-like desktop workbench. */
+  chatFirstMode: boolean;
   /** Load frame from localhost (dev) or production URL (prod) */
   mode: "dev" | "prod";
   /** Production URL for the frame (if deployed) */

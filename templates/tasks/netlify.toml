@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs tasks"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter tasks build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter tasks build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter tasks migrate:production; fi"
 publish = "templates/tasks/dist"
 functions = "templates/tasks/.netlify/functions-internal"
 

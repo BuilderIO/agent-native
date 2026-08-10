@@ -72,6 +72,8 @@ function skill(name: string, scope: Skill["meta"]["scope"]): Skill {
 function bundleWith(skills: Skill[]): AgentsBundle {
   return {
     agentsMd: "",
+    runtimeAgentsMd: "",
+    developmentAgentsMd: "",
     workspaceAgentsMd: "",
     skills: Object.fromEntries(skills.map((s) => [s.meta.name, s])),
   };
@@ -231,9 +233,49 @@ describe("readAgentsBundleFromFs", () => {
     try {
       const bundle = readAgentsBundleFromFs(tpl);
       expect(bundle.agentsMd).toContain("Only-template");
+      expect(bundle.runtimeAgentsMd).toContain("Only-template");
+      expect(bundle.developmentAgentsMd).toContain("Only-template");
       expect(bundle.workspaceAgentsMd).toBe("");
       expect(bundle.skills.alpha).toBeDefined();
       expect(bundle.skills.alpha!.meta.description).toBe("A skill");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("loads separate runtime and development instruction files when configured", () => {
+    const tpl = makeTemplate(null);
+    fs.writeFileSync(
+      path.join(tpl, "DEVELOPING.md"),
+      "# Development\nOnly-development",
+    );
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        instructions: {
+          runtime: "AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      });
+      expect(bundle.runtimeAgentsMd).toContain("Only-template");
+      expect(bundle.developmentAgentsMd).toContain("Only-development");
+      expect(bundle.agentsMd).toBe(bundle.runtimeAgentsMd);
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("does not fall back when an explicitly configured instruction file is missing", () => {
+    const tpl = makeTemplate(null);
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        instructions: {
+          runtime: "runtime-only/AGENTS.md",
+          development: "development-only/AGENTS.md",
+        },
+      });
+      expect(bundle.runtimeAgentsMd).toBe("");
+      expect(bundle.developmentAgentsMd).toBe("");
+      expect(bundle.agentsMd).toBe("");
     } finally {
       fs.rmSync(tpl, { recursive: true, force: true });
     }
@@ -282,6 +324,34 @@ describe("readAgentsBundleFromFs", () => {
     }
   });
 
+  it("loads namespaced skills from the canonical agent skills directory", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(
+      tpl,
+      ".agents",
+      "skills",
+      "calendar-tools",
+      "meeting-helper",
+    );
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: meeting-helper\ndescription: Imported calendar skill\n---\nPlugin body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills["meeting-helper"]?.meta.description).toBe(
+        "Imported calendar skill",
+      );
+      expect(bundle.skills["meeting-helper"]?.dir).toBe(
+        ".agents/skills/calendar-tools/meeting-helper",
+      );
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
   it("adds workspace AGENTS.md when provided", () => {
     const tpl = makeTemplate(null);
     const ws = makeWorkspaceSource({ agentsMd: "# Workspace wide" });
@@ -309,6 +379,32 @@ describe("readAgentsBundleFromFs", () => {
     } finally {
       fs.rmSync(tpl, { recursive: true, force: true });
       fs.rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads namespaced host-provided skills from an additional root", () => {
+    const tpl = makeTemplate(null);
+    const additional = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agents-bundle-plugin-"),
+    );
+    const skill = path.join(additional, "calendar-tools", "meeting-helper");
+    fs.mkdirSync(skill, { recursive: true });
+    fs.writeFileSync(
+      path.join(skill, "SKILL.md"),
+      "---\nname: meeting-helper\ndescription: Imported calendar skill\n---\nPlugin body",
+    );
+
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        additionalSkillDirs: [additional],
+      });
+      expect(bundle.skills["meeting-helper"]?.meta.description).toBe(
+        "Imported calendar skill",
+      );
+      expect(bundle.skills["meeting-helper"]?.content).toContain("Plugin body");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+      fs.rmSync(additional, { recursive: true, force: true });
     }
   });
 

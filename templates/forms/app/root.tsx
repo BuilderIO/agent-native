@@ -244,7 +244,7 @@ function FormsCommandMenu({
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.searchForms")}
         </CommandMenu.Item>
-        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>

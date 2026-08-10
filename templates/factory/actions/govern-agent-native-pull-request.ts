@@ -16,6 +16,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { createAiServicesGitReadClient } from "../server/triage/ai-services-git.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
@@ -231,6 +232,34 @@ export default defineAction({
       factoryTriggered,
     });
 
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "govern-agent-native-pull-request",
+        kind: "governance",
+        status: governance.autoApprove ? "success" : "skipped",
+        itemId: itemId ?? null,
+        source: "github",
+        sourceUrl: pullRequest.htmlUrl,
+        summary: governance.reason,
+        details: {
+          repo,
+          pullRequestNumber,
+          clearBug,
+          productUxImplications,
+          internalBuilderMember: internalMember.isMember,
+          factoryTriggered,
+          checksPassed,
+          reviewFeedbackHandled,
+          autoApprove: governance.autoApprove,
+          autoMerge: governance.autoMerge,
+          ownerOwnedArea: governance.ownerOwnedArea ?? null,
+          guardResults: governance.guardResults,
+        },
+      },
+    );
+
     if (itemId) {
       const item = (
         await getDb()
@@ -338,6 +367,19 @@ export default defineAction({
     }
 
     if (!governance.autoMerge) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "govern-agent-native-pull-request",
+          kind: "external_action",
+          itemId: itemId ?? null,
+          source: "github",
+          sourceUrl: approvalUrl,
+          summary: "Approved the pull request after governance checks passed.",
+          details: { repo, pullRequestNumber, approvalUrl },
+        },
+      );
       return {
         ok: true,
         action: "approved",
@@ -374,6 +416,19 @@ export default defineAction({
         })
         .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
     }
+    await recordFactoryAudit(
+      context,
+      { userEmail, orgId },
+      {
+        action: "govern-agent-native-pull-request",
+        kind: "external_action",
+        itemId: itemId ?? null,
+        source: "github",
+        sourceUrl: pullRequest.htmlUrl,
+        summary: "Merged the pull request after governance checks passed.",
+        details: { repo, pullRequestNumber, approvalUrl, mergeSha: merge.sha },
+      },
+    );
     return {
       ok: true,
       action: "merged",

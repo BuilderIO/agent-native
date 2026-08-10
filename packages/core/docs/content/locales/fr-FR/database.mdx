@@ -105,7 +105,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-Importez `getDb` à partir de ce chemin local de modèle – `../../server/db/index.js` dans les itinéraires, `../server/db/index.js` dans actions – plutôt que directement à partir de `@agent-native/core`. L'exportation principale renvoie une instance générique non typée ; le `getDb()` du modèle contient vos types de schéma. Voir [Server](/docs/server#request-context) pour savoir comment actions et les itinéraires personnalisés l'importent chacun.
+Importez `getDb` à partir de ce chemin local de modèle – `../../server/db/index.js` dans les itinéraires, `../server/db/index.js` dans actions – plutôt que directement à partir de `@agent-native/core`. L'exportation principale renvoie une instance générique non typée ; le `getDb()` du modèle contient vos types de schéma. Voir [Server](/docs/server-routes#request-context) pour savoir comment actions et les itinéraires personnalisés l'importent chacun.
 
 ## Schéma et requêtes indépendants des dialectes {#schema}
 

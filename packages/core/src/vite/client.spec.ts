@@ -734,6 +734,25 @@ describe("route warmup config", () => {
     }
   });
 
+  it("embeds release migration ownership into the server bundle", () => {
+    const previous = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = " 1 ";
+
+    try {
+      const config = defineConfig();
+
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"],
+      ).toBe(JSON.stringify("1"));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+      } else {
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = previous;
+      }
+    }
+  });
+
   it("exposes the build-time GTM container id for SSR bundles", () => {
     const previous = process.env.GTM_CONTAINER_ID;
     process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";
@@ -876,7 +895,7 @@ describe("agent-native app config", () => {
     }
   });
 
-  it("prefers agent-native.ts when both typed filename aliases exist", async () => {
+  it("prefers agent-native.config.ts when both typed filename aliases exist", async () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-primary-config-"));
     fs.writeFileSync(
@@ -905,7 +924,7 @@ describe("agent-native app config", () => {
       expect(
         JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
       ).toMatchObject({
-        onboarding: { firstRun: "connect" },
+        onboarding: { firstRun: "off" },
       });
     } finally {
       process.chdir(previousCwd);
@@ -1118,6 +1137,33 @@ describe("agentNative Vite plugin preset", () => {
     expect(pluginNames).toContain("agent-native-agents-bundle");
     expect(pluginNames).toContain("agent-native-auto-reload-optimize-dep");
     expect(pluginNames).toContain("agent-native-port-exposer");
+  });
+
+  it("does not start Nitro during React Router's build-time preview", () => {
+    const previous = process.env.IS_RR_BUILD_REQUEST;
+    const nitroPreview = flatPlugins(agentNative()).find(
+      (plugin) => plugin?.name === "nitro:preview",
+    );
+    expect(nitroPreview).toBeDefined();
+
+    try {
+      process.env.IS_RR_BUILD_REQUEST = "yes";
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: true, mode: "production" },
+        ),
+      ).toBe(false);
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: false, mode: "development" },
+        ),
+      ).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.IS_RR_BUILD_REQUEST;
+      else process.env.IS_RR_BUILD_REQUEST = previous;
+    }
   });
 
   it("applies framework defaults without clobbering ordinary Vite config", async () => {

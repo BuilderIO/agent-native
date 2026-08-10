@@ -79,6 +79,8 @@ const ERROR_FAILURE_REASONS = new Set([
   "builder-not-connected",
   "credential-store-unavailable",
 ]);
+const LOCAL_APP_DOCS_URL =
+  "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app";
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
@@ -396,14 +398,27 @@ export function NewWorkspaceAppFlow({
                 ) : null}
               </div>
               {failureReason === "builder-not-connected" ? (
-                <button
-                  type="button"
-                  onClick={() => connectFlow.start()}
-                  disabled={connectFlow.connecting}
-                  className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => connectFlow.start()}
+                    disabled={connectFlow.connecting}
+                    className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {connectFlow.connecting
+                      ? "Connecting..."
+                      : "Connect Builder"}
+                  </button>
+                  <a
+                    href={LOCAL_APP_DOCS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-create-app-local-link
+                    className="inline-flex items-center gap-1 text-xs font-medium text-foreground underline underline-offset-2"
+                  >
+                    Create locally <IconArrowUpRight className="h-3 w-3" />
+                  </a>
+                </div>
               ) : null}
               {failureReason === "credential-store-unavailable" ||
               failureReason === "builder-error" ? (

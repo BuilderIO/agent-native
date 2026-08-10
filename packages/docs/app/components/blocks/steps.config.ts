@@ -1,6 +1,8 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
+import { splitMarkdownHeadingSections } from "./markdown-heading-sections";
+
 export interface StepItem {
   title: string;
   body: string;
@@ -18,16 +20,7 @@ export const stepsSchema = z.object({
 }) as unknown as z.ZodType<StepsData>;
 
 export function parseStepsFromMarkdown(children: string): StepItem[] {
-  const parts = children.split(/\n(?=###\s)/);
-  const steps: StepItem[] = [];
-  for (const part of parts) {
-    const match = part.match(/^###\s+(.+?)\n([\s\S]*)$/);
-    if (!match) continue;
-    const title = match[1].trim();
-    const body = match[2].trim();
-    if (title) steps.push({ title, body });
-  }
-  return steps;
+  return splitMarkdownHeadingSections(children);
 }
 
 export function serializeStepsToMarkdown(steps: StepItem[]): string {

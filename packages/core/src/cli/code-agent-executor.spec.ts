@@ -143,6 +143,13 @@ describe("executeCodeAgentRun", () => {
   it("runs a Codex CLI-backed session without provider API keys", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    process.env.MCP_SERVERS = JSON.stringify({
+      workspaceHttp: {
+        type: "http",
+        url: "https://workspace.example/mcp",
+      },
+    });
     const binDir = path.join(root, "bin");
     const promptPath = path.join(root, "codex-prompt.txt");
     const argsPath = path.join(root, "codex-args.json");
@@ -189,29 +196,43 @@ describe("executeCodeAgentRun", () => {
       stdout: output.stream,
     });
 
-    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
-      status: "completed",
-      phase: "complete",
-      metadata: {
-        engine: "codex-cli",
-        model: "codex-default",
-      },
-    });
-    expect(output.read()).toContain("Codex streamed output");
-    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
-    const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
-    const execIndex = args.indexOf("exec");
-    expect(args.slice(0, 3)).toEqual(["--ask-for-approval", "never", "exec"]);
-    expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
-    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "system",
-          message: "Codex final answer",
-          metadata: expect.objectContaining({ engine: "codex-cli" }),
-        }),
-      ]),
-    );
+    try {
+      expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+        status: "completed",
+        phase: "complete",
+        metadata: {
+          engine: "codex-cli",
+          model: "codex-default",
+        },
+      });
+      expect(output.read()).toContain("Codex streamed output");
+      expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+      const execIndex = args.indexOf("exec");
+      expect(execIndex).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeGreaterThan(-1);
+      expect(args.indexOf("--ask-for-approval")).toBeLessThan(execIndex);
+      expect(args.indexOf("--sandbox")).toBeGreaterThan(-1);
+      expect(args.indexOf("--sandbox")).toBeLessThan(execIndex);
+      expect(args.indexOf("--cd")).toBeGreaterThan(-1);
+      expect(args.indexOf("--cd")).toBeLessThan(execIndex);
+      expect(args.indexOf("-c")).toBeGreaterThan(-1);
+      expect(args.indexOf("-c")).toBeLessThan(execIndex);
+      expect(args.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
+      expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+      expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "system",
+            message: "Codex final answer",
+            metadata: expect.objectContaining({ engine: "codex-cli" }),
+          }),
+        ]),
+      );
+    } finally {
+      if (originalMcpServers === undefined) delete process.env.MCP_SERVERS;
+      else process.env.MCP_SERVERS = originalMcpServers;
+    }
   });
 
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
@@ -1178,6 +1199,34 @@ describe("buildCodeAgentSystemPrompt", () => {
 
     expect(prompt).toContain("## Repository instructions");
     expect(prompt).toContain("Always run pnpm typecheck before committing.");
+  });
+
+  it("uses the configured development instruction file without leaking runtime instructions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-audiences-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    );
+    fs.mkdirSync(path.join(root, "app-agent"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app-agent", "AGENTS.md"),
+      "Runtime-only instructions.",
+    );
+    fs.writeFileSync(
+      path.join(root, "DEVELOPING.md"),
+      "Development-only instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("Development-only instructions.");
+    expect(prompt).not.toContain("Runtime-only instructions.");
   });
 
   it("falls back to CLAUDE.md when AGENTS.md is absent", async () => {

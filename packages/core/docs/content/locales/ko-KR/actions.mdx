@@ -87,7 +87,7 @@ embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surf
 
 UI와 상담원 모두가 뭔가를 해야 하는 경우 맞춤 작업이 아닌 작업을 수행하세요.
 경로. 경로 형태의 프로토콜이 올바른 호출일 _is_ 경우에는 [Actions 선호
-앱 운영용](/docs/server#actions-first).
+앱 운영용](/docs/server-overview#actions-first).
 
 ## 한 번의 작업으로 시작 {#hello-action}
 
@@ -374,12 +374,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

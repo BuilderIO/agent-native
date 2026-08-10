@@ -22,7 +22,11 @@ export default defineAction({
   run: async ({ operation, name, scope, enabled, schedule, timezone }, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
-    const actor = { userEmail, orgId: ctx?.orgId };
+    const actor = {
+      userEmail,
+      orgId: ctx?.orgId,
+      appId: ctx?.appId,
+    };
 
     if (operation === "delete") {
       await deleteAutomation(actor, scope, name);

@@ -72,7 +72,7 @@ export default defineAction({
 });
 ```
 
-Run it from the terminal:
+Run this from the app directory:
 
 ```bash
 pnpm action analyze-text --text "Hello world. How are you today?"
@@ -82,12 +82,12 @@ Or ask the agent in chat:
 
 > Run the analyze-text action on "Hello world. How are you today?"
 
-The built-in `data-chart` renderer turns the structured result into a chart in
-the transcript. There is no renderer file or `app/root.tsx` import to add. For
-custom native components, see [Native Chat UI](/docs/native-chat-ui).
+When the agent runs this action in chat, the built-in `data-chart` renderer
+turns the structured result into a chart in the transcript. There is no renderer
+file or `app/root.tsx` import to add. For custom native components, see
+[Native Chat UI](/docs/native-chat-ui).
 
 ## Continue
 
 Continue with [Add a Page](/docs/getting-started-pages) to use the same action
-outside the transcript. When results need to survive conversations, return to
-[Persist Data in SQL](/docs/getting-started-database).
+outside the transcript.

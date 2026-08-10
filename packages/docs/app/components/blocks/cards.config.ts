@@ -1,6 +1,8 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
+import { splitMarkdownHeadingSections } from "./markdown-heading-sections";
+
 export interface CardItem {
   title: string;
   href?: string;
@@ -25,21 +27,12 @@ export const cardsSchema = z.object({
 }) as unknown as z.ZodType<CardsData>;
 
 export function parseCardsFromMarkdown(children: string): CardItem[] {
-  const parts = children.split(/\n(?=###\s)/);
-  const cards: CardItem[] = [];
-  for (const part of parts) {
-    const match = part.match(/^###\s+(.+?)\n([\s\S]*)$/);
-    if (!match) continue;
-    const rawTitle = match[1].trim();
-    const body = match[2].trim();
-    const linkMatch = rawTitle.match(/^\[(.+?)\]\((.+?)\)$/);
-    if (linkMatch) {
-      cards.push({ title: linkMatch[1], href: linkMatch[2], body });
-    } else {
-      cards.push({ title: rawTitle, body });
-    }
-  }
-  return cards;
+  return splitMarkdownHeadingSections(children).map(({ title, body }) => {
+    const linkMatch = title.match(/^\[(.+?)\]\((.+?)\)$/);
+    return linkMatch
+      ? { title: linkMatch[1], href: linkMatch[2], body }
+      : { title, body };
+  });
 }
 
 export function serializeCardsToMarkdown(cards: CardItem[]): string {

@@ -485,6 +485,8 @@ export async function createThread(
     title?: string;
     scope?: ChatThreadScope | null;
     source?: ChatThreadSource | null;
+    /** Explicit owner organization for durable/background callers. */
+    orgId?: string | null;
   },
 ): Promise<ChatThread> {
   await ensureTable();
@@ -494,7 +496,7 @@ export async function createThread(
   const title = opts?.title ?? "";
   const scope = opts?.scope ?? null;
   const source = opts?.source ?? null;
-  const orgId = getRequestOrgId() ?? null;
+  const orgId = opts?.orgId ?? getRequestOrgId() ?? null;
 
   await client.execute({
     sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,

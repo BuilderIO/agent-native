@@ -7,13 +7,15 @@ description: "Crie uma rota React que chame sua ação e exiba o resultado."
 
 Esta é a terceira parte da série Primeiros passos. Em [Adicionar uma ação](/docs/getting-started-actions)
 você criou `analyze-text`. Aqui, você chamará essa mesma ação a partir de uma rota.
-Ainda não é preciso usar um banco de dados: o Chat já inclui o runtime de SQL para
-quando você precisar persistir dados do domínio.
+Este exemplo não precisa de uma nova tabela de banco de dados. O Chat já armazena
+o histórico do chat em SQL; adicione suas próprias tabelas quando precisar
+persistir dados do domínio.
 
 ## Crie a rota {#add-a-page}
 
-Os arquivos de rota em `app/routes/` são detectados automaticamente. Crie
-`app/routes/text-analyses.tsx`; ela estará disponível em
+O servidor de desenvolvimento lê os arquivos de rota ao iniciar. Crie
+`app/routes/text-analyses.tsx` e reinicie `pnpm dev` se ele já estiver em execução.
+A rota estará disponível em
 `http://localhost:8080/text-analyses`.
 
 ```tsx filename="app/routes/text-analyses.tsx"
@@ -72,6 +74,4 @@ consulte [Context Awareness](/docs/context-awareness).
 ## Continue
 
 Você criou um app de chat com uma ação e uma página que chama a mesma fonte de
-verdade. Continue com [Persistir dados em SQL](/docs/getting-started-database) quando
-os resultados precisarem persistir, ou explore [Conceitos principais](/docs/key-concepts)
-e [Superfícies do agente](/docs/agent-surfaces).
+verdade. Explore [Conceitos principais](/docs/key-concepts) e [Superfícies do agente](/docs/agent-surfaces).

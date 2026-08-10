@@ -191,7 +191,7 @@ function AppContent() {
         changelogKey="dispatch"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
             <IconHierarchy2 size={16} />
             {t("root.openAgent")}
           </CommandMenu.Item>
@@ -203,7 +203,10 @@ function AppContent() {
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
-      <AppLayout extensions={dispatchExtensions} agentPageHref="/agent">
+      <AppLayout
+        extensions={dispatchExtensions}
+        agentPageHref="/settings/agent"
+      >
         <Outlet />
       </AppLayout>
     </>

@@ -1,16 +1,12 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
-import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
@@ -26,27 +22,6 @@ import {
   type MetricWindow,
   usesFirstPartyDashboardFilters,
 } from "../server/lib/first-party-metric-catalog";
-
-/**
- * Push the saved config through the collab layer so open dashboard editors get
- * the change in real time (mirrors update-dashboard).
- */
-async function syncToCollab(
-  dashboardId: string,
-  config: Record<string, unknown>,
-): Promise<void> {
-  const docId = `dash-${dashboardId}`;
-  const configStr = JSON.stringify(config);
-  try {
-    if (await hasCollabState(docId)) {
-      await applyText(docId, configStr, "content", "agent");
-    } else {
-      await seedFromText(docId, configStr);
-    }
-  } catch {
-    // Collab sync is best-effort — the SQL write is the source of truth.
-  }
-}
 
 const WINDOWS = new Set<MetricWindow>(["30d", "90d", "all"]);
 
@@ -136,8 +111,8 @@ export default defineAction({
     "Build a large first-party analytics dashboard in ONE fast call: name the metrics you want and the SERVER generates the validated SQL + chart config for every panel. " +
     "Do NOT hand-author large `update-dashboard` configs panel-by-panel — producing/streaming a big multi-panel config inside the ~40s run budget fails and thrashes. " +
     "Each metric expands into a complete first-party panel from the shipped, already-validated metric catalog. Unknown metric keys are skipped and reported (not fatal); each panel's SQL is validated independently (valid panels are saved, invalid ones reported), and the dashboard is assembled and saved in a single atomic store write. " +
-    "If the dashboard already exists and `overwrite` is false (default), the new panels are APPENDED (panels whose id is already present are skipped); with `overwrite: true` the config is replaced. " +
-    "Returns { dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, urlPath, deepLink, message } — use panelCount as proof-of-done. " +
+    "If the dashboard already exists and `overwrite` is false (default), the new panels are APPENDED (panels whose id is already present are skipped). Set `refreshExisting: true` to atomically replace matching catalog panels in place while preserving unrelated panels. With `overwrite: true` the config is replaced. " +
+    "Returns { dashboardId, panelCount, createdMetrics, refreshedExistingIds, unknownMetrics, invalidMetrics, urlPath, deepLink, message } — use panelCount as proof-of-done. " +
     `Available metric keys: ${METRIC_KEYS.join(", ")}. ` +
     "Each metric accepts an optional per-metric `window` of '30d' | '90d' | 'all' (only affects windowed virality/time metrics). Catalog panels are time-scoped by construction; custom first-party SQL added later must use `{{timeRange}}` or declare `config.timeScope`.",
   schema: z.object({
@@ -166,6 +141,12 @@ export default defineAction({
       .optional()
       .describe(
         "If true, replace the whole dashboard config. If false (default) and the dashboard exists, APPEND the new panels (skipping ids already present).",
+      ),
+    refreshExisting: z
+      .boolean()
+      .optional()
+      .describe(
+        "When appending to an existing dashboard, replace panels whose ids match the requested catalog metrics in place, preserving unrelated panels and layout order. Use this to refresh a catalog-backed dashboard without sending SQL through the prompt.",
       ),
   }),
   mcpApp: {
@@ -263,6 +244,7 @@ export default defineAction({
     let finalConfig: Record<string, unknown>;
     let appendedCount = composedPanels.length;
     let skippedExistingIds: string[] = [];
+    let refreshedExistingIds: string[] = [];
 
     if (existing && !args.overwrite) {
       // Append: preserve existing panels + order, add only new panel ids.
@@ -285,18 +267,36 @@ export default defineAction({
               .map((p) => (typeof p?.id === "string" ? p.id : null))
               .filter((id): id is string => !!id),
           );
+          const composedById = new Map(
+            composedPanels.map((panel) => [panel.id, panel]),
+          );
+          const refreshed = new Set<string>();
+          const mergedExistingPanels = existingPanels.map((panel) => {
+            const id = typeof panel?.id === "string" ? panel.id : "";
+            const replacement = args.refreshExisting
+              ? composedById.get(id)
+              : undefined;
+            if (!replacement) return panel;
+            refreshed.add(id);
+            return replacement;
+          });
           const toAppend: ComposedPanel[] = [];
           const skipped: string[] = [];
+          const appendedIds = new Set<string>();
           for (const panel of composedPanels) {
+            if (refreshed.has(panel.id)) continue;
             if (existingIds.has(panel.id)) {
               skipped.push(panel.id);
               continue;
             }
+            if (appendedIds.has(panel.id)) continue;
             toAppend.push(panel);
+            appendedIds.add(panel.id);
             existingIds.add(panel.id);
           }
           appendedCount = toAppend.length;
-          skippedExistingIds = skipped;
+          skippedExistingIds = Array.from(new Set(skipped));
+          refreshedExistingIds = Array.from(refreshed);
           const merged = withFilters({
             ...existingConfig,
             name:
@@ -304,7 +304,7 @@ export default defineAction({
               existingConfig.name.trim()
                 ? existingConfig.name
                 : dashboardName,
-            panels: [...existingPanels, ...toAppend],
+            panels: [...mergedExistingPanels, ...toAppend],
           });
           return { kind: "sql" as const, body: merged };
         },
@@ -329,11 +329,30 @@ export default defineAction({
       ? (finalConfig.panels as unknown[]).length
       : 0;
 
-    await syncToCollab(args.dashboardId, finalConfig);
+    const changed =
+      !existing ||
+      args.overwrite === true ||
+      appendedCount > 0 ||
+      refreshedExistingIds.length > 0;
+
+    if (changed) {
+      queueDashboardCollabSync(args.dashboardId, finalConfig, "agent");
+    }
 
     const parts: string[] = [];
     if (existing && !args.overwrite) {
-      parts.push(`Appended ${appendedCount} panel(s) to "${args.dashboardId}"`);
+      if (!changed) {
+        parts.push(`No changes were needed for "${args.dashboardId}"`);
+      } else if (refreshedExistingIds.length > 0) {
+        parts.push(
+          `Refreshed ${refreshedExistingIds.length} existing panel(s)`,
+        );
+      }
+      if (changed) {
+        parts.push(
+          `Appended ${appendedCount} panel(s) to "${args.dashboardId}"`,
+        );
+      }
       if (skippedExistingIds.length > 0) {
         parts.push(`${skippedExistingIds.length} already present`);
       }
@@ -355,11 +374,14 @@ export default defineAction({
     parts.push(`Dashboard now has ${panelCount} panel(s).`);
 
     return {
+      saved: true,
+      changed,
       id: args.dashboardId,
       dashboardId: args.dashboardId,
       name: dashboardName,
       panelCount,
       createdMetrics,
+      refreshedExistingIds,
       unknownMetrics,
       invalidMetrics,
       skippedExistingIds,

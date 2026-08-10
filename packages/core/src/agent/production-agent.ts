@@ -4082,6 +4082,7 @@ export async function runAgentLoop(opts: {
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
   orgId?: string | null;
+  appId?: string;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
   /** Trusted trigger lineage for automation-dispatched action calls. */
@@ -5387,6 +5388,7 @@ export async function runAgentLoop(opts: {
                   await actionEntry.needsApproval(toolCall.input, {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
+                    appId: opts.appId,
                     caller: opts.actionCaller ?? "tool",
                     automation: opts.automation,
                     networkProtocol: opts.networkProtocol,
@@ -5843,6 +5845,7 @@ export async function runAgentLoop(opts: {
           send,
           userEmail: actionUserEmail ?? undefined,
           orgId: actionOrgId,
+          appId: opts.appId,
           caller: opts.actionCaller ?? "tool",
           automation: opts.automation,
           networkProtocol: opts.networkProtocol,

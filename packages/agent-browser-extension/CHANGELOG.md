@@ -1,5 +1,125 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.77
+
+### Patch Changes
+
+- Updated dependencies [c29fcb7]
+- Updated dependencies [c29fcb7]
+  - @agent-native/core@0.148.1
+
+## 0.1.76
+
+### Patch Changes
+
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+  - @agent-native/core@0.148.0
+
+## 0.1.75
+
+### Patch Changes
+
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+  - @agent-native/core@0.147.0
+
+## 0.1.74
+
+### Patch Changes
+
+- Updated dependencies [89d223a]
+  - @agent-native/core@0.146.8
+
+## 0.1.73
+
+### Patch Changes
+
+- Updated dependencies [718ba9e]
+  - @agent-native/core@0.146.7
+
+## 0.1.72
+
+### Patch Changes
+
+- Updated dependencies [a882a53]
+- Updated dependencies [a882a53]
+- Updated dependencies [a882a53]
+- Updated dependencies [a882a53]
+- Updated dependencies [a882a53]
+  - @agent-native/core@0.146.6
+
+## 0.1.71
+
+### Patch Changes
+
+- Updated dependencies [25f588e]
+  - @agent-native/core@0.146.5
+
+## 0.1.70
+
+### Patch Changes
+
+- Updated dependencies [e959709]
+- Updated dependencies [e959709]
+- Updated dependencies [e959709]
+- Updated dependencies [e959709]
+  - @agent-native/core@0.146.4
+
+## 0.1.69
+
+### Patch Changes
+
+- Updated dependencies [62f694b]
+  - @agent-native/core@0.146.3
+
+## 0.1.68
+
+### Patch Changes
+
+- Updated dependencies [a107169]
+  - @agent-native/core@0.146.2
+
+## 0.1.67
+
+### Patch Changes
+
+- Updated dependencies [6071f7d]
+- Updated dependencies [6071f7d]
+- Updated dependencies [6071f7d]
+  - @agent-native/core@0.146.1
+
+## 0.1.66
+
+### Patch Changes
+
+- Updated dependencies [c440e50]
+- Updated dependencies [c440e50]
+- Updated dependencies [c440e50]
+  - @agent-native/core@0.146.0
+
+## 0.1.65
+
+### Patch Changes
+
+- Updated dependencies [c497c85]
+- Updated dependencies [c497c85]
+  - @agent-native/core@0.145.8
+
 ## 0.1.64
 
 ### Patch Changes

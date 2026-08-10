@@ -233,6 +233,9 @@ describe("Analytics agent Plan mode policy", () => {
     const context = await extraContext?.();
     expect(context).toContain("EXECUTION CONTINUITY");
     expect(context).toContain("Do not ask 'want me to proceed?'");
+    expect(context).toContain("APPROVED MUTATION CONTINUITY");
+    expect(context).toContain("saved: true");
+    expect(context).toContain("changed: true");
   });
 
   it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {

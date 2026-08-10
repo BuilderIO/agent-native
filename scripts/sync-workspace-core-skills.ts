@@ -268,6 +268,7 @@ const requiredRegistryConventionSkills = [
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
   "babysit-pr",
+  "chat-first-workbench",
   "concurrent-agents",
   "delegating-work",
   "fix-at-the-boundary",

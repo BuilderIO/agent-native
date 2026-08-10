@@ -9,7 +9,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 將代�
 
 您不需要從頭開始建置原生代理。代理聊天、代理資源分頁、CLI 終端、語音輸入和所有相關基礎設施都作為少數 React 元件提供給您放入任何應用程式中。
 
-> **先決條件：** 伺服器必須執行 `agent-chat-plugin`（它會自動安裝在每個範本中）。如果您是從頭開始，請參閱 [Server](/docs/server)。
+> **先決條件：** 伺服器必須執行 `agent-chat-plugin`（它會自動安裝在每個範本中）。如果您是從頭開始，請參閱 [Server](/docs/server-overview)。
 >
 > 需要公開 API 地圖而不是教學？參見[Component API](/docs/components)。
 
@@ -136,11 +136,11 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 將代�
   ]}
 />
 
-就是這樣。使用者現在在每個頁面上都有一個可切換代理 - 具有聊天歷史紀錄、代理資源分頁、CLI 終端、語音輸入和全螢幕模式。透過 `localStorage` 重新載入，狀態仍然存在。
+就是這樣。使用者現在在每個頁面上都有一個可切換代理 - 具有聊天歷史紀錄、代理資源分頁、CLI 終端、語音輸入和較寬的抽屜。透過 `localStorage` 重新載入，狀態仍然存在。
 
 ### 道具
 
-- **`children`** — 您的應用程式的正常布局和路由。在主區域渲染；代理面板在桌面上安裝在其旁邊，在行動/全螢幕上安裝在其上方。
+- **`children`** — 您的應用程式的正常布局和路由。在主區域渲染；代理面板在桌面上安裝在其旁邊，在行動裝置上安裝在其上方。
 - **`emptyStateText`** — 聊天沒有訊息時顯示的問候語。預設值：`"How can I help you?"`。
 - **`suggestions`** — 啟動提示在空時呈現為可點選的標籤。
 - **`dynamicSuggestions`** — 脈絡感知提示標籤與 `suggestions` 合併。預設啟用；傳遞 `false` 僅顯示靜態建議，或傳遞 `{ max, includeStatic, getSuggestions }` 進行自訂。
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` 或 `"cli"`。預設值：`"chat"`。
 - **`className`** — 外部容器的 CSS 類。
 - **`onCollapse`** — 如果提供，標題中會出現折疊按鈕。
-- **`isFullscreen`** / **`onToggleFullscreen`** — 如果您想要 Claude 樣式的居中列，請連線外部全螢幕狀態。
+- **`isFullscreen`** — 如果您想在頁面或自訂面板中使用 Claude 樣式的置中欄，請設定此項。側邊欄改用較寬的抽屜。
 - **`storageKey`** — `localStorage` 金鑰的命名空間。當您在同一頁面中渲染多個面板（不同的應用程式執行個體或工作區）時很有用。
 
 完整道具：`@agent-native/core/client` 中的 `AgentPanelProps`。

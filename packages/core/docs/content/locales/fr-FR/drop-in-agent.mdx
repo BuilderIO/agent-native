@@ -9,7 +9,7 @@ description: "Montez le chat et les ressources de l'agent dans n'importe quelle 
 
 Vous n'avez pas besoin de créer un agent natif à partir de zéro. Le chat de l'agent, l'onglet Ressources de l'agent, le terminal CLI, la saisie vocale et toute l'infrastructure associée sont livrés sous la forme d'une poignée de composants React que vous déposez dans n'importe quelle application.
 
-> **Prérequis :** le serveur doit exécuter `agent-chat-plugin` (il se monte automatiquement dans chaque modèle). Si vous partez de zéro, voir [Server](/docs/server).
+> **Prérequis :** le serveur doit exécuter `agent-chat-plugin` (il se monte automatiquement dans chaque modèle). Si vous partez de zéro, voir [Server](/docs/server-overview).
 >
 > Besoin de la carte publique API au lieu d'un didacticiel ? Voir [Component API](/docs/components).
 
@@ -136,11 +136,11 @@ les enfants restent dans la zone principale de l'application. Le chat de l'agent
   ]}
 />
 
-C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet ressources de l'agent, terminal CLI, saisie vocale et mode plein écran. L'état persiste lors des rechargements via `localStorage`.
+C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet ressources de l'agent, terminal CLI, saisie vocale et un panneau élargi. L'état persiste lors des rechargements via `localStorage`.
 
 ### Accessoires
 
-- **`children`** : présentation et itinéraires normaux de votre application. Rendu dans la zone principale ; le panneau d'agent se monte à côté sur le bureau et par-dessus sur mobile/plein écran.
+- **`children`** : présentation et itinéraires normaux de votre application. Rendu dans la zone principale ; le panneau d'agent se monte à côté sur le bureau et par-dessus sur mobile.
 - **`emptyStateText`** — message d'accueil affiché lorsque le chat n'a aucun message. Par défaut : `"How can I help you?"`.
 - **`suggestions`** — invites de démarrage affichées sous forme de puces cliquables lorsqu'elles sont vides.
 - **`dynamicSuggestions`** — puces d'invite contextuelles fusionnées avec `suggestions`. Activé par défaut ; transmettez `false` pour afficher uniquement les suggestions statiques, ou `{ max, includeStatic, getSuggestions }` pour personnaliser.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` ou `"cli"`. Par défaut : `"chat"`.
 - **`className`** — Classe CSS pour le conteneur externe.
 - **`onCollapse`** — s'il est fourni, un bouton de réduction apparaît dans l'en-tête.
-- **`isFullscreen`** / **`onToggleFullscreen`** – connectez l'état plein écran externe si vous souhaitez une colonne centrée de style Claude.
+- **`isFullscreen`** – activez cette option pour une colonne centrée de style Claude sur une surface de page ou un panneau personnalisé. La barre latérale utilise plutôt le panneau élargi.
 - **`storageKey`** — espace de noms pour les clés `localStorage`. Utile lorsque vous affichez plusieurs panneaux (différentes instances d'application ou espaces de travail) sur la même page.
 
 Accessoires complets : `AgentPanelProps` dans `@agent-native/core/client`.

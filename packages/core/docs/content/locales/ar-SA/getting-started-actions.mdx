@@ -71,7 +71,7 @@ export default defineAction({
 });
 ```
 
-شغّله من الطرفية:
+شغّله من دليل التطبيق:
 
 ```bash
 pnpm action analyze-text --text "Hello world. How are you today?"
@@ -81,12 +81,12 @@ pnpm action analyze-text --text "Hello world. How are you today?"
 
 > Run the analyze-text action on "Hello world. How are you today?"
 
-يحوّل عارض `data-chart` المضمّن النتيجة المنظَّمة إلى مخطط في سجل المحادثة. لا
-يوجد ملف عارض أو استيراد `app/root.tsx` لإضافته. للمكونات الأصلية المخصصة، راجع
+عند تشغيل الوكيل لهذا الإجراء في المحادثة، يحوّل عارض `data-chart` المضمّن
+النتيجة المنظَّمة إلى مخطط في سجل المحادثة. لا يوجد ملف عارض أو استيراد
+`app/root.tsx` لإضافته. للمكونات الأصلية المخصصة، راجع
 [واجهة المحادثة الأصلية](/docs/native-chat-ui).
 
 ## المتابعة
 
 تابع إلى [إضافة صفحة](/docs/getting-started-pages) لاستخدام الإجراء نفسه خارج
-سجل المحادثة. عندما تحتاج النتائج إلى الاستمرار بين المحادثات، ارجع إلى
-[حفظ البيانات في SQL](/docs/getting-started-database).
+سجل المحادثة.

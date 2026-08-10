@@ -68,6 +68,21 @@ function withAppBasePath(path: string): string {
 
 const AGENT_NATIVE_TERMS_URL = "https://www.agent-native.com/terms";
 const AGENT_NATIVE_PRIVACY_URL = "https://www.agent-native.com/privacy";
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  if (
+    process.env.NODE_ENV !== "development" &&
+    process.env.NODE_ENV !== "test"
+  ) {
+    return false;
+  }
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
 
 const EN_AUTH_COPY = {
   languageLabel: "Language",
@@ -1500,6 +1515,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
+  const builderPreviewLocalDevEnabled = isBuilderPreviewLocalDevEnabled();
   const localeInitScript = getLocaleInitScript();
 
   const marketing: AuthMarketingContent | undefined =
@@ -3076,6 +3092,7 @@ ${signInJourneyInlineScript()}
     var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
     var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = ${JSON.stringify(workspaceGatewayReturnOrigin)};
     var __AN_GOOGLE_AUTH_MODE = ${JSON.stringify(googleAuthMode)};
+    var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = ${JSON.stringify(builderPreviewLocalDevEnabled)};
     function __anConfiguredOAuthOrigin() {
       if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
       try {
@@ -3205,8 +3222,15 @@ ${signInJourneyInlineScript()}
       var hostname = (window.location.hostname || '').toLowerCase();
       return hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1' || hostname.indexOf('127.') === 0;
     }
+    function __anIsBuilderPreviewHost() {
+      var hostname = (window.location.hostname || '').toLowerCase();
+      return hostname.endsWith('.builderio.xyz') || hostname.endsWith('.builderio.dev') || hostname.endsWith('.builder.codes') || hostname.endsWith('.builder.my');
+    }
+    function __anCanUseLocalDevSignin() {
+      return __anIsLoopbackHostname() || (__AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED && __anIsBuilderPreviewHost());
+    }
     function __anShouldStartWithLocalDev() {
-      if (!__anIsLoopbackHostname()) return false;
+      if (!__anCanUseLocalDevSignin()) return false;
       var params = new URLSearchParams(window.location.search);
       var explicitTab = params.get('tab');
       var verifiedRedirect = typeof __anIsVerifiedRedirectSuccess === 'function' && __anIsVerifiedRedirectSuccess();
@@ -3229,7 +3253,7 @@ ${signInJourneyInlineScript()}
       var button = document.getElementById('local-dev-btn');
       var fullOptionsButton = document.getElementById('local-dev-full-options');
       var message = document.getElementById('local-dev-msg');
-      if (!container || !button || !__anIsLoopbackHostname()) return;
+      if (!container || !button || !__anCanUseLocalDevSignin()) return;
       container.hidden = false;
       var startWithLocalDev = __anShouldStartWithLocalDev();
       __anSetFullAuthOptionsVisible(!startWithLocalDev);

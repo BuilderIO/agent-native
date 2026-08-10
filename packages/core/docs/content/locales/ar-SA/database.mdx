@@ -105,7 +105,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-قم باستيراد `getDb` من هذا المسار المحلي للقالب — `../../server/db/index.js` في المسارات، و`../server/db/index.js` في actions — بدلاً من `@agent-native/core` مباشرةً. يقوم التصدير الأساسي بإرجاع مثيل عام غير مكتوب؛ يحمل `getDb()` الخاص بالقالب أنواع المخططات الخاصة بك. راجع [Server](/docs/server#request-context) لمعرفة كيفية استيراد كل من actions والمسارات المخصصة له.
+قم باستيراد `getDb` من هذا المسار المحلي للقالب — `../../server/db/index.js` في المسارات، و`../server/db/index.js` في actions — بدلاً من `@agent-native/core` مباشرةً. يقوم التصدير الأساسي بإرجاع مثيل عام غير مكتوب؛ يحمل `getDb()` الخاص بالقالب أنواع المخططات الخاصة بك. راجع [Server](/docs/server-routes#request-context) لمعرفة كيفية استيراد كل من actions والمسارات المخصصة له.
 
 ## مخطط واستعلامات محايدة اللهجة {#schema}
 

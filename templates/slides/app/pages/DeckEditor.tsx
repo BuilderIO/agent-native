@@ -44,7 +44,7 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { Button } from "@/components/ui/button";
-import { useDecks } from "@/context/DeckContext";
+import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -275,8 +275,10 @@ export default function DeckEditor() {
   });
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
-  // get the full editor.
-  const { canEdit } = useDeckRole(id);
+  // get the full editor. Only assume edit access while the role is still
+  // loading when `createdByMe` already confirms ownership — otherwise a
+  // viewer would briefly see (and could click) edit affordances.
+  const { canEdit } = useDeckRole(id, deck?.createdByMe === true);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -1001,9 +1003,10 @@ export default function DeckEditor() {
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
-        onUpdateSlide={(updates) =>
-          currentSlide && updateSlide(id, currentSlide.id, updates)
-        }
+        onUpdateSlide={(updates, slideIdOverride) => {
+          const targetId = slideIdOverride ?? currentSlide?.id;
+          if (targetId) updateSlide(id, targetId, updates);
+        }}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
@@ -1025,7 +1028,16 @@ export default function DeckEditor() {
         onToggleTextBoxMode={toggleTextBoxMode}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
-          const optimistic = duplicateDeck(id, newId);
+          const optimistic = duplicateDeck(id, newId, undefined, () => {
+            // The background duplicate-deck action failed after we already
+            // navigated to the optimistic copy. If the user is still there,
+            // send them back instead of stranding them on a "Deck
+            // unavailable" screen for a deck that no longer exists.
+            if (deckIdFromPathname(window.location.pathname) === newId) {
+              navigate("/");
+            }
+            toast.error(t("home.duplicateFailed"));
+          });
           if (optimistic) navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
@@ -1128,6 +1140,7 @@ export default function DeckEditor() {
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
                   generatingSlide={
                     generatingSlideVisible
                       ? {
@@ -1166,6 +1179,7 @@ export default function DeckEditor() {
               <GeneratingSlidePreview
                 content={streamedGeneratingSlideContent}
                 aspectRatio={deck.aspectRatio}
+                designSystem={designSystem}
                 thumbnail={false}
               />
             </div>
@@ -1181,6 +1195,7 @@ export default function DeckEditor() {
                 <GeneratingSlidePreview
                   content={streamedGeneratingSlideContent}
                   aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
                   thumbnail={false}
                 />
               </div>

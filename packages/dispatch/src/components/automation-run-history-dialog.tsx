@@ -84,6 +84,7 @@ export function AutomationRunHistoryDialog({
     {
       name: automation?.name ?? "",
       scope,
+      appId: automation?.appId ?? "dispatch",
     },
     {
       enabled: open && Boolean(automation),

@@ -61,6 +61,16 @@ export { getLocaleInitScript } from "../localization/server.js";
 
 export type LocaleMessages = Record<string, unknown>;
 
+export type AgentNativeI18nLocaleLoader = () => Promise<
+  LocaleMessages | { default: LocaleMessages }
+>;
+
+function isAgentNativeI18nModuleNamespace(
+  value: LocaleMessages | { default: LocaleMessages },
+): value is { default: LocaleMessages } {
+  return Object.prototype.toString.call(value) === "[object Module]";
+}
+
 export interface LocaleHydrationPayload {
   locale?: LocaleCode;
   preference?: LocalizationPreference;
@@ -79,6 +89,31 @@ export interface AgentNativeI18nCatalog {
    * `loadMessages` covers all of them.
    */
   supportedLocales?: readonly LocaleCode[];
+}
+
+export function createAgentNativeI18nCatalog(args: {
+  messages: LocaleMessages;
+  localeLoaders: Partial<Record<LocaleCode, AgentNativeI18nLocaleLoader>>;
+  namespace?: string;
+  sourceLocale?: LocaleCode;
+  supportedLocales?: readonly LocaleCode[];
+}): AgentNativeI18nCatalog & {
+  messages: LocaleMessages;
+  sourceLocale: LocaleCode;
+  loadMessages: (locale: LocaleCode) => Promise<LocaleMessages | null>;
+} {
+  return {
+    namespace: args.namespace,
+    sourceLocale: args.sourceLocale ?? DEFAULT_LOCALE,
+    messages: args.messages,
+    supportedLocales: args.supportedLocales,
+    loadMessages: async (locale) => {
+      const loader = args.localeLoaders[locale];
+      if (!loader) return null;
+      const loaded = await loader();
+      return isAgentNativeI18nModuleNamespace(loaded) ? loaded.default : loaded;
+    },
+  };
 }
 
 export interface AgentNativeI18nProviderProps {

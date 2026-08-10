@@ -17,6 +17,10 @@ export default defineConfig({
     sitemapPlugin(),
     ...agentNativePlugins({
       tailwind: false,
+      // Syntax highlighting is hydrated after the document loads. Keeping
+      // Shiki out of the SSR graph avoids loading its language catalog on a
+      // cold docs Function just to render the initial Markdown shell.
+      ssrStubs: ["shiki"],
       // Warm routes as they enter the real viewport. Render-warming the whole
       // docs graph stampedes uncached SSR/function calls after every mount.
       routeWarmup: {

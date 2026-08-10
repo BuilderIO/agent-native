@@ -294,6 +294,7 @@ describe("VideoPlayer playback", () => {
     expect(container.querySelector('[title^="Cut:"]')).toBeNull();
     expect(container.textContent).toContain("0:00/0:08");
     expect(container.textContent).not.toContain("0:00/0:10");
+    expect(container.textContent).not.toContain("10 sec");
   });
 
   it("stops a hung play attempt and leaves playback retryable", () => {

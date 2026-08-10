@@ -55,7 +55,28 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
     expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");
     expect(html).toContain("hostname.indexOf('127.') === 0");
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
     expect(html).not.toContain("NODE_ENV");
+  });
+
+  it("enables the local-dev CTA on Builder previews only with explicit opt-in", () => {
+    vi.stubEnv("AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV", "1");
+
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = true;",
+    );
+    expect(html).toContain("function __anIsBuilderPreviewHost()");
+    expect(html).toContain("function __anCanUseLocalDevSignin()");
+    expect(html).toContain("hostname.endsWith('.builder.my')");
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(getOnboardingHtml()).toContain(
+      "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
+    );
   });
 
   describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {

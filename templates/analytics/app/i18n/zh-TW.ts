@@ -1258,7 +1258,7 @@ const messages = {
     storageSetupDescription:
       "工作階段回放錄製需要先設定儲存才能儲存分塊。連線 Builder.io 以使用免費方案儲存，或設定您自己的 S3 相容儲存桶。",
     storageConnected: "已連線儲存",
-    connectBuilder: "使用 Builder.io（免費）",
+    connectBuilder: "使用 Builder.io",
     configureS3: "設定 S3 儲存",
     devtools: "開發工具",
     devtoolsIssueCount: "偵測到 {{count}} 個問題",

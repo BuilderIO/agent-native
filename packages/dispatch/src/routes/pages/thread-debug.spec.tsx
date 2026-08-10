@@ -27,13 +27,17 @@ const failedRun = {
   threadTitle: "Mail agent failed",
   threadPreview: "Provider timed out",
   status: "errored",
-  errorCode: "provider_timeout",
-  errorDetail: "The provider did not respond.",
-  terminalReason: "provider_timeout",
+  errorCode: "stale_run",
+  errorDetail:
+    "The run heartbeat stopped while the run was still marked running.",
+  terminalReason: "stale_run",
   abortReason: null,
   dispatchMode: "background-processing",
   diagStage: null,
   workerStage: "model",
+  heartbeatAt: 1_722_400_029_000,
+  lastProgressAt: 1_722_400_028_000,
+  regime: "scheduled",
   startedAt: 1_722_400_000_000,
   completedAt: 1_722_400_030_000,
   durationMs: 30_000,
@@ -67,12 +71,41 @@ const detail = {
   queuedMessages: [],
   threadData: {},
   rawThreadData: "{}",
-  runs: [],
+  runs: [
+    {
+      ...failedRun,
+      events: [
+        {
+          seq: 1,
+          event: { type: "tool_start", tool: "search-mail" },
+          rawEventData: '{"type":"tool_start","tool":"search-mail"}',
+        },
+        {
+          seq: 2,
+          event: { type: "error", errorCode: "stale_run" },
+          rawEventData: '{"type":"error","errorCode":"stale_run"}',
+        },
+      ],
+      completedAt: null,
+      durationMs: null,
+    },
+  ],
   traces: { summaries: [], spans: [] },
   feedback: [],
   satisfaction: [],
   evals: [],
   checkpoints: [],
+};
+
+const threadResult = {
+  id: "thread-chat-1",
+  ownerEmail: "ops@example.com",
+  title: "Job: builder-agent-refresh — 8/9/2026",
+  preview: "thread-chat-1",
+  messageCount: 3,
+  createdAt: 1_722_400_000_000,
+  updatedAt: 1_722_400_030_000,
+  snippet: "{}",
 };
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -158,6 +191,25 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     if (name === "get-agent-thread-debug") {
       return { ...base, data: enabled ? detail : undefined };
     }
+    if (name === "search-agent-threads") {
+      return {
+        ...base,
+        data: enabled
+          ? {
+              count: 1,
+              threads: [threadResult],
+              access: {
+                scope: "current organization",
+                canInspectAll: true,
+              },
+              source: {
+                id: "current",
+                label: "Current Dispatch DB",
+              },
+            }
+          : undefined,
+      };
+    }
     return { ...base, data: undefined };
   },
 }));
@@ -219,10 +271,13 @@ describe("ThreadDebugRoute", () => {
     ).toMatchObject({
       sourceId: "all",
       status: "all",
+      regime: "all",
       lookbackHours: 24,
     });
     expect(container.textContent).toContain("Partial results");
     expect(container.textContent).toContain("Clips (unavailable)");
+    expect(container.textContent).not.toContain(failedRun.id);
+    expect(container.textContent).not.toContain(failedRun.threadId);
 
     const failureButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent?.includes("Inspect failed run"),
@@ -243,6 +298,8 @@ describe("ThreadDebugRoute", () => {
       sourceId: "mail",
       runId: failedRun.id,
     });
+    expect(container.textContent).toContain("Worker stopped reporting");
+    expect(container.textContent).toContain("retained 2 execution events");
   });
 
   it("passes valid URL-backed failure filters to the action", async () => {
@@ -250,7 +307,7 @@ describe("ThreadDebugRoute", () => {
       root.render(
         <MemoryRouter
           initialEntries={[
-            "/thread-debug?source=mail&owner=ops%40example.com&status=errored&range=7d",
+            "/thread-debug?source=mail&owner=ops%40example.com&status=errored&regime=scheduled&range=7d",
           ]}
         >
           <ThreadDebugRoute />
@@ -266,7 +323,48 @@ describe("ThreadDebugRoute", () => {
       sourceId: "mail",
       ownerEmail: "ops@example.com",
       status: "errored",
+      regime: "scheduled",
       lookbackHours: 168,
     });
+  });
+
+  it("keeps thread list rows human-readable without technical identifiers", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/thread-debug?mode=threads"]}>
+          <ThreadDebugRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Builder Agent Refresh");
+    expect(container.textContent).toContain("3 messages");
+    expect(container.textContent).toContain("ops@example.com");
+    expect(container.textContent).toContain("Advanced");
+    expect(container.textContent).not.toContain("Owner email");
+    expect(container.textContent).not.toContain("Find a thread");
+    expect(container.textContent).not.toContain("Search by title");
+    expect(container.textContent).not.toContain(threadResult.id);
+    expect(container.textContent).not.toContain("{}");
+    expect(container.querySelector("summary svg")).toBeTruthy();
+    const searchCall = queryState.calls.find(
+      (call) => call.name === "search-agent-threads" && call.enabled,
+    );
+    expect(searchCall?.params).toMatchObject({
+      sourceId: "current",
+      limit: 25,
+    });
+    expect(searchCall?.params).not.toHaveProperty("ownerEmail");
+
+    const searchInput = container.querySelector(
+      'input[aria-label="Search threads or email"]',
+    );
+    expect(searchInput).toBeTruthy();
+    await act(async () => {
+      (searchInput as HTMLInputElement).focus();
+    });
+    expect(document.body.querySelector('[role="option"]')?.textContent).toBe(
+      "ops@example.com",
+    );
   });
 });

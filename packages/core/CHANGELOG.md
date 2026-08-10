@@ -1,5 +1,236 @@
 # @agent-native/core
 
+## 0.148.1
+
+### Patch Changes
+
+- c29fcb7: Render docs diagram arrows as directional CSS/Rough.js geometry instead of text or emoji glyphs.
+- c29fcb7: Restore an All apps destination at the bottom of the chat-first app shelf.
+
+## 0.148.0
+
+### Minor Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- 061896a: Keep imported Agent Plugin skills in the agent-visible workspace skills tree, including namespaced plugin skills.
+- 061896a: Add a bounded read-only tool-orchestration action for fan-out, aggregation, and reduction over discovered tools.
+- 061896a: Use the recap CLI package as the single implementation source for Core's recap skill, Plan block, and publish-token helpers while preserving Core compatibility exports.
+- 061896a: Consolidate shared pure brand analysis and code token extraction used by the Design and Slides templates.
+- 061896a: Expose the shared wireframe and diagram sanitizer through the Core blocks surface so Plan uses one client-side implementation.
+- 061896a: Add a reusable i18n catalog helper for standalone template locale loaders.
+- 061896a: Preserve scheduled automation lineage so app actions can link their work to the exact background run.
+- 061896a: Prevent duplicate recurring automation dispatch across multiple app deployments and preserve verified Builder credentials for detached background runs.
+- 061896a: Keep organization automations scoped to their owning app so unrelated schedulers cannot execute them with the wrong credentials.
+- 061896a: Document prerendering in the scaffolded app's `react-router.config.ts`: a commented, correct example with the three conditions a path must meet (public, build-time constant, never redirecting), left off by default because every route the scaffold ships is signed-in and a prerendered file is served without auth middleware running.
+- 061896a: Repair structured route metadata before it can appear as a serialized payload in browser tab titles.
+- 061896a: Unify agent provider setup across chat recovery and Settings with searchable support for cloud, gateway, and local providers.
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+  - @agent-native/recap-cli@0.5.4
+  - @agent-native/toolkit@0.13.7
+
+## 0.147.0
+
+### Minor Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- cf16fae: Keep imported Agent Plugin skills in the agent-visible workspace skills tree, including namespaced plugin skills.
+- cf16fae: Prevent duplicate recurring automation dispatch across multiple app deployments and preserve verified Builder credentials for detached background runs.
+- cf16fae: Document prerendering in the scaffolded app's `react-router.config.ts`: a commented, correct example with the three conditions a path must meet (public, build-time constant, never redirecting), left off by default because every route the scaffold ships is signed-in and a prerendered file is served without auth middleware running.
+- cf16fae: Repair structured route metadata before it can appear as a serialized payload in browser tab titles.
+- Updated dependencies [cf16fae]
+  - @agent-native/toolkit@0.13.6
+
+## 0.146.8
+
+### Patch Changes
+
+- 89d223a: Allow the signed recurring-job sweep to reach its internal HMAC verifier instead of being rejected by the browser-session auth guard.
+
+## 0.146.7
+
+### Patch Changes
+
+- 718ba9e: Allow the signed recurring-job sweep to reach its internal HMAC verifier instead of being rejected by the browser-session auth guard.
+
+## 0.146.6
+
+### Patch Changes
+
+- a882a53: Make a slow cold-start response diagnosable from one look. HTTP telemetry now
+  reports the pre-handler boot phases (`boot_to_module_ms`, `module_to_request_ms`)
+  that no in-handler measurement can see, logs one structured line to stdout for
+  every cold or slow (>=1s) request, and stops putting live-looking per-phase
+  `server-timing` entries on shared-cacheable responses — a CDN replays those
+  bytes, so a cacheable response now carries a single `origin` entry stamped with
+  the wall-clock time of the render that produced it.
+- a882a53: Stop MCP hydration from running on every serverless cold start. Eager
+  initialization now only happens on long-lived runtimes; serverless functions
+  initialize on first use from the agent-chat handler, the MCP management routes,
+  and the recurring-jobs sweep. The 60-second MCP config refresh timer is gated by
+  `shouldDisableInProcessSweeps()` like the other in-process sweeps, and an
+  unreadable settings table now rejects with `McpConfigUnreadableError` instead of
+  being coerced into "no MCP servers configured".
+- a882a53: Stop inlining the translation catalog into the render-blocking locale init
+  script. `getLocaleInitScript()` now emits only `locale`, `preference`, and
+  `dir`; the catalog already reaches `AgentNativeI18nProvider` through loader data
+  as `initialMessages`. The `messages` option is removed — passing it is now a
+  type error rather than a silently duplicated payload.
+- a882a53: Provision recurring scheduler health during release migrations so serverless background sweeps can execute scheduled automations.
+- a882a53: Stop shipping the serverless browser runtime into apps that cannot use it. The
+  Chromium/Playwright copy now runs only when the app itself depends on the
+  browser runtime, instead of resolving a sibling workspace package's Chromium
+  through the pnpm store. Serverless function dirs also drop prebuilds that cannot
+  execute on Linux x64/arm64 and any local `data/` SQLite database before the
+  extra Netlify functions are cloned, and the Netlify deploy guard now reports
+  per-function sizes and fails when one exceeds its budget.
+
+## 0.146.5
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
+## 0.146.4
+
+### Patch Changes
+
+- e959709: Keep app-owned scheduled automations on the scheduler for the app that created them.
+- e959709: Keep approval controls visible when a paused chat tool call is rebuilt from its stored events.
+- e959709: Deploying a new app now migrates at release time with no configuration.
+
+  `agent-native create` generates a `CONTEXT=production` migration step in the
+  app's Netlify build command, and the scaffold ships `scripts/migrate-production.ts`.
+  Create an app, connect Netlify, and schema is owned by the deploy — there is no
+  flag to set and no step to remember.
+
+  The serverless request-path migration skip is now the default rather than
+  opt-in. An earlier iteration gated it behind `AGENT_NATIVE_RELEASE_MIGRATIONS`,
+  which was the wrong shape: a flag you must remember is a flag half the fleet
+  will not have, and it left "migrate on every cold start" as the default for
+  every app that did not set it. All templates now ship the release step instead.
+
+  Also fixes a real regression this introduced: the Netlify rewrite detected the
+  existing build command with `command = "([^"]*)"`, which stops at the first
+  escaped quote. Every generated command now contains `\"` from the CONTEXT test,
+  so the `NETLIFY_DATABASE_URL_UNPOOLED` override silently vanished for the four
+  templates that use it, and a created app would have built against the pooled URL.
+
+- e959709: Scope workspace automations to their owning app by default, keep Dispatch's all-apps view explicit, and expose failed run threads for troubleshooting.
+
+## 0.146.3
+
+### Patch Changes
+
+- 62f694b: Add four new docs MDX components — `Notice`, `Banner`, `Accordion`, `Badge` — for content that doesn't belong in a `Cards` grid: a bold alert card, a page/section-top announcement strip, collapsed-by-default FAQ items, and a small status chip. Also fixes the `Steps`/`Cards`/`Comparison`/`Accordion` markdown parser to be fence-aware (a `###` inside a code sample no longer splits into a new item) and to round-trip items with a genuinely empty body, and teaches the docs' crawlable markdown mirror to render all seven docs-only block types as readable text instead of a raw JSON fence.
+
+## 0.146.2
+
+### Patch Changes
+
+- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
+- Updated dependencies [a107169]
+  - @agent-native/toolkit@0.13.5
+
+## 0.146.1
+
+### Patch Changes
+
+- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
+- 6071f7d: Compact agent sidebar shortcut hints and keep the sidebar's wider drawer as its only expand action.
+- 6071f7d: Make the serverless request-path migration skip opt-in via
+  `AGENT_NATIVE_RELEASE_MIGRATIONS`.
+
+  `runMigrations` skips schema work in a production serverless request runtime,
+  which is correct only for an app that migrates somewhere else. Exactly one of
+  seventeen templates has a release migration entrypoint. For the other sixteen,
+  an unconditional skip would not defer the work — it would delete it: a newly
+  added migration silently never applies, and a fresh deploy comes up with
+  missing tables. Nothing fails at the moment of the skip, so the first symptom
+  is a missing-table error in production, far from the cause.
+
+  An app now declares that it owns migrations at release time by setting
+  `AGENT_NATIVE_RELEASE_MIGRATIONS=1`. Analytics sets it in `netlify.toml`
+  alongside its `migrate:production` build step; every other app keeps its
+  existing behavior until it has one.
+
+  Note that the Netlify _build_ environment also sets `NETLIFY=true`, so the
+  release step itself looks like a serverless request to this guard — it works
+  only because the entrypoint claims duty through `withMigrationRuntime()`. A
+  migration entrypoint that forgets that wrapper silently no-ops at build time.
+
+## 0.146.0
+
+### Minor Changes
+
+- c440e50: Add opt-in audience-specific instruction paths and make `agent-native.config.ts` the canonical typed config filename.
+
+### Patch Changes
+
+- c440e50: Stop a refused database connection from immediately producing another attempt.
+
+  Neon rejects a connection _attempt_, not a connection: "Failed to acquire
+  permit to connect to the database. Too many database connection attempts are
+  currently ongoing." A failed acquire leaves the pool with zero idle clients, so
+  the next `execute()` calls `connect()` again — and `retryOnConnectionError`
+  backs off only 100ms. The process answered each refusal by manufacturing the
+  next attempt, which is what kept the refusal true; production stayed wedged
+  until the compute was restarted by hand.
+
+  Every Neon pool now passes through `guardNeonPool` (renamed from
+  `attachNeonPoolErrorLogger`), which holds a short jittered per-endpoint
+  cooldown after a failed attempt. Checking out an already-idle client is not an
+  attempt and still succeeds, so a cooldown degrades throughput instead of taking
+  a warm instance offline. `DbConnectCooldownError` is deliberately not
+  classified as a connection error, so the retry loop exits instead of re-entering
+  the storm, and it reads as transient so shed load surfaces as 503 rather than 500. Tune with `DB_CONNECT_COOLDOWN_MS`.
+
+  The added `url` argument makes any pool that skips the gate a compile error
+  rather than a silent bypass.
+
+- c440e50: Offer local source-code handoffs to external coding agents instead of the Builder waitlist.
+
+## 0.145.8
+
+### Patch Changes
+
+- c497c85: Stop running schema migrations on the serverless request path, and name every
+  database connection.
+
+  `runMigrations` now returns early in a production serverless request runtime.
+  The guard lives in the shared runner rather than at each call site: the
+  analytics template guarded its own runner, but `org`, `context-xray`, and
+  `observational-memory` kept calling `runMigrations` unguarded, so the
+  cold-start probe storm survived the fix meant to end it. Measured in
+  production: the schema snapshot alone costs 5.5-8.6s on a 180-table database,
+  with 4-6 copies running concurrently under load — and when it times out,
+  `ddl-guard` falls back to a per-object probe across ~390 call sites, so
+  starvation multiplies its own query count.
+
+  A scheduled or background runtime claims migration duty through
+  `withMigrationRuntime()`, and `runInServerlessRequest: true` remains the
+  explicit opt-in for a caller that cannot defer. The database client also
+  rejects unguarded schema DDL from production functions, so a new `ensureTable`
+  path fails loudly instead of quietly reintroducing the incident.
+
+  Better Auth table creation now lives in the framework's release migration
+  entrypoint, and Analytics' production deploy runs its framework and template
+  migrations once during the release build. No production request needs an
+  environment variable to skip schema work.
+
+  Postgres pools now set `application_name`. Every backend previously reported
+  `pgbouncer`, which made a 58 MB `SELECT id, config FROM dashboards` running
+  20-wide against production impossible to attribute — it appears nowhere in the
+  repo or any built bundle, and `pg_stat_statements` is not installed.
+
+- c497c85: Use layout-matching skeleton placeholders for shared settings loading states.
+
 ## 0.145.7
 
 ### Patch Changes
