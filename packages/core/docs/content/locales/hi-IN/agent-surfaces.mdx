@@ -214,7 +214,7 @@ Tables, charts, cards, approvals, और typed results chat में first-part
 
 इसे अपने ऐप में `/settings/agent` पर mount करें। वर्तमान templates इसे canonical route के रूप में इस्तेमाल करते हैं और `AgentSidebar` को `agentPageHref="/settings/agent"` पास करते हैं। `/agent` legacy redirect के रूप में बना हुआ है।
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;

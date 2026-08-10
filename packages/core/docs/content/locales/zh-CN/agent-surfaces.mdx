@@ -214,7 +214,7 @@ Agent 可以动态创建内联控件，并在工作流需要持久化时保存�
 
 在你的应用中将其挂载到 `/settings/agent`。当前模板将其作为规范路由，并向 `AgentSidebar` 传递 `agentPageHref="/settings/agent"`。`/agent` 作为旧版重定向保留。
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;

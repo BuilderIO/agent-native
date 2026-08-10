@@ -214,7 +214,7 @@ Action 結果可以直接開啟正確的應用程式檢視：圖表連結至儀�
 
 在你的應用程式中將其掛載於 `/settings/agent`。目前的範本將此作為標準路由，並將 `agentPageHref="/settings/agent"` 傳遞給 `AgentSidebar`。`/agent` 會保留為舊版重新導向。
 
-```tsx filename=”app/routes/agent.tsx”
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from “@agent-native/core/client/agent-chat”;
 export default function AgentRoute() {
   return <AgentTabsPage />;

@@ -230,7 +230,7 @@ Chaque application Agent-Native finit par avoir besoin d'un endroit où les util
 
 Montez-le à `/settings/agent` dans votre application. Les modèles actuels utilisent cette route canonique et transmettent `agentPageHref="/settings/agent"` à `AgentSidebar`. `/agent` reste disponible comme redirection héritée.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;

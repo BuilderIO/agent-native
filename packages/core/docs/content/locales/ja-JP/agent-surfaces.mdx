@@ -216,7 +216,7 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 アプリの `/settings/agent` にマウントしてください。現在のテンプレートはこれを正規ルートとして使用し、`AgentSidebar` に `agentPageHref="/settings/agent"` を渡します。`/agent` は従来のリダイレクトとして残されています。
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;

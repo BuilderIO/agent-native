@@ -227,7 +227,7 @@ Alpine/Tailwind المحمية مضمّنةً، ويمكنها قراءة حال
 
 ثبّته في `/settings/agent` في تطبيقك. تستخدم القوالب الحالية هذا المسار كمسار أساسي وتمرّر `agentPageHref="/settings/agent"` إلى `AgentSidebar`. ويظل `/agent` متاحًا كإعادة توجيه قديمة.
 
-```tsx filename="app/routes/agent.tsx"
+```tsx filename="app/routes/settings.agent.tsx"
 import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return <AgentTabsPage />;
