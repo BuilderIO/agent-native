@@ -49,7 +49,7 @@ async function postAction(
   return res.json();
 }
 
-async function newDesign(page: Page): Promise<string> {
+async function newDesign(page: Page, content = FIXTURE): Promise<string> {
   const created = await postAction(page, "create-design", {
     title: "constraints and breakpoints",
     projectType: "prototype",
@@ -59,7 +59,7 @@ async function newDesign(page: Page): Promise<string> {
   await postAction(page, "create-file", {
     designId: id,
     filename: "index.html",
-    content: FIXTURE,
+    content,
     fileType: "html",
   });
   return id;
@@ -353,6 +353,40 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
       `skill: "The bound for an override is next-wider frame width - 1" — editing at 390 ` +
         `with an 810 breakpoint present must scope to max-width: 809px. Found ${JSON.stringify(bounds)}.`,
     ).toContain(809);
+  });
+
+  test("a breakpoint edit persists when the document has no head", async ({
+    page,
+  }) => {
+    const id = await newDesign(
+      page,
+      FIXTURE.replace(/\s*<head>[\s\S]*?<\/head>/i, ""),
+    );
+    await postAction(page, "add-breakpoint", {
+      designId: id,
+      label: "Tablet",
+      widthPx: 810,
+    });
+    await postAction(page, "add-breakpoint", {
+      designId: id,
+      label: "Phone",
+      widthPx: 390,
+    });
+    await postAction(page, "apply-visual-edit", {
+      source: { kind: "design-file", designId: id, filename: "index.html" },
+      intent: {
+        kind: "style",
+        target: { nodeId: "child" },
+        property: "background",
+        value: "rgb(255, 0, 0)",
+      },
+      activeFrameWidthPx: 390,
+    });
+
+    const html = await indexHtml(page, id);
+    expect(html).toContain("max-width: 809px");
+    expect(html.indexOf("<style")).toBeGreaterThan(html.indexOf("<html"));
+    expect(html.indexOf("<style")).toBeLessThan(html.indexOf("</html>"));
   });
 
   test("the default device set is a desktop base plus mobile only", async ({

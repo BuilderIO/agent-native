@@ -707,8 +707,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       html: boardSurfaceHtml,
       logicalGeometry: boardFrameGeometry,
       viewport: boardStaticPreviewViewport,
+      background: boardSurfaceBackground,
     });
-  }, [boardSurfaceHtml, boardFrameGeometry, boardStaticPreviewViewport]);
+  }, [
+    boardSurfaceHtml,
+    boardFrameGeometry,
+    boardStaticPreviewViewport,
+    boardSurfaceBackground,
+  ]);
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
     boardSurfaceRenderGeometry &&

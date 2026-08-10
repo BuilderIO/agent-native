@@ -151,6 +151,90 @@ test.beforeAll(async ({}, testInfo) => {
     "http://127.0.0.1:9333";
 });
 
+test("the Frame option remains sticky when reactivated with F", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+  const empty = await emptyBoardPoint(page);
+  const filesBefore = await designFiles(page, id);
+
+  await page.getByRole("button", { name: "Frame options" }).click();
+  await page.getByRole("menuitem").filter({ hasText: "Frame" }).click();
+  await drawWith(page, "Frame", empty, {
+    x: empty.x + 180,
+    y: empty.y + 140,
+  });
+  expect(await designFiles(page, id)).toEqual(filesBefore);
+  expect(
+    (await fileContent(page, id, "__board__.html")).match(
+      /data-an-primitive="frame"/g,
+    ),
+  ).toHaveLength(1);
+
+  await page.keyboard.press("f");
+  await page.mouse.move(empty.x, empty.y + 180);
+  await page.mouse.down();
+  await page.mouse.move(empty.x + 160, empty.y + 300, { steps: 16 });
+  await page.mouse.up();
+  await page.waitForTimeout(3000);
+  expect(await designFiles(page, id)).toEqual(filesBefore);
+  expect(
+    (await fileContent(page, id, "__board__.html")).match(
+      /data-an-primitive="frame"/g,
+    ),
+  ).toHaveLength(2);
+});
+
+test("the Screen option creates a screen after selecting Frame", async ({
+  page,
+}) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+  const filesBefore = await designFiles(page, id);
+
+  await page.getByRole("button", { name: "Frame options" }).click();
+  await page.getByRole("menuitem").filter({ hasText: "Frame" }).click();
+  await page.getByRole("button", { name: "Frame options" }).click();
+  await page.getByRole("menuitem").filter({ hasText: "Screen" }).click();
+
+  const empty = await emptyBoardPoint(page);
+  await drawWith(page, "Frame", empty, { x: empty.x + 200, y: empty.y + 150 });
+  expect(await designFiles(page, id)).toHaveLength(filesBefore.length + 1);
+});
+
+test("the live board uses the light canvas theme token", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.addInitScript(() => localStorage.setItem("theme", "light"));
+  const id = await newDesign(page);
+  await openEditor(page, id);
+  const empty = await emptyBoardPoint(page);
+  await drawWith(page, "Rectangle", empty, {
+    x: empty.x + 160,
+    y: empty.y + 120,
+  });
+
+  await expect(page.locator("html")).toHaveClass(/light/);
+  await expect(
+    page.locator(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    ),
+  ).toHaveCSS("background-color", "rgb(235, 235, 235)");
+});
+
+test("the development interaction trace exposes a dump", async ({ page }) => {
+  const id = await newDesign(page);
+  await openEditor(page, id);
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => typeof window.__designTrace?.dump === "function"),
+    )
+    .toBe(true);
+  const dump = await page.evaluate(() => window.__designTrace!.dump());
+  expect(dump).toContain("[");
+});
+
 test("1:19 — the Frame tool inside a screen makes a frame, not a screen", async ({
   page,
 }) => {

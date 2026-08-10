@@ -240,6 +240,34 @@ test.describe("keyboard selection traversal", () => {
     ).toBe("Kid One");
   });
 
+  test("Shift+Arrow nudges a collapsed container 10px on the first press", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    const row = layerRow(page, "Wrap");
+    const collapse = row.getByRole("button", { name: "Collapse layer" });
+    if (await collapse.isVisible()) await collapse.click();
+    await expect(
+      row.getByRole("button", { name: "Expand layer" }),
+    ).toBeVisible();
+    await row.click();
+    const before = styleNum(styleOf(await indexHtml(page, id), "wrap"), "left");
+
+    await page.keyboard.press("Shift+ArrowRight");
+
+    await expect
+      .poll(() =>
+        indexHtml(page, id).then((html) =>
+          styleNum(styleOf(html, "wrap"), "left"),
+        ),
+      )
+      .toBe(before + 10);
+    await expect(
+      row.getByRole("button", { name: "Expand layer" }),
+    ).toBeVisible();
+  });
+
   test("double-clicking an object drills one level down", async ({ page }) => {
     const id = await newDesign(page);
     await openEditor(page, id);

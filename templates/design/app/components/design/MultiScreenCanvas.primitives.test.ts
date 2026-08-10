@@ -2029,3 +2029,27 @@ describe("getOutsideFrameDraftFallback", () => {
     ).toBeUndefined();
   });
 });
+
+describe("board surface background follows the editor theme", () => {
+  const preview = (background?: string) =>
+    getBoardSurfaceStaticPreviewContent({
+      html: `<!doctype html><html><head></head><body><div data-agent-native-node-id="a" style="position:absolute;left:0;top:0;width:10px;height:10px"></div></body></html>`,
+      logicalGeometry: { x: 0, y: 0, width: 1000, height: 1000 },
+      viewport: { width: 500, height: 500 },
+      background,
+    });
+
+  it("paints the themed canvas colour when one is supplied", () => {
+    // The board is its own iframe and cannot read the host's CSS vars, so a
+    // hardcoded dark fill made the canvas black in the light theme.
+    const content = preview("hsl(0 0% 92%)");
+    expect(content).toContain("hsl(0 0% 92%)");
+    expect(content).not.toContain("hsl(0, 0%, 10%)");
+  });
+
+  it("falls back to the dark default when no theme colour is resolved", () => {
+    expect(preview()).toContain("hsl(0, 0%, 10%)");
+    expect(preview("   ")).toContain("hsl(0, 0%, 10%)");
+  });
+});
+

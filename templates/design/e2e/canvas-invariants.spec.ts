@@ -154,9 +154,17 @@ function node(page: Page, id: string): Locator {
 }
 
 async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, {
+  await page.goto(`${baseURL}/design/${designId}?view=overview`, {
     waitUntil: "domcontentloaded",
   });
+  await page.waitForURL(
+    (url) =>
+      url.pathname === `/design/${designId}` &&
+      url.searchParams.get("view") === "overview" &&
+      url.searchParams.has("screen") &&
+      url.searchParams.has("zoom"),
+    { timeout: 45_000 },
+  );
   await toolbar(page)
     .locator('button[aria-label="Move"]')
     .waitFor({ timeout: 45_000 });
@@ -175,10 +183,7 @@ async function expandAllLayers(page: Page): Promise<void> {
     const count = await toggles.count();
     if (count === 0) break;
     for (let i = 0; i < count; i += 1) {
-      await toggles
-        .nth(0)
-        .click()
-        .catch(() => {});
+      await toggles.nth(0).click();
       await page.waitForTimeout(200);
     }
     await page.waitForTimeout(400);
@@ -368,18 +373,16 @@ test.describe("inspector reports the truth", () => {
   test("W/H match the rendered size within a pixel", async ({ page }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
-    await layerRow(page, "Plain Box").click();
+    const row = layerRow(page, "Plain Box");
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.click();
     await page.waitForTimeout(1800);
 
     const rendered = await renderedRect(page, "plain-box");
-    expect(num(await inspectorField(page, "W"))).toBeCloseTo(
-      rendered.width,
-      -1,
-    );
-    expect(num(await inspectorField(page, "H"))).toBeCloseTo(
-      rendered.height,
-      -1,
-    );
+    const width = num(await inspectorField(page, "W"));
+    const height = num(await inspectorField(page, "H"));
+    expect(Math.abs(width - rendered.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(height - rendered.height)).toBeLessThanOrEqual(1);
   });
 
   test("a hug-sized auto-layout container reports its measured width", async ({
@@ -691,17 +694,18 @@ test.describe("drawing fidelity", () => {
           "i",
         ).exec(html)?.[1] ?? "";
       expect(style, `${tool} committed nothing`).not.toBe("");
-      expect([
+      const actual = [
         styleNum(style, "left"),
         styleNum(style, "top"),
         styleNum(style, "width"),
         styleNum(style, "height"),
-      ]).toEqual([
-        expect.closeTo(want.left, -1),
-        expect.closeTo(want.top, -1),
-        expect.closeTo(want.width, -1),
-        expect.closeTo(want.height, -1),
-      ]);
+      ];
+      const expected = [want.left, want.top, want.width, want.height];
+      for (let index = 0; index < actual.length; index += 1) {
+        expect(Math.abs(actual[index]! - expected[index]!)).toBeLessThanOrEqual(
+          1,
+        );
+      }
     });
   }
 
