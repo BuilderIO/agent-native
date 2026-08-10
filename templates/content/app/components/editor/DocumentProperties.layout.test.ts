@@ -130,6 +130,15 @@ describe("document property layout", () => {
     expect(source).not.toContain("ConnectionReview");
   });
 
+  it("removes the closing Add Property popover before opening Sources", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain("const [sourceHandoffClosing");
+    expect(source).toContain("setSourceHandoffClosing(true)");
+    expect(source).toContain("data-[state=closed]:hidden");
+    expect(source).toContain("setSourceHandoffClosing(false)");
+  });
+
   it("makes editable property value triggers fill the database cell", () => {
     const source = readPropertiesSource();
 

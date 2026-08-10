@@ -3156,6 +3156,7 @@ export function AddProperty({
   const addSourceFieldProperty =
     useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);
+  const [sourceHandoffClosing, setSourceHandoffClosing] = useState(false);
   const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
@@ -3216,6 +3217,7 @@ export function AddProperty({
     handledOpenRequestId.current = openRequestId;
     setTypeQuery("");
     setAddPropertyError(null);
+    setSourceHandoffClosing(false);
     setOpen(true);
     onOpenRequestHandled?.(openRequestId);
   }, [onOpenRequestHandled, openRequestId]);
@@ -3231,6 +3233,9 @@ export function AddProperty({
     if (!onConnectSource || isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
+    // Radix keeps closing popovers mounted for their exit animation. Remove
+    // this one immediately so opening Sources cannot stack over it.
+    setSourceHandoffClosing(true);
     setOpen(false);
     onConnectSource();
   }
@@ -3312,6 +3317,7 @@ export function AddProperty({
       open={open}
       onOpenChange={(nextOpen) => {
         if (nextOpen) {
+          setSourceHandoffClosing(false);
           setOpen(true);
         } else if (!isAddingProperty) {
           closeAddPropertyPicker();
@@ -3339,7 +3345,11 @@ export function AddProperty({
         align={variant === "default" ? "start" : "end"}
         collisionPadding={12}
         portalled={popoversPortalled}
-        className="relative z-[300] w-80 p-2"
+        className={cn(
+          "relative z-[300] w-80 p-2",
+          sourceHandoffClosing &&
+            "data-[state=closed]:hidden data-[state=closed]:animate-none",
+        )}
       >
         <div className="grid gap-2">
           <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
