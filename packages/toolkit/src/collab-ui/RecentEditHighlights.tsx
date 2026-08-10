@@ -101,7 +101,7 @@ const HighlightItem = memo(function HighlightItem({ h }: { h: Highlight }) {
           gap: 4,
           backgroundColor: h.outlineOnly ? "transparent" : h.color,
           border: h.outlineOnly ? `1px solid ${h.color}` : undefined,
-          color: h.outlineOnly ? h.color : "#fff",
+          color: h.outlineOnly ? h.color : "hsl(var(--background))",
           fontSize: 10,
           fontWeight: 600,
           padding: "2px 6px",
