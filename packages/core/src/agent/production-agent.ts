@@ -1052,7 +1052,7 @@ export interface ProductionAgentOptions {
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
-  /** Default reasoning effort for requests that do not supply an override. */
+  /** Default effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
   providerOptions?: EngineMessage extends never ? never : any;
@@ -1244,7 +1244,7 @@ const VISIBLE_RETRY_THRESHOLD_MS = 10_000;
  */
 const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 // Raised from 1 -> 2 now that each retry actually adapts (raises the token
-// ceiling and steps reasoning effort down a tier) instead of re-issuing the
+// ceiling and steps effort down a tier) instead of re-issuing the
 // exact same doomed request twice.
 const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;

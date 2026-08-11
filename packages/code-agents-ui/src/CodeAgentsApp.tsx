@@ -457,8 +457,8 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   {
     engine: "ai-sdk:openai",
     engineLabel: "OpenAI",
-    model: "gpt-5.6-sol",
-    label: "GPT-5.6 Sol",
+    model: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
     description: "Model list is loading.",
     configured: false,
   },
@@ -3258,7 +3258,7 @@ export function normalizeModelSelection(
   return {
     engine: selected.engine,
     model: selected.model,
-    effort: normalizeReasoningEffort(value.effort ?? "auto"),
+    effort: normalizeReasoningEffort(value.effort ?? "high"),
   };
 }
 
@@ -3292,9 +3292,10 @@ export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
 }
 
 function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
+  if (value === "auto") return "high";
   return CODE_AGENT_REASONING_EFFORTS.some((effort) => effort.id === value)
     ? (value as CodeAgentReasoningEffort)
-    : "auto";
+    : "high";
 }
 
 function readStoredModelSelection(): CodeAgentModelSelection {
@@ -4348,7 +4349,7 @@ function TranscriptPanel({
   const selectedEngine =
     normalizedModel.engine ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine;
   const selectedEffort = normalizeReasoningEffort(
-    normalizedModel.effort ?? "auto",
+    normalizedModel.effort ?? "high",
   );
   const availableModels = groupCodeAgentModelOptions(modelOptions);
   const eventsRef = useRef(events);

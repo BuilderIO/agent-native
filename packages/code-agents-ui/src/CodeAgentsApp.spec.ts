@@ -116,6 +116,23 @@ describe("code-agent model selection", () => {
     });
   });
 
+  it("defaults an empty selection to Luna with high effort", () => {
+    expect(normalizeModelSelection({}, [])).toEqual({
+      engine: "ai-sdk:openai",
+      model: "gpt-5.6-luna",
+      effort: "high",
+    });
+  });
+
+  it("migrates a legacy Auto effort to high", () => {
+    expect(
+      normalizeModelSelection(
+        { engine: "auto", model: "auto", effort: "auto" },
+        models,
+      ),
+    ).toMatchObject({ effort: "high" });
+  });
+
   it("keeps native subscription status on the right-aligned provider group", () => {
     expect(groupCodeAgentModelOptions(models)).toEqual([
       {

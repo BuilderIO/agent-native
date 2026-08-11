@@ -112,16 +112,16 @@ describe("useChatModels", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("defaults reasoning to medium", async () => {
+  it("defaults effort to high", async () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled={false} />);
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain(":medium:");
+    expect(container.textContent).toContain(":high:");
   });
 
-  it("migrates a persisted legacy auto selection to medium", async () => {
+  it("migrates a persisted legacy auto selection to high", async () => {
     window.localStorage.setItem(
       "legacy-reasoning-selection",
       JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
@@ -137,7 +137,7 @@ describe("useChatModels", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("claude-sonnet-5:medium:");
+    expect(container.textContent).toContain("claude-sonnet-5:high:");
   });
 
   // DEFAULT_MODEL is a builder-gateway id, and the builder engine is hidden

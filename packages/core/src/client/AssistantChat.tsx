@@ -1933,7 +1933,7 @@ export interface AssistantChatProps {
   defaultModel?: string;
   /** Selected engine override for this conversation */
   selectedEngine?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
   /** Available engine/model list for the model picker */
   availableModels?: Array<{
@@ -1946,7 +1946,7 @@ export interface AssistantChatProps {
   modelListLoading?: boolean;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort from the picker */
+  /** Callback when user picks an effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /**
    * Optional secondary model menu (e.g. an image-generation model) shown inside

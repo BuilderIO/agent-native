@@ -631,7 +631,7 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
@@ -648,7 +648,7 @@ export interface TiptapComposerProps {
   modelListLoading?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort */
+  /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
@@ -963,7 +963,7 @@ function latestModelsOnly(models: string[]): string[] {
       return true;
     }
     // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI reasoning: each is its own family
+    // OpenAI effort: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
     if (gemini) {
@@ -1133,7 +1133,7 @@ function ModelSelector({
     });
   }, []);
 
-  // The reasoning effort list is collapsed by default — it's a secondary
+  // The effort list is collapsed by default — it's a secondary
   // control most users don't touch, so it stays tucked behind a header that
   // reveals the current effort at a glance. Reset to collapsed on each open.
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
@@ -1202,7 +1202,7 @@ function ModelSelector({
           data-agent-composer-slot="model-button"
           aria-label={`Model: ${friendlyModelName(model)}${
             effortOptions.length > 0
-              ? `. Reasoning: ${effortLabel(selectedEffort)}`
+              ? `. Effort: ${effortLabel(selectedEffort)}`
               : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1476,7 +1476,7 @@ function ModelSelector({
                     <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                   )}
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    Reasoning
+                    Effort
                   </span>
                   {!reasoningExpanded && (
                     <span className="text-[11px] text-muted-foreground/80 truncate">

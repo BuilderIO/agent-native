@@ -125,10 +125,10 @@ describe("resolveAgentRequestReasoningEffort", () => {
     );
   });
 
-  it("defaults missing reasoning to Medium", () => {
+  it("defaults missing effort to High", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
-    ).toBe("medium");
+    ).toBe("high");
   });
 
   it("preserves explicit none through the production request path", () => {
