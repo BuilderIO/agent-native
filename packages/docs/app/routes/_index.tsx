@@ -463,20 +463,20 @@ function ActionSurfaceSection({
   const t = useT();
 
   return (
-    <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 md:py-24">
+    <section className="border-t border-[var(--docs-border)] px-6 py-20 md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
         <div className="min-w-0 max-w-[400px]">
-          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight !text-white md:text-4xl">
+          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
             {t("home.actionSurface.title")}
           </h2>
-          <p className="mt-4 max-w-xl text-base leading-relaxed text-white/58">
+          <p className="mt-4 max-w-xl text-base leading-relaxed">
             {t("home.actionSurface.body")}
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <Link
               data-an-prefetch="viewport"
               to={localizedPath("/docs/getting-started")}
-              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
+              className="primary-button"
               onClick={() =>
                 trackEvent("click cta", {
                   label: "build_action",
