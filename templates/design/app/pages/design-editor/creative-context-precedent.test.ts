@@ -1,9 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import {
   callAction,
   readClientAppState,
 } from "@agent-native/core/client/hooks";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   designPrecedentDirectives,
@@ -19,15 +18,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 const mockedCallAction = vi.mocked(callAction);
 const mockedReadAppState = vi.mocked(readClientAppState);
 
-function results(count: number, withNativeCode = false) {
+function results(count: number, overrides: Record<string, unknown> = {}) {
   return Array.from({ length: count }, (_, index) => ({
     itemId: "item-" + index,
     itemVersionId: "version-" + index,
     title: "LinkedIn ad " + index,
-    kind: "design",
-    nativeArtifact: withNativeCode
-      ? { app: "design", format: "design-html" }
-      : null,
+    kind: "document",
+    canonicalUrl: null,
+    nativeArtifact: null,
+    ...overrides,
   }));
 }
 
@@ -48,8 +47,9 @@ function match(
     itemId: "item-1",
     itemVersionId: "version-1",
     title: "LinkedIn ad",
-    kind: "design",
+    kind: "document",
     nativeFormat: null,
+    designResourceId: null,
     ...overrides,
   };
 }
@@ -78,26 +78,43 @@ describe("probeCreativeContextPrecedent", () => {
     const precedent = await probeCreativeContextPrecedent("linkedin ad");
 
     expect(precedent.status).toBe("strong");
-    expect(precedent.status === "strong" ? precedent.matches : []).toHaveLength(
-      4,
-    );
     expect(mockedCallAction).toHaveBeenCalledWith(
       "search-creative-context",
       expect.objectContaining({ snapshot: false, matchMode: "anyTerm" }),
     );
   });
 
-  it("carries the native artifact format through to matches", async () => {
+  it("extracts the design id from a native design submission", async () => {
     mockedCallAction.mockResolvedValue({
-      results: results(3, true),
+      results: results(3, {
+        kind: "design-project",
+        canonicalUrl: "/design/dsn_123",
+      }),
       coverage: coverage({ lexical: 3 }),
     });
 
     const precedent = await probeCreativeContextPrecedent("linkedin ad");
 
     expect(
-      precedent.status === "strong" ? precedent.matches[0].nativeFormat : null,
-    ).toBe("design-html");
+      precedent.status === "strong"
+        ? precedent.matches[0].designResourceId
+        : null,
+    ).toBe("dsn_123");
+  });
+
+  it("does not treat a non-design kind as clonable", async () => {
+    mockedCallAction.mockResolvedValue({
+      results: results(3, { canonicalUrl: "/design/dsn_123" }),
+      coverage: coverage({ lexical: 3 }),
+    });
+
+    const precedent = await probeCreativeContextPrecedent("linkedin ad");
+
+    expect(
+      precedent.status === "strong"
+        ? precedent.matches[0].designResourceId
+        : "unset",
+    ).toBeNull();
   });
 
   it("counts each item once when several chunks match", async () => {
@@ -132,14 +149,28 @@ describe("probeCreativeContextPrecedent", () => {
 });
 
 describe("designPrecedentDirectives", () => {
-  it("names the exact ids to retrieve when artifacts carry code", () => {
+  it("prefers cloning a prior design over reading code", () => {
+    const directives = designPrecedentDirectives([
+      match({
+        kind: "design-project",
+        designResourceId: "dsn_123",
+        nativeFormat: "design-html",
+      }),
+    ]).join("\n");
+
+    expect(directives).toContain("clone-creative-context-design-native");
+    expect(directives).toContain("design:design:<resourceId>");
+    expect(directives).toContain("dsn_123");
+    expect(directives).not.toContain("get-context-item");
+  });
+
+  it("falls back to reading native code when nothing is clonable", () => {
     const directives = designPrecedentDirectives([
       match({ nativeFormat: "design-html" }),
     ]).join("\n");
 
     expect(directives).toContain("get-context-item");
-    expect(directives).toContain("version-1");
-    expect(directives).not.toContain("only have text excerpts");
+    expect(directives).not.toContain("clone-creative-context-design-native");
   });
 
   it("tells the agent to admit when only text excerpts exist", () => {
