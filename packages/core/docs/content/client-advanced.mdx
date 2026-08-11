@@ -163,22 +163,30 @@ display-mode requests, is owned by
 
 ## Custom Suggestion Chips {#custom-suggestions}
 
-`<AgentSidebar>`'s `dynamicSuggestions` (see [Agent Chat](/docs/client-agent-chat#dynamic-suggestions)) already merges static `suggestions` with the framework's own context-aware heuristic. Pass `getSuggestions` instead when an app wants deterministic, domain-specific chips computed from the same `application_state` context rather than the framework's default heuristic.
+`<AgentSidebar>`'s `dynamicSuggestions` (see [Agent Chat](/docs/client-agent-chat#dynamic-suggestions)) already merges static `suggestions` with the framework's own context-aware heuristic. Pass a `getSuggestions` function inside `dynamicSuggestions` instead when an app wants deterministic, domain-specific chips computed from the same `application_state` context rather than the framework's default heuristic.
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` receives the same `navigation`/`selection`/`pending-selection-context` snapshot the built-in heuristic reads, so a custom implementation can react to exactly the state the default one does, just with app-specific rules instead of generic ones.
+`getSuggestions` receives the same `navigation`/`selection`/`pendingSelection` snapshot the built-in heuristic reads, typed as `unknown` since its shape is app-defined, so narrow it before reading fields. A custom implementation can react to exactly the state the default one does, just with app-specific rules instead of generic ones.
 
 ## What's next
 

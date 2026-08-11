@@ -185,11 +185,11 @@ Die Kombination davon mit dem `askUserQuestion()`-Beispiel oben vervollständigt
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Sendet eine Nachricht an den Agent-Chat über `postMessage`. Dies ist die niedrigere Primitive, die `useAgentChatGenerating()` oben umschließt, nützlich, wenn eine UI-Interaktion keine eigene Ladezustandsverfolgung benötigt. Übergeben Sie `context` für zusätzliche Details, die die Nachricht allein nicht trägt. Er wird derselben sichtbaren Nachricht angehängt, eingeschlossen in `<context>`-Tags. Er ist nicht vor dem Benutzer verborgen. Übergeben Sie `submit: true`, um sofort zu senden, oder `submit: false`, um einen Entwurf vorab auszufüllen, den der Benutzer zuerst überprüft.
+Sendet eine Nachricht an den Agent-Chat über `postMessage`. Dies ist die niedrigere Primitive, die `useAgentChatGenerating()` oben umschließt, nützlich, wenn eine UI-Interaktion keine eigene Ladezustandsverfolgung benötigt. Übergeben Sie `context` für zusätzliche Details, die das Modell sehen soll, der Benutzer aber nicht. Er wird an die an den Agenten gesendete Nachricht angehängt, eingeschlossen in `<context>`-Tags, und wird wieder entfernt, bevor die Nachricht im Chat angezeigt wird. Übergeben Sie `submit: true`, um sofort zu senden, oder `submit: false`, um einen Entwurf vorab auszufüllen, den der Benutzer zuerst überprüft.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Automatisches Senden eines Prompts mit angehängtem Kontext
+// Automatisches Senden eines Prompts mit verborgenem Kontext
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -206,13 +206,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option        | Typ        | Beschreibung                                                                                                                    |
-| ------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `message`     | `string`   | Der an den Chat gesendete Prompt. `context`, falls gesetzt, wird derselben sichtbaren Nachricht angehängt                       |
-| `context`     | `string?`  | Zusätzliche Details, angehängt an die sichtbare Nachricht, eingeschlossen in `<context>`-Tags. Nicht vor dem Benutzer verborgen |
-| `submit`      | `boolean?` | true = automatisches Senden, false = nur Vorabausfüllung                                                                        |
-| `newTab`      | `boolean?` | Einen separaten Chat-Thread für diesen Prompt erstellen                                                                         |
-| `openSidebar` | `boolean?` | Auf false setzen, um zu senden/vorab auszufüllen, ohne die Seitenleiste zu öffnen                                               |
+| Option        | Typ        | Beschreibung                                                                                                                 |
+| ------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | Der an den Chat gesendete Prompt, und der einzige Teil, der in der Chat-UI angezeigt wird                                    |
+| `context`     | `string?`  | Für das Modell sichtbarer Kontext, der vor dem Senden an die Nachricht angehängt wird. Wird aus der Chat-UI-Anzeige entfernt |
+| `submit`      | `boolean?` | true = automatisches Senden, false = nur Vorabausfüllung                                                                     |
+| `newTab`      | `boolean?` | Einen separaten Chat-Thread für diesen Prompt erstellen                                                                      |
+| `openSidebar` | `boolean?` | Auf false setzen, um zu senden/vorab auszufüllen, ohne die Seitenleiste zu öffnen                                            |
 
 Das Ausführen davon aus einem eingebetteten MCP-App-Frame heraus, oder das Ausführen im Hintergrund ohne Öffnen der Seitenleiste, wird beides in [Fortgeschritten](/docs/client-advanced#background-send) behandelt.
 

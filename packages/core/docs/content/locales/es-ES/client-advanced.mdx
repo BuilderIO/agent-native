@@ -163,22 +163,30 @@ las solicitudes de modo de visualización, son propiedad de
 
 ## Chips de sugerencias personalizadas {#custom-suggestions}
 
-`dynamicSuggestions` de `<AgentSidebar>` (consulta [Chat del Agent](/docs/client-agent-chat#dynamic-suggestions)) ya combina las `suggestions` estáticas con la propia heurística consciente del contexto del framework. Pasa `getSuggestions` en su lugar cuando una app quiera chips deterministas y específicos de dominio calculados a partir del mismo contexto de `application_state` en lugar de la heurística predeterminada del framework.
+`dynamicSuggestions` de `<AgentSidebar>` (consulta [Chat del Agent](/docs/client-agent-chat#dynamic-suggestions)) ya combina las `suggestions` estáticas con la propia heurística consciente del contexto del framework. Pasa una función `getSuggestions` dentro de `dynamicSuggestions` en su lugar cuando una app quiera chips deterministas y específicos de dominio calculados a partir del mismo contexto de `application_state` en lugar de la heurística predeterminada del framework.
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` recibe la misma instantánea de `navigation`/`selection`/`pending-selection-context` que lee la heurística incorporada, así que una implementación personalizada puede reaccionar exactamente al mismo estado que la predeterminada, solo que con reglas específicas de la app en lugar de genéricas.
+`getSuggestions` recibe la misma instantánea de `navigation`/`selection`/`pendingSelection` que lee la heurística incorporada, tipada como `unknown` porque su forma la define la app, así que hay que acotarla antes de leer sus campos. Una implementación personalizada puede reaccionar exactamente al mismo estado que la predeterminada, solo que con reglas específicas de la app en lugar de genéricas.
 
 ## ¿Qué sigue?
 

@@ -8,15 +8,21 @@ import { videoSchema, videoMdx, type VideoData } from "./video.config";
 export type { VideoData };
 
 /**
- * Tracks `prefers-reduced-motion: reduce`. Starts `false` (matches SSR, where
- * there's no `window` to ask) and updates after mount, so a reduced-motion
- * viewer never sees a flash of autoplay before it's suppressed.
+ * Tracks `prefers-reduced-motion: reduce`. Starts `null` (unresolved — SSR
+ * and the first client paint have no answer yet) and only resolves to
+ * `true`/`false` once the `matchMedia` effect runs after mount. Autoplay must
+ * treat `null` as "not yet safe to play": a reduced-motion browser can start
+ * an `autoPlay` video the instant it's in the DOM, and removing the prop on a
+ * later render does not reliably stop playback already in progress.
  */
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
+function usePrefersReducedMotion(): boolean | null {
+  const [reduced, setReduced] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
+    if (typeof window === "undefined" || !window.matchMedia) {
+      setReduced(false);
+      return;
+    }
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     setReduced(query.matches);
     const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
@@ -29,11 +35,13 @@ function usePrefersReducedMotion(): boolean {
 
 export function VideoBlock({ data, ctx }: BlockReadProps<VideoData>) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  // Autoplay only fires when requested AND the viewer hasn't asked for less
-  // motion. Muted/playsInline are tied to that same resolved decision, not to
-  // the raw `autoplay` flag: a reduced-motion viewer who presses play
-  // themselves gets a normal, unmuted playback, not a silently-muted one.
-  const shouldAutoplay = Boolean(data.autoplay) && !prefersReducedMotion;
+  // Autoplay only fires once the reduced-motion preference has actually
+  // resolved (not `null`) AND it came back `false`. Muted/playsInline are
+  // tied to that same resolved decision, not to the raw `autoplay` flag: a
+  // reduced-motion viewer who presses play themselves gets a normal,
+  // unmuted playback, not a silently-muted one.
+  const shouldAutoplay =
+    Boolean(data.autoplay) && prefersReducedMotion === false;
 
   return (
     <MediaFrame

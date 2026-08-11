@@ -179,24 +179,33 @@ import {
 이미 고정된 `suggestions`를 프레임워크 자체의 컨텍스트 인식 휴리스틱과
 병합합니다. 프레임워크의 기본 휴리스틱 대신 동일한 `application_state`
 컨텍스트로부터 계산된 결정론적이고 도메인 특화된 칩을 앱이 원할 때는
-`getSuggestions`를 전달하세요.
+`dynamicSuggestions` 안에 `getSuggestions` 함수를 전달하세요.
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions`는 내장 휴리스틱이 읽는 것과 동일한 `navigation`/`selection`/`pending-selection-context`
-스냅샷을 받으므로, 커스텀 구현이 기본 구현과 정확히 같은 상태에 반응하되
-일반적인 규칙이 아닌 앱 전용 규칙으로 반응할 수 있습니다.
+`getSuggestions`는 내장 휴리스틱이 읽는 것과 동일한 `navigation`/`selection`/`pendingSelection`
+스냅샷을 받지만, 모양이 앱마다 다르므로 `unknown`으로 타입이 지정되어 있습니다.
+필드를 읽기 전에 타입을 좁혀야 합니다. 커스텀 구현은 기본 구현과 정확히 같은
+상태에 반응하되 일반적인 규칙이 아닌 앱 전용 규칙으로 반응할 수 있습니다.
 
 ## 다음 단계
 

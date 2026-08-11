@@ -162,22 +162,30 @@ Anzeigemodus-Anfragen, gehört zu
 
 ## Benutzerdefinierte Vorschlags-Chips {#custom-suggestions}
 
-`dynamicSuggestions` von `<AgentSidebar>` (siehe [Agent Chat](/docs/client-agent-chat#dynamic-suggestions)) führt statische `suggestions` bereits mit der eigenen kontextbewussten Heuristik des Frameworks zusammen. Übergeben Sie stattdessen `getSuggestions`, wenn eine App deterministische, domänenspezifische Chips möchte, berechnet aus demselben `application_state`-Kontext statt aus der Standard-Heuristik des Frameworks.
+`dynamicSuggestions` von `<AgentSidebar>` (siehe [Agent Chat](/docs/client-agent-chat#dynamic-suggestions)) führt statische `suggestions` bereits mit der eigenen kontextbewussten Heuristik des Frameworks zusammen. Übergeben Sie stattdessen eine `getSuggestions`-Funktion innerhalb von `dynamicSuggestions`, wenn eine App deterministische, domänenspezifische Chips möchte, berechnet aus demselben `application_state`-Kontext statt aus der Standard-Heuristik des Frameworks.
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` erhält denselben `navigation`/`selection`/`pending-selection-context`-Snapshot, den die eingebaute Heuristik liest, sodass eine benutzerdefinierte Implementierung auf genau den Zustand reagieren kann, auf den auch die Standardimplementierung reagiert, nur mit app-spezifischen Regeln statt generischer.
+`getSuggestions` erhält denselben `navigation`/`selection`/`pendingSelection`-Snapshot, den die eingebaute Heuristik liest, typisiert als `unknown`, da die Form von der App abhängt, also grenzen Sie ihn ein, bevor Sie Felder lesen. Eine benutzerdefinierte Implementierung kann auf genau den Zustand reagieren, auf den auch die Standardimplementierung reagiert, nur mit app-spezifischen Regeln statt generischer.
 
 ## Was kommt als nächstes?
 

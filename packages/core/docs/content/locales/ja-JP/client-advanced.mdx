@@ -148,22 +148,30 @@ import {
 
 ## カスタム提案チップ {#custom-suggestions}
 
-`<AgentSidebar>` の `dynamicSuggestions` ([Agent チャット](/docs/client-agent-chat#dynamic-suggestions) を参照) は、既に静的な `suggestions` とフレームワーク自身のコンテキスト認識ヒューリスティックをマージしています。フレームワークのデフォルトのヒューリスティックの代わりに、同じ `application_state` のコンテキストから計算された決定論的でドメイン固有のチップをアプリが求める場合は、代わりに `getSuggestions` を渡してください。
+`<AgentSidebar>` の `dynamicSuggestions` ([Agent チャット](/docs/client-agent-chat#dynamic-suggestions) を参照) は、既に静的な `suggestions` とフレームワーク自身のコンテキスト認識ヒューリスティックをマージしています。フレームワークのデフォルトのヒューリスティックの代わりに、同じ `application_state` のコンテキストから計算された決定論的でドメイン固有のチップをアプリが求める場合は、代わりに `dynamicSuggestions` の中に `getSuggestions` 関数を渡してください。
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` は、組み込みのヒューリスティックが読み取るのと同じ `navigation`/`selection`/`pending-selection-context` のスナップショットを受け取るため、カスタムの実装は、汎用的なルールの代わりにアプリ固有のルールを使って、デフォルトの実装が反応するのと全く同じ状態に反応できます。
+`getSuggestions` は、組み込みのヒューリスティックが読み取るのと同じ `navigation`/`selection`/`pendingSelection` のスナップショットを受け取りますが、その形はアプリ次第なので `unknown` として型付けされています。フィールドを読み取る前に型を絞り込んでください。カスタムの実装は、汎用的なルールの代わりにアプリ固有のルールを使って、デフォルトの実装が反応するのと全く同じ状態に反応できます。
 
 ## 次は何ですか
 

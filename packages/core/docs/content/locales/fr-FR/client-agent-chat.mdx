@@ -186,11 +186,11 @@ Combiner ceci avec l'exemple `askUserQuestion()` ci-dessus complète le gestionn
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Envoie un message au chat de l'agent via `postMessage`. C'est la primitive de plus bas niveau que `useAgentChatGenerating()` ci-dessus enveloppe, utile lorsqu'une interaction UI n'a pas besoin de son propre suivi d'état de chargement. Transmettez `context` pour un détail supplémentaire que le message seul ne porte pas. Il est ajouté au même message visible, entouré de balises `<context>`. Il n'est pas masqué à l'utilisateur. Transmettez `submit: true` pour envoyer immédiatement, ou `submit: false` pour pré-remplir un brouillon que l'utilisateur examine d'abord.
+Envoie un message au chat de l'agent via `postMessage`. C'est la primitive de plus bas niveau que `useAgentChatGenerating()` ci-dessus enveloppe, utile lorsqu'une interaction UI n'a pas besoin de son propre suivi d'état de chargement. Transmettez `context` pour un détail supplémentaire que le modèle doit voir mais pas l'utilisateur. Il est ajouté au message envoyé à l'agent, entouré de balises `<context>`, puis retiré avant que le message ne s'affiche dans l'interface de chat. Transmettez `submit: true` pour envoyer immédiatement, ou `submit: false` pour pré-remplir un brouillon que l'utilisateur examine d'abord.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Auto-submit a prompt with appended context
+// Envoi automatique d'un prompt avec contexte masqué
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -207,13 +207,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option        | Type       | Description                                                                                                 |
-| ------------- | ---------- | ----------------------------------------------------------------------------------------------------------- |
-| `message`     | `string`   | Le prompt envoyé au chat. `context`, si défini, est ajouté à ce même message visible                        |
-| `context`     | `string?`  | Détail supplémentaire ajouté au message visible, entouré de balises `<context>`. Pas masqué à l'utilisateur |
-| `submit`      | `boolean?` | true = envoi automatique, false = préremplissage uniquement                                                 |
-| `newTab`      | `boolean?` | Crée un fil de discussion distinct pour ce prompt                                                           |
-| `openSidebar` | `boolean?` | Définir sur false pour envoyer/préremplir sans ouvrir la barre latérale                                     |
+| Option        | Type       | Description                                                                                                   |
+| ------------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | Le prompt envoyé au chat, et la seule partie affichée dans l'interface de chat                                |
+| `context`     | `string?`  | Contexte visible par le modèle, ajouté au message avant l'envoi. Retiré de l'affichage de l'interface de chat |
+| `submit`      | `boolean?` | true = envoi automatique, false = préremplissage uniquement                                                   |
+| `newTab`      | `boolean?` | Crée un fil de discussion distinct pour ce prompt                                                             |
+| `openSidebar` | `boolean?` | Définir sur false pour envoyer/préremplir sans ouvrir la barre latérale                                       |
 
 Exécuter ceci depuis l'intérieur d'une intégration MCP App, ou mettre l'exécution en arrière-plan sans ouvrir la barre latérale, sont tous les deux couverts dans [Avancé](/docs/client-advanced#background-send).
 

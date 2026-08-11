@@ -15,7 +15,7 @@ export const mediaSrcSchema = z
   .trim()
   .min(1)
   .max(2_000)
-  .regex(/^(https?:\/\/|\/)/i, {
+  .regex(/^(https?:\/\/|\/(?!\/))/i, {
     message: "src must be an absolute path (/...) or an https URL",
   });
 

@@ -183,11 +183,11 @@ const answer = await askUserQuestion({
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-`postMessage` 経由でエージェント チャットにメッセージを送信します。これは `useAgentChatGenerating()` がラップしている、より低レベルのプリミティブで、UI のやり取りが自前の読み込み状態の追跡を必要としない場合に便利です。メッセージだけでは伝わらない追加の詳細には `context` を渡します。これは同じ表示メッセージに `<context>` タグで囲んで追加されます。ユーザーから隠されるわけではありません。すぐに送信するには `submit: true` を、ユーザーが最初にレビューするドラフトを事前入力するには `submit: false` を渡します。
+`postMessage` 経由でエージェント チャットにメッセージを送信します。これは `useAgentChatGenerating()` がラップしている、より低レベルのプリミティブで、UI のやり取りが自前の読み込み状態の追跡を必要としない場合に便利です。モデルには見えるがユーザーには見えるべきではない追加の詳細には `context` を渡します。これはエージェントに送信されるメッセージに `<context>` タグで囲んで追加され、チャット UI にメッセージがレンダリングされる前に取り除かれます。すぐに送信するには `submit: true` を、ユーザーが最初にレビューするドラフトを事前入力するには `submit: false` を渡します。
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Auto-submit a prompt with appended context
+// 隠しコンテキスト付きでプロンプトを自動送信
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -204,13 +204,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| オプション    | タイプ     | 説明                                                                                                 |
-| ------------- | ---------- | ---------------------------------------------------------------------------------------------------- |
-| `message`     | `string`   | チャットに送信されるプロンプト。設定されている場合、`context` はこの同じ表示メッセージに追加されます |
-| `context`     | `string?`  | 表示メッセージに `<context>` タグで囲んで追加される追加の詳細。ユーザーから隠されない                |
-| `submit`      | `boolean?` | true = 自動送信、false = 事前入力のみ                                                                |
-| `newTab`      | `boolean?` | このプロンプト用に別のチャット スレッドを作成する                                                    |
-| `openSidebar` | `boolean?` | サイドバーを開かずに送信/事前入力するには false を設定                                               |
+| オプション    | タイプ     | 説明                                                                                             |
+| ------------- | ---------- | ------------------------------------------------------------------------------------------------ |
+| `message`     | `string`   | チャットに送信されるプロンプト。チャット UI に表示される唯一の部分                               |
+| `context`     | `string?`  | 送信前にメッセージに追加される、モデルに見えるコンテキスト。チャット UI の表示からは取り除かれる |
+| `submit`      | `boolean?` | true = 自動送信、false = 事前入力のみ                                                            |
+| `newTab`      | `boolean?` | このプロンプト用に別のチャット スレッドを作成する                                                |
+| `openSidebar` | `boolean?` | サイドバーを開かずに送信/事前入力するには false を設定                                           |
 
 MCP アプリ埋め込み内からこれを実行する場合や、サイドバーを開かずに実行をバックグラウンドに送る方法は、いずれも [高度](/docs/client-advanced#background-send) で扱っています。
 

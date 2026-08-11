@@ -185,11 +185,11 @@ Combinar isto com o exemplo de `askUserQuestion()` acima completa o manipulador 
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Envie uma mensagem para o chat do agente via `postMessage`. Esta é a primitiva de nível mais baixo que `useAgentChatGenerating()` acima encapsula, útil quando uma interação de UI não precisa de rastreamento de estado de carregamento próprio. Passe `context` para detalhes extras que a mensagem por si só não carrega. Ele é anexado à mesma mensagem visível, envolvido em tags `<context>`. Não fica oculto do usuário. Passe `submit: true` para enviar imediatamente, ou `submit: false` para preencher previamente um rascunho que o usuário revisa primeiro.
+Envie uma mensagem para o chat do agente via `postMessage`. Esta é a primitiva de nível mais baixo que `useAgentChatGenerating()` acima encapsula, útil quando uma interação de UI não precisa de rastreamento de estado de carregamento próprio. Passe `context` para detalhes extras que o modelo deve ver, mas o usuário não. Ele é anexado à mensagem enviada ao agente, envolvido em tags `<context>`, e é removido antes que a mensagem seja renderizada na UI do chat. Passe `submit: true` para enviar imediatamente, ou `submit: false` para preencher previamente um rascunho que o usuário revisa primeiro.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Auto-submit a prompt with appended context
+// Enviar automaticamente um prompt com contexto oculto
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -206,13 +206,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Opção         | Tipo       | Descrição                                                                                           |
-| ------------- | ---------- | --------------------------------------------------------------------------------------------------- |
-| `message`     | `string`   | O prompt enviado ao chat. `context`, se definido, é anexado a esta mesma mensagem visível           |
-| `context`     | `string?`  | Detalhe extra anexado à mensagem visível, envolvido em tags `<context>`. Não fica oculto do usuário |
-| `submit`      | `boolean?` | true = envio automático, false = apenas preenchimento prévio                                        |
-| `newTab`      | `boolean?` | Cria uma thread de chat separada para este prompt                                                   |
-| `openSidebar` | `boolean?` | Defina como false para enviar/preencher sem abrir a barra lateral                                   |
+| Opção         | Tipo       | Descrição                                                                                         |
+| ------------- | ---------- | ------------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | O prompt enviado ao chat, e a única parte exibida na UI do chat                                   |
+| `context`     | `string?`  | Contexto visível ao modelo, anexado à mensagem antes do envio. Removido da exibição da UI do chat |
+| `submit`      | `boolean?` | true = envio automático, false = apenas preenchimento prévio                                      |
+| `newTab`      | `boolean?` | Cria uma thread de chat separada para este prompt                                                 |
+| `openSidebar` | `boolean?` | Defina como false para enviar/preencher sem abrir a barra lateral                                 |
 
 Executar isso de dentro de um embed de MCP App, ou colocar a execução em segundo plano sem abrir a barra lateral, ambos são cobertos em [Avançado](/docs/client-advanced#background-send).
 

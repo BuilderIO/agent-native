@@ -163,22 +163,30 @@ solicitações de modo de exibição, é de responsabilidade de
 
 ## Chips de sugestão personalizados {#custom-suggestions}
 
-`dynamicSuggestions` de `<AgentSidebar>` (veja [Chat do Agent](/docs/client-agent-chat#dynamic-suggestions)) já mescla as `suggestions` estáticas com a heurística de reconhecimento de contexto própria da estrutura. Passe `getSuggestions` em vez disso quando um aplicativo quiser chips determinísticos e específicos do domínio, calculados a partir do mesmo contexto de `application_state`, em vez da heurística padrão da estrutura.
+`dynamicSuggestions` de `<AgentSidebar>` (veja [Chat do Agent](/docs/client-agent-chat#dynamic-suggestions)) já mescla as `suggestions` estáticas com a heurística de reconhecimento de contexto própria da estrutura. Passe uma função `getSuggestions` dentro de `dynamicSuggestions` em vez disso quando um aplicativo quiser chips determinísticos e específicos do domínio, calculados a partir do mesmo contexto de `application_state`, em vez da heurística padrão da estrutura.
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` recebe o mesmo snapshot de `navigation`/`selection`/`pending-selection-context` que a heurística integrada lê, então uma implementação personalizada pode reagir exatamente ao mesmo estado que a padrão reage, apenas com regras específicas do aplicativo em vez de regras genéricas.
+`getSuggestions` recebe o mesmo snapshot de `navigation`/`selection`/`pendingSelection` que a heurística integrada lê, tipado como `unknown` porque o formato é definido pelo aplicativo, então é preciso restringi-lo antes de ler seus campos. Uma implementação personalizada pode reagir exatamente ao mesmo estado que a padrão reage, apenas com regras específicas do aplicativo em vez de regras genéricas.
 
 ## O que vem a seguir
 

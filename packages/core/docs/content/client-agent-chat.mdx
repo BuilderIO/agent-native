@@ -183,11 +183,11 @@ Combining this with the `askUserQuestion()` example above completes the button's
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Send a message to the agent chat via `postMessage`. This is the lower-level primitive `useAgentChatGenerating()` above wraps, useful when a UI interaction doesn't need loading-state tracking of its own. Pass `context` for extra detail the message alone doesn't carry. It gets appended to the same visible message, wrapped in `<context>` tags. It is not hidden from the user. Pass `submit: true` to send immediately, or `submit: false` to prefill a draft the user reviews first.
+Send a message to the agent chat via `postMessage`. This is the lower-level primitive `useAgentChatGenerating()` above wraps, useful when a UI interaction doesn't need loading-state tracking of its own. Pass `context` for extra detail the model should see but the user shouldn't. It's appended to the message sent to the agent, wrapped in `<context>` tags, and stripped back out before the message renders in the chat UI. Pass `submit: true` to send immediately, or `submit: false` to prefill a draft the user reviews first.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Auto-submit a prompt with appended context
+// Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -204,13 +204,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Option        | Type       | Description                                                                                         |
-| ------------- | ---------- | --------------------------------------------------------------------------------------------------- |
-| `message`     | `string`   | The prompt sent to the chat. `context`, if set, is appended to this same visible message            |
-| `context`     | `string?`  | Extra detail appended to the visible message, wrapped in `<context>` tags. Not hidden from the user |
-| `submit`      | `boolean?` | true = auto-submit, false = prefill only                                                            |
-| `newTab`      | `boolean?` | Create a separate chat thread for this prompt                                                       |
-| `openSidebar` | `boolean?` | Set false to submit/prefill without opening the sidebar                                             |
+| Option        | Type       | Description                                                                                     |
+| ------------- | ---------- | ----------------------------------------------------------------------------------------------- |
+| `message`     | `string`   | The prompt sent to the chat, and the only part shown in the chat UI                             |
+| `context`     | `string?`  | Model-visible context appended to the message before sending. Stripped from the chat UI display |
+| `submit`      | `boolean?` | true = auto-submit, false = prefill only                                                        |
+| `newTab`      | `boolean?` | Create a separate chat thread for this prompt                                                   |
+| `openSidebar` | `boolean?` | Set false to submit/prefill without opening the sidebar                                         |
 
 Running this from inside an MCP App embed, or backgrounding the run without opening the sidebar, are both covered in [Advanced](/docs/client-advanced#background-send).
 

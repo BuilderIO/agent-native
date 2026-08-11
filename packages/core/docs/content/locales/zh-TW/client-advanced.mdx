@@ -163,22 +163,30 @@ import {
 
 ## 自訂建議標籤 {#custom-suggestions}
 
-`<AgentSidebar>` 的 `dynamicSuggestions`（請參閱[Agent 聊天](/docs/client-agent-chat#dynamic-suggestions)）已經將靜態 `suggestions` 與框架自身的脈絡感知啟發式方法合併。當應用程式想要根據相同的 `application_state` 脈絡計算出確定性、特定領域的標籤，而非使用框架的預設啟發式方法時，改傳入 `getSuggestions`。
+`<AgentSidebar>` 的 `dynamicSuggestions`（請參閱[Agent 聊天](/docs/client-agent-chat#dynamic-suggestions)）已經將靜態 `suggestions` 與框架自身的脈絡感知啟發式方法合併。當應用程式想要根據相同的 `application_state` 脈絡計算出確定性、特定領域的標籤，而非使用框架的預設啟發式方法時，改在 `dynamicSuggestions` 內傳入 `getSuggestions` 函式。
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` 收到的 `navigation`/`selection`/`pending-selection-context` 快照，與內建啟發式方法讀取的完全相同，因此自訂實作可以對內建方法所讀取的相同狀態做出反應，只是使用應用專屬的規則，而非通用規則。
+`getSuggestions` 收到的 `navigation`/`selection`/`pendingSelection` 快照，與內建啟發式方法讀取的完全相同，但其型別為 `unknown`，因為形狀由應用程式決定，因此讀取欄位前需要先縮小型別。自訂實作可以對內建方法所讀取的相同狀態做出反應，只是使用應用專屬的規則，而非通用規則。
 
 ## 下一步是什麼
 

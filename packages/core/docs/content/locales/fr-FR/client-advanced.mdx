@@ -166,22 +166,30 @@ contexte hôte, et les requêtes de mode d'affichage, sont pris en charge par
 
 ## Puces de suggestion personnalisées {#custom-suggestions}
 
-Le `dynamicSuggestions` de `<AgentSidebar>` (voir [Chat de l’Agent](/docs/client-agent-chat#dynamic-suggestions)) fusionne déjà les `suggestions` statiques avec l'heuristique propre au framework, consciente du contexte. Transmettez `getSuggestions` à la place lorsqu'une application veut des puces déterministes, spécifiques à son domaine, calculées à partir du même contexte `application_state` plutôt qu'à partir de l'heuristique par défaut du framework.
+Le `dynamicSuggestions` de `<AgentSidebar>` (voir [Chat de l’Agent](/docs/client-agent-chat#dynamic-suggestions)) fusionne déjà les `suggestions` statiques avec l'heuristique propre au framework, consciente du contexte. Transmettez plutôt une fonction `getSuggestions` à l'intérieur de `dynamicSuggestions` lorsqu'une application veut des puces déterministes, spécifiques à son domaine, calculées à partir du même contexte `application_state` plutôt qu'à partir de l'heuristique par défaut du framework.
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` reçoit le même instantané `navigation`/`selection`/`pending-selection-context` que l'heuristique intégrée lit, afin qu'une implémentation personnalisée puisse réagir exactement au même état que celui lu par l'implémentation par défaut, simplement avec des règles spécifiques à l'application plutôt que génériques.
+`getSuggestions` reçoit le même instantané `navigation`/`selection`/`pendingSelection` que l'heuristique intégrée lit, typé `unknown` car sa forme est définie par l'application, il faut donc le restreindre avant de lire ses champs. Une implémentation personnalisée peut réagir exactement au même état que celui lu par l'implémentation par défaut, simplement avec des règles spécifiques à l'application plutôt que génériques.
 
 ## Quelle est la prochaine étape
 

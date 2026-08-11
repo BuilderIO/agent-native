@@ -182,11 +182,11 @@ const answer = await askUserQuestion({
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-通过 `postMessage` 向代理聊天发送一条消息。这是上面 `useAgentChatGenerating()` 所包装的更底层原语，适用于 UI 交互本身不需要加载状态跟踪的场景。传入 `context` 可以携带消息本身无法承载的额外细节，它会被追加到同一条可见消息中，并用 `<context>` 标签包裹——对用户并不隐藏。传入 `submit: true` 立即发送，或传入 `submit: false` 预填充一份草稿供用户先审阅。
+通过 `postMessage` 向代理聊天发送一条消息。这是上面 `useAgentChatGenerating()` 所包装的更底层原语，适用于 UI 交互本身不需要加载状态跟踪的场景。传入 `context` 可以携带模型应该看到但用户不应看到的额外细节。它会被追加到发送给代理的消息中，并用 `<context>` 标签包裹，在消息渲染到聊天界面之前会被移除。传入 `submit: true` 立即发送，或传入 `submit: false` 预填充一份草稿供用户先审阅。
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Auto-submit a prompt with appended context
+// 使用隐藏上下文自动提交提示
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -203,13 +203,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| 选项          | 类型       | 描述                                                                   |
-| ------------- | ---------- | ---------------------------------------------------------------------- |
-| `message`     | `string`   | 发送到聊天中的提示。如果设置了 `context`，会被追加到这同一条可见消息中 |
-| `context`     | `string?`  | 追加到可见消息中的额外细节，用 `<context>` 标签包裹。对用户并不隐藏    |
-| `submit`      | `boolean?` | true = 自动提交，false = 仅预填充                                      |
-| `newTab`      | `boolean?` | 为此提示创建一个单独的聊天线程                                         |
-| `openSidebar` | `boolean?` | 设为 false 可在不打开侧边栏的情况下提交/预填充                         |
+| 选项          | 类型       | 描述                                                           |
+| ------------- | ---------- | -------------------------------------------------------------- |
+| `message`     | `string`   | 发送到聊天中的提示，也是聊天界面中唯一显示的部分               |
+| `context`     | `string?`  | 发送前追加到消息中的、模型可见的上下文。会从聊天界面显示中移除 |
+| `submit`      | `boolean?` | true = 自动提交，false = 仅预填充                              |
+| `newTab`      | `boolean?` | 为此提示创建一个单独的聊天线程                                 |
+| `openSidebar` | `boolean?` | 设为 false 可在不打开侧边栏的情况下提交/预填充                 |
 
 在 MCP App embed 内部运行它，或者在不打开侧边栏的情况下将运行放到后台，这两种情况都在 [高级](/docs/client-advanced#background-send) 中有介绍。
 

@@ -181,11 +181,11 @@ const answer = await askUserQuestion({
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-透過 `postMessage` 向代理聊天傳送一則訊息。這是 `useAgentChatGenerating()` 在上方包裝的較低階原語，適用於不需要自己的載入狀態追蹤的 UI 互動。傳入 `context` 以提供訊息本身未涵蓋的額外細節。它會被附加到同一則可見訊息上，並用 `<context>` 標籤包裹。它並不會對使用者隱藏。傳入 `submit: true` 立即傳送，或傳入 `submit: false` 預填一份草稿供使用者先審閱。
+透過 `postMessage` 向代理聊天傳送一則訊息。這是 `useAgentChatGenerating()` 在上方包裝的較低階原語，適用於不需要自己的載入狀態追蹤的 UI 互動。傳入 `context` 以提供模型應該看到但使用者不應該看到的額外細節。它會被附加到傳送給代理的訊息上，並用 `<context>` 標籤包裹，在訊息呈現於聊天介面之前會被移除。傳入 `submit: true` 立即傳送，或傳入 `submit: false` 預填一份草稿供使用者先審閱。
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-// Auto-submit a prompt with appended context
+// 使用隱藏內容自動提交提示
 sendToAgentChat({
   message: "Generate alt text for this image",
   context: "Image path: /api/projects/hero.jpg",
@@ -202,13 +202,13 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| 選項          | 型別       | 描述                                                                |
-| ------------- | ---------- | ------------------------------------------------------------------- |
-| `message`     | `string`   | 傳送到聊天的提示。若設定了 `context`，會附加到同一則可見訊息上      |
-| `context`     | `string?`  | 附加到可見訊息的額外細節，用 `<context>` 標籤包裹。不會對使用者隱藏 |
-| `submit`      | `boolean?` | true = 自動提交，false = 僅預填                                     |
-| `newTab`      | `boolean?` | 為此提示建立一個獨立的聊天對話串                                    |
-| `openSidebar` | `boolean?` | 設為 false 可在不開啟側邊欄的情況下提交/預填                        |
+| 選項          | 型別       | 描述                                                     |
+| ------------- | ---------- | -------------------------------------------------------- |
+| `message`     | `string`   | 傳送到聊天的提示，也是聊天介面中唯一顯示的部分           |
+| `context`     | `string?`  | 傳送前附加到訊息中的模型可見內容。會從聊天介面顯示中移除 |
+| `submit`      | `boolean?` | true = 自動提交，false = 僅預填                          |
+| `newTab`      | `boolean?` | 為此提示建立一個獨立的聊天對話串                         |
+| `openSidebar` | `boolean?` | 設為 false 可在不開啟側邊欄的情況下提交/預填             |
 
 從 MCP App 嵌入內部執行此操作，或在不開啟側邊欄的情況下將執行放到背景，這兩者都在[進階](/docs/client-advanced#background-send)中涵蓋。
 

@@ -163,22 +163,30 @@ import {
 
 ## شرائح الاقتراحات المخصصة {#custom-suggestions}
 
-تدمج `dynamicSuggestions` الخاصة بـ `<AgentSidebar>` (راجع [محادثة الوكيل](/docs/client-agent-chat#dynamic-suggestions)) بالفعل `suggestions` الثابتة مع الاستدلال المدرك للسياق الخاص بإطار العمل. مرر `getSuggestions` بدلًا من ذلك عندما يريد تطبيق شرائح حتمية خاصة بالمجال محسوبة من نفس سياق `application_state` بدلًا من استدلال إطار العمل الافتراضي.
+تدمج `dynamicSuggestions` الخاصة بـ `<AgentSidebar>` (راجع [محادثة الوكيل](/docs/client-agent-chat#dynamic-suggestions)) بالفعل `suggestions` الثابتة مع الاستدلال المدرك للسياق الخاص بإطار العمل. مرر دالة `getSuggestions` داخل `dynamicSuggestions` بدلًا من ذلك عندما يريد تطبيق شرائح حتمية خاصة بالمجال محسوبة من نفس سياق `application_state` بدلًا من استدلال إطار العمل الافتراضي.
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-تستقبل `getSuggestions` نفس لقطة `navigation`/`selection`/`pending-selection-context` التي يقرأها الاستدلال المدمج، لذا يمكن لتنفيذ مخصص أن يتفاعل مع الحالة نفسها التي يتفاعل معها الاستدلال الافتراضي بالضبط، فقط بقواعد خاصة بالتطبيق بدلًا من قواعد عامة.
+تستقبل `getSuggestions` نفس لقطة `navigation`/`selection`/`pendingSelection` التي يقرأها الاستدلال المدمج، مكتوبة كـ `unknown` لأن شكلها يحدده التطبيق، لذا يجب تضييقها قبل قراءة حقولها. يمكن لتنفيذ مخصص أن يتفاعل مع الحالة نفسها التي يتفاعل معها الاستدلال الافتراضي بالضبط، فقط بقواعد خاصة بالتطبيق بدلًا من قواعد عامة.
 
 ## ما هي الخطوة التالية
 

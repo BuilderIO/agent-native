@@ -163,22 +163,30 @@ import {
 
 ## कस्टम सुझाव चिप्स {#custom-suggestions}
 
-`<AgentSidebar>` का `dynamicSuggestions` (देखें [एजेंट चैट](/docs/client-agent-chat#dynamic-suggestions)) पहले से ही स्टैटिक `suggestions` को फ्रेमवर्क के अपने कॉन्टेक्स्ट-अवेयर हेयुरिस्टिक के साथ मर्ज करता है। जब कोई ऐप फ्रेमवर्क के डिफ़ॉल्ट हेयुरिस्टिक के बजाय उसी `application_state` कॉन्टेक्स्ट से कंप्यूट किए गए नियतात्मक, डोमेन-विशिष्ट चिप्स चाहता है तो इसके बजाय `getSuggestions` पास करें।
+`<AgentSidebar>` का `dynamicSuggestions` (देखें [एजेंट चैट](/docs/client-agent-chat#dynamic-suggestions)) पहले से ही स्टैटिक `suggestions` को फ्रेमवर्क के अपने कॉन्टेक्स्ट-अवेयर हेयुरिस्टिक के साथ मर्ज करता है। जब कोई ऐप फ्रेमवर्क के डिफ़ॉल्ट हेयुरिस्टिक के बजाय उसी `application_state` कॉन्टेक्स्ट से कंप्यूट किए गए नियतात्मक, डोमेन-विशिष्ट चिप्स चाहता है तो इसके बजाय `dynamicSuggestions` के भीतर एक `getSuggestions` फ़ंक्शन पास करें।
 
 ```tsx
 <AgentSidebar
   suggestions={["Summarize my inbox"]}
-  getSuggestions={(state) =>
-    state.navigation?.view === "inbox"
-      ? [`Summarize ${state.navigation.label ?? "this"} label`]
-      : []
-  }
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
 >
   <App />
 </AgentSidebar>
 ```
 
-`getSuggestions` उसी `navigation`/`selection`/`pending-selection-context` स्नैपशॉट को प्राप्त करता है जिसे बिल्ट-इन हेयुरिस्टिक पढ़ता है, इसलिए कोई कस्टम इम्प्लीमेंटेशन उसी स्टेट के प्रति रिएक्ट कर सकता है जिसके प्रति डिफ़ॉल्ट करता है, बस सामान्य नियमों के बजाय ऐप-विशिष्ट नियमों के साथ।
+`getSuggestions` उसी `navigation`/`selection`/`pendingSelection` स्नैपशॉट को प्राप्त करता है जिसे बिल्ट-इन हेयुरिस्टिक पढ़ता है, जो `unknown` के रूप में टाइप किया गया है क्योंकि इसका आकार ऐप-निर्धारित है, इसलिए फ़ील्ड पढ़ने से पहले इसे नैरो करें। कोई कस्टम इम्प्लीमेंटेशन उसी स्टेट के प्रति रिएक्ट कर सकता है जिसके प्रति डिफ़ॉल्ट करता है, बस सामान्य नियमों के बजाय ऐप-विशिष्ट नियमों के साथ।
 
 ## आगे क्या
 

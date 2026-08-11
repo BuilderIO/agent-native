@@ -2,8 +2,10 @@ export { getBrowserTabId } from "../browser-tab-id.js";
 export {
   deleteClientAppState,
   readClientAppState,
+  readClientAppStateMany,
   setClientAppState,
   writeClientAppState,
+  type ClientAppStateBatch,
   type ClientAppStateReadOptions,
   type ClientAppStateWriteOptions,
 } from "../application-state.js";
