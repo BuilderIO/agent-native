@@ -105,7 +105,7 @@ export function isSourceImprovementRequest(
     /\b(restyl\w*|redesign\w*|rebrand\w*|revamp\w*|rework\w*|moderni[sz]\w*|refresh\w*|polish\w*|improv\w*|updat\w*|revis\w*|edit\w*)\b/.test(
       normalized,
     ) ||
-    /\bmake\b[\s\S]{0,40}\b(better|modern|professional|polished)\b/.test(
+    /\bmake\b[\s\S]{0,40}\b(better|modern|professional|polished|prett\w*)\b/.test(
       normalized,
     );
   // A source deck attachment is the object being improved even when the

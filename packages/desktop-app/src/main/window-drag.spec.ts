@@ -156,7 +156,7 @@ describe("window drag gesture", () => {
     });
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(window.setPosition).toHaveBeenCalledWith(47, 65, false);
+    expect(window.setPosition).toHaveBeenCalledWith(47, 67, false);
 
     cleanup();
     expect(guest.removeListener).toHaveBeenCalledWith(
