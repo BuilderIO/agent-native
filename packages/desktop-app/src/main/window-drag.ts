@@ -133,6 +133,11 @@ type BeforeMouseEventListener = (
   input: WindowDragMouseInput,
 ) => void;
 
+interface AttachedWindowDragListeners {
+  beforeMouseEvent: BeforeMouseEventListener;
+  destroyed: () => void;
+}
+
 /**
  * Attach the gesture to both the shell and native guest webviews. A webview
  * owns its own WebContents, so listening only on the BrowserWindow misses the
@@ -143,15 +148,24 @@ export function installWindowDragController(
   options: WindowDragOptions,
 ): () => void {
   const controller = createWindowDragController(window, options);
-  const listeners = new Map<WebContents, BeforeMouseEventListener>();
+  const listeners = new Map<WebContents, AttachedWindowDragListeners>();
 
   const attach = (contents: WebContents) => {
     if (contents.isDestroyed() || listeners.has(contents)) return;
     const listener: BeforeMouseEventListener = (event, input) => {
       controller.handleBeforeMouseEvent(event, input);
     };
+    const onDestroyed = () => {
+      contents.removeListener("before-mouse-event", listener);
+      contents.removeListener("destroyed", onDestroyed);
+      listeners.delete(contents);
+    };
     contents.on("before-mouse-event", listener);
-    listeners.set(contents, listener);
+    contents.once("destroyed", onDestroyed);
+    listeners.set(contents, {
+      beforeMouseEvent: listener,
+      destroyed: onDestroyed,
+    });
   };
 
   const onDidAttachWebview = (_event: unknown, contents: WebContents) => {
@@ -167,8 +181,9 @@ export function installWindowDragController(
     controller.cancel();
     window.webContents.removeListener("did-attach-webview", onDidAttachWebview);
     window.removeListener("blur", onWindowBlur);
-    for (const [contents, listener] of listeners) {
-      contents.removeListener("before-mouse-event", listener);
+    for (const [contents, attached] of listeners) {
+      contents.removeListener("before-mouse-event", attached.beforeMouseEvent);
+      contents.removeListener("destroyed", attached.destroyed);
     }
     listeners.clear();
   };
