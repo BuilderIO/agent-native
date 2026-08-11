@@ -9,6 +9,7 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import attachSource, {
+  assertDetailsSourceJoin,
   builderAttachDurableItemCount,
   builderCmsAttachReadMetadata,
   initialBuilderAttachmentSetupOptions,
@@ -220,6 +221,21 @@ describe("content database source actions", () => {
         hasExistingSource: false,
       }),
     ).toBe(false);
+  });
+
+  it("rejects a details source without a match key before bootstrap", () => {
+    expect(() =>
+      assertDetailsSourceJoin({
+        relationshipMode: "details",
+        hasJoin: false,
+      }),
+    ).toThrow("Choose a match key before adding source details.");
+    expect(() =>
+      assertDetailsSourceJoin({
+        relationshipMode: "details",
+        hasJoin: true,
+      }),
+    ).not.toThrow();
   });
 
   it("accepts a bounded read-only Notion database details source", () => {

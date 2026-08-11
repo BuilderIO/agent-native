@@ -59,6 +59,15 @@ export function shouldBootstrapLocalDetailsSource(args: {
   return args.relationshipMode === "details" && !args.hasExistingSource;
 }
 
+export function assertDetailsSourceJoin(args: {
+  relationshipMode: "items" | "details" | undefined;
+  hasJoin: boolean;
+}) {
+  if (args.relationshipMode === "details" && !args.hasJoin) {
+    throw new Error("Choose a match key before adding source details.");
+  }
+}
+
 export async function readInitialBuilderCmsAttachEntries(
   sourceTable: string,
   readEntries: typeof readBuilderCmsContentEntries = readBuilderCmsContentEntries,
@@ -323,6 +332,13 @@ export default defineAction({
 
     const relationshipMode =
       args.relationshipMode ?? (args.mode === "add" ? "items" : undefined);
+
+    // Validate before bootstrapping the local primary so an invalid details
+    // attach cannot leave a source record behind.
+    assertDetailsSourceJoin({
+      relationshipMode,
+      hasJoin: Boolean(args.join),
+    });
 
     // A normal local Content database has rows but no explicit source record.
     // A details join needs that local snapshot to remain the primary side;
