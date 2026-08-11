@@ -3539,6 +3539,22 @@ async function mountBetterAuthRoutes(
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
+      try {
+        // Better Auth owns the browser cookie, while native clients resolve
+        // the exchanged token through the framework session table.
+        await addSession(session.token, session.email);
+      } catch (error) {
+        captureAuthError(error, {
+          route: "magic-link-desktop-callback",
+          email: session.email,
+        });
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "callback_error",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
       setDesktopExchange(flowId, session.token, session.email);
       return oauthDesktopExchangePage(
         "Sign-in complete. You can return to the app.",
