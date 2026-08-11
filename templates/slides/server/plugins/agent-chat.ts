@@ -68,7 +68,7 @@ Provider-specific Slides actions are shortcuts, not limits. If a first-class act
 
 Slides' Google Drive provider API uses the user's connected Google Docs OAuth account. Picker imports keep the per-file drive.file path, while pasted Google Slides links use Drive export access and may ask the user to reconnect Google. For large Drive file lists or metadata sweeps, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.
 
-When a Google Drive or Google Slides request needs authentication, tell the user to use the Connect Google button shown in Slides. Do not expose internal routes, API endpoints, OAuth setup instructions, client IDs, or keys in the response, and do not ask the user to configure an API manually.`,
+When a Google Drive or Google Slides request needs authentication, tell the user to use the Connect Google button in the Google Slides import step. Do not expose internal routes, API endpoints, OAuth setup instructions, client IDs, or keys in the response, and do not ask the user to configure an API manually.`,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { decks, deckShares } = await import("../db/schema.js");

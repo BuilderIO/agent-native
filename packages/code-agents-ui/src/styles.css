@@ -621,7 +621,7 @@
   justify-content: center;
   gap: 18px;
   width: 100%;
-  max-width: 600px;
+  max-width: var(--code-agents-chat-max);
   margin: 0 auto;
 }
 
@@ -643,7 +643,7 @@
   justify-content: center;
   gap: 24px;
   width: 100%;
-  max-width: 600px;
+  max-width: var(--code-agents-chat-max);
   margin: 0 auto;
 }
 

@@ -4259,6 +4259,7 @@ body[data-clips-route="recording-pill"] #root {
   object-fit: cover;
   border-radius: 50%;
   transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  /* compositing-ok: live <video> is composited regardless. */
   will-change: transform, opacity;
   backface-visibility: hidden;
   /* CRITICAL: clicks MUST pass through the canvas to the

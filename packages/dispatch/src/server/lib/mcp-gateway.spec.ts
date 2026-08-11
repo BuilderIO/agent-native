@@ -880,6 +880,31 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     ).rejects.toThrow(/safe app-relative route/);
   });
 
+  it("resolves target-relative embed start URLs against the granted app", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl: "/_agent-native/embed/start?ticket=relative",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/overview",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=relative",
+    );
+  });
+
   it("rejects a URL that does not belong to the explicitly named app", async () => {
     await expect(
       runWithRequestContext(

@@ -12,7 +12,6 @@ import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
-import { GoogleDriveConnectionCta } from "../editor/GoogleDriveConnectionCta";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
@@ -120,7 +119,6 @@ export function Layout({ children }: LayoutProps) {
         agentPageHref="/settings/agent"
         suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
         composerSlot={<CreativeContextComposerChip />}
-        threadFooterSlot={<GoogleDriveConnectionCta />}
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
           {sidebarOpen && (

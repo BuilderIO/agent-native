@@ -28,6 +28,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   },
 }));
 
+vi.mock("./GoogleDriveConnectionCta", () => ({
+  GoogleDriveConnectionCta: () => (
+    <div data-testid="google-drive-connection-cta" />
+  ),
+}));
+
 import {
   NewDeckReferenceStep,
   type ImportedReference,
@@ -182,5 +188,15 @@ describe("<NewDeckReferenceStep>", () => {
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByRole("status").textContent).toContain("Quarterly plan");
     expect(screen.getByLabelText("Google Slides - Imported")).toBeTruthy();
+  });
+
+  it("only shows Google connection recovery after choosing Google Slides", () => {
+    renderStep();
+
+    expect(screen.queryByTestId("google-drive-connection-cta")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Google Slides" }));
+
+    expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
   });
 });

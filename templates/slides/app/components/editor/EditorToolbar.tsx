@@ -450,7 +450,7 @@ export default function EditorToolbar({
   };
 
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-background/95 px-2 shadow-[0_1px_0_hsl(var(--border)/0.35)] backdrop-blur sm:px-3">
+    <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-background/95 px-2 shadow-[0_1px_0_hsl(var(--border)/0.35)] sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>

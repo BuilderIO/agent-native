@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -36,6 +38,20 @@ describe("CodeAgentsApp new-session extension seam", () => {
       useDefaultModeControl: true,
       showModelSelector: true,
     });
+  });
+});
+
+describe("CodeAgentsApp full-page chat width", () => {
+  it("keeps the empty and loading chat rails on the shared wide max", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(css).toContain("--code-agents-chat-max: 750px;");
+    expect(css).toMatch(
+      /\.code-agents-start\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-overview-skeleton\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
   });
 });
 

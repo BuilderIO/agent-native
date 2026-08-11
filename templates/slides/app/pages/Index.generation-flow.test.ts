@@ -66,6 +66,31 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("routes both prompt submit and prompt skip into the reference step", () => {
+    expect(source).toContain("const handlePromptSubmit");
+    expect(source).toContain("const handlePromptSkip");
+    expect(source).toContain('setPendingDeck({ prompt: "", files: [] })');
+    expect(source).toContain("onSubmit={handlePromptSubmit}");
+    expect(source).toContain("onSkip={handlePromptSkip}");
+    expect(source).toContain("setShowNewDeckReferenceStep(true)");
+  });
+
+  it("imports directly from the new-deck prompt and opens the imported deck", () => {
+    const directImportFlow = source.slice(
+      source.indexOf("const handleDirectImport"),
+      source.indexOf("const handleReferenceSelect"),
+    );
+
+    expect(directImportFlow).toContain(
+      'callAction("import-google-slides-reference"',
+    );
+    expect(directImportFlow).toContain('callAction("import-pptx"');
+    expect(directImportFlow).toContain('callAction("import-file"');
+    expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
+    expect(source).toContain("onImport={handleDirectImport}");
+    expect(source).toContain('importFromLabel={t("home.importFrom")}');
+  });
+
   it("turns an imported PPTX into a reusable reference deck", () => {
     const referenceImportFlow = source.slice(
       source.indexOf("const handleReferenceImport"),

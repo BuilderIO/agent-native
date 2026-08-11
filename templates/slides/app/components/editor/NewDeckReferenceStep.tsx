@@ -40,6 +40,8 @@ import type { Deck } from "@/context/DeckContext";
 import type { RecentReference } from "@/lib/recent-references";
 import { cn } from "@/lib/utils";
 
+import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
+
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
@@ -501,6 +503,11 @@ export function NewDeckReferenceStep({
                     })
                   }
                 />
+              )}
+              {selectedSource?.kind === "google-docs" && (
+                <div className="mt-3">
+                  <GoogleDriveConnectionCta />
+                </div>
               )}
               {importedReference && (
                 <div

@@ -174,7 +174,7 @@ export default function ChatRoute() {
       <DispatchAgentChatSurface
         mode="page"
         chatViewTransition
-        className="dispatch-chat-panel"
+        className="dispatch-chat-panel px-4 sm:px-6"
         defaultMode="chat"
         storageKey="dispatch"
         threadUrlSync={threadUrlSync}

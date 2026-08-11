@@ -2057,6 +2057,9 @@ export default function CodeAgentsApp({
         className="code-agents-rail"
         aria-label="Agent chats and navigation"
       >
+        {chatFirstMode ? (
+          <div className="code-agents-window-drag-region" aria-hidden="true" />
+        ) : null}
         <div className="code-agents-nav-list" aria-label="Agent navigation">
           {chatFirstMode ? (
             <ChatFirstPrimaryNavigation

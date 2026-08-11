@@ -33,6 +33,7 @@ import {
 } from "@/components/editor/NewDeckReferenceStep";
 import PromptPopover, {
   uploadPromptFiles,
+  type PromptImportSelection,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import {
@@ -773,6 +774,130 @@ export default function Index() {
     [setNewDeckPromptOpen],
   );
 
+  const handlePromptSkip = useCallback(() => {
+    setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+    setPendingDeck({ prompt: "", files: [] });
+    setShowNewDeckReferenceStep(true);
+  }, [setNewDeckPromptOpen]);
+
+  const handleDirectImport = useCallback(
+    async (selection: PromptImportSelection): Promise<boolean> => {
+      if (!session) {
+        setSignInPromptHadFiles(selection.kind !== "google-slides");
+        setShowSignInDialog(true);
+        return false;
+      }
+
+      if (selection.kind === "google-slides") {
+        const imported = (await callAction("import-google-slides-reference", {
+          presentationUrl: selection.url,
+        })) as {
+          id?: unknown;
+          imported?: unknown;
+          slideCount?: unknown;
+        };
+        if (
+          typeof imported.id !== "string" ||
+          !imported.id ||
+          imported.imported !== true ||
+          typeof imported.slideCount !== "number" ||
+          imported.slideCount < 1
+        ) {
+          throw new Error(
+            "The Google Slides presentation did not create a deck.",
+          );
+        }
+        await reloadDecks();
+        navigate(`/deck/${imported.id}`, { flushSync: true });
+        return true;
+      }
+
+      const uploaded = await uploadPromptFiles(selection.files);
+      const file = uploaded[0];
+      if (!file) throw new Error("The selected file could not be uploaded.");
+
+      if (selection.kind === "pptx") {
+        const imported = (await callAction("import-pptx", {
+          filePath: file.path,
+          designSystemId: initialDesignSystemId,
+        })) as {
+          id?: unknown;
+          imported?: unknown;
+          slideCount?: unknown;
+        };
+        if (
+          typeof imported.id !== "string" ||
+          !imported.id ||
+          imported.imported !== true ||
+          typeof imported.slideCount !== "number" ||
+          imported.slideCount < 1
+        ) {
+          throw new Error("The PowerPoint presentation did not create a deck.");
+        }
+        await reloadDecks();
+        navigate(`/deck/${imported.id}`, { flushSync: true });
+        return true;
+      }
+
+      let deck: ReturnType<typeof createDeck> | undefined;
+      flushSync(() => {
+        deck = createDeck(undefined, {
+          noDefaultSlides: true,
+          designSystemId: initialDesignSystemId,
+        });
+      });
+      if (!deck) throw new Error("The PDF deck could not be created.");
+
+      const persisted = await ensureDeckPersisted(deck.id);
+      if (!persisted.persisted) {
+        deleteDeck(deck.id);
+        throw new Error(
+          describeDeckPersistenceFailure(
+            persisted,
+            "The PDF deck could not be saved.",
+          ),
+        );
+      }
+
+      try {
+        const imported = (await callAction("import-file", {
+          filePath: file.path,
+          format: "pdf",
+          deckId: deck.id,
+          importIntoDeck: true,
+        })) as {
+          imported?: unknown;
+          deckId?: unknown;
+          pageCount?: unknown;
+        };
+        if (
+          imported.imported !== true ||
+          imported.deckId !== deck.id ||
+          typeof imported.pageCount !== "number" ||
+          imported.pageCount < 1
+        ) {
+          throw new Error("The PDF could not be imported into the new deck.");
+        }
+        await reloadDecks();
+        navigate(`/deck/${deck.id}`, { flushSync: true });
+        return true;
+      } catch (error) {
+        deleteDeck(deck.id);
+        throw error;
+      }
+    },
+    [
+      callAction,
+      createDeck,
+      deleteDeck,
+      ensureDeckPersisted,
+      initialDesignSystemId,
+      navigate,
+      reloadDecks,
+      session,
+    ],
+  );
+
   const handleReferenceSelect = useCallback(
     async (selection: NewDeckReferenceSelection) => {
       const pending = pendingDeck;
@@ -983,11 +1108,15 @@ export default function Index() {
     }
     setShowNewDeckReferenceStep(false);
     setPendingDeck(null);
+    if (!pending.prompt.trim() && pending.files.length === 0) {
+      handleCreateDeckBlank();
+      return;
+    }
     void handleCreateDeckWithPrompt(pending.prompt, pending.files, {
       designSystemId: null,
       referenceDeckId: null,
     });
-  }, [handleCreateDeckWithPrompt, pendingDeck]);
+  }, [handleCreateDeckBlank, handleCreateDeckWithPrompt, pendingDeck]);
 
   const handleConfirmDelete = () => {
     if (deckToDelete) {
@@ -1310,9 +1439,11 @@ export default function Index() {
         onOpenChange={setNewDeckPromptOpen}
         title={t("home.newDeckPromptTitle")}
         placeholder={t("home.newDeckPlaceholder")}
-        onSkip={handleCreateDeckBlank}
+        onSkip={handlePromptSkip}
         skipLabel={t("home.skipPrompt")}
         onSubmit={handlePromptSubmit}
+        onImport={handleDirectImport}
+        importFromLabel={t("home.importFrom")}
         importingLabel={t("editorToolbar.importing")}
         onBeforeUpload={(prompt, files) => {
           if (session) return true;
@@ -1330,11 +1461,14 @@ export default function Index() {
         open={showNewDeckReferenceStep}
         onOpenChange={(open) => {
           if (!open) {
-            const prompt = pendingDeck?.prompt;
+            const pending = pendingDeck;
             setShowNewDeckReferenceStep(false);
             setPendingDeck(null);
-            if (prompt) {
-              setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+            if (pending) {
+              setNewDeckInitialPrompt({
+                text: pending.prompt,
+                key: Date.now(),
+              });
               setShowNewDeckPrompt(true);
             }
           }

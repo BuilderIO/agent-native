@@ -82,7 +82,14 @@ type ToolStackMotionSnapshot = {
   left: number;
   width: number;
   height: number;
-  clone: HTMLElement;
+  /**
+   * The measured element itself, not a copy. Only the handful of nodes that
+   * actually leave the stack ever become exit ghosts, so cloning is deferred to
+   * that moment: deep-cloning every card on every snapshot ran once per render,
+   * which during streaming is per token. React has already detached the node by
+   * the time it is needed, but a detached node still clones intact.
+   */
+  element: HTMLElement;
 };
 
 type ToolStackActiveMotion = {
@@ -175,6 +182,51 @@ export function ToolCallStackMotion({
     const stack = stackRef.current;
     if (!stack) return;
 
+    const elements = Array.from(
+      stack.querySelectorAll<HTMLElement>(
+        "[data-agent-tool-call-id], [data-agent-tool-summary]",
+      ),
+    );
+    const structure = elements.map((element, index) =>
+      toolStackMotionKey(element, index),
+    );
+    const previousStructure = previousStructureRef.current;
+    const structureChanged =
+      structure.length !== previousStructure.length ||
+      structure.some((key, index) => key !== previousStructure[index]);
+    previousStructureRef.current = structure;
+
+    const measure = () => {
+      const snapshot = new Map<string, ToolStackMotionSnapshot>();
+      for (const [index, element] of elements.entries()) {
+        const rect = element.getBoundingClientRect();
+        snapshot.set(toolStackMotionKey(element, index), {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+          element,
+        });
+      }
+      return snapshot;
+    };
+
+    // This effect has no dependency array: it runs after every render, and while
+    // a response streams that is once per token. Nothing below moves anything
+    // unless the stack's structure changed, so bail before touching in-flight
+    // motion — cancelling here is what stopped entry/exit animations from ever
+    // playing during generation. Only re-snapshot once the stack is at rest,
+    // since mid-animation rects would poison the next FLIP's starting geometry.
+    if (!structureChanged) {
+      if (
+        activeMotionsRef.current.size === 0 &&
+        exitAnimationsRef.current.size === 0
+      ) {
+        previousRef.current = measure();
+      }
+      return;
+    }
+
     const previous = previousRef.current;
     const visualPrevious = new Map(previous);
     for (const [key, activeMotion] of activeMotionsRef.current) {
@@ -199,40 +251,9 @@ export function ToolCallStackMotion({
     }
     exitAnimationsRef.current.clear();
 
-    const elements = Array.from(
-      stack.querySelectorAll<HTMLElement>(
-        "[data-agent-tool-call-id], [data-agent-tool-summary]",
-      ),
-    );
-    const structure = elements.map((element, index) =>
-      toolStackMotionKey(element, index),
-    );
-    const previousStructure = previousStructureRef.current;
-    const structureChanged =
-      structure.length !== previousStructure.length ||
-      structure.some((key, index) => key !== previousStructure[index]);
-    previousStructureRef.current = structure;
-    const current = new Map<string, ToolStackMotionSnapshot>();
-    for (const [index, element] of elements.entries()) {
-      const rect = element.getBoundingClientRect();
-      current.set(toolStackMotionKey(element, index), {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        clone: element.cloneNode(true) as HTMLElement,
-      });
-    }
-
+    const current = measure();
     previousRef.current = current;
-    // Entry motion changes the measured transform without changing the stack
-    // structure. Do not turn that animation's cleanup into a second FLIP pass.
-    if (
-      previous.size === 0 ||
-      !structureChanged ||
-      prefersReducedMotionForToolStack()
-    )
-      return;
+    if (previous.size === 0 || prefersReducedMotionForToolStack()) return;
 
     const summary = elements.find(
       (element) => element.dataset.agentToolSummary !== undefined,
@@ -288,7 +309,7 @@ export function ToolCallStackMotion({
     for (const [key, before] of visualPrevious.entries()) {
       if (current.has(key) || !key.startsWith("tool:")) continue;
 
-      const ghost = before.clone;
+      const ghost = before.element.cloneNode(true) as HTMLElement;
       prepareToolStackExitClone(ghost, before);
       document.body?.appendChild(ghost);
       if (!ghost.isConnected) continue;

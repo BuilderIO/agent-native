@@ -651,8 +651,20 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail {
+  position: relative;
   border-right: 0;
   padding-top: 36px;
+}
+
+/* Keep the blank rail strip beside the native traffic lights available for
+   moving the frameless desktop window without covering rail controls. */
+.desktop-chat-first-hub .code-agents-window-drag-region {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--macos-traffic-light-safe-area);
+  height: 36px;
+  -webkit-app-region: drag;
 }
 
 .desktop-chat-first-hub .code-agents-nav-list,

@@ -63,11 +63,15 @@ export type ChatFirstSurfaceKind =
   | "side-chat"
   | "agents";
 
+export type ChatFirstAppSurfacePlacement = "main" | "side";
+
 export interface ChatFirstSurfaceTab {
   id: string;
   kind: ChatFirstSurfaceKind;
   title: string;
   appId?: string;
+  /** App tabs can either replace the main chat or sit beside it. */
+  placement?: ChatFirstAppSurfacePlacement;
   path?: string;
   view?: string;
   url?: string;
@@ -402,7 +406,10 @@ export interface ChatFirstSessionWatchDelivery {
 }
 
 export type ChatFirstBrowserResolution =
-  | { status: "ready"; target: { url: string; title?: string } }
+  | {
+      status: "ready";
+      target: { url: string; title?: string; openExternally?: boolean };
+    }
   | { status: "unresolved"; reason: "empty-detail" | "invalid-url" };
 
 export interface ChatFirstAppRegistration {
@@ -586,6 +593,9 @@ export function resolveChatFirstBrowserTarget(
     target: {
       url: url.href,
       ...(detail.title?.trim() ? { title: detail.title.trim() } : {}),
+      ...(shouldOpenChatFirstBrowserExternally(url.href)
+        ? { openExternally: true }
+        : {}),
     },
   };
 }
@@ -776,13 +786,27 @@ function normalizePersistedChatFirstSurfaceTab(
   if (kind === "app") {
     const appId = typeof value.appId === "string" ? value.appId.trim() : "";
     if (!appId) return null;
+    const placement = value.placement;
+    if (
+      placement !== undefined &&
+      placement !== "main" &&
+      placement !== "side"
+    ) {
+      return null;
+    }
     if (
       value.path !== undefined &&
       (typeof value.path !== "string" || normalizedPath(value.path) === null)
     ) {
       return null;
     }
-    return { ...tab, id, title, appId };
+    return {
+      ...tab,
+      id,
+      title,
+      appId,
+      ...(placement ? { placement } : {}),
+    };
   }
   if (kind === "browser") {
     const url = typeof value.url === "string" ? value.url.trim() : "";
@@ -1008,6 +1032,19 @@ function parseAbsoluteHttpUrl(value: string): URL | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Builder's web app sends frame-blocking headers. Its branch/editor URLs are
+ * open-browser targets, not the iframe-backed Fusion preview URLs served from
+ * builder.cloud, so keep them out of the chat-first browser iframe.
+ */
+export function shouldOpenChatFirstBrowserExternally(value: string): boolean {
+  const url = parseAbsoluteHttpUrl(value);
+  return Boolean(
+    url &&
+    (url.hostname === "builder.io" || url.hostname.endsWith(".builder.io")),
+  );
 }
 
 function registrationUrls(

@@ -56,6 +56,9 @@ export function ChatFirstSurfaceTabs({
   onCloseToRight,
   onCloseAll,
   onOpenSurface,
+  apps = [],
+  onOpenApp,
+  renderAppIcon,
   copy = defaultChatFirstCopy,
 }: ChatFirstSurfaceTabsProps) {
   return (
@@ -176,11 +179,16 @@ export function ChatFirstSurfaceTabs({
                   ? copy(`surface.${surface.kind}.reason`)
                   : copy(`surface.${surface.kind}.reason`);
               const isDeferred = surface.availability === "deferred";
+              const canOpenSurface =
+                onOpenSurface &&
+                (surface.kind === "browser" ||
+                  surface.kind === "side-chat" ||
+                  surface.kind === "agents");
               const row = (
                 <div
                   className={cn(
                     "flex h-7 min-w-0 items-center gap-2 rounded px-2 text-xs transition-colors",
-                    surface.kind === "agents" && onOpenSurface
+                    canOpenSurface
                       ? "text-foreground hover:bg-accent"
                       : isDeferred
                         ? "text-muted-foreground/60"
@@ -200,15 +208,23 @@ export function ChatFirstSurfaceTabs({
                   ) : null}
                 </div>
               );
-              if (surface.kind === "agents" && onOpenSurface) {
+              if (canOpenSurface) {
                 return (
                   <button
                     key={surface.kind}
                     type="button"
-                    className="text-start"
-                    title={copy("openActivity")}
-                    aria-label={copy("openActivity")}
-                    onClick={() => onOpenSurface(surface.kind)}
+                    className="block w-full text-start"
+                    title={
+                      surface.kind === "browser" ? reason : copy("openActivity")
+                    }
+                    aria-label={
+                      surface.kind === "browser" ? label : copy("openActivity")
+                    }
+                    onClick={() =>
+                      onOpenSurface(
+                        surface.kind === "side-chat" ? "agents" : surface.kind,
+                      )
+                    }
                   >
                     {row}
                   </button>
@@ -226,6 +242,31 @@ export function ChatFirstSurfaceTabs({
                 </Tooltip>
               );
             })}
+            {apps.length > 0 && onOpenApp ? (
+              <div className="mt-1 border-t border-border pt-1">
+                <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {copy("workspaceApps")}
+                </p>
+                <div className="space-y-0.5">
+                  {apps.map((app) => (
+                    <button
+                      key={app.id}
+                      type="button"
+                      data-chat-first-surface-app={app.id}
+                      className="flex h-8 w-full min-w-0 items-center gap-2 rounded px-2 text-start text-xs text-foreground transition-colors hover:bg-accent"
+                      title={copy("openApp", { name: app.name })}
+                      aria-label={copy("openApp", { name: app.name })}
+                      onClick={() => onOpenApp(app)}
+                    >
+                      {renderAppIcon?.(app) ?? <SurfaceIcon kind="app" />}
+                      <span className="min-w-0 flex-1 truncate">
+                        {app.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

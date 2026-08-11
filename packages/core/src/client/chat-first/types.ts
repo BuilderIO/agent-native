@@ -47,6 +47,9 @@ export interface ChatFirstSurfaceTabsProps {
   onCloseToRight: (tab: ChatFirstSurfaceTab) => void;
   onCloseAll: () => void;
   onOpenSurface?: (kind: ChatFirstSurfaceKind) => void;
+  apps?: readonly ChatFirstAppItem[];
+  onOpenApp?: (app: ChatFirstAppItem) => void;
+  renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
   copy?: ChatFirstCopy;
 }
 

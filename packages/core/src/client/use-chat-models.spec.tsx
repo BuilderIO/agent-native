@@ -227,6 +227,63 @@ describe("useChatModels", () => {
     expect(catalog?.textContent).toBe("anthropic:true");
   });
 
+  it("retries model discovery after a transient readiness failure", async () => {
+    vi.useFakeTimers();
+    try {
+      actionMocks.callAction.mockResolvedValue({
+        engines: [
+          {
+            name: "anthropic",
+            label: "Claude",
+            supportedModels: ["claude-sonnet-5"],
+            requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          },
+        ],
+      });
+      let environmentAttempts = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown) => {
+          const url = String(input);
+          if (url.includes("env-status")) {
+            environmentAttempts += 1;
+            if (environmentAttempts === 1) {
+              return new Response("temporarily unavailable", { status: 503 });
+            }
+            return Response.json([
+              { key: "ANTHROPIC_API_KEY", configured: true },
+            ]);
+          }
+          if (url.includes("builder/status")) {
+            return Response.json({ configured: false });
+          }
+          return new Response("{}");
+        }),
+      );
+
+      await act(async () => {
+        root.render(<ChatModelsProbe enabled storageKey="retry-selection" />);
+        await Promise.resolve();
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-state"]')
+          ?.textContent,
+      ).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+
+      expect(environmentAttempts).toBe(2);
+      expect(
+        container.querySelector('[data-testid="probe-catalog-state"]')
+          ?.textContent,
+      ).toBe("anthropic:true");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("syncs same-page model changes between hooks sharing a storage key", async () => {
     await act(async () => {
       root.render(

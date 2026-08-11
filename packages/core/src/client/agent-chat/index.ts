@@ -335,6 +335,7 @@ export {
   type ChatFirstAppRegistration,
   type ChatFirstAppResolution,
   type ChatFirstAppTarget,
+  type ChatFirstAppSurfacePlacement,
   type ChatFirstAgentActivity,
   type ChatFirstAgentActivityStatus,
   type ChatFirstOpenAppDelivery,

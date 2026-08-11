@@ -1416,6 +1416,7 @@ describe("chat connection suggestion alignment", () => {
     expect(panelSource).toContain(
       ".agent-composer-area:not(.agent-composer-area--compact)",
     );
+    expect(panelSource).toContain("const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;");
     expect(panelSource).toContain("padding-left:0;padding-right:0;");
     expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),750px)]");
     expect(suggestionSource).toContain(

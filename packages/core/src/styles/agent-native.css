@@ -153,8 +153,15 @@
   background: inherit;
 }
 
-.message-scroller-viewport--top-fade {
-  --message-scroller-top-fade-size: 48px;
+/* The mask is declared unconditionally and the fade is driven by its size
+   variable. Adding/removing a mask changes the element's paint properties, and
+   the `--top-fade` modifier flips with `hasContentAbove` — which oscillates
+   while a reply streams into an auto-scrolled transcript. Toggling the
+   declaration made Chromium tear down and rebuild this scroller's paint state
+   on every flip; animating a length inside a mask that is always present does
+   not. Keep the fade size at 0 rather than removing the mask. */
+.message-scroller-viewport {
+  --message-scroller-top-fade-size: 0px;
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0,
@@ -173,6 +180,10 @@
   mask-repeat: no-repeat;
   -webkit-mask-size: 100% 100%;
   mask-size: 100% 100%;
+}
+
+.message-scroller-viewport--top-fade {
+  --message-scroller-top-fade-size: 48px;
 }
 
 .agent-sidebar-resize-handle {
@@ -299,7 +310,11 @@
   max-width: var(--agent-sidebar-width);
   height: 100%;
   transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
-  will-change: transform;
+  /* No `will-change: transform` here. This element wraps the whole chat
+     transcript and stays mounted for the life of the page, so the hint is never
+     retired — it pins a permanently composited layer whose backing store grows
+     with the transcript. Chromium already promotes a transform transition for
+     the 260ms it runs, which is the entire benefit. */
   transition: transform 260ms var(--ease-drawer);
 }
 
@@ -308,7 +323,6 @@
    when available; these transforms provide the fallback and exit motion. */
 .agent-sidebar-panel[data-agent-sidebar-animation="drawer"] {
   overflow: clip;
-  will-change: transform;
   --agent-shadow: 0 0% 0%;
   --agent-shadow-o: 0.14;
   box-shadow: -12px 0 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
@@ -337,7 +351,6 @@
     --agent-sidebar-closed-transform,
     translateX(calc(100% + 1px))
   );
-  will-change: transform;
   box-shadow: 0 18px 40px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   transition: transform 260ms var(--ease-drawer);
 }
