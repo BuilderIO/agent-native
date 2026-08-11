@@ -639,6 +639,7 @@ const messages = {
     deckCount_other: "份幻灯片",
     createDeckOrVisual: "创建演示文稿",
     noMineDecks: "你还没有创建任何幻灯片。",
+    noDecksMatchSearch: "没有符合搜索条件的演示文稿。",
     deleteDeckTitle: "删除幻灯片？",
     deleteDeckDescription: "这会永久删除此幻灯片及其所有页面。此操作无法撤销。",
     cancel: "取消",

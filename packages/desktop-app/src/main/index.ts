@@ -118,6 +118,7 @@ import {
   ipcMain,
   Menu,
   Notification,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -215,6 +216,7 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { installWindowDragController } from "./window-drag";
 
 initializeDesktopSentry();
 initializeDesktopLogger();
@@ -1034,6 +1036,9 @@ function createWindow(): BrowserWindow {
   installSentryWebContentsInstrumentation(win.webContents, {
     role: "shell-renderer",
   });
+  const disposeWindowDragController = installWindowDragController(win, {
+    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
+  });
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
@@ -1057,6 +1062,7 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();
     desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;

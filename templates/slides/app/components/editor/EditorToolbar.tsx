@@ -27,12 +27,18 @@ import {
   IconAdjustments,
   IconPencilPlus,
   IconPin,
+  IconBrandGoogle,
+  IconCode,
+  IconCopy,
+  IconFileTypePdf,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,8 +60,12 @@ import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
 
+import {
+  registerEditorCommands,
+  type EditorCommand,
+} from "./editor-command-model";
 import { EditorActionCluster } from "./EditorActionCluster";
-import { ExportMenu } from "./ExportMenu";
+import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
@@ -74,6 +84,8 @@ interface EditorToolbarProps {
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
   currentSlide?: Slide;
+  /** Host for the wide-layout style toolbar in this row. */
+  onWideContextToolbarSlotChange?: (element: HTMLDivElement | null) => void;
   /** Active users on the current slide (from collab awareness) */
   activeUsers?: CollabUser[];
   /** Whether the agent has a durable presence entry on this slide */
@@ -145,6 +157,7 @@ export default function EditorToolbar({
   onShowHistory,
   historyButtonRef,
   currentSlide,
+  onWideContextToolbarSlotChange,
   activeUsers,
   agentPresent,
   agentActive,
@@ -223,11 +236,25 @@ export default function EditorToolbar({
   // empty deck must keep this fallback or it has no way to add one.
   const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const exportMenuRef = useRef<ExportMenuHandle>(null);
+  const titleMeasureRef = useRef<HTMLSpanElement>(null);
+  const [titleInputWidth, setTitleInputWidth] = useState(96);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
+
+  useLayoutEffect(() => {
+    const measuredWidth =
+      titleMeasureRef.current?.getBoundingClientRect().width;
+    if (typeof measuredWidth !== "number" || !Number.isFinite(measuredWidth)) {
+      return;
+    }
+    setTitleInputWidth(
+      Math.min(500, Math.max(96, Math.ceil(measuredWidth) + 16)),
+    );
+  }, [deckTitle]);
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -304,8 +331,202 @@ export default function EditorToolbar({
     }
   };
 
+  const editorCommands = useMemo<EditorCommand[]>(() => {
+    const commands: EditorCommand[] = [];
+    if (canEdit) {
+      commands.push(
+        {
+          id: "generate-image",
+          group: "media",
+          label: t("editorToolbar.generateImage"),
+          keywords: ["image", "media", "ai"],
+          icon: IconPhoto,
+          run: onGenerateImage,
+        },
+        {
+          id: "asset-library",
+          group: "media",
+          label: t("editorToolbar.assetLibrary"),
+          keywords: ["image", "media", "assets"],
+          icon: IconFolderOpen,
+          run: onOpenAssetLibrary,
+        },
+      );
+      if (currentSlide && onToggleAnimations) {
+        commands.push({
+          id: "element-animations",
+          group: "slideTools",
+          label: t("editorToolbar.elementAnimations"),
+          keywords: ["animation", "motion"],
+          icon: IconBolt,
+          active: animationsOpen,
+          run: onToggleAnimations,
+        });
+      }
+      if (onToggleTweaks) {
+        commands.push({
+          id: "slide-tweaks",
+          group: "slideTools",
+          label: t("editorToolbar.tweaks"),
+          keywords: ["style", "inspect", "adjust"],
+          icon: IconAdjustments,
+          active: tweaksOpen,
+          run: onToggleTweaks,
+        });
+      }
+      if (onToggleDrawMode) {
+        commands.push({
+          id: "draw-on-slide",
+          group: "slideTools",
+          label: t("editorToolbar.drawOnSlide"),
+          keywords: ["annotate", "draw"],
+          icon: IconPencilPlus,
+          active: drawMode,
+          run: onToggleDrawMode,
+        });
+      }
+      if (onTogglePinMode) {
+        commands.push({
+          id: "pin-comments",
+          group: "slideTools",
+          label: t("editorToolbar.pinComments"),
+          keywords: ["comment", "pin"],
+          icon: IconPin,
+          active: pinMode,
+          run: onTogglePinMode,
+        });
+      }
+    }
+    if (onToggleComments) {
+      commands.push({
+        id: "comments",
+        group: "comments",
+        label: t("editorToolbar.comments"),
+        keywords: ["comment", "review"],
+        icon: IconMessage,
+        active: commentsOpen,
+        run: onToggleComments,
+      });
+    }
+
+    commands.push(
+      {
+        id: "download-html",
+        group: "deck",
+        label: t("editorExport.downloadHtml"),
+        keywords: ["export", "html", "download"],
+        icon: IconCode,
+        run: () => void exportMenuRef.current?.exportHtml(),
+      },
+      {
+        id: "export-pdf",
+        group: "deck",
+        label: t("editorExport.exportPdf"),
+        keywords: ["export", "pdf", "download"],
+        icon: IconFileTypePdf,
+        run: () => void onExportPdf?.(),
+      },
+      {
+        id: "export-pptx",
+        group: "deck",
+        label: t("editorExport.exportPptx"),
+        keywords: ["export", "powerpoint", "pptx", "download"],
+        icon: IconDownload,
+        run: () => void exportMenuRef.current?.exportPptx(),
+      },
+    );
+    if (onExportGoogleSlides) {
+      commands.push(
+        {
+          id: "connect-google",
+          group: "deck",
+          label: t("editorExport.connectGoogle"),
+          keywords: ["google", "drive", "connect"],
+          icon: IconPlugConnected,
+          run: () => void exportMenuRef.current?.connectGoogle(),
+        },
+        {
+          id: "open-in-google-slides",
+          group: "deck",
+          label: t("editorExport.openInGoogleSlides"),
+          keywords: ["google", "slides", "export"],
+          icon: IconBrandGoogle,
+          run: () => void exportMenuRef.current?.exportGoogleSlides(),
+        },
+      );
+    }
+    if (onDuplicateDeck) {
+      commands.push({
+        id: "duplicate-deck",
+        group: "deck",
+        label: t("editorExport.duplicateDeck"),
+        keywords: ["copy", "duplicate"],
+        icon: IconCopy,
+        run: onDuplicateDeck,
+      });
+    }
+    commands.push(
+      {
+        id: "import-file",
+        group: "other",
+        label: importing
+          ? t("editorToolbar.importing")
+          : t("editorToolbar.importFile"),
+        keywords: ["import", "pptx", "docx", "pdf"],
+        icon: importing ? IconLoader2 : IconDownload,
+        run: () => fileInputRef.current?.click(),
+      },
+      {
+        id: "saved-versions",
+        group: "other",
+        label: t("editorToolbar.savedVersions"),
+        keywords: ["history", "versions", "restore"],
+        icon: IconHistory,
+        run: onShowHistory,
+      },
+      {
+        id: "toggle-theme",
+        group: "other",
+        label: isDark
+          ? t("editorToolbar.lightTheme")
+          : t("editorToolbar.darkTheme"),
+        keywords: ["theme", "dark", "light", "mode"],
+        icon: isDark ? IconSun : IconMoon,
+        run: () => setTheme(isDark ? "light" : "dark"),
+      },
+    );
+    return commands;
+  }, [
+    animationsOpen,
+    canEdit,
+    commentsOpen,
+    currentSlide,
+    drawMode,
+    importing,
+    isDark,
+    onDuplicateDeck,
+    onExportGoogleSlides,
+    onExportPdf,
+    onGenerateImage,
+    onOpenAssetLibrary,
+    onShowHistory,
+    onToggleAnimations,
+    onToggleComments,
+    onToggleDrawMode,
+    onTogglePinMode,
+    onToggleTweaks,
+    pinMode,
+    setTheme,
+    t,
+    tweaksOpen,
+  ]);
+  const editorCommandsRef = useRef<readonly EditorCommand[]>(editorCommands);
+  editorCommandsRef.current = editorCommands;
+
+  useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
+
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-background/95 px-2 shadow-[0_1px_0_hsl(var(--border)/0.35)] sm:px-3">
+    <div className="deck-editor-toolbar flex h-11 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -357,21 +578,31 @@ export default function EditorToolbar({
       )}
 
       {/* Deck title */}
+      <span
+        ref={titleMeasureRef}
+        aria-hidden="true"
+        className="pointer-events-none fixed -left-[9999px] whitespace-pre text-sm font-medium opacity-0"
+      >
+        {deckTitle || " "}
+      </span>
       <input
         type="text"
         value={deckTitle}
         onChange={(e) => onTitleChange(e.target.value)}
-        className="bg-transparent text-sm font-medium text-foreground/90 border-none outline-none focus:text-foreground min-w-0 w-24 sm:w-auto flex-shrink"
+        style={{ width: `${titleInputWidth}px` }}
+        className="min-w-0 max-w-[500px] flex-shrink bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
         spellCheck={false}
       />
 
-      {/* Slide counter */}
-      <span className="text-xs text-muted-foreground/70 flex-shrink-0 hidden sm:inline">
-        {currentSlideIndex + 1}/{slideCount}
-      </span>
-
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
+
+      <div
+        ref={onWideContextToolbarSlotChange}
+        data-context-toolbar-host="wide"
+        data-context-toolbar-visible={contextToolbarVisible ? "true" : "false"}
+        className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--wide"
+      />
 
       {/* "View only" badge — mirrors Google Slides' viewer chrome */}
       {!canEdit && (
@@ -399,6 +630,190 @@ export default function EditorToolbar({
         currentUserEmail={currentUserEmail}
         className="flex-shrink-0 mr-0.5"
       />
+
+      {/* Consolidated editor menu */}
+      <div className="flex-shrink-0">
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  ref={historyButtonRef}
+                  className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
+                  aria-label={t("editorToolbar.more")}
+                >
+                  <IconDotsVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent
+            align="end"
+            className="max-h-[min(80vh,32rem)] w-64 overflow-y-auto"
+          >
+            {canEdit && (
+              <>
+                <DropdownMenuLabel>
+                  {t("editorToolbar.media")}
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={onGenerateImage}>
+                    <IconPhoto className="size-4" />
+                    {t("editorToolbar.generateImage")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={onOpenAssetLibrary}>
+                    <IconFolderOpen className="size-4" />
+                    {t("editorToolbar.assetLibrary")}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </>
+            )}
+
+            {canEdit &&
+              (onToggleAnimations ||
+                onToggleTweaks ||
+                onToggleDrawMode ||
+                onTogglePinMode) && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>
+                    {t("editorToolbar.slideTools")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    {currentSlide && onToggleAnimations && (
+                      <DropdownMenuItem
+                        onSelect={onToggleAnimations}
+                        className={
+                          animationsOpen
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconBolt className="size-4" />
+                        {t("editorToolbar.elementAnimations")}
+                      </DropdownMenuItem>
+                    )}
+                    {onToggleTweaks && (
+                      <DropdownMenuItem
+                        onSelect={onToggleTweaks}
+                        className={
+                          tweaksOpen
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconAdjustments className="size-4" />
+                        {t("editorToolbar.tweaks")}
+                      </DropdownMenuItem>
+                    )}
+                    {onToggleDrawMode && (
+                      <DropdownMenuItem
+                        onSelect={onToggleDrawMode}
+                        data-toolbar-draw-button
+                        className={
+                          drawMode
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconPencilPlus className="size-4" />
+                        {t("editorToolbar.drawOnSlide")}
+                      </DropdownMenuItem>
+                    )}
+                    {onTogglePinMode && (
+                      <DropdownMenuItem
+                        onSelect={onTogglePinMode}
+                        data-toolbar-pin-button
+                        className={
+                          pinMode
+                            ? "bg-accent text-accent-foreground"
+                            : undefined
+                        }
+                      >
+                        <IconPin className="size-4" />
+                        {t("editorToolbar.pinComments")}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                </>
+              )}
+
+            {onToggleComments && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>
+                  {t("editorToolbar.comments")}
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onSelect={onToggleComments}
+                  className={
+                    commentsOpen
+                      ? "bg-accent text-accent-foreground"
+                      : undefined
+                  }
+                >
+                  <IconMessage className="size-4" />
+                  {t("editorToolbar.comments")}
+                  {unresolvedCommentCount > 0 && (
+                    <span className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                      {unresolvedCommentCount > 9
+                        ? "9+"
+                        : unresolvedCommentCount}
+                    </span>
+                  )}
+                </DropdownMenuItem>
+              </>
+            )}
+
+            <DropdownMenuSeparator />
+            <ExportMenu
+              ref={exportMenuRef}
+              inline
+              deckId={deckId}
+              deckTitle={deckTitle}
+              onDuplicate={onDuplicateDeck ?? (() => {})}
+              onExportPdf={onExportPdf ?? (() => {})}
+              onExportPptx={onExportPptx ?? (() => {})}
+              onExportGoogleSlides={onExportGoogleSlides}
+            />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={importing}
+              onSelect={() => fileInputRef.current?.click()}
+            >
+              {importing ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : (
+                <IconDownload className="size-4" />
+              )}
+              {importing
+                ? t("editorToolbar.importing")
+                : t("editorToolbar.importFile")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onShowHistory}>
+              <IconHistory className="size-4" />
+              {t("editorToolbar.savedVersions")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => setTheme(isDark ? "light" : "dark")}
+            >
+              {isDark ? (
+                <IconSun className="size-4" />
+              ) : (
+                <IconMoon className="size-4" />
+              )}
+              {isDark
+                ? t("editorToolbar.lightTheme")
+                : t("editorToolbar.darkTheme")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}
       <div className="flex-shrink-0">
@@ -452,177 +867,10 @@ export default function EditorToolbar({
         className="hidden"
       />
 
-      {/* Consolidated editor menu */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                ref={historyButtonRef}
-                className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
-                aria-label={t("editorToolbar.more")}
-              >
-                <IconDotsVertical className="size-4" />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent
-          align="end"
-          className="max-h-[min(80vh,32rem)] w-64 overflow-y-auto"
-        >
-          {canEdit && (
-            <>
-              <DropdownMenuLabel>{t("editorToolbar.media")}</DropdownMenuLabel>
-              <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={onGenerateImage}>
-                  <IconPhoto className="size-4" />
-                  {t("editorToolbar.generateImage")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={onOpenAssetLibrary}>
-                  <IconFolderOpen className="size-4" />
-                  {t("editorToolbar.assetLibrary")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </>
-          )}
-
-          {canEdit &&
-            (onToggleAnimations ||
-              onToggleTweaks ||
-              onToggleDrawMode ||
-              onTogglePinMode) && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.slideTools")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  {currentSlide && onToggleAnimations && (
-                    <DropdownMenuItem
-                      onSelect={onToggleAnimations}
-                      className={
-                        animationsOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconBolt className="size-4" />
-                      {t("editorToolbar.elementAnimations")}
-                    </DropdownMenuItem>
-                  )}
-                  {onToggleTweaks && (
-                    <DropdownMenuItem
-                      onSelect={onToggleTweaks}
-                      className={
-                        tweaksOpen
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconAdjustments className="size-4" />
-                      {t("editorToolbar.tweaks")}
-                    </DropdownMenuItem>
-                  )}
-                  {onToggleDrawMode && (
-                    <DropdownMenuItem
-                      onSelect={onToggleDrawMode}
-                      data-toolbar-draw-button
-                      className={
-                        drawMode
-                          ? "bg-accent text-accent-foreground"
-                          : undefined
-                      }
-                    >
-                      <IconPencilPlus className="size-4" />
-                      {t("editorToolbar.drawOnSlide")}
-                    </DropdownMenuItem>
-                  )}
-                  {onTogglePinMode && (
-                    <DropdownMenuItem
-                      onSelect={onTogglePinMode}
-                      data-toolbar-pin-button
-                      className={
-                        pinMode ? "bg-accent text-accent-foreground" : undefined
-                      }
-                    >
-                      <IconPin className="size-4" />
-                      {t("editorToolbar.pinComments")}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuGroup>
-              </>
-            )}
-
-          {onToggleComments && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>
-                {t("editorToolbar.comments")}
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                onSelect={onToggleComments}
-                className={
-                  commentsOpen ? "bg-accent text-accent-foreground" : undefined
-                }
-              >
-                <IconMessage className="size-4" />
-                {t("editorToolbar.comments")}
-                {unresolvedCommentCount > 0 && (
-                  <span className="ml-auto rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                    {unresolvedCommentCount > 9 ? "9+" : unresolvedCommentCount}
-                  </span>
-                )}
-              </DropdownMenuItem>
-            </>
-          )}
-
-          <DropdownMenuSeparator />
-          <ExportMenu
-            inline
-            deckId={deckId}
-            deckTitle={deckTitle}
-            onDuplicate={onDuplicateDeck ?? (() => {})}
-            onExportPdf={onExportPdf ?? (() => {})}
-            onExportPptx={onExportPptx ?? (() => {})}
-            onExportGoogleSlides={onExportGoogleSlides}
-          />
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            disabled={importing}
-            onSelect={() => fileInputRef.current?.click()}
-          >
-            {importing ? (
-              <IconLoader2 className="size-4 animate-spin" />
-            ) : (
-              <IconDownload className="size-4" />
-            )}
-            {importing
-              ? t("editorToolbar.importing")
-              : t("editorToolbar.importFile")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onShowHistory}>
-            <IconHistory className="size-4" />
-            {t("editorToolbar.savedVersions")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => setTheme(isDark ? "light" : "dark")}
-          >
-            {isDark ? (
-              <IconSun className="size-4" />
-            ) : (
-              <IconMoon className="size-4" />
-            )}
-            {isDark
-              ? t("editorToolbar.lightTheme")
-              : t("editorToolbar.darkTheme")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <RunsTray pollMs={0} />
-      <AgentToggleButton />
+      <div className="flex items-center gap-1">
+        <RunsTray pollMs={0} />
+        <AgentToggleButton />
+      </div>
     </div>
   );
 }

@@ -587,6 +587,43 @@ async function drain(iterable: AsyncIterable<unknown>) {
 }
 
 describe("SSE replay render pacing", () => {
+  it("marks an explicit done frame terminal without treating EOF as success", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "complete" }, { type: "done" }]),
+        [],
+        { value: 0 },
+        "tab-terminal-frame",
+        undefined,
+        undefined,
+        { markTerminalResults: true },
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+    });
+
+    const abruptEof = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    await expect(
+      drain(
+        readSSEStream(
+          abruptEof,
+          [],
+          { value: 0 },
+          "tab-abrupt-eof",
+          undefined,
+          undefined,
+          { markTerminalResults: true },
+        ),
+      ),
+    ).rejects.toMatchObject({ reason: "stream_ended" });
+  });
+
   it("yields to the browser event loop during a dense replay burst", async () => {
     const textEvents = Array.from({ length: 60 }, (_, index) => ({
       type: "text",
@@ -679,6 +716,35 @@ describe("SSE replay render pacing", () => {
         type: "text",
         text: after.map((event) => event.text).join(""),
       },
+    ]);
+  });
+
+  it("marks the browser liveness cursor only for durable progress events", async () => {
+    const events = [
+      { type: "text", text: "working", seq: 0 },
+      { type: "stream_keepalive", seq: 1 },
+      { type: "clear", seq: 2 },
+      { type: "tool_input_delta", text: "{", seq: 3 },
+      { type: "done", seq: 4 },
+    ];
+    const progressBySeq = new Map<number, boolean | undefined>();
+
+    await drain(
+      readSSEStream(
+        eventStream(events),
+        [],
+        { value: 0 },
+        undefined,
+        (seq, isProgress) => progressBySeq.set(seq, isProgress),
+      ),
+    );
+
+    expect([...progressBySeq.entries()]).toEqual([
+      [0, true],
+      [1, false],
+      [2, false],
+      [3, true],
+      [4, true],
     ]);
   });
 

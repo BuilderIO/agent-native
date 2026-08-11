@@ -659,6 +659,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
+    noDecksMatchSearch: "No decks match your search.",
     deleteDeckTitle: "Delete Deck?",
     deleteDeckDescription:
       "This will permanently delete this deck and all its slides. This action cannot be undone.",

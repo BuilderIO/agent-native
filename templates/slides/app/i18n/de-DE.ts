@@ -671,6 +671,7 @@ const messages = {
     deckCount_other: "Decks",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
+    noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",

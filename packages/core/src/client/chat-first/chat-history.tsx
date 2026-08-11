@@ -28,7 +28,16 @@ export function ChatFirstChatHistory({
   className,
   ...props
 }: ChatFirstChatHistoryProps) {
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return (
+      <section
+        data-chat-first-chat-history
+        className={["min-h-0 min-w-0 flex-1", className]
+          .filter(Boolean)
+          .join(" ")}
+      />
+    );
+  }
 
   return (
     <section

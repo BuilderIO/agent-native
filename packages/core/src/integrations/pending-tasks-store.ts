@@ -195,31 +195,6 @@ export interface PendingTask {
   completedAt: number | null;
 }
 
-/**
- * Whether a provider thread currently has queued or executing work.
- *
- * Messaging adapters use this to accept unmentioned replies only while an
- * agent task is active. This prevents broad message subscriptions from turning
- * every channel message into an agent invocation.
- */
-export async function hasActivePendingTask(
-  platform: string,
-  externalThreadId: string,
-): Promise<boolean> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT 1 AS active
-      FROM integration_pending_tasks
-      WHERE platform = ?
-        AND external_thread_id = ?
-        AND status IN ('pending', 'processing')
-      LIMIT 1`,
-    args: [platform, externalThreadId],
-  });
-  return rows.length > 0;
-}
-
 function rowToTask(row: Record<string, unknown>): PendingTask {
   return {
     id: row.id as string,

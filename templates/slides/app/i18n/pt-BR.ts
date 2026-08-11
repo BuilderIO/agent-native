@@ -673,6 +673,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Criar uma apresentação",
     noMineDecks: "Nenhum deck criado por você ainda.",
+    noDecksMatchSearch: "Nenhum deck corresponde à sua busca.",
     deleteDeckTitle: "Excluir deck?",
     deleteDeckDescription:
       "Isso excluirá permanentemente este deck e todos os seus slides. Esta ação não pode ser desfeita.",

@@ -316,7 +316,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   return (
     <section
       data-chat-first-apps-rail
-      className="mt-3 px-0 pb-2 pt-2"
+      className="mt-3 px-2 pb-2 pt-2"
       aria-label={copy("workspaceApps")}
     >
       <div className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-medium text-sidebar-foreground/50">

@@ -455,7 +455,7 @@ function SoftwareUpdateCard() {
             onClick={handleInstall}
           >
             <IconRefresh size={14} />
-            Relaunch
+            Restart to update
           </button>
         ) : canDownload ? (
           <button
