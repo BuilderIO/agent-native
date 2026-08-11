@@ -20,7 +20,8 @@ export interface PresenceBarProps {
   agentPresent?: boolean;
   /** Whether the agent is actively making edits right now. */
   agentActive?: boolean;
-  /** Whether to show the status dot beside the active agent label. */
+  /** Whether to show the status dot beside the active agent label. When false,
+   *  the label is integrated with the avatar pill. */
   showAgentEditingDot?: boolean;
   /** Current user's email (to exclude from the list). */
   currentUserEmail?: string;
@@ -161,13 +162,20 @@ function AgentAvatar({
   showAgentEditingDot: boolean;
 }) {
   injectStyles();
+  const integratedEditingBadge = active && !isFollowing && !showAgentEditingDot;
 
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
-        gap: active && !isFollowing && !showAgentEditingDot ? 0 : 4,
+        gap: 4,
+        ...(integratedEditingBadge && {
+          height: AVATAR_SIZE,
+          paddingRight: 8,
+          borderRadius: 9999,
+          backgroundColor: `${AGENT_COLOR}20`,
+        }),
       }}
     >
       <div
@@ -198,7 +206,10 @@ function AgentAvatar({
         A
       </div>
       {active && !isFollowing && (
-        <AgentEditingChip showDot={showAgentEditingDot} />
+        <AgentEditingChip
+          showDot={showAgentEditingDot}
+          integrated={integratedEditingBadge}
+        />
       )}
       {isFollowing && (
         <span
@@ -222,17 +233,23 @@ function AgentAvatar({
   );
 }
 
-function AgentEditingChip({ showDot }: { showDot: boolean }) {
+function AgentEditingChip({
+  showDot,
+  integrated,
+}: {
+  showDot: boolean;
+  integrated: boolean;
+}) {
   return (
     <span
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: showDot ? 4 : 0,
-        height: 20,
-        padding: "0 8px",
-        borderRadius: 9999,
-        backgroundColor: `${AGENT_COLOR}20`,
+        height: integrated ? "auto" : 20,
+        padding: integrated ? 0 : "0 8px",
+        borderRadius: integrated ? 0 : 9999,
+        backgroundColor: integrated ? "transparent" : `${AGENT_COLOR}20`,
         color: AGENT_COLOR,
         fontSize: 11,
         fontWeight: 600,
