@@ -1,7 +1,9 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
+import { Link } from "react-router";
 
 import { ClipsQuickStart } from "../components/ClipsQuickStart";
+import { sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
@@ -97,6 +99,7 @@ function CliCopy() {
 
 export default function ClipsTemplate() {
   const t = useT();
+  const { locale } = useLocale();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -660,14 +663,21 @@ export default function ClipsTemplate() {
           {t("templateLanding.clips.s060")}
         </p>
         <ClipsQuickStart />
-        <div className="template-detail-cta-actions mt-6 flex justify-center">
+        <div className="template-detail-cta-actions mt-6 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
             {t("templateLanding.clips.s061")}
           </TemplateDocsLink>
+          <Link
+            data-an-prefetch="render"
+            to={sitePathForLocale("/apps", locale)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+          >
+            {t("templateLanding.clips.s062")}
+          </Link>
         </div>
       </section>
     </main>
