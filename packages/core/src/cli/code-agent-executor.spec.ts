@@ -235,6 +235,86 @@ describe("executeCodeAgentRun", () => {
     }
   });
 
+  it("runs a Claude Code CLI-backed session through a Claude subscription", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const claudeBin = path.join(binDir, "claude");
+    fs.writeFileSync(
+      claudeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Claude streamed output' }] } }) + '\\n');",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'Claude final answer' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Claude",
+      status: "queued",
+      permissionMode: "auto-edit",
+      cwd: process.cwd(),
+      metadata: {
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: {
+        engine: "claude-cli",
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      },
+    });
+    expect(output.read()).toContain("Claude streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5");
+    expect(args).toContain("--effort");
+    expect(args[args.indexOf("--effort") + 1]).toBe("high");
+    expect(args).toEqual(
+      expect.arrayContaining(["--permission-mode", "acceptEdits"]),
+    );
+    expect(args).not.toEqual(
+      expect.arrayContaining(["--permission-mode", "plan"]),
+    );
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "system",
+          message: "Claude final answer",
+          metadata: expect.objectContaining({ engine: "claude-cli" }),
+        }),
+      ]),
+    );
+  });
+
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];

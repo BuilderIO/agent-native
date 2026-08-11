@@ -11,6 +11,7 @@ import {
 import {
   IconApps,
   IconCheck,
+  IconComponents,
   IconChevronDown,
   IconPalette,
   IconPhoto,
@@ -822,7 +823,7 @@ export default function PromptPopover({
                     }}
                   >
                     <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                      <IconPalette className="size-4 shrink-0 text-muted-foreground" />
+                      <IconComponents className="size-4 shrink-0 text-muted-foreground" />
                       <span
                         className="min-w-0 flex-1 truncate text-start"
                         title={
@@ -851,7 +852,7 @@ export default function PromptPopover({
                   </Select>
                 ) : (
                   <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
-                    <IconPalette className="size-4 shrink-0" />
+                    <IconComponents className="size-4 shrink-0" />
                     <span className="truncate">
                       {t("promptDialog.noDesignSystem")}
                     </span>

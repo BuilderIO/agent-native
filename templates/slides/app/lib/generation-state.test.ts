@@ -7,12 +7,13 @@ import {
 } from "./generation-state";
 
 describe("new deck generation state", () => {
-  it("shows the blocking overlay only while a fresh deck has no slides", () => {
+  it("shows the blocking overlay before and during the first slide", () => {
     expect(
       shouldShowNewDeckGeneratingOverlay({
         generating: true,
         isNewDeckCreation: true,
         slideCount: 0,
+        generationStarted: true,
       }),
     ).toBe(true);
 
@@ -21,6 +22,7 @@ describe("new deck generation state", () => {
         generating: true,
         isNewDeckCreation: true,
         slideCount: 1,
+        generationStarted: true,
       }),
     ).toBe(false);
 
@@ -29,8 +31,18 @@ describe("new deck generation state", () => {
         generating: false,
         isNewDeckCreation: true,
         slideCount: 0,
+        generationStarted: true,
       }),
     ).toBe(false);
+
+    expect(
+      shouldShowNewDeckGeneratingOverlay({
+        generating: false,
+        isNewDeckCreation: true,
+        slideCount: 0,
+        generationStarted: false,
+      }),
+    ).toBe(true);
   });
 
   it("keeps creation intent until generation starts", () => {

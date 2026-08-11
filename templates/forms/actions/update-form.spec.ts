@@ -32,6 +32,7 @@ const state = vi.hoisted(() => ({
     deletedAt: null,
   },
   updated: null as Record<string, unknown> | null,
+  returnStaleAfterWrite: false,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -56,7 +57,11 @@ vi.mock("../server/db/index.js", () => ({
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: async () => [state.updated ?? state.existing],
+          limit: async () => [
+            state.returnStaleAfterWrite
+              ? state.existing
+              : (state.updated ?? state.existing),
+          ],
         }),
       }),
     }),
@@ -75,6 +80,7 @@ const { default: updateForm } = await import("./update-form.js");
 describe("update-form settings", () => {
   beforeEach(() => {
     state.updated = null;
+    state.returnStaleAfterWrite = false;
     mockAssertAccess.mockClear();
     mockInvalidatePublicFormCache.mockClear();
   });
@@ -99,5 +105,29 @@ describe("update-form settings", () => {
       emailOnNewResponses: true,
     });
     expect(mockAssertAccess).toHaveBeenCalledWith("form", "form-1", "editor");
+  });
+
+  it("returns written fields without trusting a stale post-write read", async () => {
+    state.returnStaleAfterWrite = true;
+    const fields = [
+      {
+        id: "message",
+        type: "textarea",
+        label: "Message",
+        placeholder: "Tell us what you think",
+        required: false,
+      },
+    ];
+
+    const result = await updateForm.run({
+      id: "form-1",
+      fields,
+    });
+
+    expect(result.fields).toEqual(fields);
+    expect(mockInvalidatePublicFormCache).toHaveBeenCalledWith(
+      state.existing,
+      expect.objectContaining({ fields: JSON.stringify(fields) }),
+    );
   });
 });

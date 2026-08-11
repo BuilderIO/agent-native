@@ -380,14 +380,23 @@ export function mergeLineRuns(items: TextRunBox[]): TextRunBox[] {
       prev.italic === item.italic &&
       prev.underline === item.underline &&
       prev.href === item.href;
+    const needsSpace =
+      prev !== undefined && item.left - prev.right > item.fontSize * 0.25;
     if (prev && sameStyle) {
-      const needsSpace = item.left - prev.right > item.fontSize * 0.25;
       prev.text += (needsSpace ? " " : "") + item.text;
       prev.right = Math.max(prev.right, item.right);
       prev.top = Math.min(prev.top, item.top);
       prev.bottom = Math.max(prev.bottom, item.bottom);
     } else {
-      runs.push({ ...item });
+      // A word-sized gap has to survive a style change too. Only the
+      // same-style branch used to re-add it, so a heading whose colour
+      // changed mid-line ("7 Air " + "purifying") lost the space at the
+      // boundary and rendered as one jammed-together word.
+      const separator =
+        needsSpace && !/\s$/.test(prev?.text ?? "") && !/^\s/.test(item.text)
+          ? " "
+          : "";
+      runs.push({ ...item, text: separator + item.text });
     }
   }
   return runs;

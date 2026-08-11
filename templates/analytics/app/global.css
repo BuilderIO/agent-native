@@ -235,7 +235,7 @@
   [data-agent-empty-state="centered"]
   .agent-plan-mode-callout {
   width: 100%;
-  max-width: min(684px, 90%);
+  max-width: min(750px, 100%);
   padding: 0;
 }
 

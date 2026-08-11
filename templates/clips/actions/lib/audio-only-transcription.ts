@@ -79,7 +79,9 @@ export function isAudioMimeType(mimeType: string | null | undefined): boolean {
 export function isNoExtractableAudioError(err: unknown): boolean {
   return (
     err instanceof AudioOnlyExtractionError &&
-    (err.code === "NO_AUDIO_TRACK" || err.code === "NO_SPEECH_DETECTED")
+    (err.code === "NO_AUDIO_SAVED" ||
+      err.code === "NO_AUDIO_TRACK" ||
+      err.code === "NO_SPEECH_DETECTED")
   );
 }
 

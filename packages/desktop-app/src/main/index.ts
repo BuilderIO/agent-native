@@ -1,5 +1,10 @@
 import fs from "fs";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   createServer,
@@ -113,6 +118,7 @@ import {
   ipcMain,
   Menu,
   Notification,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -152,6 +158,8 @@ import {
   installBrowserNativeHost,
   parseAdditionalChromeExtensionIds,
 } from "./browser-control/native-host";
+import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
+import { cachedCliStatus, createCliStatusCache } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
@@ -208,6 +216,7 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { installWindowDragController } from "./window-drag";
 
 initializeDesktopSentry();
 initializeDesktopLogger();
@@ -301,6 +310,7 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 ];
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
+const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 export {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -1026,12 +1036,18 @@ function createWindow(): BrowserWindow {
   installSentryWebContentsInstrumentation(win.webContents, {
     role: "shell-renderer",
   });
+  const disposeWindowDragController = installWindowDragController(win, {
+    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
+  });
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
   win.webContents.on("did-finish-load", () => {
+    // A reloaded renderer has no status yet, so the dedup cache must not
+    // suppress the next send as an unchanged repeat.
+    lastDesktopAppRuntimeStatus.clear();
     flushPendingOpenRequests(win);
     flushPendingDesktopShortcutActivations(win);
   });
@@ -1046,6 +1062,7 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();
     desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;
@@ -5416,8 +5433,20 @@ async function createDesktopAppFromPrompt(
   };
 }
 
+const lastDesktopAppRuntimeStatus = new Map<string, string>();
+
+/**
+ * This is a state, not an event stream: a managed dev server emits a stdout
+ * chunk per HMR update and per transform, and each one re-sends the identical
+ * "running / Preview updated." status. Forwarding every one floods the renderer
+ * with IPC and re-renders for a status that has not changed. Send only on an
+ * actual transition.
+ */
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  const signature = `${status.state} ${status.message ?? ""}`;
+  if (lastDesktopAppRuntimeStatus.get(status.appId) === signature) return;
+  lastDesktopAppRuntimeStatus.set(status.appId, signature);
   mainWindow.webContents.send(IPC.APP_STATUS, status);
 }
 
@@ -7308,12 +7337,14 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
   const codex = getLocalCodexCliStatus();
+  const claude = getLocalClaudeCliStatus();
   const configuredCredentialKeys = new Set(
     settings.providers.flatMap((provider) => provider.configuredKeys),
   );
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
     ...(codex.authenticated ? [codex.label] : []),
+    ...(claude.authenticated ? [claude.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -7330,6 +7361,7 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
 function hasRuntimeCodeAgentLlmProvider(): boolean {
   if (hasRuntimeNonCodexCodeAgentLlmProvider()) return true;
   if (getLocalCodexCliStatus().authenticated) return true;
+  if (getLocalClaudeCliStatus().authenticated) return true;
   return false;
 }
 
@@ -7356,6 +7388,12 @@ function normalizeCodeAgentRequestedEngine(
     getLocalCodexCliStatus().authenticated
   ) {
     return CODEX_CLI_ENGINE_NAME;
+  }
+  if (
+    !hasRuntimeNonCodexCodeAgentLlmProvider() &&
+    getLocalClaudeCliStatus().authenticated
+  ) {
+    return CLAUDE_CLI_ENGINE_NAME;
   }
   return undefined;
 }
@@ -7386,37 +7424,107 @@ function ensureCodeAgentLlmProvider(): {
   return {
     ok: false,
     error:
-      "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, Builder credentials, or run `codex login` for Codex CLI.",
+      "Connect Builder.io, run `codex login` or `claude auth login --claudeai`, or add an API key.",
   };
 }
 
-function getLocalCodexCliStatus(): {
+const CLI_PROBE_TIMEOUT_MS = 1500;
+
+interface CliRun {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: NodeJS.ErrnoException;
+}
+
+function runCliSync(command: string, args: string[]): CliRun {
+  const result = spawnSync(command, args, {
+    encoding: "utf-8",
+    timeout: CLI_PROBE_TIMEOUT_MS,
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: (result.error as NodeJS.ErrnoException | undefined) ?? undefined,
+  };
+}
+
+function runCliAsync(command: string, args: string[]): Promise<CliRun> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
+      (error, stdout, stderr) => {
+        const errno = error as NodeJS.ErrnoException | null;
+        // A non-zero exit is an answer ("not logged in"), not a probe failure —
+        // only a failure to run the binary at all is reported as `error`.
+        const spawnFailed = Boolean(errno && typeof errno.code === "string");
+        resolve({
+          status: errno
+            ? typeof errno.code === "number"
+              ? errno.code
+              : null
+            : 0,
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
+          error: spawnFailed ? (errno ?? undefined) : undefined,
+        });
+      },
+    );
+  });
+}
+
+interface LocalCodexCliStatus {
   available: boolean;
   authenticated: boolean;
   label: string;
   authMode?: string;
   version?: string;
+  model?: string;
   error?: string;
-} {
-  const versionResult = spawnSync("codex", ["--version"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
-  if (versionResult.error) {
+}
+
+const localCodexCliStatusCache = createCliStatusCache<LocalCodexCliStatus>();
+
+function getLocalCodexCliStatus(): LocalCodexCliStatus {
+  return cachedCliStatus(
+    localCodexCliStatusCache,
+    () => {
+      const version = runCliSync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        runCliSync("codex", ["login", "status"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        await runCliAsync("codex", ["login", "status"]),
+      );
+    },
+  );
+}
+
+function parseLocalCodexCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalCodexCliStatus {
+  if (versionResult.error || !statusResult) {
     return {
       available: false,
       authenticated: false,
       label: "Codex CLI",
       error:
-        (versionResult.error as NodeJS.ErrnoException).code === "ENOENT"
+        versionResult.error?.code === "ENOENT"
           ? "Codex CLI was not found."
-          : versionResult.error.message,
+          : versionResult.error?.message,
     };
   }
-  const statusResult = spawnSync("codex", ["login", "status"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
   const statusText =
     `${statusResult.stdout ?? ""}\n${statusResult.stderr ?? ""}`.trim();
   const authMode = /using\s+(.+)$/i.exec(statusText)?.[1]?.trim();
@@ -7427,9 +7535,113 @@ function getLocalCodexCliStatus(): {
     label: authenticated && authMode ? `Codex CLI (${authMode})` : "Codex CLI",
     authMode,
     version: (versionResult.stdout ?? versionResult.stderr ?? "").trim(),
+    model: readConfiguredCodexModel(),
     error: authenticated
       ? undefined
       : statusText || "Codex CLI is not logged in.",
+  };
+}
+
+function readConfiguredCodexModel(): string | undefined {
+  const codexHomes = new Set(
+    [
+      process.env.CODEX_HOME?.trim(),
+      path.join(getHomeDirectory(), ".codex"),
+      path.join(os.homedir(), ".codex"),
+    ].filter((value): value is string => Boolean(value)),
+  );
+  for (const codexHome of codexHomes) {
+    try {
+      const config = fs.readFileSync(
+        path.join(codexHome, "config.toml"),
+        "utf-8",
+      );
+      const model = /^\s*model\s*=\s*["']([^"']+)["']\s*$/m
+        .exec(config)?.[1]
+        ?.trim();
+      if (model) return model;
+    } catch (error) {
+      // Try the next known Codex config location.
+      if (error instanceof Error) continue;
+      throw error;
+    }
+  }
+  return undefined;
+}
+
+interface LocalClaudeCliStatus {
+  available: boolean;
+  authenticated: boolean;
+  label: string;
+  version?: string;
+  error?: string;
+}
+
+const localClaudeCliStatusCache = createCliStatusCache<LocalClaudeCliStatus>();
+
+function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
+  return cachedCliStatus(
+    localClaudeCliStatusCache,
+    () => {
+      const version = runCliSync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        runCliSync("claude", ["auth", "status", "--json"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        await runCliAsync("claude", ["auth", "status", "--json"]),
+      );
+    },
+  );
+}
+
+function parseLocalClaudeCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalClaudeCliStatus {
+  if (versionResult.error || !statusResult) {
+    return {
+      available: false,
+      authenticated: false,
+      label: "Claude Code",
+      error:
+        versionResult.error?.code === "ENOENT"
+          ? "Claude Code CLI was not found."
+          : versionResult.error?.message,
+    };
+  }
+
+  let status: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(statusResult.stdout ?? "") as unknown;
+    status = isObject(parsed) ? parsed : null;
+  } catch {
+    status = null;
+  }
+  const authenticated = Boolean(
+    statusResult.status === 0 &&
+    status?.loggedIn === true &&
+    isClaudeSubscriptionAuthMethod(
+      typeof status?.authMethod === "string" ? status.authMethod : undefined,
+    ) &&
+    status?.apiProvider === "firstParty" &&
+    typeof status?.subscriptionType === "string" &&
+    status.subscriptionType.trim(),
+  );
+  return {
+    available: true,
+    authenticated,
+    label: "Claude subscription",
+    version: (versionResult.stdout ?? versionResult.stderr ?? "").trim(),
+    error: authenticated
+      ? undefined
+      : "Claude Code is not signed in with a Claude subscription.",
   };
 }
 
@@ -7514,6 +7726,8 @@ function pushCodeAgentModelOptions(
     engineLabel: string;
     supportedModels: readonly string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   },
 ): void {
   for (const model of options.supportedModels) {
@@ -7523,6 +7737,8 @@ function pushCodeAgentModelOptions(
       model,
       label: model,
       configured: options.configured,
+      ...(options.statusLabel ? { statusLabel: options.statusLabel } : {}),
+      ...(options.isSubscription ? { isSubscription: true } : {}),
     });
   }
 }
@@ -7530,24 +7746,21 @@ function pushCodeAgentModelOptions(
 function getCodeAgentModelList(): CodeAgentModelListResult {
   try {
     const settings = AppStore.getCodeAgentProviderSettingsStatus();
-    const models: CodeAgentModelOption[] = [
-      {
-        engine: "auto",
-        engineLabel: "Auto",
-        model: "auto",
-        label: "Default model",
-        description: "Use the connected provider and saved default.",
-        configured: true,
-      },
-    ];
+    const models: CodeAgentModelOption[] = [];
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
     const codex = getLocalCodexCliStatus();
-    const apiProviderConfigured =
-      Boolean(providerStatusById(settings, "anthropic")?.configured) ||
-      Boolean(providerStatusById(settings, "openai")?.configured) ||
-      Boolean(providerStatusById(settings, "google")?.configured);
+    const claude = getLocalClaudeCliStatus();
+    const anthropicConfigured = Boolean(
+      providerStatusById(settings, "anthropic")?.configured,
+    );
+    const openAiConfigured = Boolean(
+      providerStatusById(settings, "openai")?.configured,
+    );
+    const googleConfigured = Boolean(
+      providerStatusById(settings, "google")?.configured,
+    );
     const customEngine = process.env.AGENT_ENGINE?.trim();
     const customModel = process.env.AGENT_MODEL?.trim();
 
@@ -7568,61 +7781,76 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
         supportedModels: BUILDER_MODEL_CONFIG.supportedModels,
         configured: true,
       });
-    } else {
-      if (codex.available) {
-        models.push({
-          engine: CODEX_CLI_ENGINE_NAME,
-          engineLabel: "This computer",
-          model: CODEX_CLI_DEFAULT_MODEL,
-          label: "Codex CLI default",
-          description:
-            "Run locally through your signed-in ChatGPT subscription.",
-          configured: codex.authenticated,
-        });
-      }
+    }
+    if (codex.available) {
+      models.push({
+        engine: CODEX_CLI_ENGINE_NAME,
+        engineLabel: "OpenAI",
+        model: codex.model || CODEX_CLI_DEFAULT_MODEL,
+        label: codex.model || "Codex",
+        description: "Run locally through your signed-in ChatGPT subscription.",
+        configured: codex.authenticated,
+        ...(codex.authenticated
+          ? { statusLabel: "ChatGPT subscription", isSubscription: true }
+          : {}),
+      });
+    }
+    if (claude.available) {
+      models.push({
+        engine: CLAUDE_CLI_ENGINE_NAME,
+        engineLabel: "Anthropic",
+        model: ANTHROPIC_MODEL_CONFIG.defaultModel,
+        label: ANTHROPIC_MODEL_CONFIG.defaultModel,
+        description: "Run locally through your signed-in Claude subscription.",
+        configured: claude.authenticated,
+        ...(claude.authenticated
+          ? { statusLabel: "Claude subscription", isSubscription: true }
+          : {}),
+      });
+    }
+    if (!claude.authenticated) {
       pushCodeAgentModelOptions(models, {
         engine: "anthropic",
         engineLabel: "Anthropic",
         supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
-        configured: Boolean(
-          providerStatusById(settings, "anthropic")?.configured,
-        ),
+        configured: anthropicConfigured,
       });
+    }
+    if (!codex.authenticated) {
       pushCodeAgentModelOptions(models, {
         engine: "ai-sdk:openai",
         engineLabel: "OpenAI",
         supportedModels: AI_SDK_MODEL_CONFIG.openai.supportedModels,
-        configured: Boolean(providerStatusById(settings, "openai")?.configured),
-      });
-      pushCodeAgentModelOptions(models, {
-        engine: "ai-sdk:google",
-        engineLabel: "Gemini",
-        supportedModels: AI_SDK_MODEL_CONFIG.google.supportedModels,
-        configured: Boolean(providerStatusById(settings, "google")?.configured),
+        configured: openAiConfigured,
       });
     }
+    pushCodeAgentModelOptions(models, {
+      engine: "ai-sdk:google",
+      engineLabel: "Gemini",
+      supportedModels: AI_SDK_MODEL_CONFIG.google.supportedModels,
+      configured: googleConfigured,
+    });
 
     const selected = customEngine
       ? {
           engine: customEngine,
           model: customModel || BUILDER_MODEL_CONFIG.defaultModel,
         }
-      : builderConfigured
-        ? {
-            engine: "builder",
-            model: BUILDER_MODEL_CONFIG.defaultModel,
-          }
-        : codex.authenticated && !apiProviderConfigured
-          ? {
-              engine: CODEX_CLI_ENGINE_NAME,
-              model: CODEX_CLI_DEFAULT_MODEL,
-            }
-          : { engine: "auto", model: "auto" };
+      : (models.find(
+          (option) =>
+            option.configured &&
+            (option.engine === CODEX_CLI_ENGINE_NAME ||
+              option.engine === CLAUDE_CLI_ENGINE_NAME),
+        ) ??
+        models.find((option) => option.configured) ??
+        models[0]);
 
     return {
       status: "ok",
       models,
-      selected,
+      ...(selected
+        ? { selected: { engine: selected.engine, model: selected.model } }
+        : {}),
     };
   } catch (err) {
     return {
@@ -9167,6 +9395,8 @@ app.on("web-contents-created", (_event, contents) => {
 // ---------- App lifecycle ----------
 
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
+  const currentUpdateStatus = getCurrentUpdateStatus();
+
   if (IS_DEV) {
     return {
       label: "Check for Updates...",
@@ -9174,7 +9404,12 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
     };
   }
 
-  const currentUpdateStatus = getCurrentUpdateStatus();
+  if (currentUpdateStatus.state === "unsupported") {
+    return {
+      label: "Check for Updates...",
+      enabled: false,
+    };
+  }
 
   if (currentUpdateStatus.state === "downloaded") {
     return {

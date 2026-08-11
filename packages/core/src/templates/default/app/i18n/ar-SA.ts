@@ -232,7 +232,7 @@ const messages = {
     newTerminal: "محطة جديدة",
     panelOptions: "خيارات لوحة الوكيل",
     collapseSidebar: "طي الشريط الجانبي",
-    widenChat: "توسيع الدردشة إلى 75٪",
+    widenChat: "توسيع الدردشة",
     returnChatToLayout: "إعادة الدردشة إلى تخطيط الصفحة",
     hideChats: "إخفاء الدردشات",
     allChats: "جميع الدردشات",

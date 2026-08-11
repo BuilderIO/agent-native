@@ -6,3 +6,4 @@ overrides:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  tesseract.js: true

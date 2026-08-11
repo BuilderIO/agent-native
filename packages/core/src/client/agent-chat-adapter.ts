@@ -13,9 +13,11 @@ import type {
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
+  getActiveRun,
   setActiveRun,
   updateActiveRunSeq,
   clearActiveRun,
+  clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
@@ -29,6 +31,7 @@ import {
   type AgentAutoContinueErrorInfo,
   type ContentPart,
   type PreparingActionState,
+  type SSEStreamOptions,
   readSSEStream,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
@@ -147,6 +150,27 @@ const LARGE_INPUT_TOOL_NAMES = new Set([
 const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
+function dispatchTerminalChatUiCleanup(tabId: string | undefined): void {
+  if (typeof window === "undefined") return;
+
+  // Some terminal outcomes are synthesized by the adapter after recovery
+  // (for example, a completed tool whose final response timed out) and never
+  // pass through a terminal SSE frame. Clear both halves of the status UI so
+  // the wrap-up result cannot leave a preparation label or "Resuming" state.
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:activity-clear", { detail: { tabId } }),
+  );
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:stream-progress", { detail: { tabId } }),
+  );
+}
+
+function isTerminalChatModelRunResult(result: ChatModelRunResult): boolean {
+  return (
+    result.status?.type === "complete" || result.status?.type === "incomplete"
+  );
+}
+
 // ── Background follow mode ──────────────────────────────────────────────────
 // For server-continued runs (dispatchMode starts with "background" or equals
 // "foreground-self-chain") the SERVER normally chains continuation chunks
@@ -158,6 +182,10 @@ const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 // reports that the self-dispatch itself failed before a successor claimed the
 // run, the existing client auto-continue POST remains the fallback.
 const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
+// This watchdog belongs to a read-only reattach, not to the server run. A
+// shorter reader window lets the follow loop re-poll `/runs/active` while a
+// completed run is still inside the server's terminal replay window.
+export const BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS = 90_000;
 // How long the follow loop tolerates seeing NO active run for this turn before
 // treating the turn as ended. The server pre-inserts the successor row before
 // the old chunk completes, so a healthy chain never shows an idle gap; allow a
@@ -967,7 +995,7 @@ function continuationRepeatSignature(content: ContentPart[]): string {
  * actively working and `foldAssistantTurn` persisted the in-flight call. We
  * must not count this against the stalled/empty continuation budgets.
  */
-function hasInFlightToolCall(content: ContentPart[]): boolean {
+export function hasInFlightToolCall(content: ContentPart[]): boolean {
   return content.some(
     (part) =>
       part.type === "tool-call" &&
@@ -1007,7 +1035,10 @@ export async function activeRunLooksAlive(args: {
     if (data?.active !== true || String(data.runId ?? "") !== args.runId) {
       return false;
     }
-    return data.hasInFlightWork === true || data.status === "running";
+    // `running` only says the server row has not terminalized. It is not proof
+    // that a tool is executing, and treating it as proof skips the client
+    // rescue precisely when a stalled run has no in-flight work.
+    return data.hasInFlightWork === true;
   } catch {
     return true;
   }
@@ -1751,11 +1782,18 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const requestedTurnId = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { turnId?: unknown }).turnId
+            : undefined;
+        return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+      })();
+      const turnId = requestedTurnId ?? generateTurnId();
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
       ): ChatModelRunResult => {
-        if (!requestMode) return result;
         const metadata = (result.metadata ?? {}) as Record<string, unknown>;
         const custom =
           metadata.custom && typeof metadata.custom === "object"
@@ -1765,7 +1803,11 @@ export function createAgentChatAdapter(
           ...result,
           metadata: {
             ...metadata,
-            custom: { ...custom, requestMode },
+            custom: {
+              ...custom,
+              turnId,
+              ...(requestMode ? { requestMode } : {}),
+            },
           },
         };
       };
@@ -1808,10 +1850,34 @@ export function createAgentChatAdapter(
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
-      const turnId = generateTurnId();
       if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
+      const ownsActiveRunState = () => {
+        const activeRun = getActiveRun();
+        return (
+          !activeRun ||
+          (!!threadId &&
+            !!runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId)
+        );
+      };
+      const settleTerminalChatRun = () => {
+        if (!ownsActiveRunState()) return;
+        if (threadId && runId) {
+          clearActiveRunIfMatches(threadId, runId);
+        } else {
+          clearActiveRun();
+        }
+        if (typeof window === "undefined") return;
+        dispatchTerminalChatUiCleanup(tabId);
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId },
+          }),
+        );
+      };
       const seenRunSeqs = new Map<string, number>();
       const preparingActionStatesByRun = new Map<
         string,
@@ -2092,12 +2158,19 @@ export function createAgentChatAdapter(
         return state;
       };
 
-      const currentSSEOptions = () => ({
+      const currentSSEOptions = (
+        overrides: Pick<
+          SSEStreamOptions,
+          "noProgressTimeoutMs" | "actionPreparationStallTimeoutMs"
+        > = {},
+      ): SSEStreamOptions => ({
+        markTerminalResults: true,
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
         ...(runId
           ? { preparingActionState: preparingActionStateForRun(runId) }
           : {}),
+        ...overrides,
       });
 
       const captureChatClientError = (
@@ -2226,16 +2299,22 @@ export function createAgentChatAdapter(
                 content,
                 toolCallCounter,
                 tabId,
-                (seq) => {
+                (seq, isProgress) => {
                   rememberRunSeq(seq);
-                  if (threadId) updateActiveRunSeq(seq);
+                  if (threadId) updateActiveRunSeq(seq, isProgress);
                 },
                 runId,
                 currentSSEOptions(),
               )) {
-                yield withRequestModeMetadata(result);
+                const nextResult = withRequestModeMetadata(result);
+                if (isTerminalChatModelRunResult(nextResult)) {
+                  settleTerminalChatRun();
+                }
+                yield nextResult;
               }
-              clearActiveRun();
+              if (ownsActiveRunState()) {
+                clearActiveRun();
+              }
               return true;
             } catch (reconnectErr: unknown) {
               if (
@@ -2261,11 +2340,9 @@ export function createAgentChatAdapter(
           return false;
         };
 
-        const reconnectActiveRunForThread = async function* (): AsyncGenerator<
-          ChatModelRunResult,
-          boolean,
-          unknown
-        > {
+        const reconnectActiveRunForThread = async function* (options?: {
+          requireCurrentTurn?: boolean;
+        }): AsyncGenerator<ChatModelRunResult, boolean, unknown> {
           if (!threadId) return false;
           let lastActiveRunError: unknown = null;
           for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
@@ -2295,6 +2372,9 @@ export function createAgentChatAdapter(
                 const activeRunId = String(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
+                if (options?.requireCurrentTurn && activeTurnId !== turnId) {
+                  return false;
+                }
                 if (!canAttachRun(activeRunId, activeTurnId)) {
                   return false;
                 }
@@ -2305,7 +2385,12 @@ export function createAgentChatAdapter(
                   attemptedRunIds.push(activeRunId);
                 }
                 reconnectCursorForRun(activeRunId, previousRunId);
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               }
@@ -2385,7 +2470,12 @@ export function createAgentChatAdapter(
                   attemptedRunIds.push(activeRunId);
                 }
                 reconnectCursorForRun(activeRunId, previousRunId);
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               } catch (activeErr: unknown) {
@@ -2445,6 +2535,7 @@ export function createAgentChatAdapter(
             type: "text",
             text: formatChatErrorText(args.message, undefined, args.errorCode),
           });
+          settleTerminalChatRun();
           yield {
             content: [...content],
             status: { type: "incomplete" as const, reason: "error" as const },
@@ -2519,6 +2610,7 @@ export function createAgentChatAdapter(
               includeActivity: true,
             });
             const runWarning = appendMissingFinalResponseWarning(content);
+            settleTerminalChatRun();
             yield {
               content: [...content],
               status: { type: "complete" as const, reason: "stop" as const },
@@ -2591,14 +2683,22 @@ export function createAgentChatAdapter(
               content,
               toolCallCounter,
               tabId,
-              (seq) => {
+              (seq, isProgress) => {
                 rememberRunSeq(seq);
-                if (threadId) updateActiveRunSeq(seq);
+                if (threadId) updateActiveRunSeq(seq, isProgress);
               },
               runId,
-              currentSSEOptions(),
+              currentSSEOptions({
+                noProgressTimeoutMs: BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
+                actionPreparationStallTimeoutMs:
+                  BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
+              }),
             )) {
-              yield withRequestModeMetadata(result);
+              const nextResult = withRequestModeMetadata(result);
+              if (isTerminalChatModelRunResult(nextResult)) {
+                settleTerminalChatRun();
+              }
+              yield nextResult;
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
@@ -2953,7 +3053,12 @@ export function createAgentChatAdapter(
               }
               reconnectCursorForRun(activeRunId, previousRunId);
               if (threadId) {
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
               }
               const seqBeforeAttach = lastSeq;
               const attach = yield* followAttachOnce();
@@ -3558,12 +3663,10 @@ export function createAgentChatAdapter(
                 // internal continuation is only adoptable after /runs/active
                 // proves it carries this turnId; a bare 409 run id is not
                 // enough ownership evidence.
-                if (
-                  activeRunId !== null &&
-                  internalContinuationRequest &&
-                  !attemptedRunIds.includes(activeRunId)
-                ) {
-                  const reconnected = yield* reconnectActiveRunForThread();
+                if (activeRunId !== null && internalContinuationRequest) {
+                  const reconnected = yield* reconnectActiveRunForThread({
+                    requireCurrentTurn: true,
+                  });
                   if (reconnected) return;
                 }
                 const shouldRetryConflictingActiveRun = activeRunId !== null;
@@ -3607,6 +3710,7 @@ export function createAgentChatAdapter(
                     type: "text",
                     text: `Something went wrong: ${message}`,
                   });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3615,7 +3719,6 @@ export function createAgentChatAdapter(
                     },
                     metadata: { custom: { runError } },
                   } as ChatModelRunResult;
-                  clearActiveRun();
                   return;
                 }
               }
@@ -3629,6 +3732,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: authErrorText("auth-required"),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3650,6 +3754,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: authErrorText("session-expired"),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3674,6 +3779,7 @@ export function createAgentChatAdapter(
                     type: "text",
                     text: authErrorText(reason, body),
                   });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3694,6 +3800,7 @@ export function createAgentChatAdapter(
                     );
                   }
                   content.push({ type: "text", text: failure.text });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3740,7 +3847,7 @@ export function createAgentChatAdapter(
             }
             if (runId && threadId) {
               clearPendingTurnIfMatches(threadId, turnId);
-              setActiveRun({ threadId, runId, lastSeq: -1 });
+              setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
             }
 
             for await (const result of readSSEStream(
@@ -3748,16 +3855,20 @@ export function createAgentChatAdapter(
               content,
               toolCallCounter,
               tabId,
-              (seq) => {
+              (seq, isProgress) => {
                 rememberRunSeq(seq);
                 if (runId && threadId) {
-                  updateActiveRunSeq(seq);
+                  updateActiveRunSeq(seq, isProgress);
                 }
               },
               runId,
               currentSSEOptions(),
             )) {
-              yield withRequestModeMetadata(result);
+              const nextResult = withRequestModeMetadata(result);
+              if (isTerminalChatModelRunResult(nextResult)) {
+                settleTerminalChatRun();
+              }
+              yield nextResult;
             }
 
             // Run completed normally — clear active run state
@@ -3811,6 +3922,7 @@ export function createAgentChatAdapter(
                     continuation.completedToolName,
                   );
                   content.push({ type: "text", text: message });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3879,6 +3991,7 @@ export function createAgentChatAdapter(
                     preservedError ? errorCode : undefined,
                   ),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3955,6 +4068,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: `Something went wrong: ${normalized.message}`,
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -3984,6 +4098,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: authErrorText(reason, errMsg),
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4006,6 +4121,7 @@ export function createAgentChatAdapter(
                 );
               }
               content.push({ type: "text", text: failure.text });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4069,6 +4185,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: `Something went wrong: ${message}`,
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4093,6 +4210,7 @@ export function createAgentChatAdapter(
                     continuation.completedToolName,
                   );
                   content.push({ type: "text", text: message });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -4136,6 +4254,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: `Something went wrong: ${message}`,
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -4201,6 +4320,7 @@ export function createAgentChatAdapter(
                 ? errMsg
                 : `Something went wrong: ${normalized.message}`,
             });
+            settleTerminalChatRun();
             yield {
               content: [...content],
               status: {
@@ -4213,7 +4333,8 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && ownsActiveRunState()) {
+          dispatchTerminalChatUiCleanup(tabId);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId },

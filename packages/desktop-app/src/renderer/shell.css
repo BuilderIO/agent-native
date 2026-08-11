@@ -8,6 +8,37 @@
 
 /* ─── Design tokens ──────────────────────────────────────────── */
 :root {
+  /* Shared Tailwind/core settings components resolve these semantic tokens at
+     the desktop renderer root, including portal-mounted dialogs and menus. */
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --update-accent: 217 91% 60%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
   --sidebar-width: 56px;
   --tabbar-height: 38px;
   --macos-traffic-light-safe-area: 100px;
@@ -36,6 +67,34 @@
 }
 
 .dark {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
   --sidebar-bg: hsl(var(--sidebar-background, 0 0% 7%));
   --item-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.1);
   --icon-inactive: hsl(var(--foreground, 0 0% 100%) / 0.52);
@@ -142,7 +201,9 @@ body {
 
 .shell-body {
   display: flex;
-  height: calc(100vh - var(--tabbar-height));
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   overflow: hidden;
 }
 
@@ -591,12 +652,194 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail {
+  position: relative;
   border-right: 0;
+  padding-top: 36px;
+}
+
+/* Keep the blank rail strip beside the native traffic lights available for
+   moving the frameless desktop window without covering rail controls. */
+.desktop-chat-first-hub .code-agents-window-drag-region {
+  position: absolute;
+  top: 20px;
+  right: 0;
+  left: var(--macos-traffic-light-safe-area);
+  height: 16px;
+  -webkit-app-region: drag;
 }
 
 .desktop-chat-first-hub .code-agents-nav-list,
 .desktop-chat-first-hub .code-agents-main-toolbar {
   border-bottom: 0;
+}
+
+.desktop-chat-first-hub .code-agents-start {
+  justify-content: flex-start;
+  max-width: min(1000px, 100%);
+  padding: clamp(48px, 10vh, 96px) 28px 24px;
+  box-sizing: border-box;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-standard-composer {
+  align-self: center;
+  margin-inline: auto;
+  width: min(100%, 750px) !important;
+  inline-size: min(100%, 750px) !important;
+  max-width: 750px !important;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-project-picker--bar {
+  align-self: center;
+  width: min(100%, 750px);
+}
+
+.desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
+  flex: 1 1 auto;
+}
+
+.desktop-apps-grid {
+  width: 100%;
+  max-width: 1000px;
+  margin-inline: auto;
+}
+
+.desktop-apps-grid__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.desktop-apps-grid__title {
+  color: hsl(var(--foreground));
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.desktop-apps-grid__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.desktop-apps-grid__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+
+.desktop-apps-grid__action:hover {
+  border-color: hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.desktop-apps-grid__action--primary {
+  border-color: hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.desktop-apps-grid__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.desktop-app-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  text-align: start;
+  cursor: pointer;
+}
+
+.desktop-app-card:hover {
+  border-color: hsl(var(--ring) / 0.45);
+  background: hsl(var(--muted));
+}
+
+.desktop-app-card__icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground) / 0.78);
+}
+
+.desktop-app-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue))) 14%,
+    transparent
+  );
+  color: var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue)));
+}
+
+.desktop-app-card__icon .desktop-app-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.desktop-app-card__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.desktop-app-card__name,
+.desktop-app-card__description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-app-card__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.desktop-app-card__description {
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .desktop-apps-grid__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 767px) {
@@ -607,8 +850,22 @@ body {
 }
 
 .code-agents-rail-footer {
+  display: grid;
+  gap: 1px;
   border-top: 1px solid hsl(var(--sidebar-border));
   padding: 8px;
+}
+
+.desktop-chat-first-hub .code-agents-rail-footer .update-indicator--pending,
+.desktop-chat-first-hub
+  .code-agents-rail-footer
+  .update-indicator--downloading {
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-chat-first-hub .code-agents-rail-footer .update-indicator--ready {
+  color: hsl(var(--update-accent));
+  font-weight: 600;
 }
 
 .code-agents-embedded-app-surface {
@@ -619,6 +876,20 @@ body {
   overflow: hidden;
   isolation: isolate;
   background: var(--shell-bg);
+}
+
+.code-agents-primary-app-surface {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--shell-bg);
+}
+
+.code-agents-primary-app-surface .webview-slot {
+  inset: 0;
 }
 
 .code-agents-embedded-app-surface .webview-slot {
@@ -3028,16 +3299,6 @@ body {
   animation: none;
 }
 
-.settings-page-backbar {
-  display: flex;
-  min-height: 52px;
-  flex: 0 0 52px;
-  align-items: center;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--separator);
-  background: var(--shell-bg);
-}
-
 .settings-page-back {
   display: inline-flex;
   align-items: center;
@@ -3053,6 +3314,18 @@ body {
 
 .settings-page-back:hover {
   color: var(--shell-fg);
+}
+
+.settings-page-back--nav {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  justify-content: flex-start;
+}
+
+.settings-page-back--nav:hover {
+  background: var(--item-hover-bg);
 }
 
 .settings-page-tabs {
@@ -3072,6 +3345,12 @@ body {
   background: var(--sidebar-bg);
 }
 
+/* The settings destination covers the normal tab bar, so preserve the native
+   macOS title-bar clearance before placing the back affordance in the rail. */
+.platform-darwin .settings-page-tabs-nav {
+  padding-top: calc(var(--tabbar-height) + 16px);
+}
+
 .settings-page-tabs-content {
   background: var(--shell-bg);
 }
@@ -3083,4 +3362,98 @@ body {
 
 .settings-page-tabs-content .divide-border\/60 > :not(:last-child) {
   border-color: var(--separator);
+}
+
+/* Full-page settings uses the shared core surface. Keep the few Electron-owned
+   controls on that same token and radius contract instead of introducing a
+   second high-contrast control language. */
+.settings-page-tabs-content .settings-btn {
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-btn--primary {
+  border-color: hsl(var(--border));
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-btn--primary:hover {
+  background: hsl(var(--accent) / 0.8);
+}
+
+.settings-page-tabs-content .settings-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-btn--ghost:hover {
+  border-color: hsl(var(--border));
+  background: hsl(var(--accent) / 0.4);
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-btn--danger {
+  border-color: transparent;
+  background: transparent;
+  color: hsl(var(--destructive));
+}
+
+.settings-page-tabs-content .settings-btn--danger:hover {
+  border-color: hsl(var(--destructive) / 0.3);
+  background: hsl(var(--destructive) / 0.08);
+  color: hsl(var(--destructive));
+}
+
+.settings-page-tabs-content .settings-icon-btn {
+  border-radius: calc(var(--radius) - 4px);
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-icon-btn:hover {
+  background: hsl(var(--accent) / 0.6);
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-mode-toggle {
+  border-color: hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+}
+
+.settings-page-tabs-content .settings-mode-btn {
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-mode-btn:hover,
+.settings-page-tabs-content .settings-mode-btn--active {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-provider-form input[type="password"],
+.settings-page-tabs-content .settings-shortcut-form select,
+.settings-page-tabs-content .settings-shortcut-form input[type="text"],
+.settings-page-tabs-content .settings-shortcut-view-input {
+  border-color: hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-provider-pill {
+  border-color: hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-provider-pill:hover,
+.settings-page-tabs-content .settings-provider-pill--active {
+  border-color: hsl(var(--border));
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
 }

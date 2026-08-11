@@ -24,6 +24,7 @@ onlyBuiltDependencies:
   - esbuild
   - lightningcss
   - node-pty
+  - tesseract.js
 
 allowBuilds:
   "@swc/core": true
@@ -33,3 +34,4 @@ allowBuilds:
   esbuild: true
   lightningcss: true
   node-pty: true
+  tesseract.js: true

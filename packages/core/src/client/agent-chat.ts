@@ -63,7 +63,7 @@ export interface AgentChatMessage {
   model?: string;
   /** Engine preference paired with model for cross-provider switches. */
   engine?: string;
-  /** Reasoning effort preference paired with model. */
+  /** Effort preference paired with model. */
   effort?: ReasoningEffort;
   /**
    * Execution mode for this submitted turn. When omitted, sendToAgentChat

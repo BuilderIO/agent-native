@@ -16,7 +16,7 @@ import {
   IconPin,
   IconPlus,
 } from "@tabler/icons-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 
 import {
   orderChatFirstAppIds,
@@ -67,7 +67,7 @@ function AppRows({
     .filter((app): app is ChatFirstAppItem => Boolean(app));
 
   return (
-    <ul className="space-y-px">
+    <ul className="space-y-1">
       {orderedApps.map((app) => {
         const active = activeAppId === app.id;
         const pinned = layout.pinnedIds.includes(app.id);
@@ -80,7 +80,7 @@ function AppRows({
                 data-chat-first-app
                 data-app-id={app.id}
                 className={cn(
-                  "group flex h-6 w-full min-w-0 items-center gap-1 rounded-md px-1 text-sm transition-colors",
+                  "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-0 text-sm",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -95,7 +95,7 @@ function AppRows({
               >
                 <button
                   type="button"
-                  className="flex min-w-0 flex-1 items-center gap-2 px-1 text-start"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-start"
                   onClick={() => onOpenApp(app)}
                   onKeyDown={(event) => {
                     if (!event.altKey) return;
@@ -109,7 +109,6 @@ function AppRows({
                   }}
                   aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                   aria-label={copy("openApp", { name: app.name })}
-                  title={app.name}
                 >
                   {renderIcon(app)}
                   <span className="truncate">{app.name}</span>
@@ -117,14 +116,13 @@ function AppRows({
                 <button
                   type="button"
                   className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/45 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                    "flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/45 opacity-0 hover:bg-sidebar-accent hover:text-sidebar-foreground group-hover:opacity-100 focus-visible:opacity-100",
                     pinned && "text-sidebar-foreground/70 opacity-100",
                   )}
                   aria-label={copy(pinned ? "unpinApp" : "pinApp", {
                     name: app.name,
                   })}
                   aria-pressed={pinned}
-                  title={pinned ? copy("removePinned") : copy("pinTop")}
                   onClick={() => onTogglePinned(app.id)}
                 >
                   <IconPin
@@ -166,7 +164,7 @@ function AppRows({
   );
 }
 
-export function ChatFirstAppsRail({
+export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   apps,
   activeAppId,
   loading = false,
@@ -280,7 +278,7 @@ export function ChatFirstAppsRail({
                 data-chat-first-app
                 data-app-id={app.id}
                 className={cn(
-                  "flex size-9 items-center justify-center rounded-md transition-colors",
+                  "flex size-9 items-center justify-center rounded-md",
                   activeAppId === app.id
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -296,7 +294,7 @@ export function ChatFirstAppsRail({
           <button
             type="button"
             data-chat-first-all-apps
-            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             onClick={onOpenAllApps}
             aria-label={copy("allApps")}
             title={copy("allApps")}
@@ -321,18 +319,18 @@ export function ChatFirstAppsRail({
       className="mt-3 px-2 pb-2 pt-2"
       aria-label={copy("workspaceApps")}
     >
-      <div className="mb-1 flex items-center gap-1.5 px-1 text-[11px] font-medium text-sidebar-foreground/50">
+      <div className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-medium text-sidebar-foreground/50">
         <span>{copy("workspaceApps")}</span>
         <span className="ml-auto">{createTrigger}</span>
       </div>
       {loading && apps.length === 0 ? (
-        <div className="space-y-0.5 px-1">
+        <div className="space-y-0.5 px-2">
           {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-7 w-full rounded-md" />
+            <Skeleton key={index} className="h-8 w-full rounded-md" />
           ))}
         </div>
       ) : apps.length === 0 ? (
-        <div className="px-1">
+        <div className="px-2">
           <p className="text-xs text-sidebar-foreground/55">
             {copy("noWorkspaceApps")}
           </p>
@@ -369,7 +367,7 @@ export function ChatFirstAppsRail({
       {hasMoreApps || showAllApps ? (
         <button
           type="button"
-          className="mt-0.5 flex h-6 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          className="mt-0.5 flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
           onClick={() => setShowAllApps((value) => !value)}
         >
           {showAllApps ? (
@@ -385,7 +383,7 @@ export function ChatFirstAppsRail({
           <button
             type="button"
             data-chat-first-all-apps
-            className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
             onClick={onOpenAllApps}
           >
             <IconApps size={14} aria-hidden="true" />
@@ -398,7 +396,7 @@ export function ChatFirstAppsRail({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="mt-1 flex items-center gap-1 px-1 text-[10px] text-destructive/80"
+              className="mt-1 flex items-center gap-1 px-2 text-[10px] text-destructive/80"
               onClick={onRetry}
               aria-label={error}
             >
@@ -411,4 +409,4 @@ export function ChatFirstAppsRail({
       ) : null}
     </section>
   );
-}
+});

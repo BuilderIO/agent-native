@@ -304,17 +304,18 @@ npx @agent-native/core@latest deploy --preset netlify
 
 ### Keep-warm とゼロスケール データベース {#netlify-keep-warm}
 
-Netlify のビルドは、**毎分** `/_agent-native/health` をリクエストするスケジュール関数を出力します。これによりサーバー関数とそのデータベースがウォームに保たれ、アイドル期間後の次の訪問者がコールドスタート（Neon では 1〜5 秒）を負担しなくなります。プロビジョニング済みのコンピュートではこれが正しいデフォルトです。
+有効にした場合、Netlify のビルドは **毎分** `/_agent-native/health` をリクエストするスケジュール関数を出力します。これによりサーバー関数とそのデータベースがウォームに保たれ、アイドル期間後の次の訪問者がコールドスタート（Neon では 1〜5 秒）を負担しなくなります。
 
-**従量課金のゼロスケール データベースでは、これは誤ったデフォルトです。** 毎分の起動は自動サスペンドが一度も発動しないことを意味し、誰もアプリを使っていなくても常時稼働しているかのように課金・クォータ制限されます。Neon の無料プランではコンピュート クォータを使い切り、その後データベースはセッション中の**すべての**読み取りを拒否します。症状は「遅いアプリ」ではなく「死んだアプリ」です。
+Keep-warm は、従量課金のゼロスケール データベースで自動サスペンドを妨げるため、**デフォルトでは無効**です。次の訪問者のレイテンシ短縮がデータベースの稼働時間に見合う場合は `AGENT_NATIVE_ENABLE_KEEP_WARM=1` を設定してください。
 
-| 変数                                        | 効果                                                                                                                                                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | スケジュール関数を完全にスキップします。データベースは自動サスペンドでき、アイドル期間後の次の訪問者がそのコールドスタートを負担します。                                                                                 |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5 フィールドの cron 式（例: `*/5 * * * *`）でケイデンスを上書きします。解析できない値は、毎分へ黙って戻す代わりに**ビルドを失敗させます**。                                                                              |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | バックグラウンド関数のウォームアップのみを無効化し、サーバーはウォームに保ちます。`server` のウォームアップはリクエスト 1 回ですが、`-background` のウォームアップは新しいコンテナを起動してスキーマを再プローブします。 |
+| 変数                                        | 効果                                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | サーバーとデータベースのスケジュールウォームアップを有効にします。デフォルトでは未設定です。          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 互換性のための無効化スイッチです。設定するとオプトイン設定より優先されます。                          |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 有効時のケイデンスを上書きします。デフォルトは `* * * * *` で、解析できない値はビルドを失敗させます。 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Keep-warm 有効時にバックグラウンド関数のウォームアップだけを無効化し、サーバーはウォームに保ちます。  |
 
-無料プランやクォータ制限のあるデータベース プランを使っている場合は、`AGENT_NATIVE_DISABLE_KEEP_WARM=1` を設定するか、より遅いケイデンスを選んでください。
+無料プランやクォータ制限のあるデータベース プランを使っている場合は `AGENT_NATIVE_ENABLE_KEEP_WARM` を設定しないでください。有効にする場合は、より遅いケイデンスを選ぶか `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` を設定してください。
 
 ### オンデマンド スキーマ DDL {#skip-ensure-tables}
 
@@ -418,9 +419,10 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `APP_BASE_PATH`                             | プレフィックス (例: `/mail`) の下でアプリをマウントします。 `npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにしておきます。                                                                                                                                                                                                                           |
 | `AGENT_PROD_CODE_EXECUTION`                 | オプションの実稼働コード実行モード: `off` (デフォルト)、`sandboxed`、または `trusted`。 [Production Code Execution](#production-code-execution) を参照してください。                                                                                                                                                                                                                                          |
 | `AGENT_NATIVE_SSR_CACHE`                    | デプロイメント全体の SSR シェル キャッシュ ポリシー: 未設定/`on` はデフォルトのハードキャッシュを維持し、`off` は `no-store` を送信し、`30s` / `5m` のような期間を指定すると鮮度期間を短縮します。 [SSR Caching](#ssr-caching) を参照してください。                                                                                                                                                           |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | ゼロスケール データベースが自動サスペンドできるように、Netlify の keep-warm スケジュール関数をスキップします。 [Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                           |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | keep-warm のケイデンスを 5 フィールドの cron 式で上書きします（デフォルト `* * * * *`）。解析できない値はビルドを失敗させます。 [Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                          |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | バックグラウンド関数のウォームアップのみを無効化し、サーバーはウォームに保ちます。 [Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Netlify の keep-warm スケジュール関数を有効にします。デフォルトでは未設定です。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                           |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify の keep-warm スケジュール関数の互換性用無効化スイッチです。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 有効時の keep-warm ケイデンスを上書きします（デフォルト `* * * * *`）。解析できない値はビルドを失敗させます。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                             |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Keep-warm 有効時にバックグラウンド関数のウォームアップだけを無効化します。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                                |
 | `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | プロセス内のバックストップ スイープ タイマー（オートメーションの再ディスパッチ、agent-teams の整合、サンドボックス実行の復旧）を停止します。サーバーレスではウォーム コンテナごとに実行されるため、クエリ レートはインスタンス数に比例します。同じ復旧を担う永続スケジューラーがすでにある場合に**のみ**設定してください。そうでないとキュー内の作業が再試行されません。                                      |
 | `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | オンデマンドのスキーマ DDL を完全にスキップします。すべてのコールドスタートが処理前に支払うスキーマ プローブのラウンドトリップを取り除きます。スキーマがマイグレーション済みであることが前提です — [オンデマンド スキーマ DDL](#skip-ensure-tables) を参照してください。                                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | プレビューに安全な Builder 認証リレー専用の、32 文字以上の共有 HMAC シークレット。認証を分離されたプレビュー データベースに保存する必要がある場合に限り、承認済みの企業コールバック デプロイメントとプレビュー デプロイメントの両方に同じ値を設定します。                                                                                                                                                     |

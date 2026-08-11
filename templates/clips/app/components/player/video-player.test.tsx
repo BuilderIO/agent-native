@@ -490,6 +490,29 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
   });
+
+  it("uses WebKit video fullscreen when the player container cannot enter fullscreen", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Fullscreen (F)"]')
+        ?.click();
+    });
+
+    expect(enterFullscreen).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("clampSeek", () => {

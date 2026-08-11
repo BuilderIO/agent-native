@@ -298,7 +298,7 @@ sign-in、seed data、provider の要件を記載してください。インス�
 npx @agent-native/core@latest create my-platform
 ```
 
-複数選択ピッカーが表示されます。 1 つのアプリ (スタンドアロン) または複数のアプリ (ワークスペース - アプリは認証、ブランド、エージェント構成、データベースを共有) を選択します。選択した各アプリは、必要なすべてのファイルとともに `apps/<name>/` にスキャフォールディングされます。アプリ UI の代わりにブラウザー UI のない automation を作る場合は、`npx @agent-native/core@latest create my-agent --headless` を使用します。
+CLI は最初に **どのように始めますか？** と尋ねます。Chat と Dispatch を含む最小ワークスペースには **Chat** を、複数選択ピッカーを開くには **First-party template(s)** を選択します。Community と Headless はスタンドアロン アプリの選択肢です。ワークスペースのアプリは認証、ブランド、エージェント構成、データベースを共有し、各アプリは必要なすべてのファイルとともに `apps/<name>/` にスキャフォールディングされます。アプリ UI の代わりにブラウザー UI のない automation を作る場合は、`npx @agent-native/core@latest create my-agent --headless` を使用します。
 
 `.env` (主に `ANTHROPIC_API_KEY` と `DATABASE_URL`)、`pnpm install`、`pnpm dev` を入力すると機能します。 「TODO: ログインの実装」、プレースホルダー ルートはありません。
 

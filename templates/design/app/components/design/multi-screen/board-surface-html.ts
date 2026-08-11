@@ -310,6 +310,8 @@ function stripExecutableStaticPreviewContent(html: string) {
  * logical board paintable without allocating or scrolling a 131k iframe.
  */
 export function getBoardSurfaceStaticPreviewContent(args: {
+  /** Themed canvas colour; falls back to the dark default when unresolved. */
+  background?: string;
   html: string;
   logicalGeometry: FrameGeometry;
   viewport: { width: number; height: number };
@@ -321,10 +323,11 @@ export function getBoardSurfaceStaticPreviewContent(args: {
   const height = Math.max(1, args.logicalGeometry.height);
   const viewportWidth = Math.max(1, args.viewport.width);
   const viewportHeight = Math.max(1, args.viewport.height);
+  const background = args.background?.trim() || BOARD_SURFACE_BACKGROUND;
   const scale = Math.min(viewportWidth / width, viewportHeight / height);
   const offsetX = -args.logicalGeometry.x;
   const offsetY = -args.logicalGeometry.y;
-  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:${BOARD_SURFACE_BACKGROUND}!important;background-color:${BOARD_SURFACE_BACKGROUND}!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
+  const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}html,body{background:${background}!important;background-color:${background}!important;background-image:none!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
   if (/<\/head\s*>/i.test(renderHtml)) {
     return injectDocumentMarkup(renderHtml, style, { target: "head" });
   }

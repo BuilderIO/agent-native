@@ -153,8 +153,15 @@
   background: inherit;
 }
 
-.message-scroller-viewport--top-fade {
-  --message-scroller-top-fade-size: 48px;
+/* The mask is declared unconditionally and the fade is driven by its size
+   variable. Adding/removing a mask changes the element's paint properties, and
+   the `--top-fade` modifier flips with `hasContentAbove` — which oscillates
+   while a reply streams into an auto-scrolled transcript. Toggling the
+   declaration made Chromium tear down and rebuild this scroller's paint state
+   on every flip; animating a length inside a mask that is always present does
+   not. Keep the fade size at 0 rather than removing the mask. */
+.message-scroller-viewport {
+  --message-scroller-top-fade-size: 0px;
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0,
@@ -173,6 +180,10 @@
   mask-repeat: no-repeat;
   -webkit-mask-size: 100% 100%;
   mask-size: 100% 100%;
+}
+
+.message-scroller-viewport--top-fade {
+  --message-scroller-top-fade-size: 48px;
 }
 
 .agent-sidebar-resize-handle {
@@ -299,7 +310,11 @@
   max-width: var(--agent-sidebar-width);
   height: 100%;
   transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
-  will-change: transform;
+  /* No `will-change: transform` here. This element wraps the whole chat
+     transcript and stays mounted for the life of the page, so the hint is never
+     retired — it pins a permanently composited layer whose backing store grows
+     with the transcript. Chromium already promotes a transform transition for
+     the 260ms it runs, which is the entire benefit. */
   transition: transform 260ms var(--ease-drawer);
 }
 
@@ -308,8 +323,9 @@
    when available; these transforms provide the fallback and exit motion. */
 .agent-sidebar-panel[data-agent-sidebar-animation="drawer"] {
   overflow: clip;
-  will-change: transform;
-  box-shadow: -12px 0 30px hsl(var(--foreground) / 0.08);
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: -12px 0 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   transition:
     transform 260ms var(--ease-drawer),
     width 260ms var(--ease-drawer);
@@ -329,12 +345,19 @@
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
   transform: var(
     --agent-sidebar-closed-transform,
     translateX(calc(100% + 1px))
   );
-  will-change: transform;
+  box-shadow: 0 18px 40px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   transition: transform 260ms var(--ease-drawer);
+}
+
+.dark .agent-sidebar-panel[data-agent-sidebar-animation="drawer"],
+.dark .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
+  --agent-shadow-o: 0.08;
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
@@ -963,18 +986,9 @@
 }
 
 /* Tool-call rows are rendered in several disclosure/grouping shapes as the
-   stream grows. Keep the motion wrapper layout-transparent, while its short
-   lived exit clones can travel from the visible stack into the summary row. */
+   stream grows. Keep the layout wrapper transparent. */
 .agent-tool-call-stack {
   display: contents;
-}
-
-.agent-tool-call-stack__exit {
-  box-sizing: border-box;
-  position: fixed;
-  z-index: 2;
-  pointer-events: none;
-  margin: 0 !important;
 }
 
 [data-agent-empty-state="centered"] {
@@ -1020,11 +1034,6 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .agent-tool-call--entering > .agent-tool-call__content,
-  .agent-tool-call--stack-entering > .agent-tool-call__content {
-    animation: agent-tool-call-enter 220ms var(--ease-out-strong) both;
-  }
-
   .agent-tool-summary__label {
     display: inline-block;
   }
@@ -1061,25 +1070,15 @@
     }
   }
 
-  @keyframes agent-tool-call-enter {
-    from {
-      opacity: 0;
-      transform: translateY(0.375rem);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   @supports (view-transition-name: agent-native-chat) {
     .agent-native-chat-view-transition {
       contain: layout;
     }
 
     ::view-transition-old(agent-native-chat),
-    ::view-transition-new(agent-native-chat) {
+    ::view-transition-new(agent-native-chat),
+    ::view-transition-old(agent-native-sidebar-drawer),
+    ::view-transition-new(agent-native-sidebar-drawer) {
       /* The default `block-size: auto` scales each snapshot by width, so as the
          panel narrows (896 -> 380) its captured height shrinks and the
          bottom-pinned chat field gets dragged upward (the "rises to half-page"

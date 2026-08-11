@@ -41,14 +41,23 @@ export interface McpConnectionSuggestionProps {
   integrations?: DefaultMcpIntegration[];
 }
 
+function visibleUserAuthoredText(text: string): string {
+  return text
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+    .replace(/<\/context>/gi, "")
+    .trim();
+}
+
 export function findMcpConnectionSuggestionIntegration({
   text,
   contextText = "",
   variant = "composer",
   integrations = getDefaultMcpIntegrations(),
 }: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
+  const sourceText = variant === "response" ? contextText : text;
   return findMcpIntegrationForText(
-    variant === "response" ? contextText : text,
+    visibleUserAuthoredText(sourceText),
     integrations,
   );
 }
@@ -247,7 +256,7 @@ export function McpConnectionSuggestion({
         className={
           variant === "response"
             ? "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--response mt-3 flex max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
-            : "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--composer mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),684px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            : "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--composer mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),750px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
         }
         data-mcp-connection-suggestion={integration.id}
         data-mcp-connection-suggestion-variant={variant}
@@ -304,7 +313,7 @@ export function McpConnectionSuggestion({
           className={
             variant === "response"
               ? "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--response mt-1 max-w-[520px] text-[11px] text-destructive"
-              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer mx-auto mb-2 w-[min(calc(100%_-_1.5rem),684px)] text-[11px] text-destructive"
+              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer mx-auto mb-2 w-[min(calc(100%_-_1.5rem),750px)] text-[11px] text-destructive"
           }
         >
           {error}

@@ -2846,10 +2846,15 @@ const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
 export const NETLIFY_RECURRING_JOBS_FUNCTION_NAME =
   "agent-native-recurring-jobs";
 
-/** Shared shape for the `AGENT_NATIVE_DISABLE_*` build kill switches. */
-function isDisabledByEnv(name: string): boolean {
+/** Shared parser for truthy build environment flags. */
+function isTruthyEnv(name: string): boolean {
   const value = process.env[name]?.trim();
   return !!value && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+/** Shared shape for the `AGENT_NATIVE_DISABLE_*` build kill switches. */
+function isDisabledByEnv(name: string): boolean {
+  return isTruthyEnv(name);
 }
 
 export function isRecurringJobsDeployEnabled(): boolean {
@@ -2857,15 +2862,15 @@ export function isRecurringJobsDeployEnabled(): boolean {
 }
 
 /**
- * Keep-warm is ON by default, and on a provisioned database that is the right
- * default. It is the wrong default on a metered scale-to-zero tier: a
- * once-a-minute wake means autosuspend NEVER fires, so the endpoint bills (and
- * quota-limits) as if it were awake 100% of the time with zero users online. On
- * a free-tier Neon that exhausts the compute quota and the database then
- * hard-blocks every read mid-session — the symptom is a dead app, not a slow one.
+ * Keep-warm is opt-in because a once-a-minute wake prevents autosuspend on
+ * metered scale-to-zero databases. `AGENT_NATIVE_DISABLE_KEEP_WARM` remains a
+ * compatibility kill switch and wins when both flags are set.
  */
 export function isKeepWarmDeployEnabled(): boolean {
-  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM");
+  return (
+    isTruthyEnv("AGENT_NATIVE_ENABLE_KEEP_WARM") &&
+    !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM")
+  );
 }
 
 /**
@@ -2879,7 +2884,10 @@ export function isKeepWarmDeployEnabled(): boolean {
  * while dropping the probe storm.
  */
 export function isKeepWarmBackgroundDeployEnabled(): boolean {
-  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND");
+  return (
+    isKeepWarmDeployEnabled() &&
+    !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND")
+  );
 }
 
 const DEFAULT_KEEP_WARM_SCHEDULE = "* * * * *";
@@ -2916,7 +2924,8 @@ export function resolveKeepWarmSchedule(): string {
  * delayed by tens of minutes, which is longer than a scale-to-zero database's
  * autosuspend window and leaves the next visitor to pay the cold-start cost.
  *
- * Both halves are opt-out and the cadence is configurable — see
+ * The feature is opt-in, the background half has its own kill switch, and the
+ * cadence is configurable — see
  * `isKeepWarmDeployEnabled`, `isKeepWarmBackgroundDeployEnabled`, and
  * `resolveKeepWarmSchedule`. The tradeoff this function encodes is next-visitor
  * latency against database awake-time, and only the deployment knows which of
@@ -2926,8 +2935,11 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
   projectCwd: string,
 ): void {
   if (!isKeepWarmDeployEnabled()) {
+    const reason = isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM")
+      ? "AGENT_NATIVE_DISABLE_KEEP_WARM is set."
+      : "AGENT_NATIVE_ENABLE_KEEP_WARM is not enabled.";
     console.log(
-      "[build] Keep-warm emit skipped: AGENT_NATIVE_DISABLE_KEEP_WARM is set. " +
+      `[build] Keep-warm emit skipped: ${reason} ` +
         "The database is free to autosuspend; the next visitor after an idle " +
         "period pays its cold start.",
     );
@@ -3048,6 +3060,10 @@ export const config = {
  * Emit the durable recurring-job trigger. Netlify's scheduled function only
  * hands off work; the existing `-background` function owns the long sweep so
  * a model run is not constrained by the synchronous scheduled-function wall.
+ *
+ * The entry imports `node:crypto`, so `includedFiles: ["**"]` must stay: the
+ * deploy packager only accepts an omitted `includedFiles` for scheduled
+ * functions whose entry file has no import/require edge at all.
  */
 export function emitSingleTemplateNetlifyRecurringJobsFunction(
   projectCwd: string,
@@ -3123,6 +3139,7 @@ export const config = {
   generator: "agent-native build",
   schedule: "* * * * *",
   nodeBundler: "none",
+  includedFiles: ["**"],
 };
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);

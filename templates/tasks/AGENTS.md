@@ -9,24 +9,18 @@ Read the matching skill before acting. This file is the always-on layer; the ski
 - `task-inbox-workflow` — capture, `view-screen` context and selection, the inline task widget, reordering, deletes, the task-detail extension slot.
 - `custom-fields` — field definitions, types and config, per-task values, task-card visibility.
 - `action-reference` — the full action table with HTTP methods, arguments, and defaults.
-- `store-conventions` — `server/**/store.ts` CRUD naming and the shared transaction handle.
-- `change-summary` — the Change summary table for code-change responses, plus commit message conventions.
-- Before building common workspace or agent UI, read `agent-native-toolkit` to inventory existing public kits and installed package seams; use `customizing-agent-native` for the configure → compose → eject → propose seam ladder.
-- Root skills to read before implementation: `adding-a-feature`, `actions`, `agent-native-docs`, `storing-data`, `real-time-sync`, `security`, `delegate-to-agent`, `frontend-design`, `shadcn-ui`, `self-modifying-code`.
+- `capture-learnings` — record a user preference or correction so it outlives the thread.
 
 ## Core Rules
 
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Follow the root framework contract: data in SQL, actions first, application state for navigation/selection, and shared agent chat for AI work.
-- Use actions for app operations and keep frontend/API parity.
-- Prefer improving the action surface before adding new pages. The task list is the primary durable UI for MVP.
-- Keep the action surface deliberate: it already covers task and inbox-item CRUD/bulk operations, custom field definitions and visibility prefs, reordering, `view-screen`, `navigate`, and `render-task-list-inline` (25 actions total). Extend it thoughtfully rather than adding new pages.
 - Do not use `db-query` for normal task operations.
 - Call `view-screen` first when the user's visible task context matters (especially on `/tasks`).
 - Capture in chat with `create-inbox-item` by default; use `create-task` only when the user asks to add directly to the task list.
 - Delete actions run only after explicit user confirmation in chat.
 - Tasks are private to each user. Preserve `ownerEmail` scoping unless intentionally implementing sharing.
-- After code changes, include the **Change summary** from the `change-summary` skill (Code / Tests / Config / Docs with line counts).
+- Never fabricate. If an action fails or a task is not found, say so and recover instead of inventing a result.
 
 ## Application State
 
@@ -79,16 +73,7 @@ Methods, arguments, and defaults are in the `action-reference` skill.
 | `navigate` | Move the UI to a view |
 | `render-task-list-inline` | Render the task list inline in chat |
 
-## Authoritative References
+## Source Changes
 
-- [Feature docs](./docs/features/README.md) define product behavior and feature status.
-- [Action definitions](./actions/) contain the canonical tool descriptions, input schemas, and implementations.
-
-<!-- BEGIN @agent-native/skills -->
-
-When operating as Claude Fable, use the /efficient-fable skill always.
-When using a high-cost frontier model for codebase-heavy work, use the /efficient-frontier skill always.
-When writing final response status indicators, use the /quick-recap skill always.
-When long-running or parallel work needs usage-limit checks, use the /stay-within-limits skill always.
-
-<!-- END @agent-native/skills -->
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

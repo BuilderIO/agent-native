@@ -36,7 +36,7 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 93%;
   --ease: 120ms cubic-bezier(0.16, 1, 0.3, 1);
-  --code-agents-chat-max: 700px;
+  --code-agents-chat-max: 750px;
   --code-agents-rail-gutter: 8px;
   --code-agents-rail-row-inset: 8px;
   --code-agents-rail-icon-size: 15px;
@@ -205,6 +205,38 @@
   letter-spacing: 0;
 }
 
+.code-agents-chat-history__menu-trigger {
+  display: inline-flex;
+  width: 24px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: calc(var(--radius) - 3px);
+  background: transparent;
+  color: hsl(var(--sidebar-foreground) / 0.58);
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.code-agents-chat-history__menu-trigger:hover,
+.code-agents-chat-history__menu-trigger:focus-visible,
+.code-agents-chat-history__menu-trigger[data-state="open"] {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+}
+
+.code-agents-chat-history__menu-trigger:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.65);
+  outline-offset: 1px;
+}
+
+.code-agents-chat-history__menu-content {
+  min-width: 176px;
+}
+
 .code-agents-project-picker {
   display: grid;
   gap: 6px;
@@ -343,9 +375,17 @@
 }
 
 .code-agents-run-list {
+  display: flex;
   min-height: 0;
-  overflow-y: auto;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0 var(--code-agents-rail-gutter) var(--code-agents-rail-gutter);
+}
+
+.code-agents-run-list > .an-chat-history {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 /* Align the shared ChatHistoryList rail-variant insets with the existing
@@ -603,6 +643,7 @@
 .code-agents-overview--chat .code-agents-detail--chat {
   flex: 1 1 auto;
   height: auto;
+  width: 100%;
 }
 
 .code-agents-start {
@@ -613,7 +654,7 @@
   justify-content: center;
   gap: 18px;
   width: 100%;
-  max-width: 600px;
+  max-width: var(--code-agents-chat-max);
   margin: 0 auto;
 }
 
@@ -621,6 +662,10 @@
   color: hsl(var(--foreground));
   font-size: 24px;
   font-weight: 500;
+}
+
+.code-agents-overview-footer {
+  width: 100%;
 }
 
 .code-agents-overview-skeleton {
@@ -631,7 +676,7 @@
   justify-content: center;
   gap: 24px;
   width: 100%;
-  max-width: 600px;
+  max-width: var(--code-agents-chat-max);
   margin: 0 auto;
 }
 

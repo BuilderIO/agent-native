@@ -681,6 +681,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Créer une présentation",
     noMineDecks: "Aucun deck créé par vous pour le moment.",
+    noDecksMatchSearch: "Aucun deck ne correspond à votre recherche.",
     deleteDeckTitle: "Supprimer le deck ?",
     deleteDeckDescription:
       "Cela supprimera définitivement ce deck et toutes ses diapositives. Cette action est irréversible.",
@@ -695,6 +696,13 @@ const messages = {
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",
     importFrom: "Importer depuis",
+    imported: "Importé",
+    importedReferenceDeck: "Deck de référence importé",
+    referenceImportSuccess: "Importation réussie",
+    referenceImportSelected:
+      "« {{title}} » est maintenant le deck de référence.",
+    continue: "Continuer",
+    continueToGenerate: "Continuer pour générer",
     designSystem: "Système de design",
     referenceDeck: "Deck de référence",
     referenceDeckPlaceholder: "Reprendre le style d'un deck existant",
@@ -706,6 +714,7 @@ const messages = {
       "Conservez le système de design et le deck de référence par défaut, sauf si vous les supprimez. Recherchez un autre deck, importez un fichier ou continuez lorsque vous êtes prêt.",
     chooseAnotherDeck: "Choisir un autre deck",
     noMatchingDecks: "Aucun deck correspondant trouvé.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Decks Google Slides",
     googleSlidesReferenceConnect:
       "Connectez Google Drive pour importer un deck Slides.",

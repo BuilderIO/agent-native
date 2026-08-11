@@ -49,6 +49,16 @@ import {
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
+type ContentDatabaseSummaryRow = Pick<
+  ContentDatabaseRow,
+  | "id"
+  | "documentId"
+  | "title"
+  | "systemRole"
+  | "viewConfigJson"
+  | "createdAt"
+  | "updatedAt"
+>;
 type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
@@ -176,7 +186,7 @@ export async function getDatabaseById(
 }
 
 export function serializeDatabase(
-  database: ContentDatabaseRow,
+  database: ContentDatabaseSummaryRow,
   description = "",
 ) {
   return {
