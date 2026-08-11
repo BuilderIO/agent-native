@@ -103,12 +103,20 @@ The field is a full replacement, so send the complete list the slide should end
 with. Three reveals is one operation carrying three entries — patching them in
 one at a time leaves the slide with only the last.
 
-Every entry needs a unique `id`, a 0-based `elementIndex`, and a `type`; the
-schema rejects the operation otherwise. `elementPath`, the 0-based child-index
-path from the outer `.fmd-slide` wrapper, is the target the runtime resolves
-first and survives sibling edits that shift a flat index, so include it too.
-Read both off the final HTML — never invent a path or fall back to 1-based
-numbering, since a wrong path silently redirects the reveal to another element.
+The schema rejects an entry without a non-empty `id`, a 0-based `elementIndex`,
+and a `type`. Uniqueness of `id` is on you: nothing validates it, and the
+editor keys its reveal list by id, so a duplicate makes "remove" and "change
+type" hit every entry sharing it.
+
+Include `elementPath` too, the 0-based child-index path from the outer
+`.fmd-slide` wrapper. It is the target the runtime resolves first, and it
+addresses nesting directly instead of relying on `elementIndex`, which is a flat
+index into a heuristically chosen container. It is not stable across edits:
+every segment is a positional child index, so inserting or removing a sibling
+anywhere along the path retargets it just as it would a flat index. Read both
+off the final HTML after the content edit — never carry a path over from earlier
+HTML, invent one, or fall back to 1-based numbering, since a wrong path silently
+redirects the reveal to another element.
 
 When one request changes content and reveals, patch the new HTML and the
 complete animations list in the same operation; targets read off the old HTML
