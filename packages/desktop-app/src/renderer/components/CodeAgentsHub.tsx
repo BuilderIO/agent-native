@@ -187,12 +187,9 @@ const DISPATCH_CONTROL_PLANE_PATHS = new Set([
 
 export function isDispatchControlPlanePath(path?: string): boolean {
   if (!path?.trim()) return false;
-  try {
-    const pathname = new URL(path, "http://agent-native.invalid").pathname;
-    return DISPATCH_CONTROL_PLANE_PATHS.has(pathname);
-  } catch {
-    return false;
-  }
+  const base = "http://agent-native.invalid";
+  if (!URL.canParse(path, base)) return false;
+  return DISPATCH_CONTROL_PLANE_PATHS.has(new URL(path, base).pathname);
 }
 
 export function dispatchControlPlaneUrlParams(

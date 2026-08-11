@@ -46,16 +46,15 @@ function buildConfig(values: {
     return null;
   }
 
-  try {
-    const endpointUrl = new URL(endpoint);
-    const publicUrl = new URL(publicBaseUrl);
-    if (
-      !["http:", "https:"].includes(endpointUrl.protocol) ||
-      !["http:", "https:"].includes(publicUrl.protocol)
-    ) {
-      return null;
-    }
-  } catch {
+  if (!URL.canParse(endpoint) || !URL.canParse(publicBaseUrl)) {
+    return null;
+  }
+  const endpointUrl = new URL(endpoint);
+  const publicUrl = new URL(publicBaseUrl);
+  if (
+    !["http:", "https:"].includes(endpointUrl.protocol) ||
+    !["http:", "https:"].includes(publicUrl.protocol)
+  ) {
     return null;
   }
 
@@ -85,10 +84,8 @@ async function resolveStorageSecret(
   primary: string,
   fallback: string,
 ): Promise<string | undefined> {
-  return (
-    cleanValue(await resolveSecret(primary).catch(() => null)) ??
-    cleanValue(await resolveSecret(fallback).catch(() => null))
-  );
+  const primaryValue = cleanValue(await resolveSecret(primary));
+  return primaryValue ?? cleanValue(await resolveSecret(fallback));
 }
 
 async function readRequestConfig(): Promise<S3Config | null> {
@@ -229,7 +226,7 @@ async function putObject(
     ) as BodyInit,
   });
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
+    const detail = await response.text();
     throw new Error(
       `S3 PutObject failed (${response.status}): ${detail || response.statusText}`,
     );

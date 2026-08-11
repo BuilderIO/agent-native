@@ -12,7 +12,7 @@ export function AiEditingMarker({ className }: { className?: string }) {
     <span
       aria-label={label}
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white",
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-primary-foreground",
         className,
       )}
       role="img"

@@ -18,24 +18,21 @@ export function scrubPageUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
+  if (!URL.canParse(trimmed)) return null;
 
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    url.username = "";
-    url.password = "";
-    scrubParams(url.searchParams);
+  const url = new URL(trimmed);
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  url.username = "";
+  url.password = "";
+  scrubParams(url.searchParams);
 
-    if (url.hash.includes("=")) {
-      const hashParams = new URLSearchParams(url.hash.slice(1));
-      scrubParams(hashParams);
-      url.hash = hashParams.toString();
-    }
-
-    return url.toString();
-  } catch {
-    return null;
+  if (url.hash.includes("=")) {
+    const hashParams = new URLSearchParams(url.hash.slice(1));
+    scrubParams(hashParams);
+    url.hash = hashParams.toString();
   }
+
+  return url.toString();
 }
 
 function scrubParams(params: URLSearchParams) {

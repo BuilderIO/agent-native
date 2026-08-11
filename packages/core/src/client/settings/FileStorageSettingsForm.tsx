@@ -95,7 +95,7 @@ export function FileStorageSettingsForm() {
           }),
         });
         if (!response.ok) {
-          const body = await response.json().catch(() => ({}));
+          const body = (await response.json()) as { error?: unknown };
           throw new Error(
             typeof body?.error === "string"
               ? body.error
