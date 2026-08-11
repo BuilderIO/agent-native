@@ -90,3 +90,8 @@ Files sidebar Custom order is a per-user database-view preference written with
 `update-content-database-personal-view`, so it must not change shared Files
 membership positions. Ordinary unconstrained database row reordering remains a
 shared database mutation through `move-database-item`.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

@@ -678,6 +678,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Crear una presentación",
     noMineDecks: "Aún no has creado decks.",
+    noDecksMatchSearch: "Ningún deck coincide con tu búsqueda.",
     deleteDeckTitle: "¿Eliminar deck?",
     deleteDeckDescription:
       "Esto eliminará permanentemente este deck y todas sus diapositivas. Esta acción no se puede deshacer.",

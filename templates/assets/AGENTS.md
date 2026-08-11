@@ -88,3 +88,8 @@ Uncommon actions stay discoverable through `tool-search`.
 | `export-asset` | Return a download URL or artifact for another app |
 | `create-generation-session` | Hand generation work off to a designer |
 | `manage-context-membership` | Submit an asset to a governed Creative Context |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

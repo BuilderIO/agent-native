@@ -1509,11 +1509,11 @@ function currentRssMb(): number {
  * stuck-detector can tell "process alive but nothing happening" from
  * "process dead." Callers should throttle (run-manager debounces to ~1/s).
  */
-export async function bumpRunProgress(runId: string): Promise<void> {
+export async function bumpRunProgress(runId: string): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
-  await client.execute({
+  const { rowsAffected } = await client.execute({
     // Multiple event-persistence paths and serverless isolates can bump the
     // same run concurrently. A slower, older write must never land after a
     // newer one and move the user-visible no-progress clock backwards.
@@ -1521,6 +1521,7 @@ export async function bumpRunProgress(runId: string): Promise<void> {
     sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
     args: [now, now, runId],
   });
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**

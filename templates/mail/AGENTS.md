@@ -86,3 +86,8 @@ Read the relevant skill before deeper work:
 - `navigate` moves the UI via `view`, `threadId`, `settingsSection`,
   `queuedDraftId`, or `composeDraftId`; the accepted values are listed in
   `inbox-reads-and-triage`.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

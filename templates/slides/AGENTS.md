@@ -95,3 +95,8 @@ Deck data lives in SQL and all writes go through server-side actions. Read
 - Google Slides export is a PPTX import workflow: generate the same editable
   PPTX and have the user import it into Google Slides. Creating a native Google
   Slides file directly requires a separate Google Slides API batchUpdate path.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

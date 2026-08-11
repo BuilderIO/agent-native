@@ -86,3 +86,8 @@ Read the relevant skill before deeper work:
   is the first-party path for native response tables and submission charts, but
   do not include both unless the user asked for both; iframe/MCP App rendering
   is only a fallback for external hosts.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

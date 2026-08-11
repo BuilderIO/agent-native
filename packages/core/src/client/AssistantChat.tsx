@@ -53,6 +53,7 @@ import {
   getPendingTurn,
   getActiveRunActivityTool,
   getActiveRun,
+  hasRecentActiveRunProgress,
   resolveReconnectAfterSeq,
   setActiveRun,
   type ActiveRunState,
@@ -399,6 +400,14 @@ function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
   const nowMs =
     typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
   const thresholdMs = activeRunStuckThresholdMs(runInfo);
+  // A healthy stream can outrun a delayed durable progress write. The local
+  // SSE cursor is independent evidence that this browser is receiving real
+  // work, so do not abort or replace that run while its own progress is fresh.
+  if (
+    hasRecentActiveRunProgress(runInfo.threadId, runInfo.runId, thresholdMs)
+  ) {
+    return false;
+  }
   return (
     runInfo.status === "running" &&
     lastProgressAt != null &&
@@ -3365,10 +3374,10 @@ const AssistantChatInner = forwardRef<
                 toolCallCounter,
                 tabId,
                 scheduleUpdate,
-                (seq) => {
+                (seq, isProgress) => {
                   markReconnectProgress();
                   reconnectRetryCount = 0;
-                  updateActiveRunSeq(seq);
+                  updateActiveRunSeq(seq, isProgress);
                 },
                 { preparingActionState },
               );

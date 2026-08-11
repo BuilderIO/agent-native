@@ -89,3 +89,8 @@ Read the matching skill before deeper work:
 | `test-slack-connection` / `run-slack-pilot` | Slack validation and first-sync report. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw provider HTTP. |
 | `run-demo-eval` / `run-retrieval-eval` / `seed-demo-data` | Demo corpus and eval checks. |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

@@ -78,3 +78,8 @@ Read the relevant skill before deeper work:
   and `threadId` expose the visible failure or thread filters and selection.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

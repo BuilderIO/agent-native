@@ -719,6 +719,35 @@ describe("SSE replay render pacing", () => {
     ]);
   });
 
+  it("marks the browser liveness cursor only for durable progress events", async () => {
+    const events = [
+      { type: "text", text: "working", seq: 0 },
+      { type: "stream_keepalive", seq: 1 },
+      { type: "clear", seq: 2 },
+      { type: "tool_input_delta", text: "{", seq: 3 },
+      { type: "done", seq: 4 },
+    ];
+    const progressBySeq = new Map<number, boolean | undefined>();
+
+    await drain(
+      readSSEStream(
+        eventStream(events),
+        [],
+        { value: 0 },
+        undefined,
+        (seq, isProgress) => progressBySeq.set(seq, isProgress),
+      ),
+    );
+
+    expect([...progressBySeq.entries()]).toEqual([
+      [0, true],
+      [1, false],
+      [2, false],
+      [3, true],
+      [4, true],
+    ]);
+  });
+
   it("streams partial tool input into one card before upgrading it", async () => {
     const events = [
       { type: "tool_input_start", id: "call-1", tool: "add-slide" },

@@ -855,17 +855,131 @@ export function startRun(
   // Throttle the durable progress timestamp to at most once per second so
   // a chatty token-by-token stream doesn't translate into one DB write per
   // chunk. The stuck-detector threshold is on the order of tens of seconds,
-  // so 1s resolution is plenty.
+  // so 1s resolution is plenty. Keep one write in flight and coalesce a
+  // trailing request: overlapping progress updates can exhaust a pooler and
+  // starve the heartbeat that is supposed to prove this run is alive.
+  const PROGRESS_BUMP_INTERVAL_MS = 1_000;
   let lastProgressBumpAt = 0;
+  let progressWriteInFlight: Promise<void> | null = null;
+  let progressWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  let progressWritePending = false;
+  let progressWriteAttempts = 0;
+  let progressWriteFailures = 0;
+  let consecutiveProgressWriteFailures = 0;
   const preparingActivityBytes = new Map<string, number>();
   const preparingActivityTools = new Map<string, string>();
   const preparingActivityRestartHighWater = new Map<string, number>();
   let eventPersistenceErrorCaptured = false;
+  const recordProgressWriteFailure = (error: unknown, kind: string) => {
+    progressWriteFailures += 1;
+    consecutiveProgressWriteFailures += 1;
+    // Keep every failure counted and retried, but sample the error capture so
+    // a database outage does not turn one long streamed input into hundreds of
+    // identical reports. The run id and event count make the sampled report
+    // useful for correlating the durable clock with the event ledger.
+    if (progressWriteFailures === 1 || progressWriteFailures % 10 === 0) {
+      const capturedError =
+        error instanceof Error ? error : new Error(String(error));
+      console.error(
+        `[run-manager] durable progress write ${kind} failed`,
+        runId,
+        {
+          attempts: progressWriteAttempts,
+          failures: progressWriteFailures,
+          consecutiveFailures: consecutiveProgressWriteFailures,
+          eventCount: run.events.length,
+        },
+        capturedError,
+      );
+      captureError(capturedError, {
+        route: "/_agent-native/agent-chat",
+        tags: {
+          source: "agent-run-manager",
+          phase: "progress",
+          kind,
+          consecutiveFailures: String(consecutiveProgressWriteFailures),
+        },
+        aiTraceId: runId,
+        extra: {
+          runId,
+          threadId,
+          attempts: progressWriteAttempts,
+          failures: progressWriteFailures,
+          eventCount: run.events.length,
+        },
+      });
+    }
+  };
+  const writeProgress = async (): Promise<void> => {
+    let updated = await bumpRunProgress(runId);
+    if (updated === false) {
+      // The initial run insert is intentionally asynchronous so the fast SSE
+      // path does not wait on SQL. If this first UPDATE wins the race, retry
+      // after that insert commits instead of permanently losing the first
+      // durable progress signal.
+      await insertRunPromise;
+      updated = await bumpRunProgress(runId);
+    }
+    if (updated === false) {
+      if (run.status !== "running") return;
+      recordProgressWriteFailure(
+        new Error("Durable progress update affected no running run row"),
+        "no-row",
+      );
+      progressWritePending = true;
+      return;
+    }
+    consecutiveProgressWriteFailures = 0;
+  };
+  function startProgressWrite(): void {
+    if (
+      !progressWritePending ||
+      progressWriteInFlight ||
+      run.status !== "running"
+    ) {
+      return;
+    }
+    progressWritePending = false;
+    lastProgressBumpAt = Date.now();
+    progressWriteAttempts += 1;
+    const write = writeProgress()
+      .catch((error: unknown) => {
+        recordProgressWriteFailure(error, "error");
+        // Retry even if no later event arrives. A transient failure must not
+        // freeze the durable clock until the next user-visible event.
+        progressWritePending = true;
+      })
+      .finally(() => {
+        progressWriteInFlight = null;
+        scheduleProgressWrite();
+      });
+    progressWriteInFlight = write;
+  }
+  function scheduleProgressWrite(): void {
+    if (
+      !progressWritePending ||
+      progressWriteInFlight ||
+      progressWriteTimer ||
+      run.status !== "running"
+    ) {
+      return;
+    }
+    const delayMs = Math.max(
+      0,
+      lastProgressBumpAt + PROGRESS_BUMP_INTERVAL_MS - Date.now(),
+    );
+    if (delayMs === 0) {
+      startProgressWrite();
+      return;
+    }
+    progressWriteTimer = setTimeout(() => {
+      progressWriteTimer = null;
+      startProgressWrite();
+    }, delayMs);
+  }
   const bumpProgressIfDue = () => {
-    const now = Date.now();
-    if (now - lastProgressBumpAt < 1000) return;
-    lastProgressBumpAt = now;
-    bumpRunProgress(runId).catch(() => {});
+    progressWritePending = true;
+    scheduleProgressWrite();
   };
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
     if (event.type === "stream_keepalive") return false;
@@ -1513,6 +1627,9 @@ export function startRun(
       // 4. Stop the heartbeat — all liveness writes are done.
       clearInterval(heartbeatTimer);
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+      if (progressWriteTimer) clearTimeout(progressWriteTimer);
+      progressWriteTimer = null;
+      progressWritePending = false;
       // A tool can throw before its matching event is emitted, or the process
       // can reach terminal cleanup with an in-flight call still open. Do not
       // leave the SQL grace marker attached to a terminal run.

@@ -678,6 +678,7 @@ const messages = {
     deckCount_other: "عرض",
     createDeckOrVisual: "إنشاء عرض تقديمي",
     noMineDecks: "لم تنشئ أي عروض بعد.",
+    noDecksMatchSearch: "لا تتطابق أي عروض مع بحثك.",
     deleteDeckTitle: "حذف العرض؟",
     deleteDeckDescription:
       "سيؤدي هذا إلى حذف هذا العرض وكل شرائحه نهائيًا. لا يمكن التراجع عن هذا الإجراء.",

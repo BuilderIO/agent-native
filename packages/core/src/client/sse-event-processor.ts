@@ -368,6 +368,23 @@ function isMeaningfulProgressEvent(
   return true;
 }
 
+/**
+ * The browser's durable liveness cursor must mirror the server's
+ * `last_progress_at` predicate. The stream watchdog intentionally has a
+ * broader background policy, so it cannot be reused for this cursor: raw
+ * keepalives and repeated zero-byte preparation are not proof of real work.
+ */
+function isDurableProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+): boolean {
+  if (ev.type === "stream_keepalive" || ev.type === "clear") return false;
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
+    return actionPreparationProgress === true;
+  }
+  return true;
+}
+
 function baseActivityLabel(ev: SSEEvent, tool?: string): string {
   return humanizeToolLabelText(ev.label ?? "Working", tool);
 }
@@ -1975,7 +1992,7 @@ export async function* readSSEStream(
   content: ContentPart[],
   toolCallCounter: { value: number },
   tabId: string | undefined,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   runId?: string | null,
   options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
@@ -2093,14 +2110,23 @@ export async function* readSSEStream(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {
@@ -2223,7 +2249,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
@@ -2297,13 +2323,22 @@ export async function readSSEStreamRaw(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {
