@@ -82,6 +82,16 @@ force through: work a different file, or re-read it and build on the landed
 change before writing again. If it's genuinely your file being taken back,
 say so in your response after re-reading.
 
+It only covers writes made through this hook: a Codex peer or a plain human
+edit leaves no lease, and it can't see a collision that reaches the same file
+through any other path. Treat it as a backstop for the Claude-Code case, not a
+substitute for "read before you edit" above. Confirm it's actually wired before
+relying on it — a documented hook and a registered one are different things:
+
+```bash
+grep -l file-lease .claude/settings.json 2>/dev/null || echo "not registered"
+```
+
 ## Before you ship
 
 Assume another agent may already be committing, pushing, or opening a PR for

@@ -81,7 +81,7 @@ export interface PromptComposerProps {
     files: PromptComposerFile[],
     references: Reference[],
     options: PromptComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   placeholder?: string;
   disabled?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -587,7 +587,7 @@ function PromptComposerInner({
         text,
         attachments,
       });
-      onSubmit(finalText, files, references, {
+      await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
         model: composerModel,
         engine: composerEngine,

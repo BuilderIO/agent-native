@@ -18,15 +18,7 @@ Read the relevant skill in `.agents/skills/` before deeper work:
 - `assets-navigation` for routes, tabs, chat surfaces, and `navigate` targets.
 - `agent-engines` for model and engine configuration.
 - `a2a-assets` for MCP/A2A callers, skill install paths, and host rendering.
-- `inline-embeds`, `notifications`, `progress`, and `real-time-collab` for
-  integration surfaces.
-- `actions`, `storing-data`, `security`, `frontend-design`, and `shadcn-ui` as
-  needed.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+- `inline-embeds`, `notifications`, and `progress` for integration surfaces.
 
 ## Core Rules
 
@@ -96,3 +88,8 @@ Uncommon actions stay discoverable through `tool-search`.
 | `export-asset` | Return a download URL or artifact for another app |
 | `create-generation-session` | Hand generation work off to a designer |
 | `manage-context-membership` | Submit an asset to a governed Creative Context |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

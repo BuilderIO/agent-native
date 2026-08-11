@@ -80,7 +80,7 @@ function AppRows({
                 data-chat-first-app
                 data-app-id={app.id}
                 className={cn(
-                  "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-1 text-sm",
+                  "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-0 text-sm",
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -95,7 +95,7 @@ function AppRows({
               >
                 <button
                   type="button"
-                  className="flex h-full min-w-0 flex-1 items-center gap-2 px-1 text-start"
+                  className="flex h-full min-w-0 flex-1 items-center gap-2 px-2 text-start"
                   onClick={() => onOpenApp(app)}
                   onKeyDown={(event) => {
                     if (!event.altKey) return;
@@ -319,18 +319,18 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
       className="mt-3 px-2 pb-2 pt-2"
       aria-label={copy("workspaceApps")}
     >
-      <div className="mb-1 flex items-center gap-1.5 px-1 text-[11px] font-medium text-sidebar-foreground/50">
+      <div className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-medium text-sidebar-foreground/50">
         <span>{copy("workspaceApps")}</span>
         <span className="ml-auto">{createTrigger}</span>
       </div>
       {loading && apps.length === 0 ? (
-        <div className="space-y-0.5 px-1">
+        <div className="space-y-0.5 px-2">
           {[0, 1, 2].map((index) => (
             <Skeleton key={index} className="h-8 w-full rounded-md" />
           ))}
         </div>
       ) : apps.length === 0 ? (
-        <div className="px-1">
+        <div className="px-2">
           <p className="text-xs text-sidebar-foreground/55">
             {copy("noWorkspaceApps")}
           </p>
@@ -396,7 +396,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="mt-1 flex items-center gap-1 px-1 text-[10px] text-destructive/80"
+              className="mt-1 flex items-center gap-1 px-2 text-[10px] text-destructive/80"
               onClick={onRetry}
               aria-label={error}
             >

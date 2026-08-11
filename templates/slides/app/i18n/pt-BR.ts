@@ -673,6 +673,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Criar uma apresentação",
     noMineDecks: "Nenhum deck criado por você ainda.",
+    noDecksMatchSearch: "Nenhum deck corresponde à sua busca.",
     deleteDeckTitle: "Excluir deck?",
     deleteDeckDescription:
       "Isso excluirá permanentemente este deck e todos os seus slides. Esta ação não pode ser desfeita.",
@@ -703,6 +704,7 @@ const messages = {
       "Mantenha o sistema de design e o deck de referência padrão, a menos que você os remova. Pesquise outro deck, importe um arquivo ou continue quando estiver pronto.",
     chooseAnotherDeck: "Escolher outro deck",
     noMatchingDecks: "Nenhum deck correspondente encontrado.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Decks do Google Slides",
     googleSlidesReferenceConnect:
       "Conecte o Google Drive para importar um deck do Slides.",

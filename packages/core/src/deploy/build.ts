@@ -3060,6 +3060,10 @@ export const config = {
  * Emit the durable recurring-job trigger. Netlify's scheduled function only
  * hands off work; the existing `-background` function owns the long sweep so
  * a model run is not constrained by the synchronous scheduled-function wall.
+ *
+ * The entry imports `node:crypto`, so `includedFiles: ["**"]` must stay: the
+ * deploy packager only accepts an omitted `includedFiles` for scheduled
+ * functions whose entry file has no import/require edge at all.
  */
 export function emitSingleTemplateNetlifyRecurringJobsFunction(
   projectCwd: string,
@@ -3135,6 +3139,7 @@ export const config = {
   generator: "agent-native build",
   schedule: "* * * * *",
   nodeBundler: "none",
+  includedFiles: ["**"],
 };
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);

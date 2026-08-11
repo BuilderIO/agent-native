@@ -173,42 +173,37 @@ export default async function globalSetup(config: FullConfig) {
     BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {},
   );
   const context = await browser.newContext();
-  const page = await context.newPage();
 
   try {
-    await page.goto(`${baseURL}/sign-in`, {
-      waitUntil: "domcontentloaded",
-    });
-
-    const isSignIn = async () => /sign in/i.test(await page.title());
-
-    if (await isSignIn()) {
-      // Try to create the account; if it already exists, fall back to sign in.
-      await page.locator("#s-email").fill(E2E_EMAIL);
-      await page.locator("#s-pass").fill(E2E_PASSWORD);
-      await page.locator("#s-pass2").fill(E2E_PASSWORD);
-      await page.locator("#signup-form button[type='submit']").click();
-      await page.waitForTimeout(2500);
-
-      if (await isSignIn()) {
-        // Account exists; switch to the Sign in tab and log in.
-        await page
-          .getByRole("button", { name: "Sign in", exact: true })
-          .first()
-          .click()
-          .catch(() => {});
-        await page.locator("#l-email").fill(E2E_EMAIL);
-        await page.locator("#l-pass").fill(E2E_PASSWORD);
-        await page.locator("#login-form button[type='submit']").click();
-        await page.waitForTimeout(2500);
-      }
+    const registration = await context.request.post(
+      `${baseURL}/_agent-native/auth/register`,
+      {
+        data: {
+          email: E2E_EMAIL,
+          password: E2E_PASSWORD,
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    if (!registration.ok() && registration.status() !== 409) {
+      throw new Error(
+        `registration failed: ${registration.status()} ${await registration.text()}`,
+      );
     }
 
-    await page
-      .waitForFunction(() => !/sign in/i.test(document.title), null, {
-        timeout: 20_000,
-      })
-      .catch(() => {});
+    const login = await context.request.post(
+      `${baseURL}/_agent-native/auth/login`,
+      {
+        data: {
+          email: E2E_EMAIL,
+          password: E2E_PASSWORD,
+        },
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    if (!login.ok()) {
+      throw new Error(`login failed: ${login.status()} ${await login.text()}`);
+    }
 
     await context.storageState({ path: STATE_PATH });
 

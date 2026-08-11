@@ -57,6 +57,8 @@
   box-shadow: none;
   opacity: 0.55;
   pointer-events: none;
+  /* compositing-ok: .notion-drag-preview exists only during a drag and is
+     transformed every frame of it; the layer is retired with the element. */
   will-change: transform;
 }
 

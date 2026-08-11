@@ -41,14 +41,23 @@ export interface McpConnectionSuggestionProps {
   integrations?: DefaultMcpIntegration[];
 }
 
+function visibleUserAuthoredText(text: string): string {
+  return text
+    .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
+    .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
+    .replace(/<\/context>/gi, "")
+    .trim();
+}
+
 export function findMcpConnectionSuggestionIntegration({
   text,
   contextText = "",
   variant = "composer",
   integrations = getDefaultMcpIntegrations(),
 }: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
+  const sourceText = variant === "response" ? contextText : text;
   return findMcpIntegrationForText(
-    variant === "response" ? contextText : text,
+    visibleUserAuthoredText(sourceText),
     integrations,
   );
 }

@@ -5,7 +5,7 @@ import {
   emailToColor,
   emailToName,
 } from "@agent-native/core/client/collab";
-import { useSession, callAction } from "@agent-native/core/client/hooks";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
@@ -54,7 +54,7 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import {
   deckAccessCheckKey,
   shouldShowDeckEditorSkeleton,
@@ -187,6 +187,8 @@ export default function DeckEditor() {
   );
   const [contextToolbarSlot, setContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
+  const [wideContextToolbarSlot, setWideContextToolbarSlot] =
+    useState<HTMLDivElement | null>(null);
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
@@ -238,9 +240,6 @@ export default function DeckEditor() {
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
-  const imageGenButtonRef = useRef<HTMLButtonElement>(null);
-  const assetsButtonRef = useRef<HTMLButtonElement>(null);
-
   // Track which image src to replace
   const [replaceImageSrc, setReplaceImageSrc] = useState<string | null>(null);
 
@@ -344,6 +343,18 @@ export default function DeckEditor() {
   useEffect(() => {
     if (!generating) setAddSlideGenerating(false);
   }, [generating]);
+
+  // Below `md` the rail is a drawer behind a full-viewport dimming scrim; at
+  // `md` and up it's docked with no scrim. `sidebarOpen` is seeded from the
+  // width at mount only, so a window that starts wide and is then narrowed
+  // (or an editor opened in a resizable preview pane) keeps `sidebarOpen`
+  // true while the scrim stops being `md:hidden` — dimming the whole editor
+  // with no way to dismiss it.
+  useEffect(() => {
+    const onResize = () => setSidebarOpen(window.innerWidth >= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const previousSlideIdsRef = useRef<string[]>([]);
   useEffect(() => {
@@ -1004,7 +1015,7 @@ export default function DeckEditor() {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      className="deck-editor-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-background"
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
@@ -1023,16 +1034,10 @@ export default function DeckEditor() {
           setReplaceImageSrc(null);
           setAssetLibraryOpen(true);
         }}
-        imageGenButtonRef={imageGenButtonRef}
-        assetsButtonRef={assetsButtonRef}
-        historyOpen={historyOpen}
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
-        onUpdateSlide={(updates, slideIdOverride) => {
-          const targetId = slideIdOverride ?? currentSlide?.id;
-          if (targetId) updateSlide(id, targetId, updates);
-        }}
+        onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
@@ -1106,19 +1111,6 @@ export default function DeckEditor() {
           }
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
-        aspectRatio={deck.aspectRatio}
-        onSetAspectRatio={(ratio: AspectRatio) => {
-          const previous = deck.aspectRatio;
-          // Optimistic UI: update local cache immediately so canvas resizes.
-          updateDeck(id, { aspectRatio: ratio });
-          callAction("update-deck-aspect-ratio", {
-            deckId: id,
-            aspectRatio: ratio,
-          }).catch((err) => {
-            console.error("Failed to set aspect ratio:", err);
-            updateDeck(id, { aspectRatio: previous });
-          });
-        }}
         currentSlideId={currentSlide?.id}
         addSlideGenerating={addSlideGenerating}
         onAddSlideGeneratingChange={setAddSlideGenerating}
@@ -1130,9 +1122,13 @@ export default function DeckEditor() {
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
        * slide rail as well as the canvas, matching the deck toolbar above it. */}
-      <div ref={setContextToolbarSlot} className="shrink-0" />
+      <div
+        ref={setContextToolbarSlot}
+        data-context-toolbar-host="narrow"
+        className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
+      />
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-l-lg bg-background">
         {sidebarOpen && (
           <>
             <div
@@ -1192,7 +1188,7 @@ export default function DeckEditor() {
         )}
 
         {generatingSlideSelected && generatingSlideVisible && (
-          <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+          <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
             <div className="m-auto w-full max-w-6xl">
               <GeneratingSlidePreview
                 content={streamedGeneratingSlideContent}
@@ -1208,7 +1204,7 @@ export default function DeckEditor() {
           generatingSlideVisible &&
           deck.slides.length === 0 &&
           !showQuestionFlow && (
-            <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
                   content={streamedGeneratingSlideContent}
@@ -1226,6 +1222,7 @@ export default function DeckEditor() {
             deckId={id}
             readOnly={!canEdit}
             contextToolbarSlot={contextToolbarSlot}
+            wideContextToolbarSlot={wideContextToolbarSlot}
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
@@ -1275,7 +1272,6 @@ export default function DeckEditor() {
             onDropImageUrl={dropImageUrlOnSlide}
             onToggleObjectFit={toggleObjectFit}
             slideIndex={currentIndex >= 0 ? currentIndex : 0}
-            slideCount={deck.slides.length}
             designSystem={designSystem}
             aspectRatio={deck.aspectRatio}
             collabUser={
@@ -1364,7 +1360,7 @@ export default function DeckEditor() {
       <ImageGenPanel
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
-        anchorRef={imageGenButtonRef}
+        anchorRef={historyButtonRef}
         referenceImageUrls={imageStyleReferenceUrls}
         slideContext={
           currentSlide
@@ -1382,7 +1378,7 @@ export default function DeckEditor() {
       <AssetLibraryPanel
         open={assetLibraryOpen}
         onOpenChange={setAssetLibraryOpen}
-        anchorRef={assetsButtonRef}
+        anchorRef={historyButtonRef}
         onSelectAsset={
           replaceImageSrc
             ? (newUrl) => {

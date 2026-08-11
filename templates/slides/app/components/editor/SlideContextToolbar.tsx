@@ -193,7 +193,7 @@ export function SlideContextToolbar({
   return (
     <div
       className={cn(
-        "slide-context-toolbar flex h-10 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-muted/60 px-2 sm:px-3",
+        "slide-context-toolbar flex h-10 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-transparent px-2 sm:px-3",
         className,
       )}
       data-slide-context-toolbar="true"

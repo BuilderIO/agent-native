@@ -656,6 +656,7 @@ const messages = {
     deckCount_other: "デッキ",
     createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
+    noDecksMatchSearch: "検索に一致するデッキはありません。",
     deleteDeckTitle: "デッキを削除しますか？",
     deleteDeckDescription:
       "このデッキとすべてのスライドを完全に削除します。この操作は元に戻せません。",
@@ -686,6 +687,7 @@ const messages = {
       "削除しない限り、デフォルトのデザインシステムとリファレンスデッキを使用します。別のデッキを検索するか、ファイルをインポートして、準備ができたら続行してください。",
     chooseAnotherDeck: "別のデッキを選択",
     noMatchingDecks: "一致するデッキが見つかりません。",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google Slides デッキ",
     googleSlidesReferenceConnect:
       "Slides デッキをインポートするには Google Drive に接続してください。",

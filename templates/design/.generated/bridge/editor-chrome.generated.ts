@@ -2266,6 +2266,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var passiveSelectionEls = [];
     var passiveSelectionOverlays = [];
+    var multiSelectionBoundsOverlay = null;
     var activeMarqueeSelection = null;
     var activeTextEditEl = null;
     var activeTextEditOriginalMinWidth = "";
@@ -2397,7 +2398,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         overlay.setAttribute("data-agent-native-soft-chrome", "true");
       }
       overlay.style.cssText = style === "soft" ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;" : "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-      if (style !== "soft") appendPassiveSelectionHandles(overlay);
       document.body.appendChild(overlay);
       return overlay;
     }
@@ -2430,6 +2430,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         passiveSelectionOverlays.push(overlay);
         positionOverlay(overlay, el);
       });
+      positionMultiSelectionBounds();
     }
     function preservePreviousSelectedElementForShiftClick(previous, next, e) {
       if (!e?.shiftKey || !previous || !next || previous === next || !document.documentElement.contains(previous) || isLayerInteractionBlocked(previous)) {
@@ -3401,6 +3402,67 @@ export const editorChromeBridgeScript: string = `"use strict";
       overlay.style.transformOrigin = "50% 50%";
       return true;
     }
+    function ensureMultiSelectionBoundsOverlay() {
+      if (multiSelectionBoundsOverlay) return multiSelectionBoundsOverlay;
+      var overlay = document.createElement("div");
+      overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
+      overlay.setAttribute("data-agent-native-multi-selection-bounds", "true");
+      overlay.style.cssText = "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
+      appendPassiveSelectionHandles(overlay);
+      document.body.appendChild(overlay);
+      multiSelectionBoundsOverlay = overlay;
+      return overlay;
+    }
+    function positionMultiSelectionBounds() {
+      var members = [];
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        members.push(selectedEl);
+      }
+      passiveSelectionEls.forEach(function(el) {
+        if (el && document.documentElement.contains(el)) members.push(el);
+      });
+      if (members.length < 2 || selectionChromeHidden) {
+        if (multiSelectionBoundsOverlay) {
+          multiSelectionBoundsOverlay.style.display = "none";
+        }
+        return;
+      }
+      var rects = members.map(function(el) {
+        return el.getBoundingClientRect();
+      });
+      var left = Math.min.apply(
+        null,
+        rects.map(function(r) {
+          return r.left;
+        })
+      );
+      var top = Math.min.apply(
+        null,
+        rects.map(function(r) {
+          return r.top;
+        })
+      );
+      var right = Math.max.apply(
+        null,
+        rects.map(function(r) {
+          return r.right;
+        })
+      );
+      var bottom = Math.max.apply(
+        null,
+        rects.map(function(r) {
+          return r.bottom;
+        })
+      );
+      var overlay = ensureMultiSelectionBoundsOverlay();
+      overlay.style.display = "block";
+      overlay.style.transform = "none";
+      overlay.style.left = left + "px";
+      overlay.style.top = top + "px";
+      overlay.style.width = Math.max(0, right - left) + "px";
+      overlay.style.height = Math.max(0, bottom - top) + "px";
+      scalePassiveSelectionOverlay(overlay);
+    }
     function positionOverlay(overlay, el) {
       if (!el || !document.documentElement.contains(el)) {
         overlay.style.display = "none";
@@ -3460,6 +3522,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var overlay = passiveSelectionOverlays[index];
         if (overlay) positionOverlay(overlay, el);
       });
+      positionMultiSelectionBounds();
       positionGradientOverlay();
       syncOverlayObservers();
     }
@@ -3725,10 +3788,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (isOverlayElement(target)) continue;
         if (isLayerInteractionBlocked(target)) {
           lastEditorPointWasBlocked = true;
+          dndLog("select:blocked", { el: getSelector(target) });
           return null;
         }
         return target;
       }
+      dndLog("select:nothing-at-point", { x: clientX, y: clientY });
       return null;
     }
     function stopNativeInteraction(e) {
@@ -5319,8 +5384,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isAbsolutePrimitiveContainer(el) {
       if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
-      if (primitive !== "rectangle" && primitive !== "rect" && primitive !== "frame")
-        return false;
+      if (primitive !== "frame") return false;
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
@@ -5584,6 +5648,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
       if (el === document.body) return true;
+      var primitiveKind = el.getAttribute("data-an-primitive");
+      if (primitiveKind && primitiveKind !== "frame") return false;
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;
@@ -8823,6 +8889,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           positionOverlay(selectionOverlay, target);
         }
+        positionMultiSelectionBounds();
         if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
         if (selectionChangedByHost) {
           postElementSelect(target);

@@ -646,7 +646,15 @@ async function executeClaudeCliRun(options: {
 
   try {
     const result = await runClaudeCodeParticipant({
-      role: options.permissionMode === "full-auto" ? "driver" : "watchdog",
+      // Claude's driver uses acceptEdits, which is the closest available
+      // mapping for auto-edit and full-auto. Keep ask-before-edit on the
+      // read-only watchdog path because this non-interactive runner has no
+      // approval channel to honor an edit prompt safely.
+      role:
+        options.permissionMode === "auto-edit" ||
+        options.permissionMode === "full-auto"
+          ? "driver"
+          : "watchdog",
       prompt: buildClaudeCliPrompt(options.run, options.prompt),
       cwd,
       model,
@@ -784,7 +792,10 @@ async function executeClaudeCliRun(options: {
 
 function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
   const permissionMode = run.permissionMode ?? "full-auto";
-  const mode = permissionMode === "full-auto" ? "Auto" : "Plan";
+  const mode =
+    permissionMode === "auto-edit" || permissionMode === "full-auto"
+      ? "Auto"
+      : "Plan";
   const modeInstruction =
     mode === "Plan"
       ? "Inspect and explain only. Do not edit files or run mutating commands."

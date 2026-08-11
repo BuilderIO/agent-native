@@ -58,6 +58,135 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     );
     expect(inserted).toContain('data-agent-native-node-id="rect-1"');
   });
+
+  const textAt = (bodyStyle: string) =>
+    appendCanvasPrimitiveToHtml(
+      `<!doctype html><html><head><title>S</title></head><body style="${bodyStyle}"></body></html>`,
+      {
+        kind: "text",
+        nodeId: "t-1",
+        geometry: { x: 0, y: 0, width: 80, height: 24 },
+        text: "Hello",
+      },
+    );
+
+  it("gives drawn text a light fill on a dark screen, not currentColor", () => {
+    expect(textAt("background:#0b0f19")).toContain("color: #ffffff");
+  });
+
+  it("leaves drawn text inheriting currentColor on a light screen", () => {
+    expect(textAt("background:#ffffff")).toContain("color: currentcolor");
+  });
+
+  const withContainer = (kind: "frame" | "rectangle") =>
+    appendCanvasPrimitiveToHtml(
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind,
+        nodeId: "box",
+        geometry: { x: 20, y: 150, width: 280, height: 300 },
+      }) ?? "",
+      {
+        kind: "text",
+        nodeId: "inner",
+        geometry: { x: 60, y: 260, width: 100, height: 20 },
+        text: "Inside",
+      },
+    ) ?? "";
+
+  it("nests a primitive drawn inside a frame's bounds into that frame", () => {
+    const html = withContainer("frame");
+    const frameAt = html.indexOf('data-an-primitive="frame"');
+    expect(html.indexOf('nodeId="inner"') === -1).toBe(true);
+    expect(html.indexOf('data-agent-native-node-id="inner"')).toBeGreaterThan(
+      frameAt,
+    );
+    expect(html.indexOf('data-agent-native-node-id="inner"')).toBeLessThan(
+      html.indexOf("</div>", frameAt) + "</div>".length,
+    );
+  });
+
+  it("nests an SVG primitive into a containing frame, like div primitives", () => {
+    const withFrame =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "outer",
+        geometry: { x: 20, y: 150, width: 280, height: 300 },
+      }) ?? "";
+    const html =
+      appendCanvasPrimitiveToHtml(withFrame, {
+        kind: "line",
+        nodeId: "seg",
+        geometry: { x: 60, y: 200, width: 100, height: 40 },
+        points: [
+          { x: 60, y: 200 },
+          { x: 160, y: 240 },
+        ],
+      }) ?? "";
+    const frameAt = html.indexOf('data-an-primitive="frame"');
+    const segAt = html.indexOf('data-agent-native-node-id="seg"');
+    expect(segAt).toBeGreaterThan(frameAt);
+    expect(segAt).toBeLessThan(html.indexOf("</div>", frameAt));
+  });
+
+  it("resolves a nested frame against document coordinates", () => {
+    const outer =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "outer",
+        geometry: { x: 100, y: 100, width: 400, height: 400 },
+      }) ?? "";
+    // Nested frame's inline left/top are relative to `outer`, so a primitive
+    // at document 180,180 lands inside it only if offsets accumulate.
+    const nested =
+      appendCanvasPrimitiveToHtml(outer, {
+        kind: "frame",
+        nodeId: "inner",
+        geometry: { x: 150, y: 150, width: 200, height: 200 },
+      }) ?? "";
+    const html =
+      appendCanvasPrimitiveToHtml(nested, {
+        kind: "rectangle",
+        nodeId: "deep",
+        geometry: { x: 180, y: 180, width: 40, height: 40 },
+      }) ?? "";
+    const innerAt = html.indexOf('data-agent-native-node-id="inner"');
+    const deepAt = html.indexOf('data-agent-native-node-id="deep"');
+    expect(
+      deepAt,
+      "the rect must nest into the innermost containing frame",
+    ).toBeGreaterThan(innerAt);
+  });
+
+  it("gives text in a dark frame a light fill even on a light page", () => {
+    const withDarkFrame =
+      appendCanvasPrimitiveToHtml(
+        `<!doctype html><html><head><title>S</title></head><body style="background:#ffffff"></body></html>`,
+        {
+          kind: "frame",
+          nodeId: "dark",
+          geometry: { x: 20, y: 20, width: 300, height: 300 },
+          fill: "#0b0f19",
+        },
+      ) ?? "";
+    const html =
+      appendCanvasPrimitiveToHtml(withDarkFrame, {
+        kind: "text",
+        nodeId: "label",
+        geometry: { x: 60, y: 60, width: 100, height: 20 },
+        text: "Inside",
+      }) ?? "";
+    expect(html).toContain("color: #ffffff");
+  });
+
+  it("never nests into a rectangle — it is a shape, not a container", () => {
+    const html = withContainer("rectangle");
+    const rectCloses =
+      html.indexOf("</div>", html.indexOf('data-an-primitive="rectangle"')) +
+      "</div>".length;
+    expect(html.indexOf('data-agent-native-node-id="inner"')).toBeGreaterThan(
+      rectCloses,
+    );
+  });
 });
 
 describe("extractCanvasPrimitiveHtml", () => {

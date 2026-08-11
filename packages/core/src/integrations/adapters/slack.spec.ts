@@ -293,11 +293,12 @@ describe("slackAdapter", () => {
     expect(first?.externalThreadId).not.toBe(second?.externalThreadId);
   });
 
-  it("ignores ambient channel messages and inactive thread replies", async () => {
+  it("ignores ambient channel messages and unmentioned thread replies", async () => {
     process.env.NODE_ENV = "development";
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const isThreadActive = vi.fn(async () => false);
-    const adapter = slackAdapter({ isThreadActive });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = slackAdapter();
 
     await expect(
       adapter.parseIncomingMessage(
@@ -313,7 +314,6 @@ describe("slackAdapter", () => {
         }),
       ),
     ).resolves.toBeNull();
-    expect(isThreadActive).not.toHaveBeenCalled();
 
     await expect(
       adapter.parseIncomingMessage(
@@ -330,90 +330,50 @@ describe("slackAdapter", () => {
         }),
       ),
     ).resolves.toBeNull();
-    expect(isThreadActive).toHaveBeenCalledWith(
-      expect.objectContaining({
-        externalThreadId: "A123:T123:C123:111.222",
-        triggerKind: "thread_reply",
-      }),
-    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("accepts ordinary replies only for an active workspace-qualified thread", async () => {
+  it("requires a fresh explicit mention for another turn in an active thread", async () => {
     process.env.NODE_ENV = "development";
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const isThreadActive = vi.fn(async () => true);
-
-    const parsed = await slackAdapter({ isThreadActive }).parseIncomingMessage(
-      slackEvent({
-        event: {
-          type: "message",
-          channel: "C123",
-          channel_type: "channel",
-          user: "U123",
-          text: "change the output format",
-          thread_ts: "111.222",
-          ts: "123.456",
-        },
-      }),
-    );
-
-    expect(parsed).toMatchObject({
-      externalThreadId: "A123:T123:C123:111.222",
-      text: "change the output format",
-      triggerKind: "thread_reply",
-      threadRef: "111.222",
-      replyRef: "123.456",
-    });
-  });
-
-  it("accepts one scoped clarification reply without opening ambient channel intake", async () => {
-    process.env.NODE_ENV = "development";
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const isThreadActive = vi.fn(async () => false);
-    const consumeAwaitingInput = vi.fn(async () => true);
-    const adapter = slackAdapter({ isThreadActive, consumeAwaitingInput });
 
     await expect(
-      adapter.parseIncomingMessage(
+      slackAdapter().parseIncomingMessage(
         slackEvent({
           event: {
             type: "message",
             channel: "C123",
             channel_type: "channel",
             user: "U123",
-            text: "ambient chatter",
+            text: "change the output format",
+            thread_ts: "111.222",
             ts: "123.456",
           },
         }),
       ),
     ).resolves.toBeNull();
-    expect(consumeAwaitingInput).not.toHaveBeenCalled();
 
-    const parsed = await adapter.parseIncomingMessage(
-      slackEvent({
-        event: {
-          type: "message",
-          channel: "C123",
-          channel_type: "channel",
-          user: "U123",
-          text: "New prospects",
-          thread_ts: "111.222",
-          ts: "123.456",
-        },
-      }),
-    );
-
-    expect(parsed).toMatchObject({
+    await expect(
+      slackAdapter().parseIncomingMessage(
+        slackEvent({
+          event: {
+            type: "app_mention",
+            channel: "C123",
+            channel_type: "channel",
+            user: "U123",
+            text: "<@BOT> change the output format",
+            thread_ts: "111.222",
+            ts: "123.457",
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({
       externalThreadId: "A123:T123:C123:111.222",
-      text: "New prospects",
-      triggerKind: "thread_reply",
+      text: "change the output format",
+      triggerKind: "mention",
+      threadRef: "111.222",
+      replyRef: "123.457",
     });
-    expect(consumeAwaitingInput).toHaveBeenCalledWith(
-      expect.objectContaining({
-        externalThreadId: "A123:T123:C123:111.222",
-        senderId: "U123",
-      }),
-    );
   });
 
   it("accepts Agent View direct messages and preserves same-workspace app context", async () => {

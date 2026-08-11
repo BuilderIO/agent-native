@@ -2,8 +2,10 @@
 name: creative-context
 description: >-
   Reuse creative context across generation while respecting explicit context
-  choices, pinned packs, provenance, and opt-out state.
-scope: app
+  choices, pinned packs, provenance, and opt-out state. Use when generating or
+  refining any creative output, or when the user references saved or approved
+  context.
+scope: both
 metadata:
   internal: true
 ---
@@ -89,7 +91,8 @@ Use the library like a code repository:
    their pinned `nativeCode.retrieval.parts` when it is hierarchical. Do not
    compare only a thumbnail or text excerpt.
 3. Clone a fitting slide unchanged with `clone-context-slide`.
-4. For a light adaptation, clone first, read the saved slide with `get-deck`,
+4. For a light adaptation, clone first, read the saved slide with `get-deck`
+   using `compact=false`,
    then use a bounded `update-slide` edit while preserving the returned pack
    and reuse labels.
 5. To combine patterns, clone the best base and the other selected native

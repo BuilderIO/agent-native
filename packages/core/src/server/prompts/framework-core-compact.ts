@@ -2,7 +2,7 @@
  * Compact framework core instructions (FRAMEWORK_CORE_COMPACT).
  * Used in lazy-context mode (lazyContext: true — the default).
  *
- * Shares rules 8–9, 12–13 with the full variant via shared-rules.ts.
+ * Shares rules 8–9, 13–15 with the full variant via shared-rules.ts.
  * The compact version omits:
  *   - Verbose "Extended Capabilities" section (agent uses get-framework-context)
  *   - Detailed "Parallel Tool Calls" prose (replaced with one-liner)
@@ -21,9 +21,9 @@ import {
 import {
   sharedRule8,
   SHARED_RULE_9,
-  sharedRule14,
+  sharedRule13,
+  SHARED_RULE_14,
   SHARED_RULE_15,
-  SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
 } from "./shared-rules.js";
 
@@ -34,6 +34,11 @@ export interface FrameworkCoreCompactPromptOptions {
    *  a group's tool by name is gated on this — a prompt naming an absent tool
    *  makes the model call it, fail, and often report the capability as missing. */
   disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+  /** True for surfaces whose agent really can edit source (dev mode). This core
+   *  prompt is appended to both the production and development prompts, so the
+   *  Builder-handoff sentence must be dropped here or it contradicts the dev
+   *  prompt's own "you have full local access". */
+  canEditSource?: boolean;
 }
 
 /**
@@ -84,11 +89,15 @@ For generated media, prefer this app's native generation action; otherwise use \
     options?.extensionTools === true
       ? "registered actions, extensions, and MCP tools"
       : "registered actions and MCP tools";
+  const codeHandoffClause =
+    options?.canEditSource === true
+      ? ""
+      : ", and hand code changes to Builder — you don't edit source yourself";
 
   return `
 ### How You Work
 
-Bring a senior engineer's judgment, arrived at through attention not premature certainty: understand the app's data and actions before acting, prefer existing actions and patterns over improvising, and keep work scoped. You act through ${actionSurface}, and hand code changes to Builder — you don't edit source yourself.
+Bring a senior engineer's judgment, arrived at through attention not premature certainty: understand the app's data and actions before acting, prefer existing actions and patterns over improvising, and keep work scoped. You act through ${actionSurface}${codeHandoffClause}.
 
 **Autonomy:** handle the task end to end this turn when feasible — take the actions, confirm they worked, report the outcome. Don't stop at a proposal or half-finished work; work through blockers yourself before handing back. In Plan mode, propose only.
 
@@ -107,18 +116,18 @@ Bring a senior engineer's judgment, arrived at through attention not premature c
 7. **Security** — ${securityRule}
 ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
-**Native widgets** — For table/chart/graph/report requests, prefer actions labeled \`Native chat widget\`; use \`render-data-widget\` for already-summarized data (≤50 rows) instead of markdown tables. Above that, give the total plus the top rows — never retype a full result set as widget arguments. Deliver files in chat, never just a path.
-10. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
-11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts.
-${sharedRule14(options)}
+10. **Native widgets** — For table/chart/graph/report requests, prefer actions labeled \`Native chat widget\`; use \`render-data-widget\` for already-summarized data (≤50 rows) instead of markdown tables. Above that, give the total plus the top rows — never retype a full result set as widget arguments.
+11. **Downloadable files** — Deliver files in chat, never just a path.
+12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
+${sharedRule13(options)}
+${SHARED_RULE_14}
 ${SHARED_RULE_15}
-${SHARED_RULE_AGENT_WARNINGS}
 
 ${resourcesSection}
 ### Extended Capabilities
 
 You also have tools for ${extendedCapabilitiesList}. Call \`get-framework-context\` with the matching key — it lists its own topics — for full instructions when needed.
 
-**Agent teams:** default to doing the work yourself. Delegate ONE sub-agent (\`agent-teams\` action "spawn") for self-contained heavy work; fan out to several only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming the delegated work is done. Give each sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries) — it can't see this thread — then read all results and synthesize one integrated answer. Full details: \`get-framework-context\` key \`agent-teams\`.
+**Agent teams:** default to doing the work yourself; \`agent-teams\` can delegate to background sub-agents. Treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. Read \`get-framework-context\` key \`agent-teams\` before spawning — it carries the fan-out limits, briefing contract, and why a spawn is not a completion.
 ${callAgentSection}`;
 }

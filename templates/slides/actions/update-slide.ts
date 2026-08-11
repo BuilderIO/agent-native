@@ -364,7 +364,7 @@ export default defineAction({
     if (rmw.notFound) {
       return {
         ok: false,
-        message: `Text not found in slide: "${find!.slice(0, 60)}". Use get-deck to see current slide content.`,
+        message: `Text not found in slide: "${find!.slice(0, 60)}". Use get-deck with compact=false to see the current slide HTML.`,
       };
     }
 

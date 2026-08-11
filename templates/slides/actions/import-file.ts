@@ -28,6 +28,7 @@ import {
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
+import { isOpaqueDeckTitle } from "../shared/deck-title.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -586,7 +587,7 @@ async function buildPptxSlide(
 
 function titleFromPath(filePath: string): string {
   const base = path.basename(filePath, path.extname(filePath)).trim();
-  return base || "Imported File";
+  return base && !isOpaqueDeckTitle(base) ? base : "Imported File";
 }
 
 function normalizePdfPages(result: unknown): { num: number; text: string }[] {

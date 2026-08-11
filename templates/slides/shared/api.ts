@@ -95,6 +95,18 @@ export type SharedSlideTransition =
 
 export type SharedAnimationType = "appear" | "fade" | "slide-up" | "zoom";
 
+export type SharedAnimationIssueCode =
+  | "invalid-shape"
+  | "invalid-element-path"
+  | "missing-target"
+  | "unsupported-type";
+
+export interface SharedSlideAnimationIssue {
+  index: number;
+  id: string | null;
+  code: SharedAnimationIssueCode;
+}
+
 export interface SharedSlideAnimation {
   id: string;
   elementIndex: number;
@@ -110,6 +122,7 @@ export interface SharedDeckSlide {
   background?: string;
   transition?: SharedSlideTransition;
   animations?: SharedSlideAnimation[];
+  animationIssues?: SharedSlideAnimationIssue[];
   splitByParagraph?: boolean;
 }
 
@@ -137,7 +150,7 @@ function normalizeString(value: unknown, fallback: string): string {
 }
 
 function normalizeElementPath(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+  if (!Array.isArray(value) || value.length === 0) return undefined;
   const path = value.filter(
     (part): part is number =>
       typeof part === "number" &&
@@ -151,10 +164,18 @@ function normalizeElementPath(value: unknown): number[] | undefined {
 function normalizeSlideAnimation(
   value: unknown,
   index: number,
-): SharedSlideAnimation | null {
-  if (!isRecord(value)) return null;
+): { animation: SharedSlideAnimation } | { issue: SharedSlideAnimationIssue } {
+  const id = isRecord(value) && typeof value.id === "string" ? value.id : null;
+  const issue = (code: SharedAnimationIssueCode) => ({
+    issue: { index, id, code },
+  });
+
+  if (!isRecord(value)) return issue("invalid-shape");
 
   const elementPath = normalizeElementPath(value.elementPath);
+  if (value.elementPath !== undefined && !elementPath) {
+    return issue("invalid-element-path");
+  }
   const rawElementIndex = value.elementIndex;
   const hasElementIndex =
     typeof rawElementIndex === "number" &&
@@ -162,12 +183,13 @@ function normalizeSlideAnimation(
     Number.isFinite(rawElementIndex) &&
     rawElementIndex >= 0;
 
-  if (!hasElementIndex && !elementPath) return null;
+  if (!hasElementIndex && !elementPath) return issue("missing-target");
 
   const rawType = value.type;
-  const type = SHARED_ANIMATION_TYPES.has(rawType as SharedAnimationType)
-    ? (rawType as SharedAnimationType)
-    : "slide-up";
+  if (!SHARED_ANIMATION_TYPES.has(rawType as SharedAnimationType)) {
+    return issue("unsupported-type");
+  }
+  const type = rawType as SharedAnimationType;
 
   // When an explicit `elementIndex` is present, trust it. Otherwise derive
   // from the last segment of `elementPath` - keeps the index correlated
@@ -182,10 +204,12 @@ function normalizeSlideAnimation(
     : (elementPath![elementPath!.length - 1] ?? 0);
 
   return {
-    id: normalizeString(value.id, `animation-${index + 1}`),
-    elementIndex: resolvedElementIndex,
-    ...(elementPath ? { elementPath } : {}),
-    type,
+    animation: {
+      id: normalizeString(value.id, `animation-${index + 1}`),
+      elementIndex: resolvedElementIndex,
+      ...(elementPath ? { elementPath } : {}),
+      type,
+    },
   };
 }
 
@@ -214,13 +238,21 @@ export function toSharedDeckSlide(
   }
 
   if (Array.isArray(slide.animations)) {
-    const animations = slide.animations
-      .map((animation, animationIndex) =>
+    const normalizedAnimations = slide.animations.map(
+      (animation, animationIndex) =>
         normalizeSlideAnimation(animation, animationIndex),
-      )
-      .filter((animation): animation is SharedSlideAnimation => !!animation);
+    );
+    const animations = normalizedAnimations.flatMap((result) =>
+      "animation" in result ? [result.animation] : [],
+    );
+    const animationIssues = normalizedAnimations.flatMap((result) =>
+      "issue" in result ? [result.issue] : [],
+    );
     if (animations.length > 0) {
       shared.animations = animations;
+    }
+    if (animationIssues.length > 0) {
+      shared.animationIssues = animationIssues;
     }
   }
 

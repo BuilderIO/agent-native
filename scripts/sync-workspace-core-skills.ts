@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -266,6 +267,12 @@ const requiredRegistryConventionSkills = [
 
 // Repo-maintenance workflows are useful in this repository, but generated
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
+//
+// The trailing entries are symlinks under `.agents/skills/`, not real
+// directories: five point into `skills/` (shipped through the plugin
+// marketplace in `.claude-plugin/`) and `content-product-development` points
+// into the Content template. Copying them here would fork a second, silently
+// drifting copy of a skill another channel already owns.
 const workspaceSkillExcludes = [
   "babysit-pr",
   "chat-first-workbench",
@@ -277,15 +284,35 @@ const workspaceSkillExcludes = [
   "ship",
   "ship-desktop",
   "verifying-changes",
+  "content-product-development",
+  "design-exploration",
+  "visual-edit",
+  "visual-plan",
+  "visual-recap",
+  "visualize-repo",
 ];
 
 const check = process.argv.includes("--check");
 const includeSet = new Set(workspaceSkillIncludes);
 const excludeSet = new Set(workspaceSkillExcludes);
 
+// `Dirent.isDirectory()` reflects the entry's own type and returns false for
+// a symlink-to-directory (several root skills — visual-recap, visual-edit,
+// etc. — are symlinks). Follow the link with `statSync` before deciding.
+function isDirEntry(dir, entry) {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return statSync(join(dir, entry.name)).isDirectory();
+  } catch {
+    // coercion-ok: broken symlink entries are intentionally excluded from generated skill copies.
+    return false; // broken symlink
+  }
+}
+
 function listSkillDirs(dir) {
   return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => isDirEntry(dir, entry))
     .map((entry) => entry.name)
     .sort();
 }
@@ -295,7 +322,7 @@ function listFiles(dir, base = dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, entry.name);
-    if (entry.isDirectory()) {
+    if (isDirEntry(dir, entry)) {
       files.push(...listFiles(abs, base));
     } else if (entry.isFile()) {
       files.push(relative(base, abs));
@@ -422,7 +449,7 @@ function listTemplateDirs() {
   if (!existsSync(templatesDir)) return [];
   return readdirSync(templatesDir, { withFileTypes: true })
     .filter((entry) => {
-      if (!entry.isDirectory()) return false;
+      if (!isDirEntry(templatesDir, entry)) return false;
       if (entry.name.startsWith(".") || entry.name === "node_modules") {
         return false;
       }

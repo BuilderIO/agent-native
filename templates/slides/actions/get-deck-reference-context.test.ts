@@ -63,6 +63,6 @@ describe("buildReferenceDeckContext", () => {
   });
 
   it("points the agent at get-deck for cases the patterns miss", () => {
-    expect(context).toContain("get-deck --id deck-1");
+    expect(context).toContain("get-deck --id deck-1 --compact false");
   });
 });
