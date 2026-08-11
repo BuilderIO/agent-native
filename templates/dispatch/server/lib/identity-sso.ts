@@ -54,7 +54,8 @@ export function normalizeIdentityAuthority(raw: unknown): string | null {
       return null;
     }
     return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
-  } catch {
+  } catch (error) {
+    void error;
     return null;
   }
 }
@@ -121,7 +122,8 @@ function exactOrigin(raw: unknown): string | null {
       return null;
     }
     return url.origin;
-  } catch {
+  } catch (error) {
+    void error;
     return null;
   }
 }
@@ -134,7 +136,8 @@ function parseCustomRegistrations(
   let value: unknown;
   try {
     value = JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    void error;
     return [];
   }
   if (!Array.isArray(value)) return [];
@@ -194,7 +197,8 @@ function parseAbsoluteUrl(raw: string): URL | null {
     const url = new URL(raw);
     if (url.username || url.password) return null;
     return url;
-  } catch {
+  } catch (error) {
+    void error;
     return null;
   }
 }

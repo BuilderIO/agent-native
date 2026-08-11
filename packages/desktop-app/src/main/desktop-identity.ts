@@ -58,7 +58,8 @@ export function isDesktopIdentityOriginEligible(
   try {
     const parsed = new URL(origin);
     return parsed.protocol === "https:" && parsed.origin === origin;
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   }
 }
@@ -192,7 +193,8 @@ export function isDesktopIdentityCompletion(
       parsed.pathname === DESKTOP_IDENTITY_COMPLETE_PATH &&
       parsed.searchParams.get("nonce") === nonce
     );
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   }
 }
@@ -214,7 +216,8 @@ export function isDesktopIdentityAuthorizeNavigation(
       callback.origin === targetApp.origin &&
       callback.pathname === DESKTOP_IDENTITY_CALLBACK_PATH
     );
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   }
 }
@@ -285,9 +288,10 @@ export class DesktopIdentityBroker {
         new URL(requestUrl).searchParams.get("_an_desktop_logout") ===
         this.internalRevocationNonce
       );
-    } catch {
-      return false;
-    }
+  } catch (error) {
+    void error;
+    return false;
+  }
   }
 
   async refreshStatus(authorityApp: DesktopIdentityApp | null): Promise<void> {
@@ -437,9 +441,10 @@ export class DesktopIdentityBroker {
       for (const app of this.options.listApps()) {
         if (!appsById.has(app.id)) appsById.set(app.id, app);
       }
-    } catch {
-      // A changing app list is treated as an empty snapshot. The explicit
-      // target is still retained so a single-app sign-in remains possible.
+    } catch (error) {
+      void error;
+        // A changing app list is treated as an empty snapshot. The explicit
+        // target is still retained so a single-app sign-in remains possible.
     }
     appsById.set(requestedApp.id, requestedApp);
 
@@ -785,9 +790,10 @@ export class DesktopIdentityBroker {
       const cookies = await app.session.cookies.get({ url: app.origin });
       const allowed = new Set(app.cookieNames);
       return cookies.some((cookie) => allowed.has(cookie.name));
-    } catch {
-      return false;
-    }
+  } catch (error) {
+    void error;
+    return false;
+  }
   }
 
   private async runCeremony(

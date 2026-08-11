@@ -277,7 +277,11 @@ export const tokenHandler = defineEventHandler(
     if (getMethod(event) !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
-    const body = await readBody(event).catch(() => null);
+    const body = await readBody(event).catch((error) => {
+      // coercion-ok: unreadable request bodies are rejected as invalid requests below.
+      void error;
+      return null;
+    });
     const grantType = bodyString(body, "grant_type");
     const code = bodyString(body, "code");
     const state = bodyString(body, "state");
@@ -314,7 +318,11 @@ export const tokenHandler = defineEventHandler(
       redirectUri,
       authority,
       codeVerifier,
-    }).catch(() => null);
+    }).catch((error) => {
+      // coercion-ok: an unreadable authorization code is handled as invalid_grant below.
+      void error;
+      return null;
+    });
     if (!identity) return jsonResponse({ error: "invalid_grant" }, 400);
 
     const claims = buildIdentityClaims({

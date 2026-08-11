@@ -126,7 +126,8 @@ function normalizeAuthority(raw: string): string | null {
       return null;
     }
     return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
-  } catch {
+  } catch (error) {
+    void error;
     return null;
   }
 }
@@ -226,7 +227,8 @@ export function resolveIdentityHubUrl(event: H3Event): string | undefined {
       return undefined;
     }
     return DESKTOP_IDENTITY_HUB_URL;
-  } catch {
+  } catch (error) {
+    void error;
     return undefined;
   }
 }
@@ -287,7 +289,8 @@ async function verifyIdentityAssertion(
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
     };
-  } catch {
+  } catch (error) {
+    void error;
     return null;
   }
 }
@@ -319,23 +322,30 @@ async function exchangeIdentityCode(
       redirect: "error",
     });
     if (!response.ok) return null;
-    const body = (await response.json().catch(() => null)) as Record<
+    const body = (await response.json().catch((error) => {
+      void error;
+      return null;
+    })) as Record<
       string,
       unknown
     > | null;
     return typeof body?.assertion === "string" ? body.assertion : null;
-  } catch {
+  } catch (error) {
+    void error;
     return null;
   }
 }
 
 async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
   const adapter = await getBetterAuthInternalAdapter();
-  let existing = adapter
-    ? await adapter
-        .findUserByEmail(identity.email, { includeAccounts: true })
-        .catch(() => null)
-    : null;
+    let existing = adapter
+      ? await adapter
+          .findUserByEmail(identity.email, { includeAccounts: true })
+          .catch((error) => {
+            void error;
+            return null;
+          })
+      : null;
 
   if (!existing) {
     const auth = await getBetterAuth();
@@ -353,7 +363,10 @@ async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
     if (adapter) {
       existing = await adapter
         .findUserByEmail(identity.email, { includeAccounts: true })
-        .catch(() => null);
+        .catch((error) => {
+          void error;
+          return null;
+        });
     }
   }
 
@@ -371,7 +384,8 @@ async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
           providerId: IDENTITY_SSO_PROVIDER_ID,
           accountId,
         });
-      } catch {
+      } catch (error) {
+        void error;
         // The verified email already authenticates the user. This inert,
         // additive bookkeeping link must never block session creation.
       }
@@ -406,7 +420,10 @@ export async function handleIdentitySso(
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const existing = await getSession(event).catch(() => null);
+    const existing = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
     const returnPath = safeRequestReturnPath(event);
     if (existing?.email) return redirect(event, returnPath);
 
@@ -546,7 +563,10 @@ export async function handleIdentitySso(
     if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
       return new Response("Invalid completion request", { status: 400 });
     }
-    const current = await getSession(event).catch(() => null);
+    const current = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
     if (!current?.email) {
       return new Response("Authentication required", { status: 401 });
     }

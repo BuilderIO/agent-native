@@ -4968,7 +4968,8 @@ function expandPathCandidate(value: string): string | null {
   if (trimmed.startsWith("file:")) {
     try {
       return fileURLToPath(trimmed);
-    } catch {
+    } catch (error) {
+      void error;
       return null;
     }
   }
@@ -10147,6 +10148,7 @@ app.whenReady().then(async () => {
           ?.id ?? null
       );
     } catch {
+      // coercion-ok: malformed webview URLs have no associated app identity.
       return null;
     }
   }

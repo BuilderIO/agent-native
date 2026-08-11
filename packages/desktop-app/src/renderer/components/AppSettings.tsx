@@ -1954,7 +1954,8 @@ export function AppEditForm({
   const canUseWorkspaceSso = (() => {
     try {
       return app?.mode !== "dev" && new URL(url.trim()).protocol === "https:";
-    } catch {
+    } catch (error) {
+      void error;
       return false;
     }
   })();

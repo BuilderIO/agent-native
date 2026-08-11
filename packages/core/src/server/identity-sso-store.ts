@@ -76,7 +76,8 @@ export function getIdentityHubUrl(): string | undefined {
     }
     if (u.username || u.password || u.search || u.hash) return undefined;
     return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "");
-  } catch {
+  } catch (error) {
+    void error;
     return undefined;
   }
 }
@@ -106,7 +107,8 @@ export function isCanonicalAgentNativeAppOrigin(
       !parsed.hash &&
       CANONICAL_IDENTITY_SSO_APP_ORIGINS.has(parsed.origin)
     );
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   }
 }
@@ -256,7 +258,8 @@ function isSafeStateInput(input: CreateSsoStateInput): boolean {
     if (!secureOrLoopback(redirect) || !secureOrLoopback(authority)) {
       return false;
     }
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   }
   return true;
