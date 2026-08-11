@@ -339,7 +339,11 @@ function findBetweenRanges(
 
 function normalizeRegexFlags(flags: string | undefined, all?: boolean): string {
   const unique = new Set((flags ?? "").split("").filter(Boolean));
-  if (all) unique.add("g");
+  if (all) {
+    unique.add("g");
+  } else {
+    unique.delete("g");
+  }
   return Array.from(unique).join("");
 }
 

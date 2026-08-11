@@ -153,16 +153,17 @@ describe("WorkspaceTemplateCard", () => {
     );
   });
 
-  it("keeps add app out of catalog cards", async () => {
+  it("keeps add app available in catalog cards", async () => {
     await act(async () => {
       root.render(<WorkspaceTemplateCard template={template} catalog />);
     });
 
-    const optionsButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open options for Weekly report"]',
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
     );
-    expect(optionsButton).toBeNull();
-    expect(container.textContent).not.toContain("Add app");
+    expect(addButton).toBeDefined();
+    await act(async () => addButton?.click());
+    expect(document.body.textContent).toContain("Choose the URL-safe id");
     expect(
       container.querySelector('a[href="https://reports.example.test"]'),
     ).not.toBeNull();

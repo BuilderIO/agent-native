@@ -224,6 +224,15 @@ export function WorkspaceTemplateCard({
                 labels={{ openApp: labels.openApp }}
               />
             ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setOpen(true)}
+            >
+              <IconPlus />
+              {labels.remix}
+            </Button>
           </>
         ) : liveUrl ? (
           <Button variant="ghost" size="sm" className="shrink-0" asChild>

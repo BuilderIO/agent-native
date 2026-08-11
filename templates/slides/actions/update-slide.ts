@@ -215,6 +215,9 @@ export default defineAction({
     if (!edits && find === undefined && fullContent === undefined) {
       throw new Error("One of --edits, --find, or --fullContent is required");
     }
+    if (find !== undefined && find.length === 0) {
+      throw new Error("find must not be empty for legacy search/replace");
+    }
     if (edits && (find !== undefined || fullContent !== undefined)) {
       throw new Error(
         "Use --edits instead of combining it with --find or --fullContent",
@@ -294,6 +297,7 @@ export default defineAction({
       // structure renders and merges with concurrent typing via the Yjs CRDT.
       let applied = false;
       let notFound = false;
+      const previousContent = String(slide.content ?? "");
 
       if (fullContent !== undefined) {
         const nextContent = normalizeSlidePadding(fullContent);
@@ -304,11 +308,11 @@ export default defineAction({
           preserveSource,
         });
         slide.content = nextContent;
-        applied = true;
+        applied = nextContent !== previousContent;
       } else if (edits) {
         const sourceContent = format
-          ? await formatSlideHtml(String(slide.content ?? ""))
-          : String(slide.content ?? "");
+          ? await formatSlideHtml(previousContent)
+          : previousContent;
         const patched = await applySlideContentEdits(
           sourceContent,
           edits as SlideContentEdit[],
@@ -322,16 +326,16 @@ export default defineAction({
           preserveSource,
         });
         slide.content = nextContent;
-        applied = true;
+        applied = nextContent !== previousContent;
       } else if (find !== undefined) {
-        const idx = (slide.content as string).indexOf(find);
+        const idx = previousContent.indexOf(find);
         if (idx === -1) {
           notFound = true;
         } else {
           const nextContent =
-            slide.content.slice(0, idx) +
+            previousContent.slice(0, idx) +
             (replace ?? "") +
-            slide.content.slice(idx + find.length);
+            previousContent.slice(idx + find.length);
           assertSourceSlidePreserved({
             metadata: sourceImportForDeck(deck.sourceImport),
             slideId,
@@ -339,7 +343,7 @@ export default defineAction({
             preserveSource,
           });
           slide.content = nextContent;
-          applied = true;
+          applied = nextContent !== previousContent;
         }
       }
 
@@ -482,6 +486,17 @@ export default defineAction({
     }
 
     const { applied } = rmw;
+    if (!applied) {
+      return {
+        ok: true,
+        deckId,
+        slideId,
+        applied: false,
+        contentHash: rmw.contentHash,
+        deepLink: deckDeepLink(deckId),
+      };
+    }
+
     // Start the freshness window after the SQL write and before notifying the
     // editor. This keeps a fast render from being rejected as stale.
     const fitSince = Date.now();

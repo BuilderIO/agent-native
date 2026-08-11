@@ -231,6 +231,43 @@ describe("update-slide", () => {
     expect(deck.slides[0].content).toBe("<div>Fresh</div>");
   });
 
+  it("rejects an empty legacy find before mutating the deck", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "",
+        replace: "Fresh",
+      }),
+    ).rejects.toThrow("find must not be empty");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("does not persist or clear animations for an optional no-op edit", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Old</div>",
+          animations: [{ id: "reveal-1", elementPath: [0] }],
+        },
+      ],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [{ find: "Missing", replace: "Never written", required: false }],
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({ ok: true, applied: false });
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("applies ordered code-style edits atomically and returns the new hash", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

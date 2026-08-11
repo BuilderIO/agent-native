@@ -156,6 +156,7 @@ export function installWindowDragController(
       controller.handleBeforeMouseEvent(event, input);
     };
     const onDestroyed = () => {
+      controller.cancel();
       contents.removeListener("before-mouse-event", listener);
       contents.removeListener("destroyed", onDestroyed);
       listeners.delete(contents);

@@ -200,13 +200,29 @@ describe("window drag gesture", () => {
     });
 
     host.emit("did-attach-webview", {}, guest as unknown as WebContents);
+    const down = mouseEvent();
+    guest.emit("before-mouse-event", down, {
+      type: "mouseDown",
+      button: "left",
+      globalX: 120,
+      globalY: 128,
+    });
     guest.isDestroyed.mockReturnValue(true);
     guest.emit("destroyed");
+
+    const move = mouseEvent();
+    host.emit("before-mouse-event", move, {
+      type: "mouseMove",
+      globalX: 140,
+      globalY: 148,
+    });
 
     expect(guest.removeListener).toHaveBeenCalledWith(
       "before-mouse-event",
       expect.any(Function),
     );
+    expect(move.preventDefault).not.toHaveBeenCalled();
+    expect(window.setPosition).not.toHaveBeenCalled();
 
     cleanup();
   });

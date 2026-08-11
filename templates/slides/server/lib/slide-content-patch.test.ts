@@ -64,4 +64,19 @@ describe("applySlideContentEdits", () => {
 
     expect(result.content).toBe("<p>New</p><p>New</p>");
   });
+
+  it("keeps a caller g flag from overriding all=false", async () => {
+    const result = await applySlideContentEdits("<p>Old</p><p>Old</p>", [
+      {
+        op: "regex-replace",
+        pattern: "Old",
+        replace: "New",
+        flags: "g",
+        all: false,
+        expectedMatches: 2,
+      },
+    ]);
+
+    expect(result.content).toBe("<p>New</p><p>Old</p>");
+  });
 });
