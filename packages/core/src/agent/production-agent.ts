@@ -33,14 +33,14 @@ import {
   updateRunProgress,
 } from "../progress/registry.js";
 import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "../server/agent-chat/skill-frontmatter.js";
+import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
-import {
-  isRuntimeVisibleScope,
-  parseSkillFrontmatter,
-} from "../server/agent-chat/skill-frontmatter.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   getRequestRunContext,
