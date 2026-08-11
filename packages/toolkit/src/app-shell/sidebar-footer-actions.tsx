@@ -25,7 +25,7 @@ export function SidebarFooterActions({
     <div
       className={cn(
         "flex items-center gap-1",
-        collapsed ? "flex-col px-1 py-1" : "min-w-0 justify-end px-3 py-2",
+        collapsed ? "flex-col px-1 py-1" : "min-w-0 justify-end px-2 py-1",
         className,
       )}
       data-sidebar-footer-actions

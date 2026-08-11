@@ -331,6 +331,14 @@ export async function renderExportDocumentCanvas({
   }
 }
 
+/**
+ * What a raster capture is of. Overview mode resolves a different iframe and a
+ * different crop per scope, so "the current selection" is not one thing: Copy
+ * as PNG wants the selected screen, the export preview wants the selected
+ * element inside it.
+ */
+export type PngCaptureScope = "document" | "screens" | "element";
+
 export type PngCaptureErrorCode =
   | "no-preview"
   | "external-preview"

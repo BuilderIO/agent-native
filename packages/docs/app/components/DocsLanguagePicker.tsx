@@ -103,7 +103,7 @@ export default function DocsLanguagePicker() {
               key={option.value}
               to={hrefForPreference(option.value)}
               onClick={() => handleOptionClick(option.value)}
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               title={option.description}
               className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm no-underline transition-colors hover:bg-[var(--docs-border)]/60 hover:text-[var(--fg)] hover:no-underline focus-visible:bg-[var(--docs-border)]/60 focus-visible:text-[var(--fg)] focus-visible:outline-none ${
                 selected

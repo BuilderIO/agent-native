@@ -47,11 +47,33 @@ export interface JobFrontmatter {
   mode?: JobExecutionMode;
   /** Domain tag for filtering in per-template UIs. */
   domain?: string;
+  /** Explicit application owner used by the recurring-job scheduler. */
+  appId?: string;
   /**
    * Optional application-owned policy id carried into actions by the trusted
    * trigger dispatcher. It is not model-supplied action input.
    */
   delegatedPolicyId?: string;
+}
+
+/**
+ * Return whether a scheduler or trigger dispatcher may claim this resource.
+ *
+ * Personal legacy jobs have no app owner and remain compatible with the
+ * shared scheduler. An organization-owned resource without an explicit app
+ * owner is ambiguous, though: letting every installed app claim it can run
+ * the same job multiple times and with the wrong deployment credentials.
+ */
+export function jobBelongsToApp(
+  meta: Pick<JobFrontmatter, "appId" | "orgId">,
+  appId: string | null | undefined,
+): boolean {
+  const ownerAppId = meta.appId?.trim();
+  if (ownerAppId) {
+    const schedulerAppId = appId?.trim();
+    return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
+  }
+  return !meta.orgId?.trim();
 }
 
 export interface JobResourceClassification {
@@ -212,6 +234,9 @@ function parseKnownField(
     case "domain":
       meta.domain = value;
       break;
+    case "appId":
+      meta.appId = value || undefined;
+      break;
     case "delegatedPolicyId":
       meta.delegatedPolicyId = value || undefined;
       break;
@@ -301,6 +326,7 @@ export function buildJobResourceContent(
   pushString(lines, "condition", meta.condition);
   if (meta.mode) lines.push(`mode: ${meta.mode}`);
   pushString(lines, "domain", meta.domain);
+  pushString(lines, "appId", meta.appId);
   pushString(lines, "delegatedPolicyId", meta.delegatedPolicyId);
   // Keep the long-standing human-readable owner shape used by existing
   // resources and diagnostics; values that can contain free-form text use

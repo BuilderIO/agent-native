@@ -8,8 +8,6 @@ actions and application state.
 
 Read the relevant skill before deeper work:
 
-- `content-product-development` — accepted product contracts, roadmap context,
-  dependency records, and proof boundaries for any Content change.
 - `content` — Markdown/MDX authoring, local folder sources, databases, intake
   forms, and Slack/A2A artifact replies.
 - `document-editing` — document and comment actions, screen context and IDs,
@@ -18,13 +16,6 @@ Read the relevant skill before deeper work:
   API path.
 - `creative-context` — cross-app source reuse, pinned packs, provenance, and
   context opt-out.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
 
 ## Core Rules
 
@@ -85,6 +76,7 @@ ladder.
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |
+| `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
 
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as
@@ -98,3 +90,8 @@ Files sidebar Custom order is a per-user database-view preference written with
 `update-content-database-personal-view`, so it must not change shared Files
 membership positions. Ordinary unconstrained database row reordering remains a
 shared database mutation through `move-database-item`.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

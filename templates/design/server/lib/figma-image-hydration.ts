@@ -294,7 +294,7 @@ function mimeTypeForExt(ext: string): string {
 /**
  * Decode a `.fig` and index its embedded images by SHA-1 hash. Decode once per
  * upload and reuse the index across screens — a multi-screen hydration must not
- * re-parse the whole (up to 50 MB) file per screen.
+ * re-parse the whole file per screen.
  */
 export function indexFigImages(figBytes: Buffer): Map<string, DecodedFigImage> {
   const byHash = new Map<string, DecodedFigImage>();

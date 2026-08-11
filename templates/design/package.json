@@ -11,6 +11,7 @@
     "typecheck": "agent-native typecheck && pnpm exec tsc --noEmit -p app/components/design/bridge/tsconfig.json",
     "codegen:bridge": "tsx app/components/design/bridge/codegen.ts",
     "qa:figma-stress-import": "tsx scripts/qa-figma-stress-import.ts",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "action": "agent-native action",
     "script": "agent-native script",
     "e2e": "playwright test",
@@ -47,7 +48,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "catalog:",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.8",

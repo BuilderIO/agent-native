@@ -103,6 +103,7 @@ All automation operations are accessed through a single `manage-automations` too
 | `update`      | Update an existing automation (enabled, condition, body)             |
 | `delete`      | Delete an automation (always confirm with user first)                |
 | `fire-test`   | Emit a `test.event.fired` event to validate automations              |
+| `run-now`     | Run one automation immediately with its real actions and side effects |
 
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
 

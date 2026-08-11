@@ -143,6 +143,17 @@ interface GatewayErrorBody {
   };
 }
 
+/**
+ * Credentials captured by a durable caller that cannot rely on ambient
+ * request context staying attached to a later run-manager callback.
+ */
+export interface BuilderEngineCredentials {
+  privateKey: string | null;
+  publicKey: string | null;
+  userId?: string | null;
+  orgName?: string | null;
+}
+
 class BuilderEngine implements AgentEngine {
   readonly name = "builder";
   readonly label = "Builder.io Gateway";
@@ -150,8 +161,13 @@ class BuilderEngine implements AgentEngine {
   readonly supportedModels = BUILDER_SUPPORTED_MODELS;
   readonly capabilities = BUILDER_CAPABILITIES;
 
+  constructor(
+    private readonly configuredCredentials?: BuilderEngineCredentials,
+  ) {}
+
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    const creds = await resolveBuilderCredentials();
+    const creds =
+      this.configuredCredentials ?? (await resolveBuilderCredentials());
     const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
     const spaceId = creds.publicKey;
     const builderUserId = creds.userId;
@@ -343,7 +359,8 @@ class BuilderEngine implements AgentEngine {
       // self-healing path for workspace/env-managed credentials, which never
       // flow through writeBuilderCredentials.
       try {
-        const creds = await resolveBuilderCredentials();
+        const creds =
+          this.configuredCredentials ?? (await resolveBuilderCredentials());
         await clearBuilderCredentialAuthFailure({
           privateKey: creds.privateKey,
           publicKey: creds.publicKey,
@@ -433,7 +450,8 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     yield {
       type: "stop",
       reason: "error",
-      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      error:
+        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
       errorCode: "builder_auth_error",
     };
     return;
@@ -443,7 +461,8 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     yield {
       type: "stop",
       reason: "error",
-      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      error:
+        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
       errorCode: "builder_auth_error",
     };
     return;
@@ -909,9 +928,13 @@ function htmlToText(html: string): string {
 }
 
 export function createBuilderEngine(
-  _config: Record<string, unknown> = {},
+  config: Record<string, unknown> = {},
 ): AgentEngine {
-  return new BuilderEngine();
+  const configuredCredentials =
+    config.credentials && typeof config.credentials === "object"
+      ? (config.credentials as BuilderEngineCredentials)
+      : undefined;
+  return new BuilderEngine(configuredCredentials);
 }
 
 function resolveMaxBuilderGatewayTimeoutMs(): number {

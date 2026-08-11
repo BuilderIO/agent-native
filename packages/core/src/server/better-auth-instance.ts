@@ -13,6 +13,7 @@ import path from "node:path";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
+import { magicLink } from "better-auth/plugins/magic-link";
 import {
   pgTable,
   text as pgText,
@@ -29,6 +30,7 @@ import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
+  getCloudflareD1Binding,
   getDatabaseUrl,
   getDatabaseAuthToken,
   closePgliteClients,
@@ -36,16 +38,31 @@ import {
   isPgliteUrl,
   loadPgliteDrizzle,
   pgPoolOptions,
-  neonPoolMax,
-  attachNeonPoolErrorLogger,
+  neonPoolOptions,
+  guardNeonPool,
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
 } from "../db/client.js";
-import { ensureTableExists } from "../db/ddl-guard.js";
+import {
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+} from "../email-catalog/system-emails.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import {
+  getAuthEmailForUserId,
+  getRequiredAuthProviderForEmail,
+} from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
+import {
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+} from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -55,11 +72,19 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { sendEmail, isEmailConfigured } from "./email.js";
+import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+
+export {
+  getAuthLoginMode,
+  resolveAuthLoginMode,
+  resolveAuthLoginModeFromReadiness,
+  type AuthLoginMode,
+} from "./auth-login-mode.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -168,19 +193,16 @@ function resolveAuthSecret(): string {
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices.
   if (process.env.NODE_ENV === "production") {
-    const sample = crypto.randomBytes(32).toString("hex");
-    throw new Error(
-      "[agent-native] BETTER_AUTH_SECRET is not set. This is required in production " +
-        "so signed session cookies stay valid across deploys. Set it as a deploy " +
-        "environment variable (any 32-byte hex string), e.g.:\n\n" +
-        `  BETTER_AUTH_SECRET=${sample}\n\n` +
-        "Generate your own with `openssl rand -hex 32`. If you already have a " +
-        "running deploy and need to preserve existing sessions, set it to your " +
-        "previously-deployed BETTER_AUTH_SECRET value first, then rotate to a " +
-        "fresh one. Hosted workspace deploys may also " +
-        "set A2A_SECRET; agent-native derives a per-purpose Better Auth secret " +
-        "from that workspace root secret.",
+    const report = getRuntimeConfigReport(
+      process.env,
+      { authEnabled: true, databaseRequired: false },
+      {
+        environment: "production",
+        phase: "runtime",
+        appName: process.env.APP_NAME,
+      },
     );
+    throw new Error(formatRuntimeConfigReport(report));
   }
 
   // SECURITY (audit 09 LOW-2): the previous fallback chain
@@ -337,6 +359,27 @@ export function shouldSkipEmailVerification(): boolean {
   return normalized !== "" && normalized !== "0" && normalized !== "false";
 }
 
+export function isDeployPreview(): boolean {
+  const deployContext =
+    process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT || process.env.CONTEXT;
+  return deployContext === "deploy-preview";
+}
+
+export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
+  requireEmailVerification: boolean;
+  disableSignUp: boolean;
+} {
+  const hosted = process.env.NODE_ENV === "production" || isDeployPreview();
+  return {
+    requireEmailVerification:
+      emailConfigured && (hosted || !shouldSkipEmailVerification()),
+    // A hosted deployment without an email provider cannot prove ownership of
+    // an email address. Keeping password signup enabled there turns an email
+    // into an account-claim credential.
+    disableSignUp: hosted && !emailConfigured,
+  };
+}
+
 /** Read-only accessor for the resolved auth secret. */
 export function getAuthSecret(): string {
   return resolveAuthSecret();
@@ -361,6 +404,28 @@ export interface BetterAuthInstance {
     signInEmail: (opts: {
       body: { email: string; password: string };
     }) => Promise<{ token?: string; user?: any } | null>;
+    signInMagicLink: (opts: {
+      body: {
+        email: string;
+        name?: string;
+        callbackURL?: string;
+        newUserCallbackURL?: string;
+        errorCallbackURL?: string;
+        metadata?: Record<string, unknown>;
+      };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    listUserAccounts: (opts: {
+      headers: Headers;
+    }) => Promise<Array<{ providerId: string }>>;
+    setPassword: (opts: {
+      body: { newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    changePassword: (opts: {
+      body: { currentPassword: string; newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
     signUpEmail: (opts: {
       body: {
         email: string;
@@ -370,7 +435,10 @@ export interface BetterAuthInstance {
       };
       headers?: Headers;
     }) => Promise<any>;
-    signOut: (opts: { headers: Headers }) => Promise<any>;
+    signOut: (opts: {
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
   };
 }
 
@@ -661,66 +729,6 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
   await saveOAuthTokens("google", email, tokens, email);
 }
 
-async function ensureBetterAuthTables(): Promise<void> {
-  const db = getDbExec();
-
-  // PG guard: probe information_schema first (no lock) for each table; run
-  // DDL only when missing, bounded by a transaction-scoped lock_timeout.
-  // Probe names are UNQUOTED (what information_schema.tables.table_name stores);
-  // createSql keeps the QUOTED "user"/"session"/… form required by Postgres.
-  if (isPostgres()) {
-    const pgTables: Array<[name: string, createSql: string]> = [
-      [
-        "user",
-        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "session",
-        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-      ],
-      [
-        "account",
-        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "verification",
-        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "organization",
-        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "member",
-        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "invitation",
-        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-      ],
-      [
-        "jwks",
-        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
-      ],
-    ];
-    for (const [name, sql] of pgTables) await ensureTableExists(name, sql);
-    return;
-  }
-
-  // SQLite (local dev): no lock problem — keep the original behaviour.
-  const sqliteStatements = [
-    `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-    `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-    `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
-  ];
-  for (const sql of sqliteStatements) await db.execute(sql);
-}
-
 /**
  * Get or create the Better Auth instance.
  * Lazily initialized on first call — the database must be reachable by then.
@@ -747,17 +755,23 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
 /**
  * The subset of Better Auth's internal adapter we use for federated-SSO
  * JIT account linking. Better Auth owns these writes (id + timestamp +
- * schema handling), so callers never hand-roll SQL against `user`/`account`.
- * Read-only lookups plus account-linking and profile-update operations used by
- * shared Core surfaces. Better Auth owns the actual identity writes.
+ * schema handling), so callers never hand-roll SQL against `user`/`account`
+ * for ordinary identity writes. The transactional claimant replacement uses
+ * the shared database boundary so its delete, promotion, and link commit
+ * together.
  */
 export interface BetterAuthInternalAdapter {
   findUserByEmail: (
     email: string,
     options?: { includeAccounts: boolean },
   ) => Promise<{
-    user: { id: string; email: string; name?: string };
-    accounts: Array<{ providerId: string; accountId: string }>;
+    user: {
+      id: string;
+      email: string;
+      name?: string;
+      emailVerified?: boolean;
+    };
+    accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
   linkAccount: (account: {
     userId: string;
@@ -769,11 +783,134 @@ export interface BetterAuthInternalAdapter {
     name: string;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
-  /** Optional because older/custom adapter shapes may not expose mutations. */
+  createSession: (
+    userId: string,
+    dontRememberMe?: boolean,
+  ) => Promise<{ token: string }>;
+  createOAuthUser?: (
+    user: { email: string; name: string; emailVerified?: boolean },
+    account: { providerId: string; accountId: string },
+  ) => Promise<{ user: { id: string }; account: unknown }>;
+  findAccountByProviderId: (
+    accountId: string,
+    providerId: string,
+  ) => Promise<{ id: string; userId: string } | null>;
+  replaceUnverifiedCredentialWithGoogle: (input: {
+    userId: string;
+    email: string;
+    accountId: string;
+  }) => Promise<void>;
   updateUser?: (
     userId: string,
-    data: { name?: string; image?: string | null },
+    data: {
+      name?: string;
+      image?: string | null;
+      emailVerified?: boolean;
+    },
   ) => Promise<unknown>;
+}
+
+/**
+ * Replace the only unverified credential account and add Google in one
+ * database transaction. The read in ensureGoogleAuthIdentityWithAdapter is
+ * only a fast path check; this method revalidates the account set while the
+ * transaction owns the user row so a stale lookup cannot delete a different
+ * identity.
+ */
+async function replaceUnverifiedCredentialWithGoogle(input: {
+  userId: string;
+  email: string;
+  accountId: string;
+}): Promise<void> {
+  const db = getDbExec();
+  if (!db.transaction) {
+    throw new Error(
+      "Cannot replace an unverified credential identity without a database transaction",
+    );
+  }
+
+  const postgres = isPostgres();
+  const timestamp = postgres ? new Date().toISOString() : Date.now();
+  const unverified = postgres ? false : 0;
+
+  await db.transaction(async (tx) => {
+    // Serialize the same Google subject across users on Postgres. SQLite's
+    // write transaction already serializes this replacement path.
+    if (postgres) {
+      await tx.execute({
+        sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+        args: [`google:${input.accountId}`],
+      });
+    }
+
+    const currentUser = await tx.execute({
+      sql:
+        'SELECT id FROM "user" WHERE id = ? AND email = ? AND email_verified = ?' +
+        (postgres ? " FOR UPDATE" : ""),
+      args: [input.userId, input.email, unverified],
+    });
+    if (currentUser.rows.length !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    const linkedGoogle = await tx.execute({
+      sql:
+        'SELECT user_id FROM "account" WHERE provider_id = ? AND account_id = ?' +
+        (postgres ? " FOR UPDATE" : ""),
+      args: ["google", input.accountId],
+    });
+    const linkedUserId = linkedGoogle.rows[0]?.user_id;
+    if (linkedUserId && linkedUserId !== input.userId) {
+      throw new Error("Google account is already linked to another user");
+    }
+    if (linkedUserId === input.userId) return;
+
+    const accounts = await tx.execute({
+      sql: 'SELECT id, provider_id FROM "account" WHERE user_id = ?',
+      args: [input.userId],
+    });
+    if (
+      accounts.rows.length !== 1 ||
+      accounts.rows[0]?.provider_id !== "credential"
+    ) {
+      throw new Error("Cannot link Google to an ambiguous unverified identity");
+    }
+
+    const credentialId = accounts.rows[0]?.id;
+    const deleted = await tx.execute({
+      sql: 'DELETE FROM "account" WHERE id = ? AND user_id = ? AND provider_id = ?',
+      args: [credentialId, input.userId, "credential"],
+    });
+    if (deleted.rowsAffected !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    const updated = await tx.execute({
+      sql: 'UPDATE "user" SET email_verified = ?, updated_at = ? WHERE id = ? AND email = ? AND email_verified = ?',
+      args: [true, timestamp, input.userId, input.email, unverified],
+    });
+    if (updated.rowsAffected !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    await tx.execute({
+      sql: 'INSERT INTO "account" (id, account_id, provider_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [
+        crypto.randomUUID(),
+        input.accountId,
+        "google",
+        input.userId,
+        timestamp,
+        timestamp,
+      ],
+    });
+  });
 }
 
 /**
@@ -788,7 +925,12 @@ export async function getBetterAuthInternalAdapter(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInternalAdapter | undefined> {
   const auth = (await getBetterAuth(config)) as unknown as {
-    $context?: Promise<{ internalAdapter?: BetterAuthInternalAdapter }>;
+    $context?: Promise<{
+      internalAdapter?: Omit<
+        BetterAuthInternalAdapter,
+        "replaceUnverifiedCredentialWithGoogle"
+      >;
+    }>;
   };
   try {
     const ctx = await auth.$context;
@@ -797,14 +939,171 @@ export async function getBetterAuthInternalAdapter(
       ia &&
       typeof ia.findUserByEmail === "function" &&
       typeof ia.linkAccount === "function" &&
-      typeof ia.createUser === "function"
+      typeof ia.createUser === "function" &&
+      typeof ia.createSession === "function" &&
+      typeof ia.findAccountByProviderId === "function"
     ) {
-      return ia;
+      return {
+        ...ia,
+        replaceUnverifiedCredentialWithGoogle,
+      } as BetterAuthInternalAdapter;
     }
   } catch {
     // Context resolution failed — caller falls back to the signup path.
   }
   return undefined;
+}
+
+/** Create a real Better Auth session for an existing user without credentials. */
+export async function createBetterAuthSessionForEmail(
+  email: string,
+  config?: BetterAuthConfig,
+): Promise<{ email: string; token: string; userId: string } | null> {
+  const adapter = await getBetterAuthInternalAdapter(config);
+  if (!adapter) return null;
+  const existing = await adapter.findUserByEmail(email, {
+    includeAccounts: false,
+  });
+  if (!existing) return null;
+  const session = await adapter.createSession(existing.user.id);
+  return {
+    email: existing.user.email,
+    token: session.token,
+    userId: existing.user.id,
+  };
+}
+
+export interface GoogleAuthIdentity {
+  email: string;
+  accountId: string;
+  name?: string;
+}
+
+/**
+ * Ensure a verified Google identity has a canonical Better Auth user/account
+ * before the legacy email-keyed session is issued. This prevents a later
+ * password signup from becoming the first canonical identity for that email.
+ * Returns whether this call created the canonical user.
+ */
+export async function ensureGoogleAuthIdentity(
+  identity: GoogleAuthIdentity,
+): Promise<boolean> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) {
+    throw new Error("Better Auth internal adapter is unavailable");
+  }
+  return ensureGoogleAuthIdentityWithAdapter(adapter, identity);
+}
+
+export async function ensureGoogleAuthIdentityWithAdapter(
+  adapter: BetterAuthInternalAdapter,
+  identity: GoogleAuthIdentity,
+): Promise<boolean> {
+  const email = identity.email.trim().toLowerCase();
+  const accountId = identity.accountId.trim();
+  if (!email || !accountId) {
+    throw new Error("Google identity is missing an email or account id");
+  }
+
+  const name = identity.name?.trim() || email.split("@")[0] || "User";
+  const findExisting = () =>
+    adapter.findUserByEmail(email, { includeAccounts: true });
+  let existing = await findExisting();
+
+  let linkedAccount = await adapter.findAccountByProviderId(
+    accountId,
+    "google",
+  );
+  if (linkedAccount) {
+    if (!existing || linkedAccount.userId !== existing.user.id) {
+      throw new Error("Google account is already linked to another user");
+    }
+    return false;
+  }
+
+  if (!existing) {
+    if (adapter.createOAuthUser) {
+      try {
+        await adapter.createOAuthUser(
+          { email, name, emailVerified: true },
+          { providerId: "google", accountId },
+        );
+        return true;
+      } catch (error) {
+        // A concurrent first sign-in may have won the unique-email race. Only
+        // continue if the canonical row now exists; otherwise preserve the
+        // real adapter error and do not issue a legacy session.
+        existing = await findExisting();
+        if (!existing) throw error;
+
+        // The account may have been linked by the concurrent sign-in that won
+        // the create race. Re-read it before falling through to the legacy
+        // link path, which must never create a duplicate association.
+        linkedAccount = await adapter.findAccountByProviderId(
+          accountId,
+          "google",
+        );
+        if (linkedAccount) {
+          if (linkedAccount.userId !== existing.user.id) {
+            throw new Error("Google account is already linked to another user");
+          }
+          return false;
+        }
+      }
+    } else {
+      const created = await adapter.createUser({
+        email,
+        name,
+        emailVerified: true,
+      });
+      await adapter.linkAccount({
+        userId: created.id,
+        providerId: "google",
+        accountId,
+      });
+      return true;
+    }
+  }
+
+  if (!existing) {
+    throw new Error("Could not resolve the canonical Google user");
+  }
+  const alreadyLinked = existing.accounts.some(
+    (account) =>
+      account.providerId === "google" && account.accountId === accountId,
+  );
+  if (alreadyLinked) return false;
+
+  // A password signup reserves the email before verification. If that row is
+  // credential-only, remove the unverified credential and promote the same
+  // canonical user to the verified Google identity. Any other linked account
+  // makes the claimant ambiguous, so keep the account-claim protection.
+  if (existing.user.emailVerified !== true) {
+    const credentialAccounts = existing.accounts.filter(
+      (account) => account.providerId === "credential",
+    );
+    const hasOtherAccounts = existing.accounts.some(
+      (account) => account.providerId !== "credential",
+    );
+    if (credentialAccounts.length !== 1 || hasOtherAccounts) {
+      throw new Error(
+        "Cannot link Google to an unverified email/password identity",
+      );
+    }
+
+    await adapter.replaceUnverifiedCredentialWithGoogle({
+      userId: existing.user.id,
+      email,
+      accountId,
+    });
+    return false;
+  }
+  await adapter.linkAccount({
+    userId: existing.user.id,
+    providerId: "google",
+    accountId,
+  });
+  return false;
 }
 
 /** Reset for testing */
@@ -850,7 +1149,6 @@ async function createBetterAuthInstance(
 ): Promise<BetterAuthInstance> {
   const dialect = getDialect();
   const basePath = config?.basePath ?? "/_agent-native/auth/ba";
-  await ensureBetterAuthTables();
 
   // Build social providers from env vars
   const socialProviders: BetterAuthOptions["socialProviders"] = {
@@ -904,8 +1202,9 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
-  const requireEmailVerification =
-    (await isEmailConfigured()) && !shouldSkipEmailVerification();
+  const emailReadiness = await getEmailReadiness();
+  const { requireEmailVerification, disableSignUp } =
+    resolveEmailPasswordAuthPolicy(emailReadiness.status === "ready");
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -917,12 +1216,12 @@ async function createBetterAuthInstance(
     secret,
     emailAndPassword: {
       enabled: true,
-      minPasswordLength: 8,
-      // Only require email verification when an email provider is configured.
-      // Without a provider, verification emails can't be sent, so requiring
-      // verification would lock users out of signup entirely. Local dev/test
-      // skip verification by default so +qa accounts can be created quickly;
-      // hosted QA deployments can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1.
+      disableSignUp,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+      maxPasswordLength: PASSWORD_MAX_LENGTH,
+      // Hosted deployments always require a working email provider before
+      // password signup can create a session. Local dev/test retain the fast
+      // path; hosted deployments without a provider disable password signup.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
@@ -937,13 +1236,19 @@ async function createBetterAuthInstance(
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+        });
       },
     },
     emailVerification: {
       // Fire verification email right after signup, before the user has a
-      // session — pairs with requireEmailVerification above. Only enabled
-      // when an email provider is configured.
+      // session — pairs with requireEmailVerification above.
       sendOnSignUp: requireEmailVerification,
       // Auto-create a session once the user clicks the link. Without this,
       // verified users would have to go back and sign in manually, which is
@@ -964,7 +1269,14 @@ async function createBetterAuthInstance(
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
+        });
       },
     },
     socialProviders,
@@ -981,6 +1293,46 @@ async function createBetterAuthInstance(
       },
     },
     databaseHooks: {
+      session: {
+        create: {
+          before: async (session, context) => {
+            const email = await getAuthEmailForUserId(session.userId);
+            if ((await getRequiredAuthProviderForEmail(email)) !== "google") {
+              return;
+            }
+
+            const path = String(context?.path ?? "").toLowerCase();
+            const requestUrl = context?.request?.url ?? "";
+            const providerValues = [
+              path,
+              requestUrl,
+              String(
+                (context?.params as Record<string, unknown> | undefined)
+                  ?.provider ?? "",
+              ),
+              String(
+                (context?.params as Record<string, unknown> | undefined)?.id ??
+                  "",
+              ),
+              String(
+                (context?.params as Record<string, unknown> | undefined)
+                  ?.providerId ?? "",
+              ),
+              String(
+                (context?.body as Record<string, unknown> | undefined)
+                  ?.provider ?? "",
+              ),
+              String(
+                (context?.body as Record<string, unknown> | undefined)
+                  ?.providerId ?? "",
+              ),
+            ].map((value) => value.toLowerCase());
+            if (!providerValues.some((value) => value.includes("google"))) {
+              return false;
+            }
+          },
+        },
+      },
       user: {
         create: {
           after: async (
@@ -1123,6 +1475,27 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
+      magicLink({
+        expiresIn: 60 * 5,
+        storeToken: "hashed",
+        rateLimit: { window: 60, max: 5 },
+        disableSignUp,
+        sendMagicLink: async ({ email, url }) => {
+          const appBasePath = (
+            process.env.VITE_APP_BASE_PATH ||
+            process.env.APP_BASE_PATH ||
+            ""
+          ).replace(/\/$/, "");
+          const magicLinkUrl = appBasePath
+            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
+            : url;
+          const { subject, html, text, appSender } = renderMagicLinkEmail({
+            email,
+            magicLinkUrl,
+          });
+          await sendEmail({ to: email, subject, html, text, appSender });
+        },
+      }),
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {
@@ -1151,7 +1524,7 @@ export function configureLocalSqlite(sqlite: {
   sqlite.pragma("journal_mode = WAL");
 }
 
-async function buildDatabaseConfig(
+export async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
@@ -1186,9 +1559,9 @@ async function buildDatabaseConfig(
       _neonAuthPool = sharedDbPool(
         "neon",
         url,
-        () => new Pool({ connectionString: url, max: neonPoolMax() }),
+        () => new Pool({ connectionString: url, ...neonPoolOptions() }),
       );
-      attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
+      guardNeonPool(_neonAuthPool, url, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
       const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
         schema: pgAuthSchema,
@@ -1218,6 +1591,24 @@ async function buildDatabaseConfig(
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+    });
+  }
+
+  if (dialect === "d1") {
+    const d1 = getCloudflareD1Binding();
+    if (!d1) {
+      throw new Error(
+        "Cloudflare D1 database binding is unavailable; configure the DB binding before initializing Better Auth.",
+      );
+    }
+    const { drizzle } = await import("drizzle-orm/d1");
+    const db = drizzle(d1 as Parameters<typeof drizzle>[0], {
+      schema: sqliteAuthSchema,
+    });
+    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+    return drizzleAdapter(db, {
+      provider: "sqlite",
+      schema: sqliteAuthSchema,
     });
   }
 

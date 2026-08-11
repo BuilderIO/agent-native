@@ -12,10 +12,21 @@ Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot rev
 ## Non-Negotiable Branch Ownership Rule
 
 During `/babysit-pr`, the PR branch is the unit of ownership. Every tick must
-commit and push **all** non-gitignored local changes on the current branch,
-including changes made by the user or other concurrent agents. Do not limit
-commits to files you personally edited. Do not stash, skip, or leave behind
-local work unless it is `learnings.md` or an ignored/personal file.
+commit and push **all current** non-gitignored local changes on the current
+branch, including changes made by the user or other concurrent agents. Do not
+limit commits to files you personally edited. A live lease protects a peer's
+editing session but does not hold that file or the rest of the branch back:
+re-read and stage the whole current file, never a partial hunk. Private/generated
+`bridge/**` and local `data/**` database or asset artifacts stay out of every
+slice. If the file-lease hook rejects one path, unstage only that path, push
+everything else immediately, and report the exact blocker. Do not stash, skip,
+or leave behind any other non-ignored path.
+
+When the branch is actively changing, batch a slice for no more than two
+minutes, then push it to the existing PR so CI and review agents can work in
+parallel. Do not wait for a peer-owned file, generated mirror, or full prep
+before publishing the current snapshot. The final clean-tree and merge-soak
+gates still apply before merging.
 
 **If no PR number is given**, auto-detect it: get the current branch (`git branch --show-current`), find the open PR for it (`gh pr list --head <branch> --state open --json number --limit 1`). If no open PR exists, check recent merged/closed PRs. Only ask the user if no PR can be found.
 
@@ -30,19 +41,28 @@ local work unless it is `learnings.md` or an ignored/personal file.
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
 - **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule a fallback `ScheduleWakeup`** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
-- **Every tick, expect new local files.** On an active shared branch, concurrent agents commit into the same checkout continuously. Re-run Step 0 every single tick and push whatever is there — never assume "I already pushed, the tree is clean".
+- **Every tick, expect new local files.** On an active shared branch, concurrent agents commit into the same checkout continuously. Re-run Step 0 every single tick and push every current non-ignored path — never assume "I already pushed, the tree is clean".
 
 ## Each tick
 
 **Step 0 — always do this first, before anything else:**
 
 1. Run `git status --short` to check for local uncommitted changes from concurrent agents.
-2. If any exist: look at `git diff --stat` to understand what changed, then write a descriptive commit message based on the actual changes (e.g. "feat(tools): add error toast + dark mode sync" or "fix(analytics): update sidebar layout"). Never use generic messages like "chore: sweep concurrent agent changes".
-3. `git add <files> && git commit -m "<descriptive message>" && git push`.
+2. If stable safe paths exist: look at `git diff --stat` for that slice, then write a descriptive commit message based on the actual changes (e.g. "feat(tools): add error toast + dark mode sync" or "fix(analytics): update sidebar layout"). Never use generic messages like "chore: sweep concurrent agent changes".
+3. Stage every current non-ignored path, including leased or peer-owned files,
+   excluding only partial hunks, `bridge/**`, `data/**`, `learnings.md`, and
+   ignored/personal files. Stage whole files. If the hook rejects one path,
+   unstage only it and run `git commit -m "<descriptive message>" && git push`
+   for the rest immediately.
 4. Run `git log --oneline origin/<branch>..HEAD` to check for local commits not yet on the remote.
-5. If any unpushed commits exist: `git push`.
+5. If any unpushed commits exist: `git push` immediately.
+6. If one path cannot be staged, name it and push the rest; do not wait for a
+   complete clean slice or for the whole branch to settle. Keep the two-minute
+   batching cadence.
 
-This ensures every tick starts with a clean, fully-pushed working tree. Never skip this step.
+This ensures every tick starts with the latest local snapshot on the PR while
+preserving peer editing boundaries. The worktree need not be clean until the
+final merge soak. Never skip this step.
 
 **Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work has been lost (2026-05-05: stash@{0} held a Sentry-instrumentation feature for clips, including a new `analytics.ts` module, that was meant to merge with PR #511's followup but stayed stuck in the stash list because babysit stashed instead of committing). If you see local changes you don't recognize, that's still other agents' work — commit it with a descriptive message based on the diff, don't hide it in a stash.
 

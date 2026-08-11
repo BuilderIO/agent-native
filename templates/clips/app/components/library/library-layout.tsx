@@ -32,17 +32,18 @@ import {
   IconShare,
   IconSettings,
   IconSearch,
-  IconUpload,
-  IconLink,
+  IconDots,
+  IconEdit,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { NavLink, useLocation, useParams } from "react-router";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import {
   CaptureInstallButton,
   CaptureInstallInlineLink,
 } from "@/components/capture-install-options";
+import { ImportMenu } from "@/components/import-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,6 +54,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -74,6 +81,7 @@ import { CreateSpaceDialog } from "./create-space-dialog";
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
 import { SearchBar } from "./search-bar";
+import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
   children: ReactNode;
@@ -99,6 +107,7 @@ function ClipsAgentToggleButton() {
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const t = useT();
   // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
   // meetings, dictate, and settings stay unscoped — those are list-y views
@@ -124,9 +133,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
 
-  const { data: spaces } = useSpaces(currentOrganizationId, {
-    enabled: hasActiveOrg && Boolean(currentOrganizationId),
-  });
+  const { data: spaces, refetch: refetchSpaces } = useSpaces(
+    currentOrganizationId,
+    {
+      enabled: hasActiveOrg && Boolean(currentOrganizationId),
+    },
+  );
   const { data: libFolders } = useFolders(
     {
       organizationId: currentOrganizationId,
@@ -241,6 +253,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newSpaceOpen, setNewSpaceOpen] = useState(false);
+  const [deleteSpaceId, setDeleteSpaceId] = useState<string | null>(null);
+  const [deleteSpaceName, setDeleteSpaceName] = useState("");
+  const [renameSpaceId, setRenameSpaceId] = useState<string | null>(null);
+  const [renameSpaceValue, setRenameSpaceValue] = useState("");
   const createFolder = useCreateFolder();
 
   const navItems: {
@@ -400,34 +416,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               </div>
 
               <div className="flex flex-col items-center gap-1 px-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to="/record?autoUpload=1"
-                      aria-label={t("preRecord.uploadVideo")}
-                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                    >
-                      <IconUpload className="h-4 w-4" />
-                    </NavLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("preRecord.uploadVideo")}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to="/import"
-                      aria-label={t("preRecord.importLoom")}
-                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                    >
-                      <IconLink className="h-4 w-4" />
-                    </NavLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("preRecord.importLoom")}
-                  </TooltipContent>
-                </Tooltip>
+                <ImportMenu
+                  uploadHref="/record?autoUpload=1"
+                  importLoomHref="/import"
+                  iconOnly
+                  variant="ghost"
+                  menuSide="right"
+                  menuAlign="start"
+                />
               </div>
 
               <nav className="mt-3 flex flex-col items-center gap-1 px-2">
@@ -457,34 +453,16 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           ) : (
             <>
               <div className="px-3 py-3">
-                <Button className="w-full gap-1.5" size="sm" asChild>
-                  <NavLink to="/record">
-                    <IconPlayerRecord className="h-4 w-4" />
-                    {t("navigation.newRecording")}
-                  </NavLink>
+                <Button className="w-full" size="sm" asChild>
+                  <NavLink to="/record">{t("navigation.newRecording")}</NavLink>
                 </Button>
-                <Button
-                  className="mt-1.5 w-full gap-1.5 text-muted-foreground"
+                <ImportMenu
+                  uploadHref="/record?autoUpload=1"
+                  importLoomHref="/import"
                   size="sm"
                   variant="ghost"
-                  asChild
-                >
-                  <NavLink to="/record?autoUpload=1">
-                    <IconUpload className="h-4 w-4" />
-                    {t("preRecord.uploadVideo")}
-                  </NavLink>
-                </Button>
-                <Button
-                  className="mt-1.5 w-full gap-1.5 text-muted-foreground"
-                  size="sm"
-                  variant="ghost"
-                  asChild
-                >
-                  <NavLink to="/import">
-                    <IconLink className="h-4 w-4" />
-                    {t("preRecord.importLoom")}
-                  </NavLink>
-                </Button>
+                  className="mt-1.5 w-full"
+                />
               </div>
 
               <nav className="mt-3 space-y-0.5 px-2">
@@ -579,26 +557,70 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                       const active = spaceId === s.id;
                       return (
                         <li key={s.id}>
-                          <NavLink
-                            to={`/spaces/${s.id}`}
+                          <div
                             className={cn(
-                              "flex items-center gap-2 rounded px-2 py-1 text-xs",
+                              "group flex items-center gap-2 rounded px-2 py-1 text-xs",
                               active
                                 ? "bg-primary/10 text-primary"
                                 : "text-foreground hover:bg-accent/60",
                             )}
                           >
-                            <div
-                              className="flex h-4 w-4 items-center justify-center rounded text-[10px]"
-                              style={{
-                                background: s.color ?? "hsl(var(--primary))",
-                                color: "white",
-                              }}
+                            <NavLink
+                              to={`/spaces/${s.id}`}
+                              className="flex min-w-0 flex-1 items-center gap-2"
                             >
-                              {s.iconEmoji ?? s.name.slice(0, 1).toUpperCase()}
-                            </div>
-                            <span className="truncate">{s.name}</span>
-                          </NavLink>
+                              <div
+                                className="flex h-4 w-4 items-center justify-center rounded text-[10px] shrink-0"
+                                style={{
+                                  background: s.color ?? "hsl(var(--primary))",
+                                  color: "white",
+                                }}
+                              >
+                                {s.iconEmoji ??
+                                  s.name.slice(0, 1).toUpperCase()}
+                              </div>
+                              <span className="truncate">{s.name}</span>
+                            </NavLink>
+                            {canManageOrg && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    aria-label={`${s.name}: ${t("root.commandActions")}`}
+                                    title={`${s.name}: ${t("root.commandActions")}`}
+                                    className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                                  >
+                                    <IconDots className="h-3.5 w-3.5" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" side="right">
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setTimeout(() => {
+                                        setRenameSpaceValue(s.name);
+                                        setRenameSpaceId(s.id);
+                                      }, 0);
+                                    }}
+                                  >
+                                    <IconEdit className="h-3.5 w-3.5 me-2" />
+                                    {t("spaceDialog.renameSpace")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setTimeout(() => {
+                                        setDeleteSpaceId(s.id);
+                                        setDeleteSpaceName(s.name);
+                                      }, 0);
+                                    }}
+                                    className="text-destructive"
+                                  >
+                                    <IconTrash className="h-3.5 w-3.5 me-2" />
+                                    {t("spaceDialog.deleteSpace")}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </div>
                         </li>
                       );
                     })}
@@ -678,7 +700,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </div>
 
             <div className="shrink-0 space-y-2 px-3 py-2">
-              <OrgSwitcher settingsPath="/settings#organization" />
+              <OrgSwitcher settingsPath="/settings/organization" />
               <DevDatabaseLink />
             </div>
           </>
@@ -688,7 +710,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           feedback={feedbackButton}
           search={searchButton}
           collapse={collapseButton}
-          className={showCollapsedSidebar ? undefined : "px-0 py-0"}
         />
       </aside>
 
@@ -701,7 +722,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           t("navigation.agentSuggestionPricing"),
           t("navigation.agentSuggestionFiller"),
         ]}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
         scope={recordingScope}
         browserTabId={getBrowserTabId()}
       >
@@ -820,6 +841,23 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         open={newSpaceOpen}
         onOpenChange={setNewSpaceOpen}
         organizationId={currentOrganizationId}
+      />
+
+      <SpaceDialogs
+        renameSpaceId={renameSpaceId}
+        renameSpaceName=""
+        setRenameSpaceId={setRenameSpaceId}
+        renameValue={renameSpaceValue}
+        setRenameValue={setRenameSpaceValue}
+        deleteSpaceId={deleteSpaceId}
+        deleteSpaceName={deleteSpaceName}
+        setDeleteSpaceId={setDeleteSpaceId}
+        onMutationSuccess={(deletedSpaceId) => {
+          if (deletedSpaceId && spaceId === deletedSpaceId) {
+            navigate("/spaces");
+          }
+          refetchSpaces?.();
+        }}
       />
     </div>
   );

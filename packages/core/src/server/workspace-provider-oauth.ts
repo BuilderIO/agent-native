@@ -365,7 +365,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       }
       const returnPath =
         state.returnUrl ??
-        `/settings/connections?connected=${encodeURIComponent(providerId)}`;
+        `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
       return Response.redirect(getAppUrl(event, returnPath), 302);
     },
   );

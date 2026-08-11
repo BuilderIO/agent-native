@@ -126,9 +126,10 @@ export function StitchManager({
       );
 
       // 2) Upload the combined video.
+      const destinationRecordingId = crypto.randomUUID();
       const upload = await uploadFileClient(
         blob,
-        `${title.replace(/[^a-z0-9-_]+/gi, "-")}.mp4`,
+        `${destinationRecordingId}.mp4`,
       );
       const videoUrl = upload?.url ?? null;
       if (!videoUrl) {
@@ -138,6 +139,7 @@ export function StitchManager({
       // 3) Create the stitched recording row.
       const totalDuration = queue.reduce((sum, r) => sum + r.durationMs, 0);
       const result = await stitch.mutateAsync({
+        recordingId: destinationRecordingId,
         title,
         sourceRecordingIds: queue.map((r) => r.id),
         videoUrl,

@@ -100,6 +100,60 @@ export function isAllowedOAuthRedirectUri(value: unknown): value is string {
   }
 }
 
+function isLoopbackRedirectHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+/**
+ * RFC 8252 section 7.3: a native client's loopback redirect URI uses a port
+ * chosen at request time, so the authorization server must ignore the port when
+ * comparing loopback redirect URIs against the registered set. Non-loopback
+ * redirects keep exact matching, so this cannot widen into an open redirect.
+ */
+export function matchesRegisteredRedirectUri(
+  registered: readonly string[],
+  redirectUri: string,
+  applicationType: "native" | "web",
+): boolean {
+  let candidate: URL;
+  try {
+    candidate = new URL(redirectUri);
+    // coercion-ok: a malformed candidate is an invalid redirect, not a runtime failure.
+  } catch {
+    return false;
+  }
+  if (candidate.hash || candidate.username || candidate.password) return false;
+  if (registered.includes(redirectUri)) return true;
+  if (
+    applicationType !== "native" ||
+    candidate.protocol !== "http:" ||
+    !isLoopbackRedirectHost(candidate.hostname)
+  ) {
+    return false;
+  }
+  return registered.some((value) => {
+    let allowed: URL;
+    try {
+      allowed = new URL(value);
+      // coercion-ok: a malformed registration cannot match a valid redirect.
+    } catch {
+      return false;
+    }
+    if (allowed.hash || allowed.username || allowed.password) return false;
+    return (
+      allowed.protocol === candidate.protocol &&
+      allowed.hostname === candidate.hostname &&
+      allowed.pathname === candidate.pathname &&
+      allowed.search === candidate.search
+    );
+  });
+}
+
 export function applicationTypeForRedirectUris(
   redirectUris: string[],
 ): "native" | "web" {
@@ -174,17 +228,23 @@ function validateClientMetadataDocument(
     throw new Error("Only public Client ID Metadata clients are supported");
   }
 
+  // A grant type we do not support is not a reason to reject the document —
+  // clients advertise grants they use elsewhere (Claude.ai's CIMD document
+  // lists "urn:ietf:params:oauth:grant-type:jwt-bearer" next to the two we
+  // support). The token endpoint independently honors only
+  // "authorization_code"/"refresh_token" no matter what this list says.
   const grantTypes = parseStringArray(document.grant_types);
+  // Metadata documents may advertise extension grants that this server does
+  // not implement. The authorization request still selects the supported
+  // authorization-code flow, so rejecting an extra grant here only prevents
+  // otherwise compatible clients such as Claude from connecting.
   if (
     (document.grant_types !== undefined &&
       (!Array.isArray(document.grant_types) ||
         grantTypes.length !== document.grant_types.length)) ||
-    grantTypes.length > 10 ||
-    !grantTypes.every(
-      (grant) => grant === "authorization_code" || grant === "refresh_token",
-    )
+    grantTypes.length > 10
   ) {
-    throw new Error("Client metadata document grant_types are unsupported");
+    throw new Error("Client metadata document grant_types are invalid");
   }
 
   const responseTypes = parseStringArray(document.response_types);

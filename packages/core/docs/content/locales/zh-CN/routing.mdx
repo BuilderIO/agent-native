@@ -81,7 +81,8 @@ export default function SettingsPage() {
 }
 ```
 
-就是这样 - React 路由器会自动选择它，无需注册。
+就是这样 - 开发服务器会在启动时读取路由文件。如果 `pnpm dev` 已在运行，请在
+添加文件后重启它。无需注册。
 
 ## 动态参数 {#dynamic-params}
 
@@ -113,4 +114,4 @@ navigate(`/inbox/${threadId}`);
 ## 下一步是什么
 
 - [**Client**](/docs/client) - 代理本机浏览器挂钩和实用程序
-- [**Server**](/docs/server) — 基于文件的服务器路由和 `/_agent-native/` 命名空间
+- [**Server**](/docs/server-overview) — 基于文件的服务器路由和 `/_agent-native/` 命名空间

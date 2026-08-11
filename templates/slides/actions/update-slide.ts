@@ -16,6 +16,10 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  assertSourceSlidePreserved,
+  sourceImportForDeck,
+} from "../server/lib/source-import.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
@@ -89,7 +93,7 @@ function storedCreativeContext(value: unknown): {
 export default defineAction({
   description:
     "Surgically edit a slide's content using search-replace or full replacement. " +
-    "Syncs live to open editors. Prefer this over full deck rewrites.",
+    "Syncs live to open editors. Prefer this over full deck rewrites. Source-imported slides preserve their original images and factual copy by default.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -105,6 +109,13 @@ export default defineAction({
       .string()
       .optional()
       .describe("Full HTML to replace entire slide content"),
+    preserveSource: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        "Keep source-imported images and factual copy (default true). Set false only when the user explicitly asks to rewrite the source slide.",
+      ),
     contextPackId: z
       .string()
       .optional()
@@ -131,6 +142,7 @@ export default defineAction({
       find,
       replace,
       fullContent,
+      preserveSource,
       contextPackId,
       contextModeOverride,
       reuseLabels,
@@ -205,17 +217,31 @@ export default defineAction({
       let notFound = false;
 
       if (fullContent) {
-        slide.content = normalizeSlidePadding(fullContent);
+        const nextContent = normalizeSlidePadding(fullContent);
+        assertSourceSlidePreserved({
+          metadata: sourceImportForDeck(deck.sourceImport),
+          slideId,
+          nextContent,
+          preserveSource,
+        });
+        slide.content = nextContent;
         applied = true;
       } else if (find) {
         const idx = (slide.content as string).indexOf(find);
         if (idx === -1) {
           notFound = true;
         } else {
-          slide.content =
+          const nextContent =
             slide.content.slice(0, idx) +
             (replace ?? "") +
             slide.content.slice(idx + find.length);
+          assertSourceSlidePreserved({
+            metadata: sourceImportForDeck(deck.sourceImport),
+            slideId,
+            nextContent,
+            preserveSource,
+          });
+          slide.content = nextContent;
           applied = true;
         }
       }
@@ -338,7 +364,7 @@ export default defineAction({
     if (rmw.notFound) {
       return {
         ok: false,
-        message: `Text not found in slide: "${find!.slice(0, 60)}". Use get-deck to see current slide content.`,
+        message: `Text not found in slide: "${find!.slice(0, 60)}". Use get-deck with compact=false to see the current slide HTML.`,
       };
     }
 

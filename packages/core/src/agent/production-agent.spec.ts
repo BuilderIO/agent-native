@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -39,6 +40,7 @@ import {
   isRetryableError,
   actionsToEngineTools,
   filterInitialEngineTools,
+  findApprovedStructuredToolCall,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
@@ -51,6 +53,7 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
+  MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
@@ -102,10 +105,30 @@ function actionEntry(opts: {
 }
 
 describe("resolveAgentRequestReasoningEffort", () => {
-  it("defaults missing reasoning to Medium", () => {
+  it("narrates a retry the user waited through, and stays silent on a blip", async () => {
+    // Three silent 90s retries wiped the visible output at 92s/182s/272s and
+    // left a blank screen for 4.5 minutes — reported as "the chat froze". The
+    // `clear` must be explained once the silence is long enough to notice,
+    // and must stay silent for a fast provider blip.
+    const src = readFileSync(
+      new URL("./production-agent.ts", import.meta.url),
+      "utf8",
+    );
+    const idx = src.indexOf("const stalledMs = Date.now() - attemptStartedAt;");
+    expect(idx).toBeGreaterThan(0);
+    const block = src.slice(idx, idx + 600);
+    // Gated on elapsed time, not fired on every retry.
+    expect(block).toContain("VISIBLE_RETRY_THRESHOLD_MS");
+    // And the explanation must precede the wipe, not follow it.
+    expect(block.indexOf("Model did not respond")).toBeLessThan(
+      block.indexOf('send({ type: "clear" })'),
+    );
+  });
+
+  it("defaults missing effort to High", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
-    ).toBe("medium");
+    ).toBe("high");
   });
 
   it("preserves explicit none through the production request path", () => {
@@ -672,6 +695,42 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
+  it("finds the latest exact pending approval call from structured history", () => {
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-1",
+                name: "create-builder-branch",
+                input: { branchName: "feature/test" },
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-1",
+                content:
+                  "Awaiting human approval to run the action. This action did NOT execute.",
+              },
+            ],
+          },
+        ],
+        ['create-builder-branch:{"branchName":"feature/test"}'],
+      ),
+    ).toEqual({
+      callId: "call-1",
+      name: "create-builder-branch",
+      input: { branchName: "feature/test" },
+    });
+  });
+
   it("appends a text note when a sibling tool-result is orphaned", () => {
     expect(
       structuredHistoryToEngineMessages([
@@ -1038,6 +1097,7 @@ describe("buildUserContentWithAttachments", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
         resources: actionEntry({ readOnly: true }),
+        "framework-search": actionEntry({ readOnly: true }),
         "docs-search": actionEntry({ readOnly: true }),
         "get-framework-context": actionEntry({ readOnly: true }),
         "read-attachment": actionEntry({ readOnly: true }),
@@ -1052,6 +1112,7 @@ describe("buildUserContentWithAttachments", () => {
       ),
     ).toEqual([
       "resources",
+      "framework-search",
       "docs-search",
       "get-framework-context",
       "read-attachment",
@@ -2114,6 +2175,17 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "tool_input_start",
+      tool: "edit-design",
+      id: "tool-edit",
+    });
+    expect(events).toContainEqual({
+      type: "tool_input_delta",
+      tool: "edit-design",
+      id: "tool-edit",
+      text: '{"designId":"design-1"',
+    });
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "stream_ended",
@@ -5716,6 +5788,76 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(events).toContainEqual(expect.objectContaining({ type: "text" }));
+  });
+
+  it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
+    let streamCalls = 0;
+    // The shape a lost model actually makes: it never repeats itself, it keeps
+    // guessing. Every call carries new arguments, so the identical-arguments
+    // breaker never counts past one and cannot stop this on its own.
+    // NOT a thrown constant: the real shape is SCHEMA REJECTION, whose message
+    // embeds `Received: {…the arguments…}`. That echo is what made the error
+    // text differ on every attempt and defeated the breaker's key. A test that
+    // throws a fixed string never exercises this and passes either way — the
+    // first version of this test did exactly that.
+    const run = vi.fn(async () => "should never execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `guess-${streamCalls}`,
+              name: "query-analytics",
+              // Different every attempt — that is the whole point.
+              input: { attempt: streamCalls, guess: `variant-${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      // Required `action` property the model never supplies, so every call is
+      // rejected by the schema before `run` is reached.
+      actions: {
+        "query-analytics": {
+          ...actionEntry({ actions: ["only-valid-choice"] }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // Must stop on the same-error floor, nowhere near the iteration ceiling.
+    // Without it this turn runs until it exhausts a budget — which is how a
+    // delegated call spent five minutes on a question the same app answers
+    // directly in twenty-seven seconds.
+    // The schema rejects before `run`, so the model turns are the count that
+    // matters. Without an argument-independent breaker this ran 61 turns.
+    expect(run).not.toHaveBeenCalled();
+    expect(streamCalls).toBeLessThanOrEqual(MAX_SAME_ERROR_ACROSS_ARGUMENTS);
   });
 
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
@@ -9350,6 +9492,58 @@ describe("runAgentLoop", () => {
     );
     expect(events2).toContainEqual({ type: "text", text: "sent the email" });
     expect(events2.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("requires the server approval consumer before executing an approved call", async () => {
+    const phase1 = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const events1: any[] = [];
+
+    await runAgentLoop({
+      engine: phase1.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events1.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = events1.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    const consumeApproval = vi.fn(async () => false);
+    const onApprovalRequired = vi.fn(async () => undefined);
+    const events2: any[] = [];
+
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      consumeApproval,
+      onApprovalRequired,
+      send: (event) => events2.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(consumeApproval).toHaveBeenCalledOnce();
+    expect(onApprovalRequired).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+    expect(events2).toContainEqual(
+      expect.objectContaining({ type: "approval_required" }),
+    );
   });
 
   it("consumes an approval grant after the first exact tool-call match", async () => {

@@ -22,6 +22,7 @@ import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -50,6 +51,7 @@ export {
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
@@ -257,6 +259,14 @@ function isSsrHtmlOrDataResponse(
  * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
  * │ for the whole deployment cannot.                                           │
  * └──────────────────────────────────────────────────────────────────────────┘
+ *
+ * The same sharing rule governs any DIAGNOSTIC header on this response. A
+ * per-request timing written here is stored once by the origin render and
+ * replayed unchanged to every later visitor, so it must not wear a live-looking
+ * phase name. `installHttpResponseTelemetryHooks` detects the shared-cacheable
+ * policy stamped below and collapses `server-timing` to one `origin` entry
+ * carrying the render's wall-clock time; do not add a per-request header here
+ * that contradicts that.
  */
 function applyDefaultSsrCacheHeader(
   headers: Headers,
@@ -292,6 +302,9 @@ function applyDefaultSsrCacheHeader(
   // actually serves SSR HTML/.data from the edge instead of forwarding every
   // request to origin — for every visitor, authenticated or not.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
+    headers.set(name, value);
+  }
+  for (const [name, value] of Object.entries(resolveSsrCacheKeyHeaders())) {
     headers.set(name, value);
   }
 }
@@ -330,6 +343,28 @@ function applyDefaultSpeculationRulesHeader(
 function removeDocumentCsp(headers: Headers): void {
   headers.delete("content-security-policy");
   headers.delete("content-security-policy-report-only");
+}
+
+/**
+ * Render an error message safely as a `text/plain` body.
+ *
+ * Vite ids its virtual modules with a leading NUL (`\0virtual:react-router/…`),
+ * and those ids travel verbatim inside module-resolution error messages. One raw
+ * NUL is enough for curl to refuse to print the response as text, hiding the only
+ * line that says what broke. Escape the control bytes rather than deleting them:
+ * the NUL is part of the real resolved id, so a reader who greps for it or pastes
+ * it into a bug report must be able to see that it is there.
+ */
+function textSafeErrorMessage(err: unknown): string {
+  const message = String((err as { message?: unknown })?.message ?? err);
+  // C0 controls except tab, newline, and carriage return, which are real formatting.
+  return message.replace(
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,
+    (char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code === 0 ? "\\0" : `\\x${code.toString(16).padStart(2, "0")}`;
+    },
+  );
 }
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
@@ -478,7 +513,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       const isProd = process.env.NODE_ENV === "production";
       const body = isProd
         ? "Internal Server Error"
-        : `Internal Server Error: ${(err as Error)?.message ?? err}`;
+        : `Internal Server Error: ${textSafeErrorMessage(err)}`;
       return new Response(body, {
         status: 500,
         headers: { "content-type": "text/plain" },

@@ -52,9 +52,20 @@ export interface WorkspacifyOptions {
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
   const { appDir, workspaceCoreName } = opts;
-  const coreDependencyVersion = opts.coreDependencyVersion ?? "latest";
-  const dispatchDependencyVersion = opts.dispatchDependencyVersion ?? "latest";
-  const toolkitDependencyVersion = opts.toolkitDependencyVersion ?? "latest";
+  const pinnedByWorkspace = (name: string, fallback: string | undefined) =>
+    workspacePinnedVersion(opts.workspaceRoot, name) ?? fallback ?? "latest";
+  const coreDependencyVersion = pinnedByWorkspace(
+    "@agent-native/core",
+    opts.coreDependencyVersion,
+  );
+  const dispatchDependencyVersion = pinnedByWorkspace(
+    "@agent-native/dispatch",
+    opts.dispatchDependencyVersion,
+  );
+  const toolkitDependencyVersion = pinnedByWorkspace(
+    "@agent-native/toolkit",
+    opts.toolkitDependencyVersion,
+  );
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
   //    published framework-package workspace:* refs to package ranges.
@@ -161,6 +172,37 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     });
     writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
   }
+}
+
+/**
+ * The version an existing workspace already pins for a framework package.
+ *
+ * Apps added months apart otherwise carry whatever version the CLI that
+ * scaffolded them happened to be, and pnpm keeps one physical copy of core per
+ * distinct spec — roughly 175 MB each. The workspace root manifest is the one
+ * anchor; `agent-native upgrade` is what moves every manifest together.
+ * Local (`file:`/`link:`/`workspace:`) and floating (`latest`, `catalog:`)
+ * values are not pins, so they fall through to the caller's version.
+ */
+function workspacePinnedVersion(
+  workspaceRoot: string,
+  name: string,
+): string | null {
+  const pkgPath = path.join(workspaceRoot, "package.json");
+  // A malformed root manifest is left to throw: silently scaffolding an app
+  // against an unreadable workspace is how the versions drift apart again.
+  if (!fs.existsSync(pkgPath)) return null;
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  for (const depType of ["dependencies", "devDependencies"] as const) {
+    const version = pkg[depType]?.[name];
+    if (typeof version !== "string") continue;
+    if (version === "latest" || version === "catalog:") return null;
+    if (/^(file|link|workspace|portal|git\+|github|https?):/.test(version)) {
+      return null;
+    }
+    return version;
+  }
+  return null;
 }
 
 function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {

@@ -5,6 +5,8 @@
   "scripts": {
     "action": "agent-native action",
     "agent": "agent-native agent",
+    "doctor": "agent-native doctor",
+    "agent-native:doctor": "agent-native doctor",
     "script": "agent-native script",
     "skills:update": "agent-native skills update scaffold --project",
     "upgrade:agent-native": "agent-native upgrade",

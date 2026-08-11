@@ -8,19 +8,24 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { triageItemStatusSchema } from "../server/triage/contracts.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
+import {
+  triageItemStatusSchema,
+  triageSourceSchema,
+} from "../server/triage/contracts.js";
 
 export default defineAction({
   description:
     "List the Factory observation queue. Results are scoped to the active workspace and include the latest shadow decision summary.",
   schema: z.object({
     status: triageItemStatusSchema.optional(),
+    source: triageSourceSchema.optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ status, limit }, context) => {
-    const { orgId } = await requireWorkspaceMember(
+  run: async ({ status, source, limit }, context) => {
+    const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
@@ -31,6 +36,7 @@ export default defineAction({
         and(
           eq(triageItems.orgId, orgId),
           status ? eq(triageItems.status, status) : undefined,
+          source ? eq(triageItems.source, source) : undefined,
         ),
       )
       .orderBy(desc(triageItems.updatedAt))
@@ -49,7 +55,7 @@ export default defineAction({
       }
     }
 
-    return items.map((item) => {
+    const listedItems = items.map((item) => {
       const latestDecision = latestByItem.get(item.id);
       return {
         id: item.id,
@@ -81,5 +87,26 @@ export default defineAction({
           : null,
       };
     });
+
+    for (const item of listedItems) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "list-triage-items",
+          kind: "read",
+          itemId: item.itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: item.title,
+          details: {
+            status: item.status,
+            coverage: item.coverage,
+            decision: item.latestDecision?.outcome ?? null,
+          },
+        },
+      );
+    }
+    return listedItems;
   },
 });

@@ -25,7 +25,7 @@ At runtime, every agent-native app is three things working together:
 
 - **Agent** — Autonomous AI that reads data, writes data, runs actions, and uses configured tools. It can also modify source when its frame is intentionally granted workspace and write tooling. Customizable with skills and instructions.
 - **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
-- **Computer** — Database, browser, and configured tool runtimes. Agents work through the app's action and data surface; MCP servers are optional add-ons, not the foundation.
+- **Computer** — Database, browser, and configured tool runtimes. Agents work through the app's action and data surface; an app may expose that same action surface over MCP, while external MCP servers remain optional add-ons rather than the foundation.
 
 <Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
 
@@ -254,12 +254,19 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 The production agent chat plugin defaults raw SQL tools to read-only
-(`databaseTools: "read"`), so agents inspect app-owned data with `db-schema` /
-`db-query` and perform writes through typed app actions. Set
-`databaseTools: "write"` (or `true`) only for deliberate maintenance surfaces
-that should also expose scoped `db-exec` / `db-patch`; set
-`databaseTools: "off"` / `false` to require typed app actions for all data
-access.
+(`frameworkTools: { database: "read" }`), so agents inspect app-owned data with
+`db-schema` / `db-query` and perform writes through typed app actions. Set
+`database: "write"` (or `true`) only for deliberate maintenance surfaces that
+should also expose scoped `db-exec` / `db-patch`; set `database: "off"` /
+`false` to require typed app actions for all data access.
+
+`frameworkTools` governs the rest of the framework's own tools the same way —
+sharing, review comments, version history, feature flags, localization, audit,
+context X-Ray, profile, automations, docs, resources, web, cross-app delegation,
+chat, and email. See
+[Production Agent Tools](/docs/deployment#production-agent-tools) for the full
+list, the `"minimal"` preset, and why disabling a group leaves its HTTP routes
+mounted.
 
 ## Agent chat bridge {#agent-chat-bridge}
 

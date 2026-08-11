@@ -1,0 +1,234 @@
+---
+title: "Server"
+description: "The Nitro server layer in an agent-native app: what it's for, when to reach for custom routes, and how its pieces connect."
+---
+
+# Server
+
+The `server/` directory is the infrastructure layer of an agent-native app. It handles startup tasks, authentication, and the HTTP surfaces that actions don't cover. Most product behavior belongs in [Actions](/docs/actions). The server is what makes those actions available.
+
+<Diagram id="doc-block-server-overview-1" title="How requests flow through the server" summary="Callers reach the Nitro server, which handles most requests through Actions. Middleware and Routes cover cases Actions can't. Both paths can query the database.">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">Browser / UI</div>
+    <div class="diagram-node">Agent loop</div>
+    <div class="diagram-node">
+      External clients<br /><small class="diagram-muted"
+        >HTTP · MCP · A2A</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro server</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">primary path</small>
+    </div>
+    <div class="srv-or diagram-muted">or</div>
+    <div class="srv-path">
+      <span class="diagram-pill">Middleware</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">Routes</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL database<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Where the Server Fits {#role}
+
+In a traditional web app, the server is where most logic lives. Business rules, data access, and presentation all happen inside route handlers. Agent-native apps work differently. Logic lives in actions, which the agent and UI share as equal partners. The server's job is coordination: apply app-owned database migrations, configure authentication, mount the agent loop, and handle the narrow set of HTTP concerns that actions can't express on their own.
+
+<Diagram id="doc-block-server-overview-2" title="Traditional server vs. Agent Native">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Traditional</div>
+    <div class="diagram-node">Browser</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Server</strong>
+      <small class="diagram-muted">logic lives here</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Route handlers</span>
+        <span class="cmp-tag">Business logic</span>
+        <span class="cmp-tag">Data access</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Database</div>
+  </div>
+  <div class="cmp-vs diagram-muted">vs</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">Browser / UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Server</strong>
+      <small class="diagram-muted">coordination only</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">Auth</span>
+        <span class="cmp-tag">Migrations</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Database</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Browser requests, the agent loop, and external API clients all route through the same Nitro server and read from the same SQL database. There is no separate agent backend or UI backend. The server layer is what exposes actions to the outside world.
+
+## What's in the server/ directory {#server-directory}
+
+These are the directories and files inside `server/` that every agent-native app ships. Each corresponds to a specific piece of the server layer: what it does, when to reach for it, and how it connects to the rest of the framework.
+
+| Page                                      | What it covers                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| **[Database](/docs/server-database)**     | Schema definition with `table()` helpers, `getDb`, and ownable table patterns        |
+| **[Middleware](/docs/server-middleware)** | Auth guards in `server/middleware/` and why they run there instead of in a plugin    |
+| **[Plugins](/docs/server-plugins)**       | Startup plugins for auth and agent-chat, plus optional app-owned database migrations |
+| **[Routes](/docs/server-routes)**         | File-based routes, the SSR catch-all, and scoping custom routes to the request user  |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) is the server toolkit that powers the agent-native HTTP layer. Most of what you'll configure in `server/` is Nitro: file-based routes, startup plugins, and middleware.
+
+- **File-based routing**: the filename maps directly to an HTTP method and URL path, with no registration needed. `server/routes/api/health.get.ts` becomes `GET /api/health` automatically. Visit [Routes](/docs/server-routes) for more details.
+- **Plugins**: code registered at server startup and loaded once. Framework helpers initialize auth and the agent-chat mount; optional app-owned database migrations may still be running when the first request arrives. Visit [Plugins](/docs/server-plugins) for more details.
+- **Middleware**: code that runs on every incoming request before it reaches a route. The auth guard lives in `server/middleware/`. Visit [Middleware](/docs/server-middleware) for more details.
+
+Nitro is also deployment-agnostic. The same app deploys to Node.js, Cloudflare Workers, Netlify, Vercel, and other runtimes with no code changes. Just set a preset. See [Deployment](/docs/deployment).
+
+The underlying request/response API is [H3](https://h3.unjs.io). When you see `defineEventHandler`, `createError`, or `getQuery` in custom routes, that's H3. The [Nitro docs](https://nitro.build/guide) and [H3 docs](https://h3.unjs.io) are the reference for anything the framework doesn't cover directly.
+
+## Default to Actions first {#actions-first}
+
+Agent Native architecture is different. Whenever you think of a new feature for your application, consider first whether it can be an action. For example, if the UI and agent both need to do something, define an action instead of a custom API route. Actions automatically become:
+
+- Agent tools.
+- Typed frontend hooks.
+- HTTP endpoints under `/_agent-native/actions/:name`.
+- MCP and A2A-callable tools.
+- CLI commands for development.
+
+Use custom `/api/*` routes only when you need a route-shaped protocol or binary/streaming behavior. For more details, visit [Actions](/docs/actions).
+
+## What's next {#whats-next}
+
+- [**Actions**](/docs/actions): the default operation surface. Reach for a custom route only when it doesn't fit.
+- [**Database**](/docs/server-database): the `getDb()`/schema pattern custom routes and actions both import
+- [**Middleware**](/docs/server-middleware): auth guards and the `server/middleware/` directory
+- [**Plugins**](/docs/server-plugins): startup plugins for auth, the agent, and optional app-owned migrations
+- [**Routes**](/docs/server-routes): file-based routes, request context, and the SSR catch-all

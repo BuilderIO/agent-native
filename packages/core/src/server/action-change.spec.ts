@@ -116,6 +116,55 @@ describe("notifyActionChange", () => {
       { requestSource: "tab-123" },
     );
   });
+
+  it("can publish the fast invalidation without waiting for the durable marker", async () => {
+    let releaseMarker!: () => void;
+    mockAppStatePut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMarker = resolve;
+        }),
+    );
+    const { notifyActionChangeInBackground } =
+      await import("./action-change.js");
+
+    expect(
+      notifyActionChangeInBackground({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      }),
+    ).toBeUndefined();
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "action",
+      type: "change",
+      key: "update-project",
+      owner: "owner@example.com",
+    });
+    expect(mockAppStatePut).toHaveBeenCalled();
+
+    releaseMarker();
+    await Promise.resolve();
+  });
+
+  it("surfaces a background marker failure instead of swallowing it", async () => {
+    mockAppStatePut.mockRejectedValue(new Error("database unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeInBackground } =
+      await import("./action-change.js");
+
+    notifyActionChangeInBackground({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    });
+
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        "[action-change] durable marker write failed:",
+        "database unavailable",
+      );
+    });
+    warn.mockRestore();
+  });
 });
 
 describe("actionCallIsReadOnly", () => {

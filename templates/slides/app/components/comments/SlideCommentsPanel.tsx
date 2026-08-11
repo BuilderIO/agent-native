@@ -458,9 +458,9 @@ export function SlideCommentsPanel({
   const showInput = pendingComment || addingComment;
 
   return (
-    <div className="flex h-full w-[17rem] flex-shrink-0 flex-col border-l border-border bg-background">
+    <div className="flex h-full w-[17rem] flex-shrink-0 flex-col bg-[var(--slides-editor-surface)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+      <div className="flex flex-shrink-0 items-center justify-between px-4 py-3">
         <span className="text-[13px] font-medium text-foreground/80">
           {t("comments.title")}
         </span>

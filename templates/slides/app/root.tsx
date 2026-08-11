@@ -16,6 +16,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
+import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/onboarding";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,7 +33,12 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import {
+  getEditorCommands,
+  type EditorCommandGroup,
+} from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { FirstDeckOnboardingFlow } from "@/components/onboarding/FirstDeckOnboardingFlow";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
@@ -42,6 +48,12 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+
+registerFirstRunOnboardingExtension({
+  id: "slides-first-deck",
+  component: FirstDeckOnboardingFlow,
+});
+
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -89,7 +101,11 @@ function useExitSelectionOnOutsideClick() {
       const target = e.target as HTMLElement;
       if (
         target.closest(".slide-content") ||
-        target.closest(".slide-image-clickable")
+        target.closest(".slide-image-clickable") ||
+        target.closest("[data-slide-context-toolbar]") ||
+        target.closest(
+          '[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-radix-menu-content]',
+        )
       ) {
         return;
       }
@@ -190,6 +206,17 @@ function AppContent() {
   const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
+  const editorCommands = getEditorCommands();
+  const editorCommandGroups: Array<{
+    id: EditorCommandGroup;
+    heading: string;
+  }> = [
+    { id: "media", heading: t("editorToolbar.media") },
+    { id: "slideTools", heading: t("editorToolbar.slideTools") },
+    { id: "comments", heading: t("editorToolbar.comments") },
+    { id: "deck", heading: t("editorExport.exportAndDuplicate") },
+    { id: "other", heading: t("editorToolbar.more") },
+  ];
 
   const isBare =
     BARE_ROUTES.has(location.pathname) ||
@@ -217,13 +244,41 @@ function AppContent() {
             {t("root.searchDecks")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => navigate("/agent")}
+            onSelect={() => navigate("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
           >
             <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
+        {editorCommandGroups.map((group) => {
+          const commands = editorCommands.filter(
+            (command) => command.group === group.id,
+          );
+          if (commands.length === 0) return null;
+          return (
+            <CommandMenu.Group key={group.id} heading={group.heading}>
+              {commands.map((command) => {
+                const Icon = command.icon;
+                return (
+                  <CommandMenu.Item
+                    key={command.id}
+                    onSelect={command.run}
+                    keywords={command.keywords}
+                    className={
+                      command.active
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
+                  >
+                    {Icon ? <Icon size={16} /> : null}
+                    {command.label}
+                  </CommandMenu.Item>
+                );
+              })}
+            </CommandMenu.Group>
+          );
+        })}
         <CommandMenu.Group heading={t("root.commandAppearance")}>
           <CommandMenu.Item
             onSelect={() => setTheme(isDark ? "light" : "dark")}

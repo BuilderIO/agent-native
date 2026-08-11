@@ -15,9 +15,9 @@ import { cn } from "@/lib/utils";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
-  getDeckChatScopeLabel,
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
 
@@ -49,24 +49,24 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-  const { getDeck } = useDecks();
+  const { decks, loading: decksLoading } = useDecks();
+  const isEmptyDecksState =
+    location.pathname === "/" && !decksLoading && decks.length === 0;
 
   // Scope new chats to the deck the user is currently editing. The route
   // is `/deck/:id`; everywhere else (list, presentation) leaves
-  // scope null so chats stay in the general pool. Falling back to the
-  // raw deck id keeps the chat bound even before the deck object has
-  // streamed in — once the title arrives the badge updates in place.
+  // scope null so chats stay in the general pool. Keep the visible label
+  // semantic so an imported deck id never leaks into the composer chip.
   const deckScope = useMemo(() => {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];
     if (!deckId) return null;
-    const deck = getDeck(deckId);
     return {
       type: "deck" as const,
       id: deckId,
-      label: getDeckChatScopeLabel(deck?.title, t("agent.thisDeck")),
+      label: t("agent.thisDeck"),
     };
-  }, [location.pathname, getDeck, t]);
+  }, [location.pathname, t]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -81,6 +81,7 @@ export function Layout({ children }: LayoutProps) {
   }, []);
 
   const ownToolbar = pageHasOwnToolbar(location.pathname);
+  const showAppSidebar = shouldShowSlidesAppSidebar(location.pathname);
   const editorSidebarOverrideForLocation =
     editorSidebarOverride?.locationKey === location.key
       ? editorSidebarOverride.collapsed
@@ -114,38 +115,43 @@ export function Layout({ children }: LayoutProps) {
         ]}
         scope={deckScope}
         browserTabId={TAB_ID}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
+        suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
         composerSlot={<CreativeContextComposerChip />}
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          {sidebarOpen && (
-            <div
-              className="fixed inset-0 z-40 bg-black/50 md:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
+          {!isEmptyDecksState && showAppSidebar && (
+            <>
+              {sidebarOpen && (
+                <div
+                  className="fixed inset-0 z-40 bg-foreground/50 md:hidden"
+                  onClick={() => setSidebarOpen(false)}
+                />
+              )}
+              <div
+                className={cn(
+                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
+                  sidebarOpen
+                    ? "translate-x-0"
+                    : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
+                )}
+              >
+                <Sidebar
+                  collapsed={effectiveSidebarCollapsed && !sidebarOpen}
+                  // In the mobile drawer the sidebar is forced expanded, so the
+                  // desktop collapse toggle would be a silent no-op (worse: it'd
+                  // mutate the desktop preference). Hide it while the drawer is
+                  // open.
+                  onToggleCollapsed={
+                    sidebarOpen ? undefined : toggleSidebarCollapsed
+                  }
+                />
+              </div>
+            </>
           )}
-          <div
-            className={cn(
-              "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
-              sidebarOpen
-                ? "translate-x-0"
-                : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
-            )}
-          >
-            <Sidebar
-              collapsed={effectiveSidebarCollapsed && !sidebarOpen}
-              // In the mobile drawer the sidebar is forced expanded, so the
-              // desktop collapse toggle would be a silent no-op (worse: it'd
-              // mutate the desktop preference). Hide it while the drawer is
-              // open.
-              onToggleCollapsed={
-                sidebarOpen ? undefined : toggleSidebarCollapsed
-              }
-            />
-          </div>
           <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
-            {!ownToolbar && (
+            {!isEmptyDecksState && !ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
                 <button
                   onClick={() => setSidebarOpen(true)}
@@ -156,8 +162,8 @@ export function Layout({ children }: LayoutProps) {
                 </button>
               </div>
             )}
-            {!ownToolbar && <Header />}
-            <InvitationBanner />
+            {!isEmptyDecksState && !ownToolbar && <Header />}
+            {!isEmptyDecksState && <InvitationBanner />}
             <main
               className={cn(
                 "agent-native-app-main min-h-0 flex-1",

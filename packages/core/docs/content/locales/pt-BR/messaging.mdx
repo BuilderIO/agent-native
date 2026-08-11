@@ -127,7 +127,7 @@ e eventos `link_shared` para o manipulador de desdobramento de clipes.
 
 ### Dicas
 
-- **Menções ao canal** — use uma @menção para iniciar o trabalho. Respostas sem menção só continuam enquanto esse mesmo tópico tiver trabalho ativo.
+- **Menções ao canal** — use uma @menção para iniciar o trabalho. Cada mensagem do canal que o agente deve processar precisa mencioná-lo explicitamente; respostas comuns na conversa e o restante do canal não o invocam.
 - **Mensagens diretas** — as mensagens diretas pessoais aceitas são conversas privadas e exigem um membro verificado da organização ou uma identidade Slack vinculada.
 - **Identidade** — DMs podem associar um e-mail Slack verificado ao mesmo usuário do app; canais gerenciados usam sua identidade de serviço e política.
 - **Listas de permissões de produção** — defina `SLACK_ALLOWED_TEAM_IDS` e, para aplicativos Slack compartilhados, `SLACK_ALLOWED_API_APP_IDS` para que um segredo de assinatura válido não possa ser reutilizado por um espaço de trabalho inesperado.
@@ -173,7 +173,7 @@ Event Subscriptions Request URL como
 Interactivity Request URL como
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`.
 Assine `app_home_opened`, `app_context_changed`, `app_mention`,
-`message.channels`, `message.groups`, `message.im` e `message.mpim`.
+`message.im`.
 Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` e
 `SLACK_SIGNING_SECRET`; depois escolha **Add to Slack** em
 **Configurações → Mensagens**. Cada instalação mantém seu token criptografado e
@@ -191,8 +191,8 @@ Mensagens diretas pessoais do Slack só são aceitas de um membro verificado da
 organização Agent Native ou de uma identidade Slack já vinculada. As políticas e
 os orçamentos do principal de serviço do canal são separados.
 
-Respostas sem menção só orientam um tópico com tarefa ativa; o restante da conversa
-do canal não chama o agente. Um contexto limitado inclui reações e referências de
+Cada mensagem do canal precisa mencionar o agente explicitamente; respostas comuns na
+conversa e o restante do canal não o chamam. Um contexto limitado inclui reações e referências de
 arquivo, e um cartão nativo mostra plano, progresso, cancelar e aprovar/negar. DMs
 usam identidade pessoal; canais gerenciados usam uma identidade de serviço explícita
 e políticas de convidados, Slack Connect e modelo. A memória do canal é explícita,
@@ -372,7 +372,7 @@ Quando não funciona:
 | `notion credential not configured. Tried: NOTION_API_KEY`                  | Passo 3. A chave está no `.env`, ou foi salva como **Personal** para uma conta diferente daquela que executa a run. Salve como **Workspace**. |
 | O Notion responde `404`                                                    | Passo 4. A base de dados nunca foi compartilhada com a integração.                                                                            |
 | O Notion responde `400` sobre as propriedades                              | Os nomes ou tipos de propriedade na ação não batem com as colunas da base.                                                                    |
-| Funcionou uma vez e depois uma resposta posterior na conversa foi ignorada | É o esperado. Respostas na conversa sem menção só chegam ao agente enquanto aquela conversa tem trabalho ativo — faça outra @mention.         |
+| Funcionou uma vez e depois uma resposta posterior na conversa foi ignorada | É o esperado. Cada mensagem que o agente deve processar precisa mencioná-lo explicitamente — faça outra @mention.                             |
 
 ## Configurar o Telegram {#telegram}
 

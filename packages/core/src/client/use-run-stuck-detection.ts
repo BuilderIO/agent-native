@@ -1,5 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 
+import { createPollEngine } from "../shared/poll-engine.js";
+import {
+  ACTIVE_RUN_STATE_EVENT,
+  getActiveRun,
+  type ActiveRunState,
+} from "./active-run-state.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -22,6 +28,8 @@ export interface RunStuckState {
   lastProgressAt: number | null;
   /** Milliseconds since `lastProgressAt`, or null. */
   stuckSinceMs: number | null;
+  /** Last browser SSE sequence classified as real work progress, or null. */
+  lastProgressSeq: number | null;
   /** Server timestamp (ms) of the last process-alive heartbeat. */
   heartbeatAt: number | null;
   /** Milliseconds since `heartbeatAt`, computed against the server clock. */
@@ -82,6 +90,12 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
 const MAX_POLL_ERROR_BACKOFF_MS = 30_000;
 const FRESH_BACKGROUND_HEARTBEAT_MS = 30_000;
+// Bounds each poll fetch so a hung request can't stall the self-rescheduling
+// setTimeout loop forever (the reschedule only fires once the fetch settles).
+const POLL_ABORT_MIN_MS = 10_000;
+function getPollAbortMs(interval: number): number {
+  return Math.max(POLL_ABORT_MIN_MS, interval * 4);
+}
 
 interface ActiveRunResponse {
   active: boolean;
@@ -102,6 +116,7 @@ const EMPTY_STATE: RunStuckState = {
   status: null,
   lastProgressAt: null,
   stuckSinceMs: null,
+  lastProgressSeq: null,
   heartbeatAt: null,
   heartbeatSinceMs: null,
   dispatchMode: null,
@@ -127,10 +142,17 @@ export function useRunStuckDetection({
 
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
     let snapshotTransitionTimer: ReturnType<typeof setTimeout> | null = null;
     let snapshotVersion = 0;
+    let lastObservedLocalProgressAt: number | null = null;
+    let lastObservedLocalProgressSeq: number | null = null;
     let consecutivePollFailures = 0;
+    // The engine's own cadence varies per tick (idle backoff, error backoff),
+    // which is why intervalMs below reads from this ref instead of a fixed
+    // number. Stagger the very first poll so a freshly-started run isn't
+    // immediately classified as stuck before the server has had a chance to
+    // record any progress events.
+    const nextDelayRef = { current: 2_000 };
 
     const pollFailureDelay = () => {
       consecutivePollFailures += 1;
@@ -153,6 +175,8 @@ export function useRunStuckDetection({
       status: string | null;
       lastProgressAt: number | null;
       stuckSinceMs: number | null;
+      localProgressObservedAt: number | null;
+      lastProgressSeq: number | null;
       heartbeatAt: number | null;
       heartbeatSinceMs: number | null;
       dispatchMode: string | null;
@@ -203,11 +227,20 @@ export function useRunStuckDetection({
         snapshot.stuckSinceMs == null
           ? null
           : snapshot.stuckSinceMs + currentElapsedMs;
+      const currentLocalProgressSinceMs =
+        snapshot.localProgressObservedAt == null
+          ? null
+          : Math.max(0, Date.now() - snapshot.localProgressObservedAt);
       const effectiveThresholdMs = effectiveThresholdFor(
         snapshot.dispatchMode,
         currentHeartbeatSinceMs,
       );
+      const localProgressFresh = Boolean(
+        currentLocalProgressSinceMs != null &&
+        currentLocalProgressSinceMs <= effectiveThresholdMs,
+      );
       const currentlyStuck = Boolean(
+        !localProgressFresh &&
         currentStuckSinceMs != null &&
         currentStuckSinceMs > effectiveThresholdMs,
       );
@@ -221,9 +254,18 @@ export function useRunStuckDetection({
           FRESH_BACKGROUND_HEARTBEAT_MS - currentHeartbeatSinceMs + 1,
         );
       }
-      if (currentStuckSinceMs != null && !currentlyStuck) {
+      if (
+        !localProgressFresh &&
+        currentStuckSinceMs != null &&
+        !currentlyStuck
+      ) {
         transitionDelaysMs.push(
           Math.max(1, effectiveThresholdMs - currentStuckSinceMs + 1),
+        );
+      }
+      if (localProgressFresh && currentLocalProgressSinceMs != null) {
+        transitionDelaysMs.push(
+          Math.max(1, effectiveThresholdMs - currentLocalProgressSinceMs + 1),
         );
       }
       if (transitionDelaysMs.length === 0) return;
@@ -248,11 +290,20 @@ export function useRunStuckDetection({
           snapshot.stuckSinceMs == null
             ? null
             : snapshot.stuckSinceMs + elapsedSinceObservationMs;
+        const nextLocalProgressSinceMs =
+          snapshot.localProgressObservedAt == null
+            ? null
+            : Math.max(0, Date.now() - snapshot.localProgressObservedAt);
         const nextEffectiveThresholdMs = effectiveThresholdFor(
           snapshot.dispatchMode,
           nextHeartbeatSinceMs,
         );
+        const nextLocalProgressFresh = Boolean(
+          nextLocalProgressSinceMs != null &&
+          nextLocalProgressSinceMs <= nextEffectiveThresholdMs,
+        );
         const nextIsStuck = Boolean(
+          !nextLocalProgressFresh &&
           nextStuckSinceMs != null &&
           nextStuckSinceMs > nextEffectiveThresholdMs,
         );
@@ -261,14 +312,15 @@ export function useRunStuckDetection({
             version !== snapshotVersion ||
             current.runId !== snapshot.runId ||
             current.lastProgressAt !== snapshot.lastProgressAt ||
-            current.heartbeatAt !== snapshot.heartbeatAt
+            current.heartbeatAt !== snapshot.heartbeatAt ||
+            current.lastProgressSeq !== snapshot.lastProgressSeq
           ) {
             return current;
           }
           return {
             ...current,
             isStuck: nextIsStuck,
-            stuckSinceMs: nextStuckSinceMs,
+            stuckSinceMs: nextLocalProgressFresh ? null : nextStuckSinceMs,
             heartbeatSinceMs: nextHeartbeatSinceMs,
           };
         });
@@ -276,13 +328,50 @@ export function useRunStuckDetection({
       }, delayMs);
     };
 
-    const poll = async () => {
-      if (cancelled) return;
+    // A healthy SSE stream is a stronger local proof of progress than a
+    // delayed SQL timestamp. Listen only to the real-progress cursor - raw
+    // keepalives still advance the reconnect cursor but must not suppress the
+    // stuck detector forever.
+    const onActiveRunStateChange = (event: Event) => {
+      const activeRun = ((
+        event as CustomEvent<{ state?: ActiveRunState | null }>
+      ).detail?.state ?? getActiveRun()) as ActiveRunState | null;
+      const progressSeq = activeRun?.lastProgressSeq ?? null;
+      const hasNewerProgress =
+        typeof activeRun?.lastProgressObservedAt === "number" &&
+        (activeRun.lastProgressObservedAt >
+          (lastObservedLocalProgressAt ?? -1) ||
+          (activeRun.lastProgressObservedAt === lastObservedLocalProgressAt &&
+            progressSeq != null &&
+            progressSeq > (lastObservedLocalProgressSeq ?? -1)));
+      if (
+        !activeRun ||
+        activeRun.threadId !== threadId ||
+        typeof activeRun.lastProgressObservedAt !== "number" ||
+        !hasNewerProgress
+      ) {
+        return;
+      }
+      lastObservedLocalProgressAt = activeRun.lastProgressObservedAt;
+      lastObservedLocalProgressSeq = progressSeq;
+      snapshotVersion += 1;
+      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
+      snapshotTransitionTimer = null;
+      setState((current) => {
+        if (current.runId !== activeRun.runId || !current.isStuck) {
+          return current;
+        }
+        return { ...current, isStuck: false, stuckSinceMs: null };
+      });
+    };
+    window.addEventListener(ACTIVE_RUN_STATE_EVENT, onActiveRunStateChange);
+
+    const attempt = async (signal: AbortSignal) => {
       let nextDelay = pollIntervalMs;
       try {
         const res = await fetch(
           `${base}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-          { credentials: "same-origin" },
+          { credentials: "same-origin", signal },
         );
         if (cancelled) return;
         if (res.ok) {
@@ -302,6 +391,16 @@ export function useRunStuckDetection({
             heartbeatAt != null ? nowMs - heartbeatAt : null;
           const dispatchMode =
             typeof data.dispatchMode === "string" ? data.dispatchMode : null;
+          const runId = data.runId ?? null;
+          const activeRun = getActiveRun();
+          const localProgressObservedAt =
+            activeRun?.threadId === threadId && activeRun.runId === runId
+              ? (activeRun.lastProgressObservedAt ?? null)
+              : null;
+          const localProgressSinceMs =
+            localProgressObservedAt == null
+              ? null
+              : Math.max(0, Date.now() - localProgressObservedAt);
           // A claimed durable worker with a fresh heartbeat can legitimately
           // be waiting on a bounded long-running tool/sub-agent call. Still
           // surface informational status at the normal background threshold;
@@ -316,17 +415,24 @@ export function useRunStuckDetection({
             data.active &&
             data.status === "running" &&
             stuckSinceMs != null &&
-            stuckSinceMs > effectiveThresholdMs,
+            stuckSinceMs > effectiveThresholdMs &&
+            (localProgressSinceMs == null ||
+              localProgressSinceMs > effectiveThresholdMs),
           );
           const observedAtMs = Date.now();
           const version = ++snapshotVersion;
           scheduleSnapshotTransition(
             {
               active: data.active,
-              runId: data.runId ?? null,
+              runId,
               status: data.status ?? null,
               lastProgressAt,
               stuckSinceMs,
+              localProgressObservedAt,
+              lastProgressSeq:
+                activeRun?.threadId === threadId && activeRun.runId === runId
+                  ? (activeRun.lastProgressSeq ?? null)
+                  : null,
               heartbeatAt,
               heartbeatSinceMs,
               dispatchMode,
@@ -336,10 +442,18 @@ export function useRunStuckDetection({
           );
           setState({
             isStuck,
-            runId: data.runId ?? null,
+            runId,
             status: data.status ?? null,
             lastProgressAt,
-            stuckSinceMs,
+            stuckSinceMs:
+              localProgressSinceMs != null &&
+              localProgressSinceMs <= effectiveThresholdMs
+                ? null
+                : stuckSinceMs,
+            lastProgressSeq:
+              activeRun?.threadId === threadId && activeRun.runId === runId
+                ? (activeRun.lastProgressSeq ?? null)
+                : null,
             heartbeatAt,
             heartbeatSinceMs,
             dispatchMode,
@@ -365,22 +479,44 @@ export function useRunStuckDetection({
         // Network/503 blip — leave previous state and ease polling pressure
         // while the server or database recovers.
         nextDelay = pollFailureDelay();
-      }
-      if (!cancelled) {
-        timer = setTimeout(poll, nextDelay);
+      } finally {
+        nextDelayRef.current = nextDelay;
       }
     };
 
-    // Stagger the first poll so a freshly-started run isn't immediately
-    // classified as stuck before the server has had a chance to record
-    // any progress events.
-    timer = setTimeout(poll, 2_000);
+    // The per-tick backoff above needs a variable cadence, which is why this
+    // uses createPollEngine directly instead of usePollLoop (whose public
+    // intervalMs is a fixed number) — see poll-engine.ts for the
+    // never-overlaps/never-stalls guarantees this still gets for free.
+    const engine = createPollEngine(attempt, {
+      intervalMs: () => nextDelayRef.current,
+      timeoutMs: getPollAbortMs(pollIntervalMs),
+      leading: false,
+    });
+    engine.start();
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        engine.stop();
+      } else {
+        // Resume immediately rather than waiting out whatever delay was
+        // pending before the tab was hidden (which may be a long backoff).
+        engine.start();
+        engine.pollNow();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       cancelled = true;
       snapshotVersion += 1;
-      if (timer) clearTimeout(timer);
+      engine.stop();
       if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
+      window.removeEventListener(
+        ACTIVE_RUN_STATE_EVENT,
+        onActiveRunStateChange,
+      );
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [
     threadId,

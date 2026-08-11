@@ -18,15 +18,7 @@ Read the relevant skill in `.agents/skills/` before deeper work:
 - `assets-navigation` for routes, tabs, chat surfaces, and `navigate` targets.
 - `agent-engines` for model and engine configuration.
 - `a2a-assets` for MCP/A2A callers, skill install paths, and host rendering.
-- `inline-embeds`, `notifications`, `progress`, and `real-time-collab` for
-  integration surfaces.
-- `actions`, `storing-data`, `security`, `frontend-design`, and `shadcn-ui` as
-  needed.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+- `inline-embeds`, `notifications`, and `progress` for integration surfaces.
 
 ## Core Rules
 
@@ -84,6 +76,7 @@ Uncommon actions stay discoverable through `tool-search`.
 | `duplicate-library` | Make a private copy of a Brand Kit |
 | `list-assets` / `search-assets` | Browse or search assets in accessible kits |
 | `import-asset-from-url` | Ingest external brand or blog imagery as a reference asset |
+| `import-style-from-url` | Render a website and merge its design.md-style visual language into a library or collection |
 | `set-canonical-logo` | Pin the kit's pixel-perfect logo |
 | `list-generation-presets` | List repeatable output formats before generating |
 | `create-generation-preset` / `update-generation-preset` | Author preset format, references, `includeLogo`, skeleton |
@@ -95,3 +88,8 @@ Uncommon actions stay discoverable through `tool-search`.
 | `export-asset` | Return a download URL or artifact for another app |
 | `create-generation-session` | Hand generation work off to a designer |
 | `manage-context-membership` | Submit an asset to a governed Creative Context |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

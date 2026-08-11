@@ -66,6 +66,7 @@ export const PROVIDER_API_IDS = [
   "gcloud",
   "github",
   "figma",
+  "fullstory",
   "gmail",
   "gong",
   "google_calendar",
@@ -134,6 +135,8 @@ export interface ProviderApiRequestArgs {
   body?: unknown;
   auth?: "default" | "none";
   timeoutMs?: number;
+  /** Internal cancellation signal for trusted server-side callers. */
+  signal?: AbortSignal;
   maxBytes?: number;
   connectionId?: string | null;
   accountId?: string | null;
@@ -933,6 +936,40 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       "The REST API cannot create arbitrary canvas frames or layers. Use Figma's official OAuth MCP write tools when connected, or export a Design selection as Figma-compatible SVG for visual handoff.",
     ],
   },
+  fullstory: {
+    id: "fullstory",
+    label: "FullStory Server API",
+    defaultBaseUrl: "https://api.fullstory.com",
+    auth: {
+      type: "basic-raw",
+      key: "FULLSTORY_API_KEY",
+    },
+    credentialKeys: ["FULLSTORY_API_KEY"],
+    docsUrls: [
+      "https://developer.fullstory.com/server/authentication/",
+      "https://developer.fullstory.com/server/sessions/introduction/",
+      "https://developer.fullstory.com/server/sessions/get-session-events/",
+    ],
+    allowedHostSuffixes: ["fullstory.com"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "List sessions for a user",
+        method: "GET",
+        path: "/sessions/v2",
+        query: { email: "<user-email>", limit: 20 },
+      },
+      {
+        label: "Get session events",
+        method: "GET",
+        path: "/v2/sessions/{sessionId}/events",
+      },
+    ],
+    notes: [
+      "FullStory Server API uses Basic <API_KEY> authentication. Architect access is required for user-data reads and exports.",
+      "Use the connected FullStory MCP for natural-language metrics, session replay, screenshots, and accessibility trees; this API fallback is for structured reads and event payloads.",
+    ],
+  },
   gmail: {
     id: "gmail",
     label: "Gmail API",
@@ -1002,9 +1039,38 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
-      "Batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
     ],
     corpusRecipes: [
+      {
+        label: "Stage Gong calls with configured keyword tracker hits",
+        useWhen:
+          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+        workflow: [
+          "Call /calls/extensive with the narrowest date, workspace, or owner filters available and contentSelector.exposedFields.content.trackers = true.",
+          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
+          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
+          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use Gong native Search when connected or the transcript batch recipe below.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: { fromDateTime: "<iso-date-time>" },
+            contentSelector: {
+              exposedFields: {
+                content: { trackers: true, trackerOccurrences: true },
+              },
+            },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
+      },
       {
         label: "Batch-search Gong call transcripts from staged call ids",
         useWhen:
@@ -1886,6 +1952,7 @@ export async function executeProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
+        signal: args.signal,
         secretValues: auth.secretValues,
         quota: {
           identity: quotaIdentity,
@@ -1944,6 +2011,7 @@ export async function executeProviderApiRequest(
     body,
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
+    signal: args.signal,
     secretValues: auth.secretValues,
     quota: {
       identity: quotaIdentity,
@@ -2857,6 +2925,7 @@ async function executeCustomProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         timeoutMs: clampTimeout(args.timeoutMs),
+        signal: args.signal,
         secretValues: auth.secretValues,
         quota: {
           identity: quotaIdentity,
@@ -2911,6 +2980,7 @@ async function executeCustomProviderApiRequest(
     body,
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
+    signal: args.signal,
     secretValues: auth.secretValues,
     quota: {
       identity: quotaIdentity,
@@ -5078,6 +5148,7 @@ async function fetchWithTimeout(
     headers?: Record<string, string>;
     body?: BodyInit;
     timeoutMs?: number;
+    signal?: AbortSignal;
     maxBytes?: number;
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
@@ -5095,7 +5166,9 @@ async function fetchWithTimeout(
         method,
         headers: options.headers,
         body: options.body,
-        signal: controller.signal,
+        signal: options.signal
+          ? AbortSignal.any([options.signal, controller.signal])
+          : controller.signal,
         redirect: "manual",
       };
       if (dispatcher) fetchOptions.dispatcher = dispatcher;

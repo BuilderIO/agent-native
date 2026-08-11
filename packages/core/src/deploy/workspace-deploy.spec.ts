@@ -24,6 +24,7 @@ let previousUnpooledDatabaseUrl: string | undefined;
 let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
 let previousIntegrationDurableDispatch: string | undefined;
+let previousDisableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
@@ -66,6 +67,8 @@ beforeEach(() => {
   previousNetlifyLocal = process.env.NETLIFY_LOCAL;
   previousIntegrationDurableDispatch =
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  previousDisableRecurringJobs =
+    process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
@@ -98,6 +101,7 @@ beforeEach(() => {
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
   delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -128,6 +132,10 @@ afterEach(() => {
   restoreEnv(
     "AGENT_INTEGRATION_DURABLE_DISPATCH",
     previousIntegrationDurableDispatch,
+  );
+  restoreEnv(
+    "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
+    previousDisableRecurringJobs,
   );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
@@ -1147,11 +1155,10 @@ describe("workspace deploy", () => {
 });
 
 // The deploy-time half of durable-background: a SECOND Netlify function whose
-// name ends in `-background` must be emitted ONLY when the flag is set, and the
-// single-function deploy must be byte-for-byte unchanged when it is not. These
-// drive the REAL workspace deploy path (not a private helper) so the gate is
-// proven where it actually fires. The env flag is captured/restored locally so
-// it never leaks into the surrounding suite.
+// name ends in `-background` plus a per-app recurring-job handoff. These drive
+// the REAL workspace deploy path (not private helpers) so the gates are proven
+// where they actually fire. The env flags are captured/restored locally so they
+// never leak into the surrounding suite.
 describe("durable-background Netlify function emit (workspace, flag-gated)", () => {
   let previousFlag: string | undefined;
 
@@ -1172,6 +1179,15 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
       ".netlify",
       "functions-internal",
       `${app}-agent-background`,
+    );
+  }
+
+  function recurringFuncDir(app: string): string {
+    return path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      `${app}-agent-recurring-jobs`,
     );
   }
 
@@ -1199,6 +1215,7 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
 
   it("emits NO -background function when the flag is EXPLICITLY opted out (false)", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
+    process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
 
@@ -1227,6 +1244,7 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
 
   it("emits scoped integration background and scheduled recovery functions when opted in", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
+    process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
@@ -1362,6 +1380,24 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
       );
       expect(entry).toContain('includedFiles: ["**"]');
+
+      const recurringDir = recurringFuncDir(app);
+      const recurringEntry = fs.readFileSync(
+        path.join(recurringDir, `${app}-agent-recurring-jobs.mjs`),
+        "utf8",
+      );
+      expect(recurringEntry).toContain('schedule: "* * * * *"');
+      expect(recurringEntry).toContain(
+        `const BACKGROUND_PATH = ${JSON.stringify(`/.netlify/functions/${app}-agent-background`)}`,
+      );
+      expect(recurringEntry).toContain(
+        `const SWEEP_PATH = ${JSON.stringify(`/${app}/_agent-native/jobs/_process-sweep`)}`,
+      );
+      expect(recurringEntry).toContain("return new URL(request.url).origin");
+      const recurringModule = await import(
+        `${pathToFileURL(path.join(recurringDir, `${app}-agent-recurring-jobs.mjs`)).href}?t=${Date.now()}-${app}`
+      );
+      expect(recurringModule.config.schedule).toBe("* * * * *");
     }
 
     // The synchronous per-app function is still present and unchanged.

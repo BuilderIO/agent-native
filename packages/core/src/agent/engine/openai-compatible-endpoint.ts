@@ -1,6 +1,7 @@
 export const OPENAI_BASE_URL_ENV_VAR = "OPENAI_BASE_URL";
+export const OLLAMA_BASE_URL_ENV_VAR = "OLLAMA_BASE_URL";
 
-export function normalizeOpenAiBaseUrl(value: string): string {
+export function normalizeProviderBaseUrl(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
     throw new Error("Endpoint URL is required.");
@@ -22,4 +23,8 @@ export function normalizeOpenAiBaseUrl(value: string): string {
 
   url.hash = "";
   return url.toString().replace(/\/+$/, "");
+}
+
+export function normalizeOpenAiBaseUrl(value: string): string {
+  return normalizeProviderBaseUrl(value);
 }

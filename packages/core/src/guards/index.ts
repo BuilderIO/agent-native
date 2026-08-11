@@ -14,6 +14,12 @@ export { scanDbToolScoping } from "./db-tool-scoping.js";
 export type { DbToolScopingOptions } from "./db-tool-scoping.js";
 export { scanExplicitCollabAccess } from "./explicit-collab-access.js";
 export { scanDrizzlePush } from "./no-drizzle-push.js";
+export { scanEmptyMigrations } from "./no-empty-migrations.js";
+export type { EmptyMigrationsSourceOptions } from "./no-empty-migrations.js";
+export {
+  analyzeEmptyMigrationsSource,
+  shouldScanEmptyMigrationsFile,
+} from "./no-empty-migrations.js";
 export { scanEnvCredentials } from "./no-env-credentials.js";
 export { scanEnvMutation } from "./no-env-mutation.js";
 export { scanLocalhostFallback } from "./no-localhost-fallback.js";

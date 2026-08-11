@@ -38,6 +38,8 @@ export interface AutomationRouteItem {
   name: string;
   path: string;
   owner: string;
+  appId?: string;
+  scope: "personal" | "organization";
   canUpdate: boolean;
   triggerType: TriggerFrontmatter["triggerType"];
   event?: string;
@@ -47,8 +49,10 @@ export interface AutomationRouteItem {
   mode: TriggerFrontmatter["mode"];
   domain?: string;
   enabled: boolean;
+  timezone?: string;
   lastStatus?: TriggerFrontmatter["lastStatus"];
   lastRun?: string;
+  lastCheck?: string;
   lastError?: string;
   nextRun?: string;
   createdBy?: string;
@@ -103,13 +107,19 @@ function scheduleDescription(schedule?: string, timezone?: string) {
 }
 
 function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
-  if (meta.nextRun) return meta.nextRun;
-  if (
+  const scheduled = Boolean(
     meta.enabled &&
     meta.triggerType !== "event" &&
     meta.schedule &&
-    isValidCron(meta.schedule)
-  ) {
+    isValidCron(meta.schedule),
+  );
+  if (meta.nextRun) {
+    const stored = new Date(meta.nextRun).getTime();
+    if (!scheduled || !Number.isFinite(stored) || stored > Date.now()) {
+      return meta.nextRun;
+    }
+  }
+  if (scheduled) {
     try {
       return nextOccurrence(
         meta.schedule,
@@ -194,6 +204,9 @@ async function resourceToAutomationItem(
     name: automationName(resource.path),
     path: resource.path,
     owner: resource.owner,
+    appId: meta.appId,
+    scope:
+      resource.owner === userEmail && !meta.orgId ? "personal" : "organization",
     canUpdate: await currentUserCanUpdateAutomation(
       event,
       userEmail,
@@ -208,8 +221,10 @@ async function resourceToAutomationItem(
     mode: meta.mode,
     domain: meta.domain,
     enabled: meta.enabled,
+    timezone: meta.timezone,
     lastStatus: meta.lastStatus,
     lastRun: meta.lastRun,
+    lastCheck: meta.lastCheck,
     lastError: meta.lastError,
     nextRun: nextRunForMeta(meta),
     createdBy: meta.createdBy,

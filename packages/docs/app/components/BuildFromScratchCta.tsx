@@ -38,7 +38,7 @@ export function BuildFromScratchCta({
       <div className="flex flex-col gap-2">
         <BuildOnlinePopover location={location} />
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={docsPath}
           onClick={() =>
             trackEvent("start from scratch", {

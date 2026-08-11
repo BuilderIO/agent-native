@@ -2,7 +2,8 @@
 name: asset-generation
 description: >-
   Use Assets for brand-safe image or video generation, human picker UI,
-  search/list/export actions, and cross-app asset selection.
+  search/list/export actions, and cross-app asset selection. Use when a visual
+  needs to be generated, refined, found, or handed off to another app.
 metadata:
   visibility: both
 ---
@@ -13,6 +14,24 @@ metadata:
 
 Use the Assets app when a workflow needs reusable brand media, a human picker,
 or generated image/video assets that another app can reference by ID and URL.
+
+## Visual authority and brief
+
+Assets produces media; it does not invent a replacement brand language. Before
+generating, resolve the user's explicit subject, audience, message, format, and
+must-preserve constraints, then the active library, preset, or linked design
+system and its custom instructions, then approved Creative Context references.
+Impeccable-inspired guidance is a quality lens for composition, hierarchy,
+restraint, and finish — never a reason to override those sources.
+
+Compile the request into a short art-direction brief: visual role, subject,
+composition and crop, palette or material treatment, lighting or medium,
+exact visible text if any, semantic constraints, and exclusions. Classify the
+slot as `produce` (new media), `direct` (an existing approved asset), or
+`semantic` (a UI/icon/diagram the caller should build with its own primitives).
+Do not generate a decorative photo where the caller needs a semantic graphic.
+If brand context is missing, make the result clearly exploratory rather than
+claiming a brand match.
 
 ## Choose The Path
 
@@ -27,8 +46,9 @@ or generated image/video assets that another app can reference by ID and URL.
   Pass `mediaType: "image"` by default, or `mediaType: "video"` for video
   libraries.
 - Use unattended actions when the agent already knows what to do:
-  `search-assets`, `list-assets`, `generate-image`, `generate-image-batch`,
-  `generate-video`, `refresh-generation-run`, and `export-asset`.
+  `search-assets`, `list-assets`, `import-style-from-url`, `generate-image`,
+  `generate-image-batch`, `generate-video`, `refresh-generation-run`, and
+  `export-asset`.
 - In chat, consume composer `@` references as structured generation inputs:
   `brand-kit` maps to `libraryId`, `preset` maps to `presetId`, and
   `media-type` chooses image generation versus video generation. If no mention
@@ -75,7 +95,9 @@ or generated image/video assets that another app can reference by ID and URL.
 6. Let the server choose a small deterministic reference set unless the user
    named exact assets. Canonical style anchors come from
    `assetLibraries.settings.canonicalStyleAssetIds` and
-   `assets.metadata.isStyleAnchor`.
+   `assets.metadata.isStyleAnchor`; they must remain subordinate to explicit
+   library, preset, and per-run constraints rather than introducing a second
+   visual language.
 7. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
    output, or `tier: "auto"` when there is no clear preference.
    - Model/ratio compatibility: Gemini image models accept any `aspectRatio`, but
@@ -94,10 +116,16 @@ or generated image/video assets that another app can reference by ID and URL.
    when they want a chat preloaded with the session context.
 
 For short vague prompts, enhance conservatively with library style context while
-preserving the user's original prompt in run metadata. Use
-`analyze-collection-style` when a collection needs upgraded vision brand
-analysis before generation. Brand QA scoring and best-of-N selection are
-deferred.
+preserving the user's original prompt in run metadata. If a public website is
+the style source, call `import-style-from-url` first so the library keeps the
+hydrated browser-derived design brief. Use `analyze-collection-style` when a
+collection needs upgraded vision brand analysis from image references before
+generation. Brand QA scoring and best-of-N selection are deferred.
+
+Generation success confirms a run and its provenance, not visual quality or
+brand match. Report the selected library, preset, style anchors, and whether
+the result used an Assets-grounded or fallback path. Claim a quality evaluator
+only when one actually ran.
 
 ## Video Workflows
 

@@ -43,6 +43,7 @@ import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
 import {
   BashCell,
@@ -70,8 +71,27 @@ import {
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+export const ChatRunningRunIdContext = React.createContext<string | null>(null);
+export const ChatRunningTurnIdContext = React.createContext<string | null>(
+  null,
+);
 export const ChatRunDurationContext = React.createContext<number | null>(null);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
+/**
+ * Keeps the tool-call stack layout-transparent. Tool-entry motion is disabled
+ * until it can stay stable while streaming calls are added and summarized.
+ */
+export function ToolCallStackMotion({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("agent-tool-call-stack", className)}>{children}</div>
+  );
+}
 
 /**
  * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
@@ -81,9 +101,25 @@ export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
  * provided, and "Always allow" only renders when `onAlwaysAllow` is provided
  * — both are additive so existing action-approval consumers are unaffected.
  */
+export type ApprovalResolution = "approved" | "denied";
+
 export type ApprovalContextValue = {
   /** Re-issue the turn so the server runs the approved call. */
   onApprove: (approvalKey: string) => void;
+  /**
+   * Keep the visible resolution stable while the chat repository refreshes or
+   * remounts the message containing this approval card.
+   */
+  onApprovalResolved?: (
+    approvalKey: string,
+    resolution: ApprovalResolution,
+    toolCallId?: string,
+  ) => void;
+  /** Read a resolution retained by the owning chat surface. */
+  getApprovalResolution?: (
+    approvalKey: string,
+    toolCallId?: string,
+  ) => ApprovalResolution | null;
   /**
    * Optional host hook invoked in addition to the local "denied" state, e.g.
    * so a Code session can also resolve its own pending approval as denied.
@@ -99,27 +135,34 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
 );
 
+/** Pending human-in-the-loop gate still waiting for Approve/Deny. */
+export function toolCallHasPendingApproval(part: {
+  approval?: { approvalKey?: string; dismissed?: boolean } | null;
+}): boolean {
+  const approval = part.approval;
+  return (
+    typeof approval?.approvalKey === "string" &&
+    approval.approvalKey.length > 0 &&
+    approval.dismissed !== true
+  );
+}
+
 export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
 
 export function ToolActivityPresentation({
   toolName,
   isRunning,
-  isActiveTail,
+  toolCallId,
   suppressLongRunningHint = false,
   children,
 }: {
   toolName: string;
   isRunning: boolean;
-  isActiveTail: boolean;
+  toolCallId?: string;
   suppressLongRunningHint?: boolean;
   children: React.ReactNode;
 }) {
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
-  // A batched update can first reveal a tool with its result already attached.
-  // Presentation follows the active chat tail rather than execution state so
-  // that newly revealed completed tools still get their entrance motion.
-  const [animateEntry] = useState(isActiveTail);
-
   useEffect(() => {
     if (!isRunning || suppressLongRunningHint) {
       setShowLongRunningHint(false);
@@ -134,18 +177,18 @@ export function ToolActivityPresentation({
 
   return (
     <div
-      className={cn(
-        "agent-tool-call",
-        animateEntry && "agent-tool-call--entering",
-      )}
+      className="agent-tool-call"
+      data-agent-tool-call-id={toolCallId}
       data-running={isRunning ? "true" : undefined}
     >
-      {children}
-      {isRunning && showLongRunningHint && (
-        <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
-          Still working. Large updates can take a minute or two.
-        </div>
-      )}
+      <div className="agent-tool-call__content">
+        {children}
+        {isRunning && showLongRunningHint && (
+          <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
+            Still working. Large updates can take a minute or two.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -283,28 +326,33 @@ type ToolIconComponent = React.ComponentType<{
 
 const brandIcons = new Map<string, ToolIconComponent>();
 
-function brandToolIcon(logoUrl: string, name: string): ToolIconComponent {
-  const cached = brandIcons.get(logoUrl);
+function brandToolIcon(
+  logoUrl: string,
+  name: string,
+  integrationId?: string,
+): ToolIconComponent {
+  const cacheKey = integrationId ? `${integrationId}:${logoUrl}` : logoUrl;
+  const cached = brandIcons.get(cacheKey);
   if (cached) return cached;
   const Icon: ToolIconComponent = ({ className, size }) => (
-    <img
-      src={logoUrl}
-      alt=""
-      aria-hidden
-      width={size}
-      height={size}
+    <McpIntegrationLogo
+      name={name}
+      logoUrl={logoUrl}
+      integrationId={integrationId}
+      className={cn("size-4 rounded-[3px] border-0", className)}
+      imageClassName="size-full"
+      style={size === undefined ? undefined : { width: size, height: size }}
       title={name}
-      className={cn("rounded-[3px] object-contain", className)}
     />
   );
-  brandIcons.set(logoUrl, Icon);
+  brandIcons.set(cacheKey, Icon);
   return Icon;
 }
 
 function resolveToolIcon(toolName: string): ToolIconComponent {
   const integration = findMcpIntegrationForToolName(toolName);
   if (integration) {
-    return brandToolIcon(integration.logoUrl, integration.name);
+    return brandToolIcon(integration.logoUrl, integration.name, integration.id);
   }
   const name = toolName.toLowerCase();
   if (name.includes("slack")) return IconBrandSlack;
@@ -489,18 +537,26 @@ export function AnimatedCollapse({
  */
 function ApprovalAffordance({
   toolName,
+  toolCallId,
   approval,
 }: {
   toolName: string;
+  toolCallId?: string;
   approval: { approvalKey: string; dismissed?: boolean };
 }) {
   const ctx = React.useContext(ApprovalContext);
-  const [approved, setApproved] = useState(false);
-  const [denied, setDenied] = useState(false);
+  const [localResolution, setLocalResolution] =
+    useState<ApprovalResolution | null>(null);
+  const retainedResolution =
+    ctx?.getApprovalResolution?.(approval.approvalKey, toolCallId) ?? null;
+  const resolution =
+    retainedResolution ??
+    localResolution ??
+    (approval.dismissed === true ? "denied" : null);
 
-  // Once approved, the turn is re-issued; collapse to a quiet note so the user
-  // can't double-fire the approval.
-  if (approved) {
+  // Once resolved, collapse to a quiet note so a repository refresh cannot
+  // restore the action buttons while the continuation is running.
+  if (resolution === "approved") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
         Approved. Re-running {toolName}...
@@ -510,7 +566,7 @@ function ApprovalAffordance({
   // Deny defaults to local-only (the action simply stays un-run). When the
   // host also provided `onDeny` (e.g. a Code session resolving its own
   // pending approval), it fires alongside the local state.
-  if (denied) {
+  if (resolution === "denied") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
         Denied. {toolName} did not run.
@@ -527,7 +583,12 @@ function ApprovalAffordance({
         <button
           type="button"
           onClick={() => {
-            setApproved(true);
+            setLocalResolution("approved");
+            ctx.onApprovalResolved?.(
+              approval.approvalKey,
+              "approved",
+              toolCallId,
+            );
             ctx.onApprove(approval.approvalKey);
           }}
           className={cn(
@@ -543,7 +604,12 @@ function ApprovalAffordance({
         <button
           type="button"
           onClick={() => {
-            setApproved(true);
+            setLocalResolution("approved");
+            ctx.onApprovalResolved?.(
+              approval.approvalKey,
+              "approved",
+              toolCallId,
+            );
             ctx.onAlwaysAllow?.(approval.approvalKey);
           }}
           title="Approve and always allow this exact command"
@@ -559,7 +625,8 @@ function ApprovalAffordance({
       <button
         type="button"
         onClick={() => {
-          setDenied(true);
+          setLocalResolution("denied");
+          ctx?.onApprovalResolved?.(approval.approvalKey, "denied", toolCallId);
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
@@ -578,6 +645,7 @@ function ApprovalAffordance({
 
 export function ToolCallDisplay({
   toolName,
+  toolCallId,
   argsText,
   args,
   result,
@@ -592,6 +660,7 @@ export function ToolCallDisplay({
   isActiveTail,
 }: {
   toolName: string;
+  toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
@@ -617,7 +686,7 @@ export function ToolCallDisplay({
     <ToolActivityPresentation
       toolName={toolName}
       isRunning={isRunning}
-      isActiveTail={showActiveTail}
+      toolCallId={toolCallId}
       suppressLongRunningHint={
         toolName === "call-agent" || toolName.startsWith("agent:")
       }
@@ -659,6 +728,7 @@ export function ToolCallDisplay({
   return wrapToolDisplay(
     <ToolCallDisplayGeneric
       toolName={toolName}
+      toolCallId={toolCallId}
       argsText={argsText}
       args={args}
       result={result}
@@ -676,6 +746,7 @@ export function ToolCallDisplay({
 
 function ToolCallDisplayGeneric({
   toolName,
+  toolCallId,
   argsText,
   args,
   result,
@@ -689,6 +760,7 @@ function ToolCallDisplayGeneric({
   repeatCount,
 }: {
   toolName: string;
+  toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
@@ -946,7 +1018,11 @@ function ToolCallDisplayGeneric({
         </p>
       )}
       {approval && (
-        <ApprovalAffordance toolName={toolName} approval={approval} />
+        <ApprovalAffordance
+          toolName={toolName}
+          toolCallId={toolCallId}
+          approval={approval}
+        />
       )}
     </div>
   );
@@ -1128,7 +1204,7 @@ function AgentActivityToolCallRow({
     <ToolActivityPresentation
       toolName={tool.name}
       isRunning={isRunning}
-      isActiveTail={isActiveTail}
+      toolCallId={tool.id}
       suppressLongRunningHint
     >
       <div className="my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground">
@@ -1156,6 +1232,7 @@ function AgentActivityToolCallRow({
 
 export function ToolCallFallback({
   toolName,
+  toolCallId,
   args,
   argsText,
   result,
@@ -1181,6 +1258,7 @@ export function ToolCallFallback({
   return (
     <ToolCallDisplay
       toolName={toolName}
+      toolCallId={toolCallId}
       args={args as Record<string, unknown>}
       argsText={argsText}
       result={
@@ -1209,8 +1287,11 @@ export function ToolCallFallback({
 
 export function ReconnectStreamMessage({
   content,
+  allowActivitySpinner = true,
 }: {
   content: ContentPart[];
+  /** Activity-only cards are live during reconnect, but static once frozen. */
+  allowActivitySpinner?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const toolSummary = getReconnectToolSummaryInfo(content);
@@ -1227,7 +1308,7 @@ export function ReconnectStreamMessage({
     (latestIndex, part, index) =>
       part.type === "tool-call" &&
       !isCallAgentToolCallShadowed(content, index) &&
-      (chatRunning || part.activity === true)
+      (chatRunning || (allowActivitySpinner && part.activity === true))
         ? index
         : latestIndex,
     -1,
@@ -1263,6 +1344,7 @@ export function ReconnectStreamMessage({
       <ToolCallDisplay
         key={`reconnect-tool-${i}`}
         toolName={part.toolName}
+        toolCallId={part.toolCallId}
         argsText={part.argsText}
         args={part.args}
         result={part.result}
@@ -1271,7 +1353,8 @@ export function ReconnectStreamMessage({
         structuredMeta={part.structuredMeta}
         outcome={part.outcome}
         isRunning={
-          part.result === undefined && (chatRunning || part.activity === true)
+          part.result === undefined &&
+          (chatRunning || (allowActivitySpinner && part.activity === true))
         }
         isActiveTail={i === latestActiveToolIndex}
         approval={part.approval}
@@ -1289,6 +1372,7 @@ export function ReconnectStreamMessage({
       <RanToolsSummary
         key={`reconnect-tool-summary-${summaryStartIndex}`}
         toolCount={summaryToolCount}
+        motionKey={`reconnect-${summaryStartIndex}`}
       >
         {content
           .slice(summaryStartIndex, endIndex)
@@ -1318,8 +1402,10 @@ export function ReconnectStreamMessage({
 
   return (
     <div className="flex justify-start">
-      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
-        {renderedParts}
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
+        <ToolCallStackMotion className="space-y-1">
+          {renderedParts}
+        </ToolCallStackMotion>
       </div>
     </div>
   );
@@ -1353,7 +1439,8 @@ function isReconnectSummarizablePart(part: ContentPart): boolean {
     (part.type === "tool-call" &&
       part.toolName !== "connect-builder" &&
       part.chatUI === undefined &&
-      part.mcpApp === undefined)
+      part.mcpApp === undefined &&
+      !toolCallHasPendingApproval(part))
   );
 }
 
@@ -1579,23 +1666,28 @@ export function WorkedForSummary({
 
 export function RanToolsSummary({
   toolCount,
+  motionKey = "summary",
   children,
 }: {
   toolCount: number;
+  motionKey?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const label = `Ran ${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
 
   return (
-    <div className="my-1 w-full">
+    <div
+      className="agent-tool-summary my-1 w-full"
+      data-agent-tool-summary={motionKey}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span>{label}</span>
+        <span className="agent-tool-summary__label">{label}</span>
         <IconChevronRight
           className={cn(
             "size-3.5 shrink-0 transition-transform",

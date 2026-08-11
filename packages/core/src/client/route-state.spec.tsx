@@ -261,6 +261,59 @@ describe("route-state client helpers", () => {
     });
   });
 
+  it("uses the workspace gateway when a command targets a sibling app", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": {
+        path: "/seo-application/settings",
+        _writeId: "cmd-2",
+      },
+    });
+    const assign = vi.fn();
+    const replace = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "market-research", path: "/market-research" },
+        { id: "seo-application", path: "/seo-application" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/market-research/_agent-native/poll",
+        assign,
+        replace,
+      },
+    });
+
+    function Harness() {
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ view: pathname }),
+        getCommandPath: (command: { path?: string }) => command.path,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/market-research"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(assign).toHaveBeenCalledWith("/seo-application/settings");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("prepares shared chat view transitions before navigate commands", async () => {
     const { fetchMock } = makeAppStateFetch({
       navigate: { view: "detail", id: "123", _writeId: "cmd-1" },

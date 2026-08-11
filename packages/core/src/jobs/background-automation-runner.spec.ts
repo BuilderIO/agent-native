@@ -152,10 +152,12 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
         getActions: () => ({}),
         getSystemPrompt: async () => "system",
         engine: testEngine,
+        appId: "calendar",
       },
     );
 
     const call = vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1);
+    expect(call?.[0]).toMatchObject({ appId: "calendar" });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
   });
   // History is a record ABOUT the run. If the history table is unwritable the

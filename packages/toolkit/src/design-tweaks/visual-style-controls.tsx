@@ -11,6 +11,12 @@ import {
 } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 
 export {
@@ -383,6 +389,7 @@ export function VisualColorPicker({
   mixed = false,
   mixedLabel = "Mixed",
   variant = "outline",
+  glyph,
 }: {
   label: string;
   value: string;
@@ -400,7 +407,10 @@ export function VisualColorPicker({
     Record<`data-${string}`, string | undefined>;
   mixed?: boolean;
   mixedLabel?: string;
-  variant?: "outline" | "filled";
+  /** `swatch` drops the value text and caret for dense horizontal toolbars. */
+  variant?: "outline" | "filled" | "swatch";
+  /** With `swatch`, renders this over a bar of the current color instead of a plain square. */
+  glyph?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -471,33 +481,74 @@ export function VisualColorPicker({
   const { className: contentClassName, ...popoverContentProps } =
     contentProps ?? {};
 
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          className={cn(
-            "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11px] shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            variant === "filled"
-              ? "border-0 bg-muted/80 hover:bg-muted"
-              : "border border-border bg-background/70 hover:bg-accent/60",
-            className,
-          )}
-        >
+  const trigger = (
+    <PopoverTrigger asChild>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn(
+          "flex h-7 cursor-pointer items-center rounded-md shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          variant === "swatch"
+            ? "w-7 shrink-0 justify-center border-0 hover:bg-accent"
+            : "w-full gap-1.5 px-2 text-[11px]",
+          variant === "filled" && "border-0 bg-muted/80 hover:bg-muted",
+          variant === "outline" &&
+            "border border-border bg-background/70 hover:bg-accent/60",
+          className,
+        )}
+      >
+        {glyph && variant === "swatch" ? (
+          /* A real underline rather than a stacked bar: the browser places
+             it against the glyph's baseline, so the pair cannot drift out of
+             alignment the way hand-positioned boxes do. The current color
+             can be anything (including near-white), so a plain colored
+             underline can vanish against this toolbar's own light
+             background — the four cardinal drop-shadows fake a thin outline
+             around the underline itself (a box-shadow/border can't reach a
+             text-decoration) that stays visible regardless of the color. */
+          <span
+            aria-hidden="true"
+            className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px] [filter:drop-shadow(0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(-0.5px_0_0_rgba(0,0,0,0.25))_drop-shadow(0_0.5px_0_rgba(0,0,0,0.25))_drop-shadow(0_-0.5px_0_rgba(0,0,0,0.25))]"
+            style={mixed ? undefined : { textDecorationColor: value }}
+          >
+            {glyph}
+          </span>
+        ) : (
           <span
             className="size-4 shrink-0 rounded-[3px] border border-border/70"
             style={swatchBackground(mixed ? "transparent" : value)}
           />
-          <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
-            {displayValue}
-          </span>
-          <span
-            aria-hidden="true"
-            className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
-          />
-        </button>
-      </PopoverTrigger>
+        )}
+        {variant !== "swatch" && (
+          <>
+            <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
+              {displayValue}
+            </span>
+            <span
+              aria-hidden="true"
+              className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
+            />
+          </>
+        )}
+      </button>
+    </PopoverTrigger>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      {/* A bare swatch shows a color but never says which property it paints.
+          The hex a native title would add is unreliable for colors this
+          control cannot parse, so name the property and leave it at that. */}
+      {variant === "swatch" ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        trigger
+      )}
       <PopoverContent
         side="left"
         align="start"

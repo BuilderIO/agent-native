@@ -7,6 +7,14 @@ overrides:
   "@assistant-ui/tap": "^0.5.14"
   better-auth: "1.6.0"
   nf3: "0.3.17"
+  # These four reach @agent-native/core through peer edges, so two apps that
+  # drift even a patch apart fork a second ~175 MB physical copy of core.
+  # One spec string per workspace is what keeps it at one copy — raise these
+  # together, never per app.
+  "@types/node": "^25.8.0"
+  esbuild: "^0.28.1"
+  srvx: "^0.12.4"
+  zod: "^4.4.3"
 
 onlyBuiltDependencies:
   - "@swc/core"
@@ -16,6 +24,7 @@ onlyBuiltDependencies:
   - esbuild
   - lightningcss
   - node-pty
+  - tesseract.js
 
 allowBuilds:
   "@swc/core": true
@@ -25,3 +34,4 @@ allowBuilds:
   esbuild: true
   lightningcss: true
   node-pty: true
+  tesseract.js: true

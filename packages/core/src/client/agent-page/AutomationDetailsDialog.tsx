@@ -1,5 +1,11 @@
-import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  IconAlertTriangle,
+  IconExternalLink,
+  IconLoader2,
+} from "@tabler/icons-react";
 
+import { requestAgentChatThreadOpen } from "../agent-chat.js";
 import {
   Dialog,
   DialogContent,
@@ -129,7 +135,7 @@ export function AutomationDetailsDialog({
           {mcpTools.length > 0 ? (
             <div>
               <p className="text-xs font-medium text-foreground">
-                {t("jobs.mcpTools", { defaultValue: "Connected MCP tools" })}
+                {t("jobs.mcpTools", { defaultValue: "Connected agent tools" })}
               </p>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {mcpTools.map((toolName) => (
@@ -195,6 +201,23 @@ export function AutomationDetailsDialog({
                       <span className="shrink-0 tabular-nums text-muted-foreground">
                         {Math.round((run.finishedAt - run.startedAt) / 1000)}s
                       </span>
+                    ) : null}
+                    {run.error && run.threadId ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 gap-1 px-1.5 text-[11px]"
+                        onClick={() => {
+                          requestAgentChatThreadOpen({
+                            threadId: run.threadId as string,
+                          });
+                          onClose();
+                        }}
+                      >
+                        <IconExternalLink className="size-3" />
+                        Open thread
+                      </Button>
                     ) : null}
                   </li>
                 ))}

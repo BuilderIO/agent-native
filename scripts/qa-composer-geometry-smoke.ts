@@ -5,6 +5,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { MISSING_BROWSER_HINT } from "./playwright-browser-hint";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -367,7 +369,7 @@ async function launchBrowser() {
               ? bundledError.message.split("\n")[0]
               : String(bundledError)
           }`,
-          "Install a browser with `pnpm exec playwright install chromium` or set PLAYWRIGHT_CHANNEL to an installed channel.",
+          MISSING_BROWSER_HINT,
         ].join("\n"),
       );
     }

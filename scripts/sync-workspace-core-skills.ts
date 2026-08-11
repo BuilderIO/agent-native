@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,6 +99,8 @@ const workspaceSkillIncludes = [
   "sharing",
   "storing-data",
   "tracking",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
   "visual-answer",
   "voice-transcription",
@@ -133,6 +136,8 @@ const templateSharedSkillIncludes = [
   "secrets",
   "storing-data",
   "sharing",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 
@@ -148,6 +153,8 @@ const requiredAllTemplateSharedSkills = [
   "feature-flags",
   "sharing",
   "storing-data",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 
@@ -159,6 +166,8 @@ const requiredDefaultTemplateSharedSkills = [
   "internationalization",
   "onboarding",
   "secrets",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 
@@ -170,6 +179,8 @@ const requiredHeadlessTemplateSharedSkills = [
   "feature-flags",
   "integration-webhooks",
   "secrets",
+  "turn-into-app",
+  "turn-into-skill",
   "upgrade-agent-native",
 ];
 
@@ -228,6 +239,18 @@ const requiredActionGuidance = [
   },
 ];
 
+const requiredAgentWorkflowGuidance = [
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+  "templates/chat/AGENTS.md",
+].map((rel) => ({
+  rel,
+  pattern:
+    /Keep actions deterministic and focused[\s\S]*AgentSidebar[\s\S]*same\s+thread/,
+}));
+
 const requiredToolkitDiscoveryGuidance = [
   "packages/core/src/templates/default/AGENTS.md",
   "packages/core/src/templates/headless/AGENTS.md",
@@ -244,8 +267,15 @@ const requiredRegistryConventionSkills = [
 
 // Repo-maintenance workflows are useful in this repository, but generated
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
+//
+// The trailing entries are symlinks under `.agents/skills/`, not real
+// directories: five point into `skills/` (shipped through the plugin
+// marketplace in `.claude-plugin/`) and `content-product-development` points
+// into the Content template. Copying them here would fork a second, silently
+// drifting copy of a skill another channel already owns.
 const workspaceSkillExcludes = [
   "babysit-pr",
+  "chat-first-workbench",
   "concurrent-agents",
   "delegating-work",
   "fix-at-the-boundary",
@@ -254,15 +284,35 @@ const workspaceSkillExcludes = [
   "ship",
   "ship-desktop",
   "verifying-changes",
+  "content-product-development",
+  "design-exploration",
+  "visual-edit",
+  "visual-plan",
+  "visual-recap",
+  "visualize-repo",
 ];
 
 const check = process.argv.includes("--check");
 const includeSet = new Set(workspaceSkillIncludes);
 const excludeSet = new Set(workspaceSkillExcludes);
 
+// `Dirent.isDirectory()` reflects the entry's own type and returns false for
+// a symlink-to-directory (several root skills — visual-recap, visual-edit,
+// etc. — are symlinks). Follow the link with `statSync` before deciding.
+function isDirEntry(dir, entry) {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return statSync(join(dir, entry.name)).isDirectory();
+  } catch {
+    // coercion-ok: broken symlink entries are intentionally excluded from generated skill copies.
+    return false; // broken symlink
+  }
+}
+
 function listSkillDirs(dir) {
   return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => isDirEntry(dir, entry))
     .map((entry) => entry.name)
     .sort();
 }
@@ -272,7 +322,7 @@ function listFiles(dir, base = dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, entry.name);
-    if (entry.isDirectory()) {
+    if (isDirEntry(dir, entry)) {
       files.push(...listFiles(abs, base));
     } else if (entry.isFile()) {
       files.push(relative(base, abs));
@@ -399,7 +449,7 @@ function listTemplateDirs() {
   if (!existsSync(templatesDir)) return [];
   return readdirSync(templatesDir, { withFileTypes: true })
     .filter((entry) => {
-      if (!entry.isDirectory()) return false;
+      if (!isDirEntry(templatesDir, entry)) return false;
       if (entry.name.startsWith(".") || entry.name === "node_modules") {
         return false;
       }
@@ -439,6 +489,20 @@ function checkGeneratedInstructionPhrases() {
     const content = readFileSync(file, "utf-8");
     if (!pattern.test(content)) {
       findings.push(`${rel}: missing canonical action-first guidance`);
+    }
+  }
+
+  for (const { rel, pattern } of requiredAgentWorkflowGuidance) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required agent-workflow guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (!pattern.test(content)) {
+      findings.push(
+        `${rel}: missing deterministic-action versus AgentSidebar guidance`,
+      );
     }
   }
 

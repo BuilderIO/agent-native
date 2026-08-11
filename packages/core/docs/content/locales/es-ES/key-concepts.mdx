@@ -23,7 +23,7 @@ Cada aplicación nativa del agente consta de tres cosas que funcionan juntas:
 
 - **Agente**: IA autónoma que lee y escribe datos, ejecuta actions y usa herramientas configuradas. Personalizable con skills e instrucciones.
 - **Aplicación**: la superficie del producto alrededor del agente. Esto puede ser solo acción al principio, chat enriquecido, un pequeño plano de control o un UI React completo con paneles, flujos y visualizaciones.
-- **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan directamente con SQL y herramientas integradas; Los servidores MCP son complementos opcionales, no la base.
+- **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan mediante la superficie de acciones y datos de la aplicación; la aplicación puede exponer esa misma superficie mediante MCP. Los servidores MCP externos son complementos opcionales, no la base.
 
 <Diagram id="doc-block-b13lfv" title={"Agente, aplicación y computadora."} summary={"Tres capas trabajando juntas en una tienda SQL compartida. Tanto el agente como la aplicación leen y escriben los mismos datos."}>
 
@@ -253,12 +253,14 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 El complemento de chat del agente de producción deja las herramientas SQL sin formato en modo lectura por defecto
-(`databaseTools: "read"`), por lo que los agentes inspeccionan datos de la app con `db-schema` /
+(`frameworkTools: { database: "read" }`), por lo que los agentes inspeccionan datos de la app con `db-schema` /
 `db-query` y escriben mediante actions tipadas de la app. Establece
-`databaseTools: "write"` (o `true`) solo para superficies de mantenimiento que
+`database: "write"` (o `true`) solo para superficies de mantenimiento que
 también deban exponer `db-exec` / `db-patch` con alcance; usa
-`databaseTools: "off"` / `false` para requerir actions tipadas para todos los datos
+`database: "off"` / `false` para requerir actions tipadas para todos los datos
 acceso.
+
+`frameworkTools` gobierna igual el resto de las herramientas propias del framework: sharing, comentarios de revisión, historial de versiones, feature flags, localización, auditoría, Context X-Ray, perfil, automatizaciones, docs, resources, web, delegación entre apps, chat y email. Consulta [Production Agent Tools](/docs/deployment#production-agent-tools) para la lista completa, el preset `"minimal"` y por qué desactivar un grupo deja sus rutas HTTP montadas.
 
 ## Puente de chat del agente {#agent-chat-bridge}
 

@@ -9,6 +9,8 @@ export interface NavigationState {
   threadId?: string;
   factoryId?: string;
   factoryTab?: string;
+  factoryAutomationId?: string;
+  factoryAuditRunId?: string;
   factoryNodeId?: string;
   factoryEdgeId?: string;
 }
@@ -28,6 +30,17 @@ export function useNavigationState() {
           : {}),
         ...(pathname.startsWith("/factory") && searchParams.get("tab")
           ? { factoryTab: searchParams.get("tab") ?? undefined }
+          : {}),
+        ...(pathname.startsWith("/factory") && searchParams.get("automationId")
+          ? {
+              factoryAutomationId:
+                searchParams.get("automationId") ?? undefined,
+            }
+          : {}),
+        ...(pathname.startsWith("/factory") && searchParams.get("auditRunId")
+          ? {
+              factoryAuditRunId: searchParams.get("auditRunId") ?? undefined,
+            }
           : {}),
         ...(pathname.startsWith("/factory") && searchParams.get("node")
           ? { factoryNodeId: searchParams.get("node") ?? undefined }
@@ -60,7 +73,10 @@ function viewForPath(pathname: string): string {
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
   if (pathname.startsWith("/factory")) return "factory";
-  if (pathname.startsWith("/agent")) return "agent";
+  if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
+    return "agent";
+  }
+  if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/team")) return "settings";
   return "chat";
 }
@@ -80,11 +96,11 @@ function pathForView(view?: string): string {
     case "factory":
       return "/factory";
     case "agent":
-      return "/agent";
+      return "/settings/agent";
     case "settings":
       return "/settings";
     case "team":
-      return "/settings#organization";
+      return "/settings/organization";
     default:
       return "/";
   }

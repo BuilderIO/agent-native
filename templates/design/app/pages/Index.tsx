@@ -1,14 +1,18 @@
+import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
   useActionMutation,
+  useAvatarUrl,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgMembers } from "@agent-native/core/client/org";
 import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   useSetHeaderActions,
@@ -49,6 +53,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -58,6 +63,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
@@ -66,6 +78,14 @@ import {
 } from "@/components/ui/tooltip";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import {
+  ALL_AUTHORS,
+  collectAuthorEmails,
+  filterDesignsByAuthor,
+  MY_DESIGNS,
+  normalizeAuthorEmail,
+  shouldShowAuthors,
+} from "@/lib/design-authors";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -80,6 +100,7 @@ interface Design {
   description?: string;
   projectType: ProjectType;
   designSystemId?: string | null;
+  ownerEmail?: string | null;
   createdAt?: string;
   updatedAt?: string;
   /** Preview HTML for the thumbnail. Only present when the list query asks
@@ -93,6 +114,7 @@ export default function Index() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [author, setAuthor] = useState<string>(ALL_AUTHORS);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
@@ -134,6 +156,8 @@ export default function Index() {
     "list-design-templates",
     { includePreview: "true" },
   );
+  const { session } = useSession();
+  const { data: orgMembersPage } = useOrgMembers();
 
   const createMutation = useActionMutation("create-design");
   const createFromTemplateMutation = useActionMutation(
@@ -174,11 +198,27 @@ export default function Index() {
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
 
+  const viewerEmail = session?.email ?? null;
+  const authorEmails = useMemo(() => collectAuthorEmails(designs), [designs]);
+  const showAuthors = shouldShowAuthors({
+    orgMemberCount: orgMembersPage?.totalCount,
+    authorEmails,
+  });
+  const normalizedViewerEmail = normalizeAuthorEmail(viewerEmail);
+  const viewerHasDesigns = authorEmails.some(
+    (email) => normalizeAuthorEmail(email) === normalizedViewerEmail,
+  );
+  // One condition for both the control and the filtering it drives — a hidden
+  // control with a live filter leaves an empty grid the user cannot reset.
+  const canFilterByAuthor = authorEmails.length > 1;
+  const byAuthor = canFilterByAuthor
+    ? filterDesignsByAuthor(designs, author, viewerEmail)
+    : designs;
   const filtered = search
-    ? designs.filter((d) =>
+    ? byAuthor.filter((d) =>
         d.title.toLowerCase().includes(search.toLowerCase()),
       )
-    : designs;
+    : byAuthor;
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
@@ -308,6 +348,15 @@ export default function Index() {
 
   const handleSearchChange = useCallback((query: string) => {
     setSearch(query);
+    setSelectedDesignIds((current) =>
+      current.size === 0 ? current : new Set(),
+    );
+  }, []);
+
+  // Bulk actions operate on the visible set, so narrowing the visible set has
+  // to drop selections the user can no longer see.
+  const handleAuthorChange = useCallback((next: string) => {
+    setAuthor(next);
     setSelectedDesignIds((current) =>
       current.size === 0 ? current : new Set(),
     );
@@ -723,6 +772,37 @@ export default function Index() {
   useSetHeaderActions(
     designs.length > 0 ? (
       <div className="flex items-center gap-3">
+        {canFilterByAuthor ? (
+          <Select value={author} onValueChange={handleAuthorChange}>
+            <SelectTrigger
+              aria-label={t("home.createdBy")}
+              className="h-8 w-40 bg-accent/50 border-border text-sm text-foreground/90"
+            >
+              <SelectValue placeholder={t("home.createdBy")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_AUTHORS}>
+                {t("home.allAuthors")}
+              </SelectItem>
+              {viewerHasDesigns ? (
+                <SelectItem value={MY_DESIGNS}>{t("home.me")}</SelectItem>
+              ) : null}
+              {authorEmails
+                .filter(
+                  (email) =>
+                    !(
+                      viewerHasDesigns &&
+                      normalizeAuthorEmail(email) === normalizedViewerEmail
+                    ),
+                )
+                .map((email) => (
+                  <SelectItem key={email} value={email}>
+                    {emailToName(email)}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         <div className="relative">
           <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
@@ -881,8 +961,16 @@ export default function Index() {
                           {design.title}
                         </h3>
                       </div>
-                      <div className="text-xs text-muted-foreground/70">
-                        {formatDate(design.updatedAt || design.createdAt)}
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                        <span className="shrink-0">
+                          {formatDate(design.updatedAt || design.createdAt)}
+                        </span>
+                        {showAuthors && design.ownerEmail ? (
+                          <>
+                            <span aria-hidden>·</span>
+                            <DesignAuthorByline email={design.ownerEmail} />
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </>
@@ -944,7 +1032,9 @@ export default function Index() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => startRename(design)}
+                            onClick={() =>
+                              setTimeout(() => startRename(design))
+                            }
                             className="cursor-pointer"
                           >
                             <IconPencil className="w-3.5 h-3.5 me-2" />
@@ -970,7 +1060,9 @@ export default function Index() {
                             )}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => setDeleteId(design.id)}
+                            onClick={() =>
+                              setTimeout(() => setDeleteId(design.id))
+                            }
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
                             <IconTrash className="w-3.5 h-3.5 me-2" />
@@ -1126,6 +1218,28 @@ export default function Index() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+/** Who created a design, shown on its library card in shared workspaces. */
+function DesignAuthorByline({ email }: { email: string }) {
+  const name = emailToName(email);
+  const avatarUrl = useAvatarUrl(email);
+
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" title={email}>
+      <Avatar className="size-4 shrink-0">
+        {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
+        <AvatarFallback
+          /* guard:allow-raw-color — emailToColor ignores the theme, so the initial stays white in both. */
+          className="text-[8px] font-semibold text-white"
+          style={{ backgroundColor: emailToColor(email) }}
+        >
+          {name.trim().charAt(0).toUpperCase() || "?"}
+        </AvatarFallback>
+      </Avatar>
+      <span className="truncate">{name}</span>
+    </span>
   );
 }
 

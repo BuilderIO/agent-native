@@ -20,7 +20,11 @@ const SYSTEM = "system";
  * browser at all (cron ticks, chat integrations, A2A), and those callers would
  * otherwise fall back to the host zone and schedule the user's 8am job in UTC.
  */
-export function SchedulingTimezoneField() {
+export function SchedulingTimezoneField({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
   const t = useT();
   const detected = browserTimezone();
   const preference = useActionQuery<LocalizationPreferenceResult>(
@@ -36,6 +40,31 @@ export function SchedulingTimezoneField() {
   const pending = save.isPending ? save.variables?.timezone : undefined;
   const value = pending ?? stored;
 
+  const select = (
+    <TimezoneSelect
+      id="agent-native-scheduling-timezone"
+      value={value}
+      disabled={preference.isLoading || save.isPending}
+      suggested={[detected]}
+      systemLabel={t("settings.timezoneSystem", {
+        defaultValue: "Follow this browser ({{zone}})",
+        zone: detected,
+      })}
+      onChange={(timezone) => save.mutate({ timezone })}
+    />
+  );
+
+  if (compact) {
+    return (
+      <div className="w-full sm:w-72">
+        {select}
+        {save.error && (
+          <p className="mt-1 text-xs text-destructive">{save.error.message}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       <label
@@ -44,19 +73,7 @@ export function SchedulingTimezoneField() {
       >
         {t("settings.timezoneLabel", { defaultValue: "Timezone" })}
       </label>
-
-      <TimezoneSelect
-        id="agent-native-scheduling-timezone"
-        value={value}
-        disabled={preference.isLoading || save.isPending}
-        suggested={[detected]}
-        systemLabel={t("settings.timezoneSystem", {
-          defaultValue: "Follow this browser ({{zone}})",
-          zone: detected,
-        })}
-        onChange={(timezone) => save.mutate({ timezone })}
-      />
-
+      {select}
       <p className="min-h-4 text-xs text-muted-foreground">
         {save.error ? (
           <span className="text-destructive">{save.error.message}</span>

@@ -83,8 +83,14 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "calendar",
+  // A delegated (A2A) turn served from the foreground gets the 40s
+  // serverless wall, and "I ran out of time before finishing this step"
+  // was 39% of this fleet's failed inbound A2A tasks — clustered at
+  // 35-46s, the wall to the second. Opting in routes the task to the
+  // background worker, as content, slides and analytics already do.
+  durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
+  mcp: { connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG] },
   // Enable sandboxed JavaScript execution so Calendar agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Calendar / CRM endpoint.
@@ -109,7 +115,7 @@ Provider-specific Calendar actions are shortcuts, not limits. If a first-class a
 - \`pnpm action search-events --query "term" --from YYYY-MM-DD --to YYYY-MM-DD\` — Convenience bounded search by title, attendees, organizer, location, or description. For relationship history, all-calendar discovery, exact attendee/domain search, or custom pagination, prefer provider-api-request with provider=google_calendar.
 - \`pnpm action provider-api-catalog\` / \`provider-api-docs\` / \`provider-api-request\` — Inspect and call the real Google Calendar, Apollo, Gong, HubSpot, and Pylon APIs directly. For Google Calendar events.list pagination use provider=google_calendar, path=/calendars/primary/events, query={...}, fetchAllPages={cursorPath:"nextPageToken",cursorParam:"pageToken",itemsPath:"items"}. For large relationship-history scans, pass stageAs and pagination={nextCursorPath:"nextPageToken",cursorParam:"pageToken",maxPages:N} with itemsPath="items", then use query-staged-dataset.
 - \`pnpm action create-event --title "..." --start "ISO" --end "ISO"\` — Create a new event. Use \`--eventType outOfOffice\` for OOO, \`--eventType focusTime\` for focus time, \`--eventType workingLocation\` for working location, \`--transparency transparent\` to show as Free, \`--visibility private\` for private events, \`--startTimeZone America/Los_Angeles\` for timezone anchoring, \`--colorId 9\` for Google event color, \`--reminders '[{"method":"popup","minutes":10}]'\` for alerts, and \`--attachments '[{"fileUrl":"https://...","title":"Agenda"}]'\` for Drive/HTTPS file links.
-- \`pnpm action update-event --id "google-..." --transparency opaque|transparent --visibility default|public|private --reminderMinutes 10 --addAttendees "alice@example.com" --scope single|all\` — Update event availability, visibility, reminders, timezone, color, attachments, recurrence, guests, or generated video links. Use \`addAttendees\` when inviting more people so existing RSVP metadata is preserved. Pass attendee objects with \`optional:true\` to mark optional guests. Use \`--scope all\` to update an entire recurring series from one occurrence.
+- \`pnpm action update-event --id "google-..." --transparency opaque|transparent --visibility default|public|private --reminderMinutes 10 --addAttendees "alice@example.com" --scope single|all\` — Update event availability, visibility, reminders, timezone, color, attachments, recurrence, guests, generated video links, or move an existing event between connected account calendars with \`--accountEmail <current> --targetAccountEmail <destination>\`. A move recreates the event on the destination and removes the source; do not combine it with other event field changes. Use \`addAttendees\` when inviting more people so existing RSVP metadata is preserved. Pass attendee objects with \`optional:true\` to mark optional guests. Use \`--scope all\` to update an entire recurring series from one occurrence, but use \`scope: single\` when moving an event.
 - \`pnpm action navigate --view=calendar --calendarViewMode=day\` — Navigate the UI (day/week/month views, dates)
 - \`pnpm action navigate --view=calendar --date=YYYY-MM-DD\` — Navigate to a specific date
 - \`pnpm action navigate --view=availability\` — Show availability settings

@@ -9,6 +9,7 @@
     "start": "agent-native start",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "action": "agent-native action",
     "script": "agent-native script",
     "db:push": "drizzle-kit push",
@@ -87,6 +88,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
+    "tsx": "^4.20.3",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

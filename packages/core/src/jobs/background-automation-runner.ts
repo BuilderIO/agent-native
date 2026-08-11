@@ -1,5 +1,6 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 import type { ActionAutomationContext, ActionCaller } from "../action.js";
+import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -25,8 +26,10 @@ import { createThread } from "../chat-threads/store.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
+  organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { resolveBuilderCredentialsDetailed } from "../server/credential-provider.js";
 import {
   runWithRequestContext,
   type RequestContext,
@@ -51,7 +54,7 @@ export interface BackgroundAutomationContext {
 export interface BackgroundAutomationDeps {
   getActions: (
     automation?: BackgroundAutomationContext,
-  ) => Record<string, ActionEntry>;
+  ) => Record<string, ActionEntry> | Promise<Record<string, ActionEntry>>;
   getSystemPrompt: (owner: string) => Promise<string>;
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
@@ -74,6 +77,8 @@ export interface BackgroundAutomationRunOptions {
   requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
+  /** Reuse a history row created by a durable run-now enqueue. */
+  historyId?: string;
 }
 
 export interface BackgroundAutomationRunResult {
@@ -259,31 +264,40 @@ export async function runBackgroundAutomation(
   // that cannot be written should cost us the record, not the automation.
   // Everything downstream tolerates a null id by skipping its own write.
   let historyId: string | null = null;
-  try {
-    historyId = await startAutomationRun({
-      owner: automation.resource.owner,
-      automation: automation.name,
-      path: automation.resource.path,
-      scope: organizationIdFromResourceOwner(automation.resource.owner)
-        ? "organization"
-        : "personal",
-      orgId: options.orgId ?? null,
-    });
-  } catch (err) {
-    console.error(
-      `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
-      err,
-    );
+  if (options.historyId) {
+    historyId = options.historyId;
+  } else {
+    try {
+      const historyOwner = options.orgId
+        ? organizationResourceOwner(options.orgId)
+        : automation.resource.owner === "__shared__"
+          ? options.ownerEmail
+          : automation.resource.owner;
+      historyId = await startAutomationRun({
+        owner: historyOwner,
+        automation: automation.name,
+        path: automation.resource.path,
+        scope: options.orgId ? "organization" : "personal",
+        orgId: options.orgId ?? null,
+        appId: deps.appId,
+      });
+    } catch (err) {
+      console.error(
+        `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
+        err,
+      );
+    }
   }
 
   let result: BackgroundAutomationRunResult;
   try {
     result = await executeBackgroundAutomation(options, deps, historyId);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     await recordRunOutcome(
       historyId,
       "error",
-      err instanceof Error ? err.message : String(err),
+      `${message}. No delivery was confirmed.`,
     );
     throw err;
   }
@@ -345,7 +359,7 @@ async function executeBackgroundAutomation(
       orgId,
     },
     async () => {
-      const baseActions = deps.getActions(automation);
+      const baseActions = await deps.getActions(automation);
       assertRequestedMcpToolsAvailable(automation, baseActions);
 
       const configuredInitialTools = deps.getInitialToolNames?.(automation);
@@ -362,12 +376,25 @@ async function executeBackgroundAutomation(
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-      const engine =
+      const resolvedEngine =
         deps.engine ??
         (await resolveEngine({
           apiKey: userApiKey ?? deps.apiKey,
           appId: deps.appId,
         }));
+      // The run manager invokes its detached callback after the scheduler's
+      // setup stack has yielded. Capture the verified Builder pair while the
+      // owner/org identity is explicit, then keep it on the engine so a
+      // concurrent serverless run cannot make this call look unauthenticated.
+      const engine =
+        !deps.engine && resolvedEngine.name === "builder"
+          ? createBuilderEngine({
+              credentials: await resolveBuilderCredentialsDetailed({
+                userEmail: ownerEmail,
+                orgId,
+              }),
+            })
+          : resolvedEngine;
       const modelCandidate =
         automation.meta.model ??
         deps.model ??
@@ -375,7 +402,10 @@ async function executeBackgroundAutomation(
         engine.defaultModel;
       const model = normalizeModelForEngine(engine, modelCandidate);
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
-      const thread = await createThread(ownerEmail, { title: threadTitle });
+      const thread = await createThread(ownerEmail, {
+        title: threadTitle,
+        orgId: orgId ?? null,
+      });
       const runId = createRunId(options.runIdPrefix);
       await recordRunThread(historyId, thread.id, runId);
 
@@ -448,6 +478,7 @@ async function executeBackgroundAutomation(
                 threadId: thread.id,
                 ownerEmail,
                 orgId,
+                appId: deps.appId,
                 actionCaller: options.actionCaller,
                 automation: options.actionAutomation,
                 runId,

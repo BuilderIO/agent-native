@@ -22,11 +22,13 @@ import {
 } from "../jobs/background-automation-runner.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   parseJobResource,
 } from "../jobs/frontmatter.js";
 import {
+  resourceGetByPath,
   resourceListAllOwners,
-  resourcePut,
+  resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
 import { evaluateCondition } from "./condition-evaluator.js";
@@ -90,21 +92,64 @@ let _deps: TriggerDispatcherDeps | null = null;
  */
 async function recordTriggerSkip(
   resource: Resource,
-  meta: TriggerFrontmatter,
-  body: string,
   status: "skipped" | "error",
   reason: string | undefined,
 ): Promise<void> {
-  const unchanged = meta.lastStatus === status && meta.lastError === reason;
-  meta.lastCheck = new Date().toISOString();
-  meta.lastStatus = status;
-  meta.lastError = reason;
-  if (unchanged) return;
-  await resourcePut(
-    resource.owner,
-    resource.path,
-    buildTriggerContent(meta, body),
-  );
+  await recordTriggerExecutionOutcome(resource, {
+    lastCheck: new Date().toISOString(),
+    lastStatus: status,
+    lastError: reason,
+  });
+}
+
+async function recordTriggerExecutionOutcome(
+  resource: Resource,
+  outcome: Pick<
+    TriggerFrontmatter,
+    "lastCheck" | "lastStatus" | "lastError" | "lastRun"
+  >,
+): Promise<boolean> {
+  const latest = await resourceGetByPath(resource.owner, resource.path);
+  if (!latest) {
+    console.log(
+      `[triggers] "${resource.path}" was deleted mid-run; dropping its outcome.`,
+    );
+    return false;
+  }
+  if (latest.id !== resource.id) {
+    console.log(
+      `[triggers] "${resource.path}" was replaced mid-run; dropping its outcome.`,
+    );
+    return false;
+  }
+
+  const current = parseTriggerFrontmatter(latest.content);
+  const unchanged =
+    current.meta.lastStatus === outcome.lastStatus &&
+    current.meta.lastError === outcome.lastError &&
+    (outcome.lastRun === undefined || current.meta.lastRun === outcome.lastRun);
+  if (unchanged && outcome.lastCheck !== undefined) {
+    // Keep the old check timestamp when the same blocked state is observed
+    // again. This avoids turning a repeated failure into apparent activity.
+    return true;
+  }
+
+  const nextMeta: TriggerFrontmatter = { ...current.meta, ...outcome };
+  const written = await resourcePutIfCurrent({
+    owner: resource.owner,
+    path: resource.path,
+    content: buildTriggerContent(nextMeta, current.body),
+    expectedId: latest.id,
+    expectedUpdatedAt: latest.updatedAt,
+    expectedContent: latest.content,
+  });
+  if (!written) {
+    console.log(
+      `[triggers] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
+    );
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -130,6 +175,7 @@ export async function refreshEventSubscriptions(): Promise<void> {
     for (const resource of jobResources) {
       if (!resource.path.endsWith(".md")) continue;
       const { meta } = parseTriggerFrontmatter(resource.content);
+      if (!jobBelongsToApp(meta, _deps?.appId)) continue;
       if (meta.triggerType === "event" && meta.event && meta.enabled) {
         eventNames.add(meta.event);
       }
@@ -161,7 +207,8 @@ async function handleEvent(
   payload: unknown,
   eventMeta: EventMeta,
 ): Promise<void> {
-  if (!_deps) return;
+  const deps = _deps;
+  if (!deps) return;
 
   try {
     const jobResources = await resourceListAllOwners("jobs/");
@@ -172,6 +219,7 @@ async function handleEvent(
         meta.triggerType === "event" &&
         meta.event === eventName &&
         meta.enabled &&
+        jobBelongsToApp(meta, deps.appId) &&
         !isBackgroundAutomationRunActive(meta)
       );
     });
@@ -200,21 +248,13 @@ async function handleEvent(
         } catch {
           await recordTriggerSkip(
             resource,
-            meta,
-            body,
             "skipped",
             "Could not verify the automation execution identity.",
           );
           continue;
         }
         if (!resolved.ok) {
-          await recordTriggerSkip(
-            resource,
-            meta,
-            body,
-            "skipped",
-            resolved.reason,
-          );
+          await recordTriggerSkip(resource, "skipped", resolved.reason);
           continue;
         }
         if (!automationMatchesEventOwner(resolved.identity, eventMeta.owner)) {
@@ -226,12 +266,10 @@ async function handleEvent(
       // Resolve API key for condition evaluation
       const owner = identity.userEmail;
       const userApiKey = await getOwnerActiveApiKey(owner);
-      const apiKey = userApiKey || _deps.apiKey;
+      const apiKey = userApiKey || deps.apiKey;
       if (!apiKey) {
         await recordTriggerSkip(
           resource,
-          meta,
-          body,
           "error",
           "No API key is available for this automation",
         );
@@ -242,7 +280,7 @@ async function handleEvent(
       // Evaluate condition
       const matches = await evaluateCondition(meta.condition, payload, apiKey);
       if (!matches) {
-        await recordTriggerSkip(resource, meta, body, "skipped", undefined);
+        await recordTriggerSkip(resource, "skipped", undefined);
         continue;
       }
 
@@ -254,14 +292,7 @@ async function handleEvent(
       if (meta.mode === "agentic") {
         _dispatchingTriggers.add(dispatchKey);
         try {
-          await dispatchAgentic(
-            resource,
-            meta,
-            body,
-            payload,
-            eventMeta,
-            identity,
-          );
+          await dispatchAgentic(resource, payload, eventMeta, identity);
         } finally {
           _dispatchingTriggers.delete(dispatchKey);
         }
@@ -278,8 +309,6 @@ async function handleEvent(
 
 async function dispatchAgentic(
   resource: Resource,
-  meta: TriggerFrontmatter,
-  body: string,
   payload: unknown,
   eventMeta: EventMeta,
   identity: AutomationExecutionIdentity,
@@ -292,15 +321,40 @@ async function dispatchAgentic(
   const jobUserEmail = identity.userEmail;
   const jobOrgId = identity.orgId;
 
-  // Mark as running
-  meta.lastRun = now.toISOString();
-  meta.lastStatus = "running";
-  meta.lastError = undefined;
-  await resourcePut(
-    resource.owner,
-    resource.path,
-    buildTriggerContent(meta, body),
-  );
+  const latest = await resourceGetByPath(resource.owner, resource.path);
+  if (!latest || latest.id !== resource.id) {
+    console.log(
+      `[triggers] "${resource.path}" changed before dispatch; dropping the event.`,
+    );
+    return;
+  }
+  const latestTrigger = parseTriggerFrontmatter(latest.content);
+  if (!jobBelongsToApp(latestTrigger.meta, _deps.appId)) {
+    console.log(
+      `[triggers] "${resource.path}" belongs to a different app; dropping the event.`,
+    );
+    return;
+  }
+  const runningMeta: TriggerFrontmatter = {
+    ...latestTrigger.meta,
+    lastRun: now.toISOString(),
+    lastStatus: "running",
+    lastError: undefined,
+  };
+  const claimed = await resourcePutIfCurrent({
+    owner: resource.owner,
+    path: resource.path,
+    content: buildTriggerContent(runningMeta, latestTrigger.body),
+    expectedId: latest.id,
+    expectedUpdatedAt: latest.updatedAt,
+    expectedContent: latest.content,
+  });
+  if (!claimed) {
+    console.log(
+      `[triggers] "${resource.path}" was claimed or changed before dispatch; dropping the event.`,
+    );
+    return;
+  }
 
   let payloadStr: string;
   try {
@@ -311,30 +365,32 @@ async function dispatchAgentic(
 
   const automation: BackgroundAutomationContext = {
     name: triggerName,
-    meta,
-    body,
-    resource,
+    meta: runningMeta,
+    body: latestTrigger.body,
+    resource: claimed,
   };
   const requestContext =
-    meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
+    runningMeta.originScopeId &&
+    runningMeta.deliveryPlatform &&
+    runningMeta.deliveryDestination
       ? {
           isIntegrationCaller: true as const,
           integration: {
             taskId: `automation:${triggerName}:${eventMeta.eventId}`,
-            scopeId: meta.originScopeId,
+            scopeId: runningMeta.originScopeId,
             principalType: "service" as const,
             incoming: {
-              platform: meta.deliveryPlatform,
-              externalThreadId: `${meta.deliveryTenantId || "unknown"}:${meta.deliveryDestination}:${meta.deliveryThreadRef || "root"}`,
+              platform: runningMeta.deliveryPlatform,
+              externalThreadId: `${runningMeta.deliveryTenantId || "unknown"}:${runningMeta.deliveryDestination}:${runningMeta.deliveryThreadRef || "root"}`,
               text: "",
-              tenantId: meta.deliveryTenantId,
-              integrationScopeId: meta.originScopeId,
+              tenantId: runningMeta.deliveryTenantId,
+              integrationScopeId: runningMeta.originScopeId,
               platformContext: {
-                channelId: meta.deliveryDestination,
-                threadTs: meta.deliveryThreadRef,
-                teamId: meta.deliveryTenantId,
+                channelId: runningMeta.deliveryDestination,
+                threadTs: runningMeta.deliveryThreadRef,
+                teamId: runningMeta.deliveryTenantId,
               },
-              threadRef: meta.deliveryThreadRef,
+              threadRef: runningMeta.deliveryThreadRef,
               timestamp: now.getTime(),
             },
           },
@@ -348,7 +404,7 @@ async function dispatchAgentic(
         ownerEmail: jobUserEmail,
         orgId: jobOrgId,
         prompt: `[Automation Trigger: ${triggerName}]
-Event: ${meta.event}
+Event: ${runningMeta.event}
 Event ID: ${eventMeta.eventId}
 Fired at: ${eventMeta.emittedAt}
 
@@ -357,7 +413,7 @@ ${payloadStr}
 
 Execute the following automation instructions:
 
-${body}`,
+${latestTrigger.body}`,
         threadTitle: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         runIdPrefix: `automation-${triggerName}`,
         usageLabel: `automation:${triggerName}`,
@@ -365,30 +421,26 @@ ${body}`,
         requestContext,
         actionCaller: "automation",
         actionAutomation: {
-          triggerId: resource.id,
+          triggerId: latest.id,
           triggerName,
-          policyId: meta.delegatedPolicyId,
+          policyId: runningMeta.delegatedPolicyId,
         },
       },
       _deps,
     );
 
-    meta.lastStatus = "success";
-    await resourcePut(
-      resource.owner,
-      resource.path,
-      buildTriggerContent(meta, body),
-    );
+    await recordTriggerExecutionOutcome(latest, {
+      lastStatus: "success",
+      lastError: undefined,
+    });
     console.log(`[triggers] "${triggerName}" completed successfully`);
   } catch (err) {
-    meta.lastStatus = "error";
-    meta.lastError =
+    const lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    await resourcePut(
-      resource.owner,
-      resource.path,
-      buildTriggerContent(meta, body),
-    );
-    console.error(`[triggers] "${triggerName}" failed:`, meta.lastError);
+    await recordTriggerExecutionOutcome(latest, {
+      lastStatus: "error",
+      lastError,
+    });
+    console.error(`[triggers] "${triggerName}" failed:`, lastError);
   }
 }

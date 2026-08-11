@@ -118,20 +118,23 @@ function designDeepLink(designId: string): string {
 
 function classifyVar(name: string, value: string): ImportedTokenType {
   const n = name.toLowerCase();
-  if (
-    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
-      n,
-    ) ||
-    isColorValue(value)
-  ) {
-    return "color";
-  }
+  if (isColorValue(value)) return "color";
+  if (/radius|rounded/i.test(n)) return "radius";
   if (/font|size|leading|tracking|weight|heading|body|type/i.test(n)) {
     return "typography";
   }
-  if (/radius|rounded/i.test(n)) return "radius";
   if (/spacing|gap|padding|margin|space/i.test(n)) return "spacing";
   if (/shadow|blur|drop/i.test(n)) return "shadow";
+  if (
+    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
+      n,
+    ) &&
+    !/^-?\d*\.?\d+(px|rem|em|ex|ch|%|vh|vw|vmin|vmax|pt|pc|cm|mm|in|s|ms|deg|fr)?$/i.test(
+      value.trim(),
+    )
+  ) {
+    return "color";
+  }
   return "other";
 }
 

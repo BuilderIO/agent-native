@@ -3,13 +3,13 @@
 Dispatch is the control plane for workspace resources, shared integrations,
 vault secrets, messaging routes, MCP/app setup, and agent operations.
 
-Detailed framework rules live in root skills; this file only keeps Dispatch
-specific essentials.
+## Skills
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+Read the relevant skill before deeper work:
+
+- `automations` for event- and schedule-triggered automation rules on
+  `/admin/automations`.
+- `recurring-jobs` for scheduled/background job behavior and the scheduler.
 
 ## Core Rules
 
@@ -30,10 +30,15 @@ ladder.
   against the provider's real HTTP API. Use `connectionId` for a specific shared
   grant and `accountId` for a specific OAuth account. Do not expose secret
   values or silently widen app access while doing this.
-- For integration webhooks, use the queue-and-processor pattern. Do not rely on
-  fire-and-forget promises after a serverless response.
 - Use `view-screen` when the current integration, resource, approval, route, or
   setup item is unclear.
+- Dispatch keeps its primary navigation focused on Overview, Chat, Apps, and
+  the workspace app rail. Workspace management and operator tools live under
+  the top-level `/admin` control plane, which uses grouped navigation for
+  `/admin/operations`, `/admin/metrics`, `/admin/integrations`, `/admin/vault`,
+  `/admin/automations`, `/admin/approvals`, `/admin/destinations`,
+  `/admin/agents`, `/admin/workspace`, `/admin/messaging`, `/admin/identities`,
+  `/admin/audit`, `/admin/dreams`, and `/admin/thread-debug`.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
 - Curated workspace templates are private app sources. Use
@@ -41,7 +46,7 @@ ladder.
   `remix-workspace-template` to create an independent app. A new app may use
   empty or synthetic data only; never copy source-app records, credentials,
   secrets, or private configuration.
-- `/operations` is the focused operator console. Its Monitoring tab reuses the
+- `/admin/operations` is the focused operator console. Its Monitoring tab reuses the
   shared observability dashboard for traces, conversations, evaluations,
   experiments, and feedback; its Database tab reuses the Code-mode database
   admin. Use `navigate --view operations|monitoring|observability|database` and
@@ -74,12 +79,7 @@ ladder.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
 
-## Skills
+## Source Changes
 
-Read the relevant skill before deeper work:
-
-- Root `secrets`, `onboarding`, `integration-webhooks`, `external-agents`,
-  `a2a-protocol`, `automations`, and `recurring-jobs` for infrastructure work.
-- `actions`, `security`, `sharing`, `frontend-design`, and `shadcn-ui` for
-  framework implementation. The `actions` skill includes the shared provider API
-  pattern for flexible integrations.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

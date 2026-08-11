@@ -119,6 +119,7 @@ import {
 } from "@/lib/dashboard-report-capture";
 import { incrementItemView } from "@/lib/item-popularity";
 import {
+  dashboardCacheScope,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
@@ -570,6 +571,7 @@ function SqlDashboardPageContent({
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const dashboardScope = dashboardCacheScope(session);
   const dashboardId = searchParams.get("id") || routeId;
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
@@ -689,7 +691,7 @@ function SqlDashboardPageContent({
   // writes show up without a manual refresh"; see `use-change-version.ts`.
   const sync = useChangeVersions(["dashboards", "action"]);
   const dashboardQuery = useQuery({
-    queryKey: ["data", "sql-dashboard", dashboardId, sync],
+    queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope, sync],
     enabled: !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return null;
@@ -700,17 +702,16 @@ function SqlDashboardPageContent({
       ? DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS
       : undefined,
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
     initialData: () => {
       if (!dashboardId) return undefined;
       const snapshot = queryClient.getQueryData<
         PrefetchSnapshot<FetchedDashboard | null>
-      >(sqlDashboardPrefetchKey(dashboardId));
+      >(sqlDashboardPrefetchKey(dashboardId, dashboardScope));
       return dashboardPrefetchInitialData(snapshot, sync);
     },
     initialDataUpdatedAt: () => {
       if (!dashboardId) return undefined;
-      const queryKey = sqlDashboardPrefetchKey(dashboardId);
+      const queryKey = sqlDashboardPrefetchKey(dashboardId, dashboardScope);
       const snapshot =
         queryClient.getQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
           queryKey,
@@ -754,18 +755,20 @@ function SqlDashboardPageContent({
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
       queryClient.setQueriesData<FetchedDashboard | null>(
-        { queryKey: ["data", "sql-dashboard", dashboardId] },
+        {
+          queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+        },
         (prev) => (prev ? { ...prev, config: updated } : prev),
       );
       queryClient.setQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
-        sqlDashboardPrefetchKey(dashboardId),
+        sqlDashboardPrefetchKey(dashboardId, dashboardScope),
         (prev) =>
           prev?.data
             ? { ...prev, data: { ...prev.data, config: updated } }
             : prev,
       );
     },
-    [dashboardId, queryClient],
+    [dashboardId, dashboardScope, queryClient],
   );
 
   const holdDashboardConfig = useCallback(() => {
@@ -775,10 +778,12 @@ function SqlDashboardPageContent({
       currentUpdatedAt: dashboardUpdatedAt,
     });
     void queryClient.cancelQueries(
-      { queryKey: ["data", "sql-dashboard", dashboardId] },
+      {
+        queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+      },
       { revert: false },
     );
-  }, [dashboardId, dashboardUpdatedAt, queryClient]);
+  }, [dashboardId, dashboardScope, dashboardUpdatedAt, queryClient]);
 
   // Track which panels remote users are editing (from awareness)
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
@@ -872,7 +877,7 @@ function SqlDashboardPageContent({
     resetRevisionNavigation();
     revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
-  }, [dashboardId, resetRevisionNavigation]);
+  }, [dashboardId, dashboardScope, resetRevisionNavigation]);
 
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
@@ -1075,16 +1080,16 @@ function SqlDashboardPageContent({
         .then(({ isLatest }) => {
           if (!isLatest) return;
           queryClient.removeQueries({
-            queryKey: sqlDashboardPrefetchKey(dashboardId),
+            queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
           });
           queryClient.invalidateQueries({
-            queryKey: ["sql-dashboards-sidebar"],
+            queryKey: ["sql-dashboards-sidebar", dashboardScope],
           });
           queryClient.invalidateQueries({
-            queryKey: ["sql-dashboards-palette"],
+            queryKey: ["sql-dashboards-palette", dashboardScope],
           });
           queryClient.invalidateQueries({
-            queryKey: ["data", "sql-dashboard", dashboardId],
+            queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
           });
         })
         .catch((err) => {
@@ -1099,6 +1104,7 @@ function SqlDashboardPageContent({
     },
     [
       dashboardId,
+      dashboardScope,
       canEdit,
       enqueueDashboardSave,
       holdDashboardConfig,
@@ -1126,16 +1132,21 @@ function SqlDashboardPageContent({
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
       queryClient.removeQueries({
-        queryKey: sqlDashboardPrefetchKey(dashboardId),
+        queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
-      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
       queryClient.invalidateQueries({
-        queryKey: ["data", "sql-dashboard", dashboardId],
+        queryKey: ["sql-dashboards-sidebar", dashboardScope],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["sql-dashboards-palette", dashboardScope],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
     },
     [
       dashboardId,
+      dashboardScope,
       canEdit,
       enqueueDashboardSave,
       holdDashboardConfig,
@@ -1596,16 +1607,27 @@ function SqlDashboardPageContent({
     if (!dashboardId) return;
     if (!canManage) return;
     await deleteDashboardAction({ id: dashboardId });
-    queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
-    queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
-    queryClient.removeQueries({
-      queryKey: sqlDashboardPrefetchKey(dashboardId),
+    queryClient.invalidateQueries({
+      queryKey: ["sql-dashboards-sidebar", dashboardScope],
     });
     queryClient.invalidateQueries({
-      queryKey: ["data", "sql-dashboard", dashboardId],
+      queryKey: ["sql-dashboards-palette", dashboardScope],
+    });
+    queryClient.removeQueries({
+      queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
+    });
+    queryClient.invalidateQueries({
+      queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
     });
     navigate("/");
-  }, [dashboardId, canManage, deleteDashboardAction, queryClient, navigate]);
+  }, [
+    dashboardId,
+    dashboardScope,
+    canManage,
+    deleteDashboardAction,
+    queryClient,
+    navigate,
+  ]);
 
   const dismissDemoIntro = useCallback(() => {
     setSearchParams(
@@ -1624,12 +1646,14 @@ function SqlDashboardPageContent({
     if (archivedAt) return;
     try {
       await archiveDashboardAction({ id: dashboardId, archived: true });
-      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
+      queryClient.invalidateQueries({
+        queryKey: ["sql-dashboards-sidebar", dashboardScope],
+      });
       queryClient.removeQueries({
-        queryKey: sqlDashboardPrefetchKey(dashboardId),
+        queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
       queryClient.invalidateQueries({
-        queryKey: ["data", "sql-dashboard", dashboardId],
+        queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
       toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
       navigate("/");
@@ -1640,6 +1664,7 @@ function SqlDashboardPageContent({
     }
   }, [
     dashboardId,
+    dashboardScope,
     canEdit,
     archivedAt,
     archiveDashboardAction,
@@ -1659,13 +1684,17 @@ function SqlDashboardPageContent({
       if (typeof result?.ownerEmail === "string") {
         setDashboardOwner(result.ownerEmail);
       }
-      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-sidebar"] });
-      queryClient.invalidateQueries({ queryKey: ["sql-dashboards-palette"] });
-      queryClient.removeQueries({
-        queryKey: sqlDashboardPrefetchKey(dashboardId),
+      queryClient.invalidateQueries({
+        queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
       queryClient.invalidateQueries({
-        queryKey: ["data", "sql-dashboard", dashboardId],
+        queryKey: ["sql-dashboards-palette", dashboardScope],
+      });
+      queryClient.removeQueries({
+        queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
       toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);
     } catch (err) {
@@ -1673,7 +1702,13 @@ function SqlDashboardPageContent({
         err instanceof Error ? err.message : "Couldn't unhide dashboard",
       );
     }
-  }, [dashboardId, dashboard?.name, hideDashboardAction, queryClient]);
+  }, [
+    dashboardId,
+    dashboardScope,
+    dashboard?.name,
+    hideDashboardAction,
+    queryClient,
+  ]);
 
   const handleSaveView = useCallback(
     async (name: string, filters: Record<string, string>) => {

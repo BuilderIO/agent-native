@@ -1,5 +1,9 @@
 // Browser-safe entry — only client & shared exports (no Node/Express/chokidar).
 
+// Public app configuration is serializable and safe to expose to browser
+// consumers alongside the resolved config injected by the Vite preset.
+export * from "./config.js";
+
 // Client
 export {
   addContextToAgentChat,

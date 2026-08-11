@@ -187,7 +187,7 @@ function MakeItRealCard({
   const summary =
     cta.kind === "configure-project"
       ? `Choose a Builder project to enable ${featureLabel}.`
-      : `Connect Builder to enable ${featureLabel}.`;
+      : `Connect Builder (free tier available) to enable ${featureLabel}.`;
   const primaryLabel =
     cta.kind === "configure-project"
       ? t("designEditor.makeItRealCard.choose")

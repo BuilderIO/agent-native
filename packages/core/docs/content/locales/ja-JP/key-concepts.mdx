@@ -23,7 +23,7 @@ Core が基盤です。Toolkit と Templates はオプションです。
 
 - **エージェント** — データの読み取り、書き込み、actions の実行、および設定済みツールの利用を行う自律型 AI。 skills と説明書でカスタマイズ可能。
 - **アプリケーション** — エージェントの周囲の製品表面。これは、最初はアクションのみ、リッチ チャット、小さなコントロール プレーン、またはダッシュボード、フロー、ビジュアライゼーションを備えた完全な React UI画面 である可能性があります。
-- **コンピュータ** — データベース、ブラウザ、コード実行。エージェントは SQL および組み込みツールと直接連携します。 MCP サーバーはオプションのアドオンであり、基盤ではありません。
+- **コンピュータ** — データベース、ブラウザ、コード実行。エージェントはアプリのアクションとデータのサーフェスを通じて動作し、アプリは同じアクションサーフェスを MCP 経由で公開できます。外部 MCP サーバーはオプションのアドオンであり、基盤ではありません。
 
 <Diagram id="doc-block-1ngou9i" title={"エージェント、アプリケーション、およびコンピュータ"} summary={"3 つのレイヤーが 1 つの共有 SQL ストア上で連携します。エージェントとアプリケーションは両方とも同じデータの読み取りと書き込みを行います。"}>
 
@@ -253,12 +253,14 @@ pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
 実稼働エージェントのチャット プラグインは raw SQL ツールをデフォルトで読み取り専用にします
-(`databaseTools: "read"`)。エージェントは `db-schema` / `db-query` で
+(`frameworkTools: { database: "read" }`)。エージェントは `db-schema` / `db-query` で
 アプリ所有データを検査し、書き込みは型付きアプリ actions 経由で行います。
 スコープ付きの `db-exec` / `db-patch` も公開する必要がある意図的な
-メンテナンス面だけで `databaseTools: "write"` (または `true`) を設定します。
+メンテナンス面だけで `database: "write"` (または `true`) を設定します。
 すべてのデータアクセスに型付きアプリ actions を要求するには
-`databaseTools: "off"` / `false` を設定します。
+`database: "off"` / `false` を設定します。
+
+`frameworkTools` は、フレームワーク自身の残りのツールも同じように制御します。共有、レビューコメント、バージョン履歴、feature flags、ローカライズ、監査、Context X-Ray、プロフィール、自動化、docs、resources、web、アプリ間委譲、チャット、メールです。完全な一覧、`"minimal"` プリセット、グループを無効にしても HTTP ルートが残る理由は [Production Agent Tools](/docs/deployment#production-agent-tools) を参照してください。
 
 ## エージェント チャット ブリッジ {#agent-chat-bridge}
 

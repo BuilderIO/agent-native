@@ -24,12 +24,21 @@ import {
 } from "../components/ui/dropdown-menu.js";
 import { useFormatters, useT } from "../i18n.js";
 import { useChangeVersion } from "../use-change-version.js";
-import { usePausingInterval } from "../use-pausing-interval.js";
+import { usePollLoop } from "../use-poll-loop.js";
 import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
 type RunsTrayTriggerVariant = "icon" | "pill";
 const RUN_CHANGE_SETTLE_MS = 250;
+/**
+ * Cadence used while a run still reads as active, even for hosts that opted
+ * out of idle polling with `pollMs={0}`. Those hosts only refresh on mount and
+ * on a `runs` change event, and a run abandoned mid-flight (budget exhausted,
+ * dead worker) emits neither — so the spinner has no path back to a terminal
+ * status. Polling only while something looks active keeps the idle cost at
+ * zero and still lets the server's stale sweep terminalize the row.
+ */
+const ACTIVE_RUN_POLL_MS = 5000;
 
 interface RunsTrayProps {
   /** Poll interval in ms. 0 disables. Default 3000. */
@@ -75,20 +84,25 @@ function useRunsTrayState({
   const includeRecent = showRecent ?? !hideWhenIdle;
   const runsVersion = useChangeVersion("runs");
 
-  const refresh = useCallback(async () => {
-    try {
-      const query = new URLSearchParams({ limit: String(limit) });
-      if (!includeRecent) query.set("active", "true");
-      const res = await fetch(
-        agentNativePath(`/_agent-native/runs?${query.toString()}`),
-      );
-      if (!res.ok) return;
-      const rows = (await res.json()) as AgentRunDto[];
-      setRuns(rows);
-    } catch {
-      // best-effort
-    }
-  }, [includeRecent, limit]);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const query = new URLSearchParams({ limit: String(limit) });
+        if (!includeRecent) query.set("active", "true");
+        const res = await fetch(
+          agentNativePath(`/_agent-native/runs?${query.toString()}`),
+          { signal },
+        );
+        if (!res.ok) return;
+        const rows = (await res.json()) as AgentRunDto[];
+        setRuns(rows);
+      } catch {
+        // coercion-ok: `runs` keeps its last good value rather than being
+        // cleared to an empty tray; the next poll tick retries.
+      }
+    },
+    [includeRecent, limit],
+  );
 
   useEffect(() => {
     void refresh();
@@ -103,7 +117,11 @@ function useRunsTrayState({
     return () => window.clearTimeout(timeout);
   }, [refresh, runsVersion]);
 
-  usePausingInterval(refresh, pollMs);
+  const hasActiveRun = runs.some((run) => run.status === "running");
+  usePollLoop(refresh, {
+    intervalMs: pollMs > 0 ? pollMs : ACTIVE_RUN_POLL_MS,
+    enabled: pollMs > 0 || hasActiveRun,
+  });
 
   const dismissRun = useCallback(
     async (runId: string) => {

@@ -34,6 +34,12 @@ export interface ShortLivedTokenClaims {
   resourceId: string;
   /** Optional viewer email for audit / analytics — not used for authorisation. */
   viewerEmail?: string;
+  /**
+   * Optional display name of the agent the token was minted for. Signed so a
+   * reader cannot rename itself, but audit/display-only like `viewerEmail` —
+   * never consult it for authorisation.
+   */
+  agentLabel?: string;
   /** Override default TTL (seconds). */
   ttlSeconds?: number;
 }
@@ -41,6 +47,7 @@ export interface ShortLivedTokenClaims {
 interface DecodedClaims {
   resourceId: string;
   viewerEmail?: string;
+  agentLabel?: string;
   exp: number;
 }
 
@@ -49,7 +56,7 @@ interface DecodedClaims {
  * `ok` field so callers can `if (!result.ok) return …`.
  */
 export type VerifyResult =
-  | { ok: true; viewerEmail?: string }
+  | { ok: true; viewerEmail?: string; agentLabel?: string }
   | { ok: false; reason: string };
 
 let _devSigningKey: string | undefined;
@@ -102,6 +109,7 @@ export function signShortLivedToken(claims: ShortLivedTokenClaims): string {
     exp: Math.floor(Date.now() / 1000) + ttl,
   };
   if (claims.viewerEmail) payload.viewerEmail = claims.viewerEmail;
+  if (claims.agentLabel) payload.agentLabel = claims.agentLabel;
 
   const payloadStr = base64UrlEncode(JSON.stringify(payload));
   const sig = base64UrlEncode(
@@ -166,7 +174,11 @@ export function verifyShortLivedToken(
     return { ok: false, reason: "wrong_resource" };
   }
 
-  return { ok: true, viewerEmail: claims.viewerEmail };
+  return {
+    ok: true,
+    viewerEmail: claims.viewerEmail,
+    agentLabel: claims.agentLabel,
+  };
 }
 
 // ── Realtime subscribe tokens ────────────────────────────────────────────────
@@ -203,6 +215,13 @@ export interface RealtimeSubscribeClaims {
   orgId?: string;
   /** Override default TTL (seconds). */
   ttlSeconds?: number;
+  /**
+   * Absolute unix-seconds ceiling, independent of `exp`. The gateway re-signs a
+   * stream's token every few minutes without consulting the app, so `exp` alone
+   * lets one mint be extended forever and a revoked session keeps streaming.
+   * Rotation copies this verbatim and never extends it.
+   */
+  absExp?: number;
 }
 
 interface DecodedRealtimeClaims {
@@ -211,6 +230,7 @@ interface DecodedRealtimeClaims {
   owner?: string;
   orgId?: string;
   exp: number;
+  absExp?: number;
 }
 
 /**
@@ -224,6 +244,7 @@ export type RealtimeVerifyResult =
       owner?: string;
       orgId?: string;
       exp: number;
+      absExp?: number;
     }
   | { ok: false; reason: string };
 
@@ -271,6 +292,7 @@ export function signRealtimeSubscribeToken(
   };
   if (claims.owner) payload.owner = claims.owner;
   if (claims.orgId) payload.orgId = claims.orgId;
+  if (claims.absExp) payload.absExp = claims.absExp;
 
   const payloadStr = base64UrlEncode(JSON.stringify(payload));
   return `${payloadStr}.${hmacB64(payloadStr, key)}`;
@@ -312,6 +334,15 @@ export function verifyRealtimeSubscribeToken(
   if (claims.exp * 1000 < Date.now()) {
     return { ok: false, reason: "expired" };
   }
+  if (claims.absExp !== undefined) {
+    if (typeof claims.absExp !== "number") {
+      return { ok: false, reason: "bad_payload" };
+    }
+    // `<=`, not `<`: a ceiling is not valid at the instant it is reached.
+    if (claims.absExp * 1000 <= Date.now()) {
+      return { ok: false, reason: "session_expired" };
+    }
+  }
   if (claims.projectId !== expected.projectId) {
     return { ok: false, reason: "wrong_project" };
   }
@@ -322,6 +353,132 @@ export function verifyRealtimeSubscribeToken(
     owner: claims.owner,
     orgId: claims.orgId,
     exp: claims.exp,
+    absExp: claims.absExp,
+  };
+}
+
+// ── Realtime voice tool capabilities ─────────────────────────────────────────
+// Signed, not stored: minting and spending are separate requests, and under a
+// serverless preset they land on different instances.
+
+/** Payload `typ` discriminator for realtime voice tool capabilities. */
+export const REALTIME_VOICE_CAPABILITY_TOKEN_TYPE = "rt-voice-capability";
+
+/** Inputs for {@link signRealtimeVoiceCapability}. */
+export interface RealtimeVoiceCapabilityClaims {
+  /** Authenticated caller. Re-checked against the session on every tool call. */
+  userEmail: string;
+  orgId?: string;
+  /** Binds the capability to the tab that opened the session. */
+  browserTabId?: string;
+  /** Tool names packed into the session's opening manifest. */
+  toolNames: readonly string[];
+  /** Names added later by a successful `tool-search`, capped separately. */
+  discoveredToolNames?: readonly string[];
+  ttlSeconds?: number;
+}
+
+interface DecodedRealtimeVoiceCapabilityClaims {
+  typ: string;
+  userEmail: string;
+  orgId?: string;
+  browserTabId?: string;
+  toolNames: string[];
+  discovered?: string[];
+  exp: number;
+}
+
+/** Result of {@link verifyRealtimeVoiceCapability}. */
+export type RealtimeVoiceCapabilityVerifyResult =
+  | {
+      ok: true;
+      userEmail: string;
+      orgId?: string;
+      browserTabId?: string;
+      toolNames: string[];
+      discoveredToolNames: string[];
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Mint a capability authorising `claims.toolNames` for one realtime voice
+ * session. The token is a bounded manifest scope layered on top of the
+ * caller's session cookie — never a standalone credential.
+ */
+export function signRealtimeVoiceCapability(
+  claims: RealtimeVoiceCapabilityClaims,
+  ttlSecondsDefault: number,
+): string {
+  const payload: DecodedRealtimeVoiceCapabilityClaims = {
+    typ: REALTIME_VOICE_CAPABILITY_TOKEN_TYPE,
+    userEmail: claims.userEmail.trim().toLowerCase(),
+    toolNames: [...claims.toolNames],
+    exp:
+      Math.floor(Date.now() / 1000) + (claims.ttlSeconds ?? ttlSecondsDefault),
+  };
+  if (claims.orgId) payload.orgId = claims.orgId;
+  if (claims.browserTabId) payload.browserTabId = claims.browserTabId;
+  if (claims.discoveredToolNames?.length) {
+    payload.discovered = [...claims.discoveredToolNames];
+  }
+
+  const payloadStr = base64UrlEncode(JSON.stringify(payload));
+  return `${payloadStr}.${hmacB64(payloadStr, getSigningKey())}`;
+}
+
+/**
+ * Verify a realtime voice capability and confirm it was minted for exactly the
+ * identity now making the request. Identity mismatch is reported separately
+ * from a bad signature so callers can tell a replay from a stale tab.
+ */
+export function verifyRealtimeVoiceCapability(
+  token: string | undefined,
+  expected: { userEmail: string; orgId?: string; browserTabId?: string },
+): RealtimeVoiceCapabilityVerifyResult {
+  if (typeof token !== "string" || !token.includes(".")) {
+    return { ok: false, reason: "malformed" };
+  }
+  const [payloadStr, sig] = token.split(".", 2);
+  if (!payloadStr || !sig) return { ok: false, reason: "malformed" };
+
+  if (!timingSafeEqualB64(sig, hmacB64(payloadStr, getSigningKey()))) {
+    return { ok: false, reason: "bad_signature" };
+  }
+
+  let claims: DecodedRealtimeVoiceCapabilityClaims;
+  try {
+    claims = JSON.parse(base64UrlDecode(payloadStr).toString("utf8"));
+  } catch {
+    return { ok: false, reason: "bad_payload" };
+  }
+
+  if (claims.typ !== REALTIME_VOICE_CAPABILITY_TOKEN_TYPE) {
+    return { ok: false, reason: "wrong_type" };
+  }
+  if (typeof claims.exp !== "number" || !Array.isArray(claims.toolNames)) {
+    return { ok: false, reason: "bad_payload" };
+  }
+  if (claims.exp * 1000 < Date.now()) return { ok: false, reason: "expired" };
+  if (
+    claims.userEmail !== expected.userEmail.trim().toLowerCase() ||
+    claims.orgId !== expected.orgId ||
+    claims.browserTabId !== expected.browserTabId
+  ) {
+    return { ok: false, reason: "identity_mismatch" };
+  }
+
+  const stringsOnly = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((name): name is string => typeof name === "string")
+      : [];
+
+  return {
+    ok: true,
+    userEmail: claims.userEmail,
+    orgId: claims.orgId,
+    browserTabId: claims.browserTabId,
+    toolNames: stringsOnly(claims.toolNames),
+    discoveredToolNames: stringsOnly(claims.discovered),
   };
 }
 

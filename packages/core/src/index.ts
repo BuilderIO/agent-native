@@ -1,6 +1,8 @@
 // Framework for agent-native apps.
 // Import everything from "@agent-native/core".
 
+export * from "./config.js";
+
 // Agent (production mode)
 export {
   createProductionAgentHandler,

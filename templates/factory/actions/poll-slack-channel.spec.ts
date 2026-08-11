@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const pollSlackChannelMock = vi.hoisted(() => vi.fn());
+const requireFactoryAutomationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -33,6 +34,10 @@ vi.mock("../server/triage/slack-poller.js", () => ({
   pollSlackChannel: pollSlackChannelMock,
 }));
 
+vi.mock("../server/lib/require-factory-automation.js", () => ({
+  requireFactoryAutomation: requireFactoryAutomationMock,
+}));
+
 const mockedGetRequestOrgId = vi.mocked(getRequestOrgId);
 const mockedGetRequestUserEmail = vi.mocked(getRequestUserEmail);
 
@@ -46,6 +51,7 @@ beforeEach(() => {
     nextHistoryCursor: null,
     nextLastSlackTs: "10.0",
   });
+  requireFactoryAutomationMock.mockResolvedValue(undefined);
 
   const limit = vi
     .fn()
@@ -55,6 +61,7 @@ beforeEach(() => {
         id: "org-1",
         slackWorkspace: "primary",
         slackChannelId: "C123",
+        pollingEnabled: 1,
         lastSlackTs: "0",
         slackHistoryCursor: null,
       },
@@ -97,6 +104,15 @@ describe("poll-slack-channel action", () => {
 
     expect(mockedGetRequestUserEmail).not.toHaveBeenCalled();
     expect(mockedGetRequestOrgId).not.toHaveBeenCalled();
+    expect(requireFactoryAutomationMock).toHaveBeenCalledWith(
+      {
+        caller: "automation",
+        userEmail: "Owner@Example.com",
+        orgId: "org-1",
+      },
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      "sourcePolling",
+    );
     expect(pollSlackChannelMock).toHaveBeenCalledWith({
       workspace: "primary",
       channelId: "C123",

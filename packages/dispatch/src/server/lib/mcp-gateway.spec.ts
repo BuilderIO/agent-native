@@ -173,7 +173,7 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
     expect(apps[0]).toMatchObject({
       id: "dispatch",
-      name: "Agent-Native Dispatch",
+      name: "Dispatch",
       url: "http://localhost:8092",
       granted: true,
     });
@@ -880,6 +880,72 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     ).rejects.toThrow(/safe app-relative route/);
   });
 
+  it("resolves target-relative embed start URLs against the granted app", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl: "/_agent-native/embed/start?ticket=relative",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/overview",
+          chrome: "minimal",
+        }),
+    );
+
+    expect(result.startUrl).toBe(
+      "http://localhost:8086/_agent-native/embed/start?ticket=relative",
+    );
+  });
+
+  it("rejects cross-origin embed start URLs from a granted app", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl: "https://attacker.example/steal?ticket=remote",
+      },
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/overview",
+            chrome: "minimal",
+          }),
+      ),
+    ).rejects.toThrow(/invalid embed start URL/);
+  });
+
+  it("rejects a URL that does not belong to the explicitly named app", async () => {
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            url: "https://mail.example.com/inbox",
+          }),
+      ),
+    ).rejects.toThrow(
+      /Embed URL must belong to an app granted through Dispatch/,
+    );
+  });
+
   it("routes same-origin mounted app embed URLs to the mounted app", async () => {
     mocks.discoverAgents.mockResolvedValue([
       {
@@ -887,6 +953,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         url: "http://localhost:8092/analytics",
       },
     ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "http://localhost:8092/analytics/_agent-native/embed/start?ticket=remote",
+      },
+    });
 
     const result = await runWithRequestContext(
       {
@@ -916,7 +988,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
     expect(result).toEqual({
       app: "analytics",
-      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      startUrl:
+        "http://localhost:8092/analytics/_agent-native/embed/start?ticket=remote",
     });
   });
 
@@ -937,6 +1010,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         color: "#2563EB",
       },
     ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://mail.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
 
     const result = await runWithRequestContext(
       {
@@ -958,7 +1037,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
     expect(result).toEqual({
       app: "mail",
-      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=remote",
     });
   });
 

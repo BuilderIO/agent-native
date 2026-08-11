@@ -3,7 +3,8 @@
  *
  * These routes let MCP hosts such as Claude Code and ChatGPT authenticate
  * through their native remote-MCP OAuth flow instead of pasting bearer tokens.
- * The issued access tokens are audience-bound to `/mcp`, carry
+ * The issued access tokens are audience-bound to the public `/mcp` route or
+ * its legacy alias, carry
  * the same user/org identity as the existing connect flow, and are mediated by
  * `verifyAuth` before any MCP tool/resource request runs.
  */
@@ -21,6 +22,7 @@ import {
   applicationTypeForRedirectUris,
   isAllowedOAuthRedirectUri,
   isUrlBasedOAuthClientId,
+  matchesRegisteredRedirectUri,
   resolveOAuthClientMetadataDocument,
 } from "./oauth-client-metadata.js";
 import {
@@ -40,7 +42,11 @@ import {
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
-import { MCP_PUBLIC_ROUTE_PREFIX, MCP_ROUTE_PREFIXES } from "./route-paths.js";
+import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+  MCP_ROUTE_PREFIXES,
+} from "./route-paths.js";
 
 export interface McpOAuthRouteOptions {
   appId?: string;
@@ -180,10 +186,19 @@ export function getMcpOAuthIssuer(event: H3Event): string | undefined {
   return appendConfiguredBasePath(baseUrl);
 }
 
-export function getMcpOAuthResource(event: H3Event): string | undefined {
+function normalizeMcpResourcePath(routePath?: string): string {
+  return routePath === MCP_LEGACY_ROUTE_PREFIX
+    ? MCP_LEGACY_ROUTE_PREFIX
+    : MCP_PUBLIC_ROUTE_PREFIX;
+}
+
+export function getMcpOAuthResource(
+  event: H3Event,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
-  return `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}`;
+  return `${issuer}${normalizeMcpResourcePath(routePath)}`;
 }
 
 function mcpResourcesForIssuer(issuer: string): string[] {
@@ -231,14 +246,25 @@ export function getMcpOAuthAudiences(event: H3Event): string[] {
 
 export function getMcpOAuthProtectedResourceMetadataUrl(
   event: H3Event,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
 ): string | undefined {
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer) return undefined;
-  return `${issuer}/.well-known/oauth-protected-resource`;
+  const metadataUrl = new URL(`${issuer}/.well-known/oauth-protected-resource`);
+  // The public and legacy endpoints share one host-level metadata route. Keep
+  // the legacy resource identity in the challenge so OAuth clients that verify
+  // an exact resource URL can authenticate old MCP configurations.
+  if (normalizeMcpResourcePath(routePath) === MCP_LEGACY_ROUTE_PREFIX) {
+    metadataUrl.searchParams.set("resource", MCP_LEGACY_ROUTE_PREFIX);
+  }
+  return metadataUrl.toString();
 }
 
-export function buildMcpOAuthChallenge(event: H3Event): string {
-  const metadata = getMcpOAuthProtectedResourceMetadataUrl(event);
+export function buildMcpOAuthChallenge(
+  event: H3Event,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): string {
+  const metadata = getMcpOAuthProtectedResourceMetadataUrl(event, routePath);
   const scope = MCP_OAUTH_RESOURCE_SCOPE;
   return metadata
     ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
@@ -270,7 +296,13 @@ export function handleMcpOAuthProtectedResourceMetadata(
   if (getMethod(event) !== "GET") {
     return oauthError("invalid_request", "Method not allowed", 405);
   }
-  const resource = getMcpOAuthResource(event);
+  const requestedResourcePath = getQuery(event).resource;
+  const resource = getMcpOAuthResource(
+    event,
+    requestedResourcePath === MCP_LEGACY_ROUTE_PREFIX
+      ? MCP_LEGACY_ROUTE_PREFIX
+      : MCP_PUBLIC_ROUTE_PREFIX,
+  );
   const issuer = getMcpOAuthIssuer(event);
   if (!resource || !issuer) {
     return oauthError("server_error", "Unable to derive MCP resource", 500);
@@ -374,8 +406,10 @@ async function handleRegister(event: H3Event): Promise<Response> {
       "application_type must be native or web",
     );
   }
-  const applicationType =
-    requestedApplicationType ?? applicationTypeForRedirectUris(redirectUris);
+  const applicationType: "native" | "web" =
+    requestedApplicationType === "native" || requestedApplicationType === "web"
+      ? requestedApplicationType
+      : applicationTypeForRedirectUris(redirectUris);
 
   const clientName =
     typeof body.client_name === "string"
@@ -389,6 +423,7 @@ async function handleRegister(event: H3Event): Promise<Response> {
       grantTypes: grantTypes.length ? grantTypes : undefined,
       responseTypes: responseTypes.length ? responseTypes : undefined,
       tokenEndpointAuthMethod: method,
+      applicationType,
     });
   } catch (err: any) {
     if (err?.message === "RATE_LIMITED") {
@@ -744,7 +779,14 @@ async function handleAuthorize(
   const client = isUrlBasedOAuthClientId(clientId)
     ? await resolveOAuthClientMetadataDocument(clientId).catch(() => null)
     : await getOAuthClient(clientId);
-  if (!client || !client.redirectUris.includes(redirectUri)) {
+  if (
+    !client ||
+    !matchesRegisteredRedirectUri(
+      client.redirectUris,
+      redirectUri,
+      client.applicationType,
+    )
+  ) {
     return oauthError("invalid_client", "Unknown client or redirect_uri");
   }
 

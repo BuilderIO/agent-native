@@ -43,6 +43,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
 const Button = React.forwardRef<
   HTMLButtonElement,
@@ -138,12 +139,7 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
     );
   }
   if (secrets === null) {
-    return (
-      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <IconLoader2 size={10} className="animate-spin" />
-        Loading…
-      </div>
-    );
+    return <SettingsSkeleton lines={2} />;
   }
   if (secrets.length === 0) {
     return (
@@ -302,8 +298,12 @@ function SecretCard({
   onOpenChange,
   focusInput,
 }: SecretCardProps) {
+  const t = useT();
   const [value, setValue] = useState("");
-  const [busy, setBusy] = useState<null | "save" | "delete" | "test">(null);
+  const [isRotating, setIsRotating] = useState(false);
+  const [busy, setBusy] = useState<
+    null | "save" | "delete" | "test" | "test-candidate"
+  >(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
@@ -312,10 +312,15 @@ function SecretCard({
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open && focusInput && inputRef.current) {
+    if (!open) {
+      setValue("");
+      setIsRotating(false);
+      return;
+    }
+    if ((focusInput || isRotating) && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [focusInput, open]);
+  }, [focusInput, isRotating, open]);
 
   const setToastAndClear = (kind: "ok" | "err", text: string, ms = 2500) => {
     setToast({ kind, text });
@@ -340,6 +345,7 @@ function SecretCard({
         return;
       }
       setValue("");
+      setIsRotating(false);
       setConfirmDelete(false);
       setToastAndClear("ok", "Saved");
       notifySecretsChanged();
@@ -374,14 +380,21 @@ function SecretCard({
     }
   };
 
-  const handleTest = async () => {
+  const handleTest = async (candidateValue?: string) => {
     if (busy) return;
-    setBusy("test");
+    const isCandidate = candidateValue !== undefined;
+    setBusy(isCandidate ? "test-candidate" : "test");
     try {
       const res = await fetch(
         `${ENDPOINT}/${encodeURIComponent(secret.key)}/test`,
         {
           method: "POST",
+          ...(isCandidate
+            ? {
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ value: candidateValue }),
+              }
+            : {}),
         },
       );
       const body = (await res.json().catch(() => ({}))) as {
@@ -389,11 +402,19 @@ function SecretCard({
         error?: string;
       };
       if (res.ok && body.ok) {
-        setToastAndClear("ok", "Working");
+        setToastAndClear(
+          "ok",
+          isCandidate
+            ? t("secrets.candidateValueWorking")
+            : t("secrets.storedValueWorking"),
+        );
       } else {
         setToastAndClear(
           "err",
-          body.error ?? (body.ok === false ? "Invalid" : `Test failed`),
+          body.error ??
+            (body.ok === false
+              ? t("secrets.invalid")
+              : t("secrets.testFailed")),
         );
       }
     } finally {
@@ -425,6 +446,7 @@ function SecretCard({
   }, [secret.status, secret.required]);
 
   const isOAuth = secret.kind === "oauth";
+  const showRotationForm = secret.status !== "set" || isRotating;
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -483,70 +505,43 @@ function SecretCard({
               )}
             </div>
           ) : (
-            <div className="mt-2 space-y-1.5">
+            <div className="mt-2 space-y-2">
               {secret.status === "set" && (
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span>Stored value ending in</span>
-                  <code className="rounded bg-background px-1 py-0.5 text-foreground">
-                    {secret.last4}
-                  </code>
-                </div>
-              )}
-              <div className="flex gap-1.5">
-                <TextField
-                  inputRef={inputRef}
-                  type="password"
-                  aria-label={secret.label}
-                  value={value}
-                  onChange={setValue}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") handleSave();
-                  }}
-                  placeholder={
-                    secret.status === "set"
-                      ? "Enter new value to rotate"
-                      : "Paste key"
-                  }
-                  className="flex-1 text-[11px]"
-                />
-                <Button
-                  type="button"
-                  intent="primary"
-                  emphasis="solid"
-                  onClick={handleSave}
-                  disabled={!value.trim() || busy !== null}
-                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                  style={{ backgroundColor: "#00B5FF", color: "white" }}
-                >
-                  {busy === "save" ? (
-                    <IconLoader2 size={10} className="animate-spin" />
-                  ) : secret.status === "set" ? (
-                    <>
-                      <IconRefresh size={10} />
-                      Rotate
-                    </>
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {secret.status === "set" && (
-                  <>
+                <>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span>Stored value ending in</span>
+                    <code className="mt-1 block w-fit rounded bg-background px-1 py-0.5 text-foreground">
+                      {secret.last4}
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <Button
                       type="button"
                       intent="neutral"
                       emphasis="outline"
-                      onClick={handleTest}
+                      onClick={() => handleTest()}
                       disabled={busy !== null}
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test" ? (
                         <IconLoader2 size={10} className="animate-spin" />
                       ) : (
-                        "Test"
+                        t("secrets.testStoredValue")
                       )}
                     </Button>
+                    <Button
+                      type="button"
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={() => setIsRotating(true)}
+                      disabled={busy !== null}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+                      style={{ backgroundColor: "#00B5FF", color: "white" }}
+                    >
+                      <IconRefresh size={10} />
+                      Rotate
+                    </Button>
+
                     <Button
                       type="button"
                       intent="danger"
@@ -556,22 +551,89 @@ function SecretCard({
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-red-500 disabled:opacity-40"
                     >
                       <IconTrash size={10} />
-                      Remove
+                      Delete
                     </Button>
-                  </>
-                )}
-                {secret.docsUrl && (
-                  <a
-                    href={secret.docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground ms-auto"
-                  >
-                    Get key
-                    <IconExternalLink size={10} />
-                  </a>
-                )}
-              </div>
+                  </div>
+                </>
+              )}
+              {showRotationForm && (
+                <div className="space-y-1.5">
+                  <hr className="my-4" />
+                  <TextField
+                    inputRef={inputRef}
+                    type="password"
+                    aria-label={secret.label}
+                    value={value}
+                    onChange={setValue}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleSave();
+                    }}
+                    placeholder={
+                      secret.status === "set"
+                        ? "Enter new value to rotate"
+                        : "Paste key"
+                    }
+                    className="w-full text-[11px]"
+                  />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      type="button"
+                      intent="neutral"
+                      emphasis="outline"
+                      onClick={() => handleTest(value.trim())}
+                      disabled={!value.trim() || busy !== null}
+                      className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    >
+                      {busy === "test-candidate" ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : (
+                        t("secrets.testStoredValue")
+                      )}
+                    </Button>
+                    {secret.docsUrl && (
+                      <a
+                        href={secret.docsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground"
+                      >
+                        Get key
+                        <IconExternalLink size={10} />
+                      </a>
+                    )}
+                    {secret.status === "set" && (
+                      <Button
+                        type="button"
+                        intent="neutral"
+                        emphasis="outline"
+                        onClick={() => {
+                          setValue("");
+                          setIsRotating(false);
+                        }}
+                        disabled={busy !== null}
+                        className="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+                      >
+                        Discard
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={handleSave}
+                      disabled={!value.trim() || busy !== null}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+                      style={{ backgroundColor: "#00B5FF", color: "white" }}
+                    >
+                      {busy === "save" ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : (
+                        "Save"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {confirmDelete && (
                 <div className="flex items-center gap-1.5 rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[10px] text-red-500">
                   <span className="min-w-0 flex-1">
@@ -857,10 +919,7 @@ function AdHocKeysSection({
       )}
 
       {loading ? (
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <IconLoader2 size={10} className="animate-spin" />
-          Loading...
-        </div>
+        <SettingsSkeleton lines={2} />
       ) : keys.length === 0 && !showForm && showEmptyState ? (
         <p className="text-[10px] text-muted-foreground">No keys added yet.</p>
       ) : keys.length > 0 ? (

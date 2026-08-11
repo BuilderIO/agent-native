@@ -163,22 +163,22 @@ describe("Analytics agent Plan mode policy", () => {
       expect(pluginActions[name]).not.toHaveProperty("allowInPlanMode", false);
     }
   });
-  it("keeps corpus tools discoverable without loading them initially", () => {
+  it("keeps bulk corpus tools on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
         "bigquery",
         "search-analytics-query-catalog",
         "search-bigquery-schema",
         "list-data-dictionary",
+        "provider-api-request",
+        "provider-corpus-job",
+        "query-staged-dataset",
       ]),
     );
     expect(INITIAL_TOOL_NAMES).not.toEqual(
       expect.arrayContaining([
         "provider-api-catalog",
         "provider-api-docs",
-        "provider-api-request",
-        "provider-corpus-job",
-        "query-staged-dataset",
         "run-code",
         "get-code-execution",
         "account-deep-dive",
@@ -211,6 +211,31 @@ describe("Analytics agent Plan mode policy", () => {
 
   it("keeps the first-party query action on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
+  });
+
+  it("keeps the complete dashboard build path on the initial tool surface", () => {
+    expect(INITIAL_TOOL_NAMES).toEqual(
+      expect.arrayContaining([
+        "update-dashboard",
+        "mutate-dashboard",
+        "compose-dashboard",
+        "create-extension",
+        "extension-data-set",
+      ]),
+    );
+  });
+
+  it("tells explicit dashboard requests to finish non-destructive build steps", async () => {
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | (() => Promise<string>)
+      | undefined;
+    expect(extraContext).toBeDefined();
+    const context = await extraContext?.();
+    expect(context).toContain("EXECUTION CONTINUITY");
+    expect(context).toContain("Do not ask 'want me to proceed?'");
+    expect(context).toContain("APPROVED MUTATION CONTINUITY");
+    expect(context).toContain("saved: true");
+    expect(context).toContain("changed: true");
   });
 
   it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
@@ -277,6 +302,53 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard", () => {
+  it("retries a dashboard build that pauses after creating an extension shell", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Build a dashboard for Intuit Fusion errors",
+        draftText:
+          "I created the dashboard shell. The table is empty until the users are seeded. Want me to proceed with seeding the 981 users now?",
+        toolResults: [
+          {
+            name: "create-extension",
+            isError: false,
+            content: '{"id":"fusion-errors"}',
+          },
+          {
+            name: "bigquery",
+            isError: false,
+            content: '{"rows":[{"user":"a"}]}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      expandToolSurface: true,
+      maxRetries: 2,
+      retryMessage: expect.stringContaining("same turn"),
+    });
+  });
+
+  it("does not turn a completed dashboard save into another build pass", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Build a dashboard for Intuit Fusion errors",
+        draftText:
+          "The dashboard is saved with its requested panels. Would you like me to add another view?",
+        toolResults: [
+          {
+            name: "update-dashboard",
+            isError: false,
+            content: '{"dashboardId":"fusion-errors"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("retries a casual greeting that drafted the canned no-grounded-data fallback, without repeating that sentence in the fallback", () => {
     const result = realDataFinalGuard(
       guardContext({

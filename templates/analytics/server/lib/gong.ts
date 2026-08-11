@@ -1,60 +1,137 @@
 // Gong sales call intelligence API helper
 // Fetches calls, transcripts, and users
 
-import { resolveCredential } from "./credentials";
-import {
-  requireRequestCredentialContext,
-  scopedCredentialCacheKey,
-} from "./credentials-context";
+import { scopedCredentialCacheKey } from "./credentials-context";
 import {
   DEFAULT_GONG_CALL_LIMIT,
   limitGongCalls,
   normalizeGongCallLimit,
 } from "./gong-limits";
-import { resolveAnalyticsGongCredentials } from "./provider-credentials";
+import { executeProviderApiRequest } from "./provider-api";
 
-const DEFAULT_API_BASE = "https://api.gong.io/v2";
+const MAX_GONG_SEARCH_PAGES = 50;
+const MAX_GONG_CALL_LIST_PAGES = 50;
+const MAX_GONG_EXHAUSTIVE_RECORDS = 500;
+const GONG_API_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_GONG_EXHAUSTIVE_RUNTIME_MS = 60_000;
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 120;
 
-async function getAuthHeader(): Promise<string> {
-  const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
-  const credentials = await resolveAnalyticsGongCredentials({ ctx });
-  if (!credentials)
-    throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET not configured");
-  return `Basic ${Buffer.from(
-    `${credentials.accessKey}:${credentials.accessSecret}`,
-  ).toString("base64")}`;
+export interface GongRequestOptions {
+  signal?: AbortSignal;
+  deadlineAt?: number;
 }
 
-async function getApiBase(): Promise<string> {
-  const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
-  const configured = await resolveCredential("GONG_API_BASE", ctx);
-  return (configured || DEFAULT_API_BASE).replace(/\/+$/, "");
+function requestTimeoutMs(options?: GongRequestOptions): number {
+  return options?.deadlineAt
+    ? Math.max(
+        1,
+        Math.min(GONG_API_REQUEST_TIMEOUT_MS, options.deadlineAt - Date.now()),
+      )
+    : GONG_API_REQUEST_TIMEOUT_MS;
 }
 
-async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
+interface GongProviderResponse {
+  response: {
+    ok: boolean;
+    status: number;
+    headers?: Record<string, string>;
+    json?: unknown;
+    text?: string;
+  };
+}
+
+function splitGongPath(path: string): {
+  path: string;
+  query?: Record<string, string>;
+} {
+  const separator = path.indexOf("?");
+  if (separator < 0) return { path };
+  const query = Object.fromEntries(
+    new URLSearchParams(path.slice(separator + 1)).entries(),
+  );
+  return {
+    path: path.slice(0, separator),
+    ...(Object.keys(query).length > 0 ? { query } : {}),
+  };
+}
+
+function responseHeader(
+  headers: Record<string, string> | undefined,
+  name: string,
+): string | undefined {
+  const lowerName = name.toLowerCase();
+  return Object.entries(headers ?? {}).find(
+    ([key]) => key.toLowerCase() === lowerName,
+  )?.[1];
+}
+
+function responseDetail(response: GongProviderResponse["response"]): string {
+  if (typeof response.text === "string" && response.text.trim()) {
+    return response.text.replace(/\s+/g, " ").trim().slice(0, 2_000);
+  }
+  if (response.json !== undefined) {
+    return JSON.stringify(response.json).slice(0, 2_000);
+  }
+  return "";
+}
+
+function gongApiError(response: GongProviderResponse["response"]): Error {
+  const requestId =
+    responseHeader(response.headers, "x-request-id") ??
+    responseHeader(response.headers, "request-id");
+  const retryAfter = responseHeader(response.headers, "retry-after");
+  const metadata = [
+    requestId ? `requestId ${requestId}` : "",
+    response.status === 429 && retryAfter ? `retry-after ${retryAfter}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const detail = responseDetail(response);
+  return new Error(
+    `Gong API error ${response.status}${metadata ? ` (${metadata})` : ""}${detail ? `: ${detail}` : ""}`,
+  );
+}
+
+async function executeGongRequest<T>(options: {
+  method: "GET" | "POST";
+  path: string;
+  body?: unknown;
+  requestOptions?: GongRequestOptions;
+}): Promise<T> {
+  const request = splitGongPath(options.path);
+  const result = (await executeProviderApiRequest({
+    provider: "gong",
+    method: options.method,
+    path: request.path,
+    ...(request.query ? { query: request.query } : {}),
+    ...(options.body !== undefined ? { body: options.body } : {}),
+    timeoutMs: requestTimeoutMs(options.requestOptions),
+    signal: options.requestOptions?.signal,
+  })) as GongProviderResponse;
+
+  if (!result.response.ok) throw gongApiError(result.response);
+  return result.response.json as T;
+}
+
+async function apiGet<T>(
+  path: string,
+  cacheKey?: string,
+  options?: GongRequestOptions,
+): Promise<T> {
   const key = scopedCredentialCacheKey(cacheKey ?? path, "GONG_ACCESS_KEY");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.data as T;
   }
 
-  const res = await fetch(`${await getApiBase()}${path}`, {
-    headers: {
-      Authorization: await getAuthHeader(),
-      "Content-Type": "application/json",
-    },
+  const data = await executeGongRequest<T>({
+    method: "GET",
+    path,
+    requestOptions: options,
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gong API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
 
   if (cache.size >= MAX_CACHE) {
     const oldest = cache.keys().next().value;
@@ -69,6 +146,7 @@ async function apiPost<T>(
   path: string,
   body: unknown,
   cacheKey?: string,
+  options?: GongRequestOptions,
 ): Promise<T> {
   const key = scopedCredentialCacheKey(
     cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
@@ -79,21 +157,12 @@ async function apiPost<T>(
     return cached.data as T;
   }
 
-  const res = await fetch(`${await getApiBase()}${path}`, {
+  const data = await executeGongRequest<T>({
     method: "POST",
-    headers: {
-      Authorization: await getAuthHeader(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+    path,
+    body,
+    requestOptions: options,
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gong API error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
 
   if (cache.size >= MAX_CACHE) {
     const oldest = cache.keys().next().value;
@@ -156,11 +225,18 @@ export interface EnrichedTranscript {
   externalMonologues: EnrichedMonologue[];
 }
 
-export async function getCalls(filters?: {
-  fromDateTime?: string;
-  toDateTime?: string;
+export async function getCalls(
+  filters?: {
+    fromDateTime?: string;
+    toDateTime?: string;
+    cursor?: string;
+  },
+  options?: GongRequestOptions,
+): Promise<{
+  calls: GongCall[];
   cursor?: string;
-}): Promise<{ calls: GongCall[]; cursor?: string }> {
+  totalRecords?: number;
+}> {
   const params = new URLSearchParams();
   if (filters?.fromDateTime) params.set("fromDateTime", filters.fromDateTime);
   if (filters?.toDateTime) params.set("toDateTime", filters.toDateTime);
@@ -170,45 +246,100 @@ export async function getCalls(filters?: {
   const path = `/calls${query ? `?${query}` : ""}`;
   const data = await apiGet<{
     calls?: GongCall[];
-    records?: { cursor?: string };
-  }>(path);
+    records?: { cursor?: string; totalRecords?: number };
+  }>(path, undefined, options);
   return {
     calls: data.calls ?? [],
     cursor: data.records?.cursor,
+    ...(typeof data.records?.totalRecords === "number"
+      ? { totalRecords: data.records.totalRecords }
+      : {}),
   };
 }
 
-export async function getCall(callId: string): Promise<GongCall | null> {
+export async function getAllCalls(
+  filters?: {
+    fromDateTime?: string;
+    toDateTime?: string;
+  },
+  options: GongRequestOptions = {},
+): Promise<{
+  calls: GongCall[];
+  cursor?: string;
+  pages: number;
+  totalRecords?: number;
+}> {
+  const deadlineAt =
+    options.deadlineAt ?? Date.now() + MAX_GONG_EXHAUSTIVE_RUNTIME_MS;
+  const calls: GongCall[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  let totalRecords: number | undefined;
+
+  do {
+    if (Date.now() >= deadlineAt) {
+      throw new Error(
+        "Gong exhaustive call listing exceeded its 60-second runtime budget. " +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program.",
+      );
+    }
+    const page = await getCalls(
+      {
+        ...filters,
+        ...(cursor ? { cursor } : {}),
+      },
+      { ...options, deadlineAt },
+    );
+    pages += 1;
+    if (typeof page.totalRecords === "number") {
+      totalRecords = page.totalRecords;
+    }
+    if (
+      typeof totalRecords === "number" &&
+      totalRecords >= MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive call listing found ${totalRecords.toLocaleString()} records in the requested window; ` +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program, instead of returning the full cohort through gong-calls.",
+      );
+    }
+    const nextCursor = page.cursor;
+    const nextCallCount = calls.length + page.calls.length;
+    if (nextCallCount >= MAX_GONG_EXHAUSTIVE_RECORDS) {
+      throw new Error(
+        `Gong exhaustive call listing reached ${MAX_GONG_EXHAUSTIVE_RECORDS.toLocaleString()} records before the cohort was safely returned. ` +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program, instead of returning the full cohort through gong-calls.",
+      );
+    }
+    calls.push(...page.calls);
+
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (cursor && pages < MAX_GONG_CALL_LIST_PAGES);
+
+  return { calls, cursor, pages, totalRecords };
+}
+
+export async function getCall(
+  callId: string,
+  options?: GongRequestOptions,
+): Promise<GongCall | null> {
   const body = { filter: { callIds: [callId] } };
   const data = await apiPost<{ calls?: GongCall[] }>(
     "/calls",
     body,
     `call:${callId}`,
+    options,
   );
   return data.calls?.[0] ?? null;
 }
 
-export async function getCallDetail(
-  callId: string,
-): Promise<GongCallDetail | null> {
-  const body = {
-    filter: { callIds: [callId] },
-    contentSelector: {
-      exposedFields: {
-        parties: true,
-        content: { brief: true, keyPoints: true, outline: true },
-      },
-    },
-  };
-  const data = await apiPost<{ calls?: any[] }>(
-    "/calls/extensive",
-    body,
-    `detail:${callId}`,
-  );
-  const call = data.calls?.[0];
-  if (!call) return null;
+function normalizeCallDetail(call: any, fallbackId: string): GongCallDetail {
   return {
-    id: call.metaData?.id ?? callId,
+    id: call.metaData?.id ?? fallbackId,
     title: call.metaData?.title || "Untitled",
     url: call.metaData?.url || "",
     started: call.metaData?.started || "",
@@ -228,7 +359,52 @@ export async function getCallDetail(
   };
 }
 
-export async function getCallTranscripts(callIds: string[]): Promise<unknown> {
+export async function getCallDetails(
+  callIds: string[],
+  options?: GongRequestOptions,
+): Promise<GongCallDetail[]> {
+  const ids = Array.from(
+    new Set(
+      callIds
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (!ids.length) return [];
+
+  const body = {
+    filter: { callIds: ids },
+    contentSelector: {
+      exposedFields: {
+        parties: true,
+        content: { brief: true, keyPoints: true, outline: true },
+      },
+    },
+  };
+  const data = await apiPost<{ calls?: any[] }>(
+    "/calls/extensive",
+    body,
+    `details:${ids.join(",")}`,
+    options,
+  );
+  return (data.calls ?? []).map((call, index) =>
+    normalizeCallDetail(call, ids[index] ?? ""),
+  );
+}
+
+export async function getCallDetail(
+  callId: string,
+  options?: GongRequestOptions,
+): Promise<GongCallDetail | null> {
+  const details = await getCallDetails([callId], options);
+  const detail = details[0];
+  return detail === undefined ? null : detail;
+}
+
+export async function getCallTranscripts(
+  callIds: string[],
+  options?: GongRequestOptions,
+): Promise<unknown> {
   const ids = Array.from(
     new Set(
       callIds
@@ -238,11 +414,19 @@ export async function getCallTranscripts(callIds: string[]): Promise<unknown> {
   );
   if (!ids.length) return { callTranscripts: [] };
   const body = { filter: { callIds: ids } };
-  return apiPost("/calls/transcript", body, `transcripts:${ids.join(",")}`);
+  return apiPost(
+    "/calls/transcript",
+    body,
+    `transcripts:${ids.join(",")}`,
+    options,
+  );
 }
 
-export async function getCallTranscript(callId: string): Promise<unknown> {
-  return getCallTranscripts([callId]);
+export async function getCallTranscript(
+  callId: string,
+  options?: GongRequestOptions,
+): Promise<unknown> {
+  return getCallTranscripts([callId], options);
 }
 
 export async function getEnrichedTranscript(
@@ -451,6 +635,8 @@ export interface GongCallSearchOptions {
   fromDateTime?: string;
   toDateTime?: string;
   exhaustive?: boolean;
+  signal?: AbortSignal;
+  deadlineAt?: number;
 }
 
 function normalizedSearchQueries(queries: string[]): string[] {
@@ -540,25 +726,62 @@ export async function searchCallsForQueries(
 
   const matches = new Map<string, GongCall & { matchedQueries?: string[] }>();
   let searchedCallCount = 0;
+  let scannedCallCount = 0;
   let cursor: string | undefined;
+  let pages = 0;
+  const deadlineAt =
+    options.deadlineAt ?? Date.now() + MAX_GONG_EXHAUSTIVE_RUNTIME_MS;
   do {
+    if (Date.now() >= deadlineAt) {
+      throw new Error(
+        "Gong call search exceeded its 60-second runtime budget. " +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program.",
+      );
+    }
     const data = await apiPost<{
       calls?: unknown[];
       records?: { cursor?: string; totalRecords?: number };
-    }>("/calls/extensive", {
-      filter: {
-        fromDateTime,
-        ...(options.toDateTime ? { toDateTime: options.toDateTime } : {}),
+    }>(
+      "/calls/extensive",
+      {
+        filter: {
+          fromDateTime,
+          ...(options.toDateTime ? { toDateTime: options.toDateTime } : {}),
+        },
+        contentSelector: { exposedFields: { parties: true } },
+        ...(cursor ? { cursor } : {}),
       },
-      contentSelector: { exposedFields: { parties: true } },
-      ...(cursor ? { cursor } : {}),
-    });
-    const calls = (data.calls ?? [])
+      undefined,
+      {
+        signal: options.signal,
+        deadlineAt,
+      },
+    );
+    pages += 1;
+    if (
+      options.exhaustive &&
+      typeof data.records?.totalRecords === "number" &&
+      data.records.totalRecords >= MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive search found ${data.records.totalRecords.toLocaleString()} records in the requested window; ` +
+          "Use provider-corpus-job with staged call IDs for searches with 500 or more records so progress is checkpointed between batches.",
+      );
+    }
+    const rawCalls = data.calls ?? [];
+    scannedCallCount += rawCalls.length;
+    if (options.exhaustive && scannedCallCount >= MAX_GONG_EXHAUSTIVE_RECORDS) {
+      throw new Error(
+        `Gong exhaustive search reached ${MAX_GONG_EXHAUSTIVE_RECORDS.toLocaleString()} records before the cohort was safely returned. ` +
+          "Use provider-corpus-job with staged call IDs for searches with 500 or more records so progress is checkpointed between batches.",
+      );
+    }
+    const calls = rawCalls
       .map(normalizeExtensiveCall)
       .filter((call): call is GongCall => Boolean(call))
       .filter(isExternalCall);
     searchedCallCount += calls.length;
-    cursor = data.records?.cursor;
+    const nextCursor = data.records?.cursor;
 
     for (const call of calls) {
       const parties = call.parties ?? [];
@@ -573,7 +796,16 @@ export async function searchCallsForQueries(
       }
       if (!options.exhaustive && matches.size >= normalizedLimit) break;
     }
-  } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (
+    cursor &&
+    pages < MAX_GONG_SEARCH_PAGES &&
+    (options.exhaustive || matches.size < normalizedLimit)
+  );
 
   const matchedCalls = Array.from(matches.values());
   return buildGongSearchResult(matchedCalls, normalizedLimit, {
@@ -611,11 +843,11 @@ export function buildGongSearchResult(
     return {
       calls: sorted,
       limit: sorted.length,
-      truncated: false,
+      truncated: Boolean(meta.cursor),
       searchedCallCount: meta.searchedCallCount,
       matchedCallCount: matchedCalls.length,
       queryCount: meta.queryCount,
-      coverageTruncated: false,
+      coverageTruncated: Boolean(meta.cursor),
     };
   }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);

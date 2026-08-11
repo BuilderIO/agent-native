@@ -72,8 +72,16 @@ export interface ActionRunContext {
    * must apply their own.
    */
   userEmail?: string;
+  /**
+   * Request headers for server-only actions that must delegate to an
+   * authenticated framework protocol, such as Better Auth password setup.
+   * Never expose this context to agent tools or return it from an action.
+   */
+  requestHeaders?: Headers;
   /** Resolved org id, or `null` when the request has no org. */
   orgId?: string | null;
+  /** Hosting app/template id used for app-owned resource boundaries. */
+  appId?: string;
   /** How this action was invoked. */
   caller: ActionCaller;
   /** Present only for trigger-dispatched automation calls. */

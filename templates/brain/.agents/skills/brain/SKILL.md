@@ -92,6 +92,11 @@ company-relevant content retained from this capture." — treat that string as
 
 ## Search: Scoped Hybrid Retrieval
 
+For every company-specific factual question, call `ask-brain` before answering.
+Use only its cited evidence. A result with no citations means the fact is
+unverified or unavailable, not that the agent may fill the gap from general
+model knowledge.
+
 - `search-knowledge` — scoped retrieval over **distilled knowledge only**. Use
   for "what does Brain officially know about X."
 - `search-everything` — broader pass across knowledge, raw captures, and

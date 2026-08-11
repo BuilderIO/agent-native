@@ -82,6 +82,15 @@ export {
   type RenderedPageResult,
 } from "./rendered-page.js";
 export {
+  brandKitDataFromExtraction,
+  buildDesignMarkdown,
+  extractRenderedDesignSystemFromUrl,
+  styleBriefFromRenderedDesign,
+  type ExtractRenderedDesignOptions,
+  type RenderedDesignExtraction,
+  type RenderedDesignExtractionStatus,
+} from "./rendered-design.js";
+export {
   recommendContextRoots,
   type ContextRootRecommendation,
   type ContextRootRecommendationProvider,

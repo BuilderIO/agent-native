@@ -3,6 +3,8 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
 
@@ -17,12 +19,15 @@ export type ClipsShareMetaRecording = {
 
 export function hasGeneratedTitle(title: string | null | undefined): boolean {
   const trimmed = (title ?? "").trim();
-  return Boolean(trimmed && trimmed !== CLIPS_DEFAULT_TITLE);
+  return Boolean(
+    isHumanReadableDocumentTitle(trimmed) && trimmed !== CLIPS_DEFAULT_TITLE,
+  );
 }
 
 export function clipsSharePageTitle(title: string | null | undefined): string {
-  return hasGeneratedTitle(title)
-    ? `${title!.trim()} · Clips`
+  const safeTitle = normalizeDocumentTitle(title, CLIPS_DEFAULT_TITLE);
+  return hasGeneratedTitle(safeTitle)
+    ? `${safeTitle} · Clips`
     : "Clip recording · Clips";
 }
 

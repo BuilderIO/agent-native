@@ -13,12 +13,16 @@ export default defineAction({
   schema: z.object({
     name: z.string().min(1),
     scope: scopeSchema.default("personal"),
+    appId: z.string().trim().min(1).optional(),
     limit: z.number().int().min(1).max(100).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
-  run: async ({ name, scope, limit }, ctx): Promise<AutomationRun[]> => {
+  run: async (
+    { name, scope, appId: requestedAppId, limit },
+    ctx,
+  ): Promise<AutomationRun[]> => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     if (scope === "organization" && !ctx?.orgId) return [];
@@ -28,6 +32,12 @@ export default defineAction({
         ? organizationResourceOwner(ctx.orgId as string)
         : userEmail;
 
-    return listAutomationRuns({ owners: [owner], automation: name, limit });
+    const appId = ctx?.appId === "dispatch" ? requestedAppId : ctx?.appId;
+    return listAutomationRuns({
+      owners: [owner],
+      automation: name,
+      appId,
+      limit,
+    });
   },
 });

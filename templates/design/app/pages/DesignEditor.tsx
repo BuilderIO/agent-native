@@ -48,7 +48,10 @@ import {
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import type { ReviewComment } from "@agent-native/core/review";
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
+import {
+  normalizeDocumentTitle,
+  withBuilderUtmTrackingParams,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
@@ -145,6 +148,7 @@ import {
   IconBrush,
   IconPlus,
   IconLayoutGrid,
+  IconDevices,
   IconFrame,
   IconX,
   IconPin,
@@ -158,7 +162,6 @@ import {
   IconChevronUp,
   IconCheck,
   IconPointer,
-  IconTypography,
   IconHandStop,
   IconSquare,
   IconLine,
@@ -240,6 +243,7 @@ import type {
   IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
+import { trace } from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -271,6 +275,7 @@ import {
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
+import { IconText } from "@/components/design/inspector/design-icons";
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
@@ -410,6 +415,7 @@ import {
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
   designEditorCommandKey,
   designSelectionStateKeysForTab,
@@ -475,6 +481,7 @@ import {
   type LiveFigmaSvgSnapshot,
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
+import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -730,6 +737,10 @@ import {
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
 import {
+  resolveElementNudgeIntent,
+  resolveNudgeIntent,
+} from "./design-editor/nudge-intent";
+import {
   collectOverviewAnnotationViewportMap,
   formatOverviewAnnotationMessage,
 } from "./design-editor/overview-annotation-context";
@@ -755,6 +766,7 @@ import {
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
 } from "./design-editor/overview-camera";
+import { resolvePastePlacementForSelection } from "./design-editor/paste-placement";
 import {
   applyInteractionStateStyleCommit,
   applyScopedVisualStyleEdit,
@@ -802,6 +814,7 @@ import {
   renderExportDocumentCanvas,
   resolveExportCropRect,
   sanitizeSerializedXmlForSvg,
+  type PngCaptureScope,
 } from "./design-editor/png-export-render";
 import {
   applyPortableStyles,
@@ -851,7 +864,7 @@ import {
   getSidebarCodeLayerSelectionState,
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
-  overviewDeleteTargetsElement,
+  overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
   resolveAvailableActiveFileId,
   resolveEscapePopSelectionAction,
@@ -1687,6 +1700,8 @@ function DesignBottomToolbar({
   hasActiveFile,
   onMove,
   onFrame,
+  frameToolDraws,
+  onFrameToolDrawsChange,
   onShape,
   onText,
   onPen,
@@ -1705,6 +1720,8 @@ function DesignBottomToolbar({
   hasActiveFile: boolean;
   onMove: () => void;
   onFrame: () => void;
+  frameToolDraws: "screen" | "frame";
+  onFrameToolDrawsChange: (value: "screen" | "frame") => void;
   onShape: (tool: ShapeTool) => void;
   onText: () => void;
   onPen: () => void;
@@ -1873,8 +1890,16 @@ function DesignBottomToolbar({
     {
       key: "frame",
       active: activeTool === "frame",
-      label: t("designEditor.tools.frame"),
-      icon: <IconFrame className="size-[18px]" />,
+      label:
+        frameToolDraws === "screen"
+          ? t("designEditor.tools.screen")
+          : t("designEditor.tools.frame"),
+      icon:
+        frameToolDraws === "screen" ? (
+          <IconDevices className="size-[18px]" />
+        ) : (
+          <IconFrame className="size-[18px]" />
+        ),
       onClick: onFrame,
       options: [
         {
@@ -1882,8 +1907,21 @@ function DesignBottomToolbar({
           label: t("designEditor.tools.frame"),
           icon: <IconFrame className="size-4" />,
           shortcut: "F",
-          active: activeTool === "frame",
-          onSelect: onFrame,
+          active: activeTool === "frame" && frameToolDraws === "frame",
+          onSelect: () => {
+            onFrameToolDrawsChange("frame");
+            onFrame();
+          },
+        },
+        {
+          key: "screen",
+          label: t("designEditor.tools.screen"),
+          icon: <IconDevices className="size-4" />,
+          active: activeTool === "frame" && frameToolDraws === "screen",
+          onSelect: () => {
+            onFrameToolDrawsChange("screen");
+            onFrame();
+          },
         },
       ],
     },
@@ -1925,13 +1963,13 @@ function DesignBottomToolbar({
       key: "text",
       active: activeTool === "text",
       label: t("designEditor.tools.text"),
-      icon: <IconTypography className="size-[18px]" />,
+      icon: <IconText className="size-[18px]" />,
       onClick: onText,
       options: [
         {
           key: "text",
           label: t("designEditor.tools.text"),
-          icon: <IconTypography className="size-4" />,
+          icon: <IconText className="size-4" />,
           shortcut: "T",
           active: activeTool === "text",
           onSelect: onText,
@@ -2050,6 +2088,65 @@ function isSupersededSelectionEcho(
  * selections, and per-screen caches from one design can never leak into the
  * next design during client-side navigation.
  */
+/**
+ * A code-layer-derived ElementInfo carries authored inline styles and a zero
+ * rect, so the inspector shows 0 for anything the source does not state
+ * (hug sizing, in-flow position). Measure the live preview node instead.
+ */
+function withMeasuredGeometry(
+  info: ElementInfo,
+  screenId?: string,
+): ElementInfo {
+  const rect = info.boundingRect;
+  if (rect && (rect.width > 0 || rect.height > 0)) return info;
+  if (typeof document === "undefined") return info;
+  const selector = info.runtimeSelector ?? info.selector;
+  if (!selector) return info;
+  // Selectors and stamped ids are per-screen, so an unscoped scan can measure
+  // identical markup on a different screen.
+  const owning = screenId
+    ? document.querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+      )
+    : null;
+  const frames = owning
+    ? [owning]
+    : Array.from(
+        document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      );
+  for (const frame of frames) {
+    let node: Element | null = null;
+    try {
+      node = frame.contentDocument?.querySelector(selector) ?? null;
+    } catch {
+      node = null;
+    }
+    if (!node) continue;
+    const box = node.getBoundingClientRect();
+    if (box.width <= 0 && box.height <= 0) continue;
+    const computed = frame.contentWindow?.getComputedStyle(node);
+    return {
+      ...info,
+      boundingRect: {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      },
+      computedStyles: computed
+        ? {
+            width: computed.width,
+            height: computed.height,
+            ...info.computedStyles,
+          }
+        : info.computedStyles,
+    };
+  }
+  return info;
+}
+
 export default function DesignEditorRoute() {
   const { id } = useParams<{ id: string }>();
   return <DesignEditor key={id ?? "missing-design"} />;
@@ -2123,6 +2220,15 @@ function DesignEditor() {
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
+  // The frame tool draws a top-level SCREEN or a plain FRAME container. Made
+  // explicit because deciding it from where the drag started is unguessable.
+  const [frameToolDraws, setFrameToolDraws] = useState<"screen" | "frame">(
+    "frame",
+  );
+  // The persisted pin round-trips through the server, but content measurement
+  // fires as soon as the iframe loads. Without a synchronous local pin the
+  // frame grows to the device floor and snaps back once metadata lands.
+  const locallyPinnedHeightIdsRef = useRef<Set<string>>(new Set());
   const activeToolRef = useRef(activeTool);
   useEffect(() => {
     activeToolRef.current = activeTool;
@@ -2553,6 +2659,11 @@ function DesignEditor() {
   useEffect(() => {
     hasActiveSelectionRef.current =
       selectedElement !== null || selectedLayerIdsState.length > 0;
+    trace("select", "selection-changed", {
+      layers: selectedLayerIdsState,
+      element: selectedElement?.selector ?? null,
+      hasSelection: hasActiveSelectionRef.current,
+    });
   }, [selectedElement, selectedLayerIdsState]);
   // Tracks the nodeId of the most recently created TEXT primitive across one
   // handleCreatePrimitive → handlePrimitiveCreated round-trip. Cleared after
@@ -3998,6 +4109,7 @@ function DesignEditor() {
   const updateFileMutation = useActionMutation("update-file");
   const renameScreenMutation = useActionMutation("rename-screen");
   const createFileMutation = useActionMutation("create-file");
+  const createFileAsync = createFileMutation.mutateAsync;
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const updateDesignAsync = updateDesignMutation.mutateAsync;
@@ -4869,6 +4981,10 @@ function DesignEditor() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems(isSignedIn);
+  const {
+    preferences: editorPreferences,
+    setPreferences: setEditorPreferences,
+  } = useEditorPreferences();
 
   useEffect(() => {
     if (!id || !design || !isSignedIn || !postAuthIntent) return;
@@ -4978,7 +5094,10 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!design?.title) return;
-    const nextTitle = `${design.title} — Design`;
+    const nextTitle = `${normalizeDocumentTitle(
+      design.title,
+      "Untitled design",
+    )} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;
     return () => {
@@ -5314,6 +5433,11 @@ function DesignEditor() {
           layoutGroupId: stringValue("variantSetId"),
           width: numberValue("width"),
           height: numberValue("height"),
+          // Without this the pin never reaches the canvas and the content-fit
+          // pass grows a deliberately-sized screen straight back.
+          heightPinned:
+            metadata.heightPinned === true ||
+            locallyPinnedHeightIdsRef.current.has(file.id),
           url: stringValue("url"),
           previewUrl: stringValue("previewUrl"),
           bridgeUrl: stringValue("bridgeUrl"),
@@ -5613,7 +5737,10 @@ function DesignEditor() {
   const writeFrameGeometrySnapshot = useCallback(
     (
       geometryById: CanvasFrameGeometryById,
-      options?: { syncViewportFrameIds?: string[] },
+      options?: {
+        syncViewportFrameIds?: string[];
+        pinHeightFrameIds?: string[];
+      },
     ) => {
       if (!id || !canEditDesignRef.current) return;
       const queuedSave = pendingFrameGeometrySaveRef.current;
@@ -5650,6 +5777,7 @@ function DesignEditor() {
           nextGeometry: snapshot,
           designData: designDataJsonRef.current,
           syncViewportFrameIds: options?.syncViewportFrameIds,
+          pinHeightFrameIds: options?.pinHeightFrameIds,
         }),
       ]);
       if (dataOperations.length === 0) return;
@@ -5776,7 +5904,13 @@ function DesignEditor() {
         writeFrameGeometrySnapshot(
           afterSnapshot,
           resizedFrameIds.length > 0
-            ? { syncViewportFrameIds: resizedFrameIds }
+            ? (resizedFrameIds.forEach((frameId) =>
+                locallyPinnedHeightIdsRef.current.add(frameId),
+              ),
+              {
+                syncViewportFrameIds: resizedFrameIds,
+                pinHeightFrameIds: resizedFrameIds,
+              })
             : undefined,
         );
       }
@@ -6865,127 +6999,121 @@ function DesignEditor() {
       const createdGeometry: FrameGeometry = request?.canvasPosition
         ? {
             ...fallbackGeometry,
-            ...canvasFrameGeometryById[screenId],
+            ...liveFrameGeometryRef.current[screenId],
             x: request.canvasPosition.x,
             y: request.canvasPosition.y,
           }
         : fallbackGeometry;
 
-      createFileMutation.mutate(
-        {
-          designId: id,
-          filename,
-          content,
-          fileType,
-        } as any,
-        {
-          onSuccess: (result: any) => {
-            const nextId = typeof result?.id === "string" ? result.id : null;
-            // Refetch only when there is no created id to insert optimistically:
-            // a whole-design refetch re-downloads every screen's HTML, which is
-            // what made adding a frame feel slow.
-            if (!nextId) {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design"],
-              });
-            } else {
-              optimisticallyInsertCreatedFile({
-                fileId: nextId,
-                filename,
-                fileType,
-                content,
-                result,
-              });
-              // Use the same immediate optimistic geometry path for every
-              // duplicate entry point. This makes the frame, selection, and
-              // camera agree before the authoritative refetch completes.
-              writeFrameGeometrySnapshot({
-                ...canvasFrameGeometryById,
-                [nextId]: createdGeometry,
-              });
-              focusCreatedScreen(nextId, createdGeometry);
-              recordFileCreationHistoryEntry({
-                filename,
-                content,
-                fileType,
-                geometry: createdGeometry,
-              });
-              // Duplicating a localhost/fusion screen must keep it a live,
-              // editable URL-backed screen — not just a copied HTML snapshot.
-              // Carry the source screen's screenMetadata entry (sourceType,
-              // connectionId, url, path, bridgeUrl, etc.) and its
-              // localhostScreens entry (if present) over to the new file id,
-              // using path-addressed operations so a peer's metadata for any
-              // other screen cannot be replaced by this duplicate's snapshot.
-              const sourceMetadataById = getDesignDataRecord(
+      // Per-call mutate callbacks, not a promise, would silently strand every
+      // duplicate but the last: a second mutate() detaches the observer from
+      // the first mutation, so only the newest call's onSuccess ever runs.
+      void createFileAsync({
+        designId: id,
+        filename,
+        content,
+        fileType,
+      } as any)
+        .then((result: any) => {
+          const nextId = typeof result?.id === "string" ? result.id : null;
+          // Refetch only when there is no created id to insert optimistically:
+          // a whole-design refetch re-downloads every screen's HTML, which is
+          // what made adding a frame feel slow.
+          if (!nextId) {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          } else {
+            optimisticallyInsertCreatedFile({
+              fileId: nextId,
+              filename,
+              fileType,
+              content,
+              result,
+            });
+            // Optimistic geometry keeps frame, selection, and camera agreeing
+            // before the refetch. Base it on the map writeFrameGeometrySnapshot
+            // diffs against, or a sibling duplicate's placement is deleted.
+            writeFrameGeometrySnapshot({
+              ...getCanvasFrameGeometry(designDataJsonRef.current),
+              [nextId]: createdGeometry,
+            });
+            focusCreatedScreen(nextId, createdGeometry);
+            recordFileCreationHistoryEntry({
+              filename,
+              content,
+              fileType,
+              geometry: createdGeometry,
+            });
+            // A duplicated localhost/fusion screen stays URL-backed only if its
+            // metadata comes along, and the carry must be path-addressed or it
+            // replaces a peer's metadata for every other screen.
+            const sourceMetadataById = getDesignDataRecord(
+              designDataJsonRef.current,
+              "screenMetadata",
+            );
+            const sourceMetadata = getDesignDataRecord(
+              sourceMetadataById,
+              screenId,
+            );
+            const sourceType = sourceMetadata.sourceType;
+            if (sourceType === "localhost" || sourceType === "fusion") {
+              const dataOperations: DesignDataOperation[] = [
+                {
+                  op: "set",
+                  path: ["screenMetadata", nextId],
+                  value: { ...sourceMetadata },
+                },
+              ];
+              const sourceLocalhostScreensById = getDesignDataRecord(
                 designDataJsonRef.current,
-                "screenMetadata",
+                "localhostScreens",
               );
-              const sourceMetadata = getDesignDataRecord(
-                sourceMetadataById,
+              const sourceLocalhostScreen = getDesignDataRecord(
+                sourceLocalhostScreensById,
                 screenId,
               );
-              const sourceType = sourceMetadata.sourceType;
-              if (sourceType === "localhost" || sourceType === "fusion") {
-                const dataOperations: DesignDataOperation[] = [
-                  {
-                    op: "set",
-                    path: ["screenMetadata", nextId],
-                    value: { ...sourceMetadata },
-                  },
-                ];
-                const sourceLocalhostScreensById = getDesignDataRecord(
-                  designDataJsonRef.current,
-                  "localhostScreens",
-                );
-                const sourceLocalhostScreen = getDesignDataRecord(
-                  sourceLocalhostScreensById,
-                  screenId,
-                );
-                if (Object.keys(sourceLocalhostScreen).length > 0) {
-                  dataOperations.push({
-                    op: "set",
-                    path: ["localhostScreens", nextId],
-                    value: { ...sourceLocalhostScreen },
-                  });
-                }
-                const nextData = applyDesignDataOperations(
-                  designDataJsonRef.current,
-                  dataOperations,
-                );
-                designDataJsonRef.current = nextData;
-                queryClient.setQueryData(
-                  ["action", "get-design", { id }],
-                  (old: any) => {
-                    if (!old || typeof old !== "object") return old;
-                    return { ...old, data: JSON.stringify(nextData) };
-                  },
-                );
-                updateDesignMutation.mutate({ id, dataOperations } as any, {
-                  onError: () => {
-                    queryClient.invalidateQueries({
-                      queryKey: ["action", "get-design"],
-                    });
-                  },
+              if (Object.keys(sourceLocalhostScreen).length > 0) {
+                dataOperations.push({
+                  op: "set",
+                  path: ["localhostScreens", nextId],
+                  value: { ...sourceLocalhostScreen },
                 });
               }
+              const nextData = applyDesignDataOperations(
+                designDataJsonRef.current,
+                dataOperations,
+              );
+              designDataJsonRef.current = nextData;
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (!old || typeof old !== "object") return old;
+                  return { ...old, data: JSON.stringify(nextData) };
+                },
+              );
+              void updateDesignAsync({ id, dataOperations } as any).catch(
+                () => {
+                  queryClient.invalidateQueries({
+                    queryKey: ["action", "get-design"],
+                  });
+                },
+              );
             }
-            toast.success(t("designEditor.toasts.screenDuplicated"));
-          },
-          onError: (error) => {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : t("designEditor.toasts.screenDuplicateError"),
-            );
-          },
-        },
-      );
+          }
+          toast.success(t("designEditor.toasts.screenDuplicated"));
+        })
+        .catch((error: unknown) => {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("designEditor.toasts.screenDuplicateError"),
+          );
+        });
     },
     [
       canEditDesign,
-      canvasFrameGeometryById,
-      createFileMutation,
+      createFileAsync,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,
@@ -6994,7 +7122,7 @@ function DesignEditor() {
       overviewScreens,
       queryClient,
       t,
-      updateDesignMutation,
+      updateDesignAsync,
       writeFrameGeometrySnapshot,
     ],
   );
@@ -7099,10 +7227,24 @@ function DesignEditor() {
                 content,
                 result,
               });
-              writeFrameGeometrySnapshot({
-                ...canvasFrameGeometryById,
-                [nextId]: nextGeometry,
+              locallyPinnedHeightIdsRef.current.add(nextId);
+              trace("screen", "pin-drawn-height", {
+                fileId: nextId,
+                height: nextGeometry.height,
+                why: "a drawn size is deliberate; without this the device floor and content-fit pass override it",
               });
+              // The drawn height is a deliberate size, so pin it: otherwise
+              // the device floor and content-fit pass immediately override it.
+              writeFrameGeometrySnapshot(
+                {
+                  ...canvasFrameGeometryById,
+                  [nextId]: nextGeometry,
+                },
+                {
+                  syncViewportFrameIds: [nextId],
+                  pinHeightFrameIds: [nextId],
+                },
+              );
               focusCreatedScreen(nextId, nextGeometry);
               recordFileCreationHistoryEntry({
                 filename,
@@ -10131,6 +10273,15 @@ function DesignEditor() {
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
+      trace("persist", "write-file", {
+        file: activeFile?.filename ?? null,
+        bytes: nextContent.length,
+        blocked: !activeFile
+          ? "no active file"
+          : !canEditDesignRef.current
+            ? "read-only design"
+            : null,
+      });
       if (!activeFile || !canEditDesignRef.current) return;
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
@@ -11469,7 +11620,6 @@ function DesignEditor() {
       screenId: string,
       nodeId: string,
       options?: {
-        selectFrame?: boolean;
         nextTool?: "move" | "pen";
         preserveActiveTool?: boolean;
       },
@@ -11491,8 +11641,7 @@ function DesignEditor() {
       // for the board), but keep the previous active FILE and never put the
       // board id into the overview screen-frame selection.
       const isBoardTarget = Boolean(boardFileId && screenId === boardFileId);
-      pendingOverviewScreenSelectionRef.current =
-        isBoardTarget || options?.selectFrame === false ? null : screenId;
+      pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = nodeId;
       clearPendingOverviewLayerSelectionTimer();
       flushSync(() => {
@@ -11503,9 +11652,9 @@ function DesignEditor() {
         setSelectedElement(null);
         setHoveredElement(null);
         setSelectedLayerIdsState([nodeId]);
-        setOverviewSelectedScreenIds(
-          isBoardTarget || options?.selectFrame === false ? [] : [screenId],
-        );
+        // The new node is the selection; leaving its parent frame selected too
+        // hands Cmd+D and alt-drag to the screen-level duplicate instead.
+        setOverviewSelectedScreenIds([]);
         if (!options?.preserveActiveTool) {
           setActiveTool(options?.nextTool ?? "move");
         }
@@ -11613,7 +11762,7 @@ function DesignEditor() {
       if (!result) return false;
       const nodeId = typeof result === "string" ? result : primitive.nodeId;
       if (nodeId) {
-        handlePrimitiveCreated(boardFileId, nodeId, { selectFrame: false });
+        handlePrimitiveCreated(boardFileId, nodeId);
       }
 
       return result;
@@ -11641,7 +11790,6 @@ function DesignEditor() {
       if (!result) return;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
-        selectFrame: false,
         nextTool: spec.tool === "pen" ? "pen" : undefined,
         preserveActiveTool: spec.preserveActiveTool,
       });
@@ -12558,20 +12706,45 @@ function DesignEditor() {
       selectedElement.tagName.toLowerCase();
     const shortLabel =
       labelSource.length > 28 ? `${labelSource.slice(0, 25)}...` : labelSource;
+    const targetNodeId =
+      selectedCodeLayerNode?.dataAttributes[
+        "data-agent-native-node-id"
+      ]?.trim() ??
+      selectedElement.sourceId ??
+      null;
+    const targetSelector =
+      selectedCodeLayerNode?.selector ?? selectedElement.selector ?? null;
+    // Excerpt the outerHTML out of the SOURCE projection rather than the
+    // rendered DOM: this is the exact text edit-design's search/replace has
+    // to match, so an edit anchored to it cannot drift onto a child or
+    // sibling that merely measures the same on canvas.
+    const selectedNodeSpan = selectedCodeLayerNode?.source;
+    const outerHtmlExcerpt = selectedNodeSpan
+      ? nodeRepromptSubtreeExcerpt(
+          activeProjectionContent.slice(
+            selectedNodeSpan.start,
+            selectedNodeSpan.end,
+          ),
+        )
+      : "";
     const contextLines = [
       `Selected design element in design "${design?.title ?? id}".`,
-      activeFile
-        ? `Active screen: ${activeFile.filename} (${activeFile.id}).`
-        : "",
+      `designId: ${id}`,
+      activeFile ? `fileId: ${activeFile.id}` : "",
+      activeFile ? `Active screen: ${activeFile.filename}` : "",
+      `target: ${targetNodeId ?? targetSelector ?? "unknown"}`,
+      targetNodeId ? `targetNodeId: ${targetNodeId}` : "",
+      targetSelector ? `targetSelector: ${targetSelector}` : "",
       `Element: <${selectedElement.tagName.toLowerCase()}> ${shortLabel}`,
-      `Selector: ${selectedElement.selector}`,
-      selectedElement.sourceId ? `Source id: ${selectedElement.sourceId}` : "",
       selectedCodeLayerNode ? `Code layer id: ${selectedCodeLayerNode.id}` : "",
       selectedElement.classes.length
         ? `Classes: ${selectedElement.classes.join(" ")}`
         : "",
       selectedElement.textContent?.trim()
         ? `Text: ${selectedElement.textContent.trim()}`
+        : "",
+      outerHtmlExcerpt
+        ? `--- selected element (outerHTML excerpt, truncated) ---\n${outerHtmlExcerpt}`
         : "",
     ].filter(Boolean);
 
@@ -12589,6 +12762,7 @@ function DesignEditor() {
     composerContextHasOurKeyRef.current = true;
   }, [
     activeFile,
+    activeProjectionContent,
     design?.title,
     id,
     isSignedIn,
@@ -13407,6 +13581,10 @@ function DesignEditor() {
         originalStyles?: Record<string, string>;
       } = {},
     ) => {
+      trace("persist", "commit-styles", {
+        selector: typeof selector === "string" ? selector : null,
+        props: Object.keys(styles ?? {}),
+      });
       if (!activeFile || !canEditDesign) return;
       // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
       // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
@@ -14835,10 +15013,19 @@ function DesignEditor() {
       );
       const patch = applyVisualEdit(baseContent, {
         kind: "moveNode",
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
+        // Keep the bridge's stable source id on the fallback: resolving by
+        // selector alone fails for stamped nodes, and the resolver tries
+        // nodeId first before falling back to the selector anyway.
+        target: targetNode
+          ? { nodeId: targetNode.id }
+          : details?.sourceId
+            ? { nodeId: details.sourceId, selector }
+            : { selector },
         anchor: anchorNode
           ? { nodeId: anchorNode.id }
-          : { selector: anchorSelector },
+          : details?.anchorSourceId
+            ? { nodeId: details.anchorSourceId, selector: anchorSelector }
+            : { selector: anchorSelector },
         placement,
       });
       dndHostLog("persist:rewrite", {
@@ -15026,7 +15213,13 @@ function DesignEditor() {
         });
         return false;
       }
-      applyLocalContentUpdate(nextContent, { refreshPreview: false });
+      // Structural insert: a selector-scoped push matches the live clone but
+      // not the re-keyed copy in the new source, and the bridge deletes what
+      // it cannot match.
+      applyLocalContentUpdate(nextContent, {
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+      });
       const nextProjection = buildCodeLayerProjection(nextContent);
       const nextNode = elementInfo
         ? resolveCodeLayerNodeFromElementInfo(nextProjection, elementInfo)
@@ -16336,21 +16529,22 @@ function DesignEditor() {
         return true;
       };
 
-      // B7 fix: when an element is selected and no explicit canvas position was
-      // given, insert the clone as an in-flow sibling right AFTER the selected
-      // element.  Strip any position/left/top from the clone so it participates
-      // in normal document flow instead of being an absolutely-positioned body
-      // child.  Fall back to the old position-based clone when nothing is
-      // selected or a "Paste here" position is provided.
+      // Inside a frame, after an object — but always into normal flow: a
+      // container is not a free canvas, so carrying the source's left/top
+      // across drops the clone on top of the target's content.
       if (
         !position &&
         targetFileId !== boardFileId &&
         selectedElement?.selector
       ) {
         const selector = selectedCanvasSelector ?? selectedElement.selector;
+        const decision = resolvePastePlacementForSelection({
+          content: baseContent,
+          selectedElement,
+        });
         const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
           targetSelectors: [selector],
-          placement: "after",
+          placement: decision?.placement ?? "after",
           stripRootPosition: true,
           styleSnapshots,
           managedStyleSnapshots,
@@ -17101,6 +17295,10 @@ function DesignEditor() {
   ]);
 
   const handleDuplicateSelection = useCallback(() => {
+    trace("structure", "duplicate-selection", {
+      canEdit: canEditDesign,
+      selectedLayers: selectedLayerIdsState.length,
+    });
     if (!canEditDesign) return;
     // U19: duplicate is a discrete one-shot action — see the matching note
     // in handlePasteSelection.
@@ -17289,6 +17487,7 @@ function DesignEditor() {
   ]);
 
   const handleDeleteSelection = useCallback(() => {
+    trace("structure", "delete", { layers: selectedLayerIdsState.length });
     if (!canEditDesign) return;
     // U19: delete is a discrete one-shot action — see the matching note in
     // handlePasteSelection.
@@ -17942,6 +18141,7 @@ function DesignEditor() {
 
   // Wrap the current multi-layer selection into a new group container.
   const handleGroupSelection = useCallback(() => {
+    trace("structure", "group", { layers: selectedLayerIdsState.length });
     if (!canEditDesign || !activeFile) return;
     const selectedRuntimeLayerIds = selectedLayerIdsState.filter(
       (layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId)?.runtimeOnly,
@@ -18267,13 +18467,22 @@ function DesignEditor() {
   // useDesignHotkeys' Alt+A/D/W/S/H/V bindings.
   const handleAlignSelection = useCallback(
     (edge: DesignHotkeyAlignEdge) => {
+      trace("structure", "align", { layers: selectedLayerIdsState.length });
       if (!canEditDesign) return;
 
       // Overview, 2+ selected SCREENS: align each screen's frame geometry to
       // the selection's combined bounding box through the same
       // handleGeometryCommit path drags/nudges use — one undo step for the
-      // whole align.
-      if (viewModeRef.current === "overview") {
+      // whole align. A layer selection must fall through to the element path
+      // below instead, as Figma aligns whatever is selected.
+      if (
+        viewModeRef.current === "overview" &&
+        !overviewSelectionTargetsElement({
+          selectedElement,
+          selectedLayerIds: selectedLayerIdsState,
+          fileIds: files.map((file) => file.id),
+        })
+      ) {
         if (overviewSelectedScreenIds.length < 2) return;
         const before = getCanvasFrameGeometry(designDataJsonRef.current);
         const screenRects: AlignableRect[] = [];
@@ -18386,6 +18595,7 @@ function DesignEditor() {
       handleGeometryCommit,
       overviewScreens,
       overviewSelectedScreenIds,
+      selectedLayerIdsState,
       rectFromCodeLayerNode,
     ],
   );
@@ -18829,9 +19039,22 @@ function DesignEditor() {
   //      multiple screens remain unsupported because screens cannot safely be
   //      nested without a first-class screen-container model.
   const handleAddAutoLayout = useCallback(() => {
+    trace("structure", "add-auto-layout", {
+      layers: selectedLayerIdsState.length,
+      view: viewModeRef.current,
+    });
     if (!canEditDesign) return;
 
-    if (viewModeRef.current === "overview") {
+    // Overview handles whole screens; a layer selection must still reach the
+    // element path below, as Figma applies Shift+A to whatever is selected.
+    if (
+      viewModeRef.current === "overview" &&
+      !overviewSelectionTargetsElement({
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+        fileIds: files.map((file) => file.id),
+      })
+    ) {
       if (overviewSelectedScreenIds.length === 0) return;
       if (overviewSelectedScreenIds.length !== 1 || selectedElement !== null) {
         toast(t("designEditor.toasts.autoLayoutScreensUnsupported"));
@@ -19000,7 +19223,11 @@ function DesignEditor() {
     // zero-padding auto-layout frame; an existing container is converted.
     const soleNode = nodesById.get(nodeIds[0]!);
     if (!soleNode) return;
-    if (soleNode.children.length === 0) {
+    // An empty frame is a container, not a leaf: Figma converts it in place
+    // and only wraps a true leaf (text, shape) in a new auto-layout frame.
+    const soleIsFrame =
+      soleNode.dataAttributes["data-an-primitive"] === "frame";
+    if (soleNode.children.length === 0 && !soleIsFrame) {
       const wrapped = applyVisualEdit(baseContent, {
         kind: "wrapNodes",
         targetIds: [soleNode.id],
@@ -19052,7 +19279,8 @@ function DesignEditor() {
     const childNodes = soleNode.children
       .map((childId) => nodesById.get(childId))
       .filter((node): node is CodeLayerNode => Boolean(node));
-    if (childNodes.length === 0) return;
+    // An empty frame still takes auto layout in Figma, and
+    // inferAutoLayoutFromChildren already defaults that case to a column.
     const containerRect = rectFromCodeLayerNode(soleNode);
     const childRects = childNodes.map(rectFromCodeLayerNode);
     const inferred = inferAutoLayoutFromChildren(containerRect, childRects);
@@ -19074,6 +19302,30 @@ function DesignEditor() {
       return;
     }
     let nextContent = patch.content;
+    // Figma reflows children when auto layout is enabled; opting one out is the
+    // explicit "ignore auto layout" toggle. wrapNodes already strips these on
+    // the multi-selection path — do the same for a single container.
+    // An empty value is rejected by isSafeStyleValue, so neutralise with CSS
+    // initial values rather than trying to remove the declarations.
+    const reflowResets: Array<[string, string]> = [
+      ["position", "static"],
+      ["left", "auto"],
+      ["top", "auto"],
+      ["right", "auto"],
+      ["bottom", "auto"],
+    ];
+    for (const childNode of childNodes) {
+      for (const [property, value] of reflowResets) {
+        const stripped = applyVisualEdit(nextContent, {
+          kind: "style",
+          target: { nodeId: childNode.id },
+          property,
+          value,
+        });
+        if (stripped.result.status === "applied")
+          nextContent = stripped.content;
+      }
+    }
     if (inferred.padding > 0) {
       const paddingPatch = applyVisualEdit(nextContent, {
         kind: "style",
@@ -19134,6 +19386,7 @@ function DesignEditor() {
   // Figma does: ungrouping leaves the former children selected so the user
   // can immediately keep working with them.
   const handleUngroupSelection = useCallback(() => {
+    trace("structure", "ungroup", { layers: selectedLayerIdsState.length });
     if (!canEditDesign || !activeFile) return;
     const selectedRuntimeLayerIds = selectedLayerIdsState.filter(
       (layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId)?.runtimeOnly,
@@ -19579,6 +19832,19 @@ function DesignEditor() {
         targetScreenId,
         targetAnchorPlacement,
         targetDropMode,
+      });
+      trace("drop", "cross-screen-persist", {
+        from: sourceScreenId,
+        to: targetScreenId,
+        mode: targetDropMode,
+        placement: targetAnchorPlacement,
+        anchor: targetAnchorNodeId ?? targetAnchorSelector ?? null,
+        node: sourceNodeId ?? sourceSelector,
+        blocked: !canEditDesign
+          ? "read-only design"
+          : sourceScreenId === targetScreenId
+            ? "same screen — nothing to move"
+            : null,
       });
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
@@ -20322,6 +20588,21 @@ function DesignEditor() {
     ],
   );
 
+  // MultiScreenCanvas consumes arrow keys in the capture phase while a frame
+  // is selected, and an in-screen element selection keeps its screen there.
+  const handleOverviewNudgeSelection = useCallback(() => {
+    if (
+      overviewSelectionTargetsElement({
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+        fileIds: files.map((file) => file.id),
+      })
+    ) {
+      return false;
+    }
+    return true;
+  }, [files, selectedElement, selectedLayerIdsState]);
+
   // Gate screen deletion behind confirmation, then record the deleted rows as
   // one grouped history entry so Cmd+Z can recreate every selected screen.
   // Always returns false to MultiScreenCanvas so it never performs its own
@@ -20336,7 +20617,7 @@ function DesignEditor() {
       // onDelete hotkey never ran. Route to the element delete instead; the
       // screen-delete confirmation is only for a real frame selection.
       if (
-        overviewDeleteTargetsElement({
+        overviewSelectionTargetsElement({
           selectedElement,
           selectedLayerIds: selectedLayerIdsState,
           fileIds: files.map((file) => file.id),
@@ -20757,21 +21038,28 @@ function DesignEditor() {
 
   const handleNudgeSelection = useCallback(
     (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
+      trace("structure", "nudge", { direction, largeStep });
       if (!canEditDesign) return;
-      const step = largeStep ? 10 : 1;
-      const dx =
-        direction === "left" ? -step : direction === "right" ? step : 0;
-      const dy = direction === "up" ? -step : direction === "down" ? step : 0;
+      const nudgeAmounts = editorPreferences.nudge;
+      const freeTranslation = resolveNudgeIntent({
+        direction,
+        largeStep,
+        amounts: nudgeAmounts,
+      });
+      const dx = freeTranslation.kind === "translate" ? freeTranslation.dx : 0;
+      const dy = freeTranslation.kind === "translate" ? freeTranslation.dy : 0;
 
-      // Overview mode, one or more screen frames selected: arrow keys nudge
-      // the selected screens' canvas frame geometry (Figma nudges whatever is
-      // selected, including top-level frames) through the same
-      // geometry-commit path mouse-drag uses, so undo/redo and the
-      // rapid-repeat coalescing in handleGeometryCommit (~800ms window) apply
-      // identically to a held arrow key as they do to a drag gesture.
+      // Screen frames nudge through the same geometry-commit path mouse-drag
+      // uses, so a held arrow key gets handleGeometryCommit's ~800ms undo
+      // coalescing instead of one history entry per keypress.
       if (
         viewModeRef.current === "overview" &&
-        overviewSelectedScreenIds.length > 0
+        overviewSelectedScreenIds.length > 0 &&
+        !overviewSelectionTargetsElement({
+          selectedElement,
+          selectedLayerIds: selectedLayerIdsState,
+          fileIds: files.map((file) => file.id),
+        })
       ) {
         const before = getCanvasFrameGeometry(designDataJsonRef.current);
         const after = cloneCanvasFrameGeometry(before);
@@ -20806,29 +21094,80 @@ function DesignEditor() {
         return;
       }
 
-      if (!selectedElement?.selector) return;
+      // Selecting in the layers tree fills selectedLayerTargets before the
+      // bridge round-trip fills selectedElement, so keying off the latter
+      // alone silently drops the first nudge after every tree selection.
+      const nudgeTarget = selectedElement?.selector
+        ? selectedElement
+        : selectedLayerTargetsRef.current[0]?.elementInfo;
+      if (!nudgeTarget?.selector) return;
+
+      const intent = resolveElementNudgeIntent({
+        content: activeFile ? getFreshActiveContent() : "",
+        selectedElement: nudgeTarget,
+        direction,
+        largeStep,
+        amounts: nudgeAmounts,
+      });
+      if (intent.kind === "none") return;
+      if (intent.kind === "reorder") {
+        const patch = applyVisualEdit(intent.content, {
+          kind: "moveNode",
+          target: { nodeId: intent.targetNodeId },
+          anchor: { nodeId: intent.anchorNodeId },
+          placement: intent.placement,
+        } satisfies MoveNodeEditIntent);
+        if (patch.result.status !== "applied") return;
+        applyLocalContentUpdate(patch.content, { skipPreview: true });
+        // A node with no stable `data-agent-native-node-id` has its id derived
+        // from path/offset, and the move changes both — so the pre-move id
+        // finds nothing and the selection has to be re-resolved by identity.
+        const movedNode =
+          patch.projection.nodes.find(
+            (node) =>
+              node.id === intent.targetNodeId ||
+              node.dataAttributes["data-agent-native-node-id"] ===
+                intent.targetNodeId,
+          ) ??
+          resolveCodeLayerNodeFromElementInfo(
+            patch.projection,
+            selectedElement,
+          );
+        if (movedNode) {
+          setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
+          setSelectedLayerIdsState([movedNode.id]);
+        }
+        return;
+      }
+
       hideSelectionChromeForNudge();
-      const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
-      const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
-      commitVisualStyles(selectedElement.selector, {
+      const left = parseFloat(nudgeTarget.computedStyles.left || "0") || 0;
+      const top = parseFloat(nudgeTarget.computedStyles.top || "0") || 0;
+      commitVisualStyles(nudgeTarget.selector, {
         position:
-          selectedElement.computedStyles.position === "static"
+          nudgeTarget.computedStyles.position === "static"
             ? "relative"
-            : selectedElement.computedStyles.position || "relative",
-        left: `${Math.round(left + dx)}px`,
-        top: `${Math.round(top + dy)}px`,
+            : nudgeTarget.computedStyles.position || "relative",
+        left: `${Math.round(left + intent.dx)}px`,
+        top: `${Math.round(top + intent.dy)}px`,
       });
     },
     [
+      activeFile,
+      applyLocalContentUpdate,
       boardFileId,
       boardFrameGeometry,
       canEditDesign,
       commitVisualStyles,
+      editorPreferences.nudge,
+      files,
+      getFreshActiveContent,
       handleGeometryCommit,
       hideSelectionChromeForNudge,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedElement,
+      selectedLayerIdsState,
     ],
   );
 
@@ -20837,6 +21176,7 @@ function DesignEditor() {
   // but undo/redo transactions use the UndoManager as origin so we must also
   // advance lastLocalContentRef and trigger the debounced save here.
   const handleUndo = useCallback(() => {
+    trace("history", "undo", {});
     if (!canEditDesign) return;
     // U10: an in-progress drag hasn't been committed yet (onGeometryCommit /
     // the content update fires on drag END), so undoing mid-drag would pop a
@@ -21506,6 +21846,7 @@ function DesignEditor() {
   ]);
 
   const handleRedo = useCallback(() => {
+    trace("history", "redo", {});
     if (!canEditDesign) return;
     // U10: see the matching guard in handleUndo — don't redo into a document
     // state an in-progress, uncommitted drag is about to overwrite anyway.
@@ -22283,6 +22624,7 @@ function DesignEditor() {
   ]);
 
   const handleZoomIn = useCallback(() => {
+    trace("tool", "zoom-in", {});
     setZoom((z) => getNextZoomStepUp(z));
   }, [setZoom]);
 
@@ -23549,7 +23891,14 @@ function DesignEditor() {
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
-    onFrameTool: canEditDesign ? handleFrameTool : undefined,
+    // F always means Frame; without forcing the mode it would reuse whichever
+    // sub-tool the dropdown last selected.
+    onFrameTool: canEditDesign
+      ? () => {
+          setFrameToolDraws("frame");
+          handleFrameTool();
+        }
+      : undefined,
     onRectangleTool: canEditDesign ? handleRectTool : undefined,
     onLineTool: canEditDesign ? handleLineTool : undefined,
     onArrowTool: canEditDesign ? handleArrowTool : undefined,
@@ -23579,7 +23928,13 @@ function DesignEditor() {
     onCopyProps: canEditDesign ? handleCopyProps : undefined,
     onPasteProps: canEditDesign ? handlePasteProps : undefined,
     onDuplicate: canEditDesign ? handleDuplicateSelection : undefined,
-    onDelete: canEditDesign ? handleDeleteSelection : undefined,
+    // Routes screen-vs-element itself; selecting a screen in the layers panel
+    // never reaches MultiScreenCanvas' capture-phase Delete.
+    onDelete: canEditDesign
+      ? () => {
+          handleDeleteOverviewSelection(selectedLayerIdsState);
+        }
+      : undefined,
     // L12: Cmd+R (and the context-menu Rename item, both routed through
     // useDesignHotkeys' onRename) previously always renamed the DESIGN
     // TITLE, even while a layer was selected — surprising when the user's
@@ -24414,10 +24769,10 @@ function DesignEditor() {
   }, [activeCodeLayerProjection.nodes, selectedElement, selectedLayerIdsState]);
 
   const resolvePngCaptureTarget = useCallback(
-    (selectionOnly: boolean) => {
+    (scope: PngCaptureScope) => {
       let iframe = canvasIframeRef.current;
       let cropSelection: ElementInfo | readonly ElementInfo[] | null =
-        viewMode === "single"
+        viewMode === "single" || scope === "element"
           ? pngSelectedElements.length > 0
             ? pngSelectedElements
             : selectedElement
@@ -24426,7 +24781,7 @@ function DesignEditor() {
       // In overview, Copy as PNG targets the one selected screen instead of
       // whichever iframe happens to be first in DOM order. The download action
       // still targets the active screen through canvasIframeRef.
-      if (selectionOnly && viewMode === "overview") {
+      if (scope !== "document" && viewMode === "overview") {
         const screenId =
           selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
         iframe = screenId
@@ -24434,7 +24789,7 @@ function DesignEditor() {
               `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
             )
           : null;
-        cropSelection = null;
+        if (scope === "screens") cropSelection = null;
       }
 
       if (!iframe) throw new PngCaptureError("no-preview");
@@ -24477,11 +24832,11 @@ function DesignEditor() {
    * Copy as PNG from drifting visually from the existing PNG export. */
   const renderPngBlob = useCallback(
     async ({
-      selectionOnly,
+      scope,
       settings,
       format = "png",
     }: {
-      selectionOnly: boolean;
+      scope: PngCaptureScope;
       settings?: Partial<ExportSettingsValue>;
       format?: "png" | "jpg" | "webp";
     }): Promise<Blob> => {
@@ -24491,7 +24846,7 @@ function DesignEditor() {
       let outputCanvas: HTMLCanvasElement;
 
       if (
-        selectionOnly &&
+        scope === "screens" &&
         viewMode === "overview" &&
         selectedScreenIds.length > 0
       ) {
@@ -24598,8 +24953,7 @@ function DesignEditor() {
           context.restore();
         }
       } else {
-        const { cropSelection, doc, iframe } =
-          resolvePngCaptureTarget(selectionOnly);
+        const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
         const rendered = await renderExportDocumentCanvas({
           doc,
           iframe,
@@ -24607,12 +24961,18 @@ function DesignEditor() {
           render: html2canvas,
         });
         const cropRect = resolveExportCropRect(doc, cropSelection);
+        const cropped = cropRect
+          ? cropCanvasToRect(rendered.canvas, cropRect, rendered.scale)
+          : null;
+        // An element capture that silently widens to the whole document is a
+        // preview of something the user did not ask to export, and nothing
+        // downstream can tell it apart from a real one.
+        if (scope === "element" && !cropped) {
+          throw new PngCaptureError("no-preview");
+        }
         // Render the whole page first, then crop, so ancestor backgrounds show
         // through every selected frame exactly as they do on screen.
-        outputCanvas = cropRect
-          ? (cropCanvasToRect(rendered.canvas, cropRect, rendered.scale) ??
-            rendered.canvas)
-          : rendered.canvas;
+        outputCanvas = cropped ?? rendered.canvas;
       }
       const mimeType =
         format === "jpg"
@@ -24676,7 +25036,7 @@ function DesignEditor() {
       setPngExporting(true);
       try {
         const blob = await renderPngBlob({
-          selectionOnly: false,
+          scope: "document",
           settings,
           format,
         });
@@ -24704,7 +25064,8 @@ function DesignEditor() {
       pngExportingRef.current = true;
       setPngExporting(true);
       try {
-        const { cropSelection, doc, iframe } = resolvePngCaptureTarget(false);
+        const { cropSelection, doc, iframe } =
+          resolvePngCaptureTarget("document");
         const crop = resolveExportCropRect(doc, cropSelection);
         const pageWidth = Math.max(
           1,
@@ -24734,7 +25095,7 @@ function DesignEditor() {
           settings?.scale ?? PDF_MIN_PRINT_RASTER_SCALE,
         );
         const png = await renderPngBlob({
-          selectionOnly: false,
+          scope: "document",
           settings: { ...settings, scale: pdfScale },
           format: "png",
         });
@@ -24871,7 +25232,7 @@ function DesignEditor() {
     try {
       // Do not await this before clipboard.write: ClipboardItem accepts the
       // pending Blob representation, preserving the initiating user gesture.
-      const pngBlob = renderPngBlob({ selectionOnly: true });
+      const pngBlob = renderPngBlob({ scope: "screens" });
       await copyPngPromiseToClipboard(pngBlob);
       toast.success(t("designEditor.toasts.pngCopied"));
     } catch (error) {
@@ -25221,7 +25582,7 @@ function DesignEditor() {
    *  renderer the export itself uses, at scale 1 since it paints into a ~7rem
    *  box. Rejections propagate so the preview can show a failure. */
   const handleRenderExportPreview = useCallback(
-    () => renderPngBlob({ selectionOnly: true, settings: { scale: 1 } }),
+    () => renderPngBlob({ scope: "element", settings: { scale: 1 } }),
     [renderPngBlob],
   );
 
@@ -26297,9 +26658,11 @@ function DesignEditor() {
   const selectedInspectorElements = useMemo(
     () =>
       selectedLayerTargets.length > 0
-        ? selectedLayerTargets.map((target) => target.elementInfo)
+        ? selectedLayerTargets.map((target) =>
+            withMeasuredGeometry(target.elementInfo, target.fileId),
+          )
         : selectedElement
-          ? [selectedElement]
+          ? [withMeasuredGeometry(selectedElement, activeFile?.id)]
           : [],
     [selectedElement, selectedLayerTargets],
   );
@@ -31092,6 +31455,8 @@ function DesignEditor() {
               hasActiveFile={Boolean(activeFile)}
               onMove={handleMoveTool}
               onFrame={handleFrameTool}
+              frameToolDraws={frameToolDraws}
+              onFrameToolDrawsChange={setFrameToolDraws}
               onShape={handleShapeTool}
               onText={handleTextTool}
               onPen={handlePenTool}
@@ -31105,12 +31470,21 @@ function DesignEditor() {
           )}
 
         {!embedded && keyboardShortcutsOpen ? (
-          <KeyboardShortcutsPanel onClose={handleCloseKeyboardShortcuts} />
+          <KeyboardShortcutsPanel
+            onClose={handleCloseKeyboardShortcuts}
+            nudgeAmounts={editorPreferences.nudge}
+            onNudgeAmountsChange={(nudge) =>
+              setEditorPreferences({ ...editorPreferences, nudge })
+            }
+          />
         ) : null}
 
         {/* Canvas */}
         {questionFlowActive ? (
-          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-canvas-bg)]">
+          /* Panel background, not canvas: these are the agent's own follow-up
+             questions, and on the canvas grey they read as an unrelated object
+             parked beside the chat rather than a continuation of it. */
+          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]">
             <QuestionFlow
               questions={pendingQuestions ?? []}
               onSubmit={handleQuestionsSubmit}
@@ -31654,7 +32028,9 @@ function DesignEditor() {
                           boardFileId ? handleBoardTextContentChange : undefined
                         }
                         onCreateScreenFrame={handleCreateScreenFrame}
+                        frameToolDraws={frameToolDraws}
                         onDeleteSelection={handleDeleteOverviewSelection}
+                        onNudgeSelection={handleOverviewNudgeSelection}
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
                           handleLayerMarqueeSelectionChange
@@ -32593,7 +32969,7 @@ function DesignEditor() {
                 </DialogTitle>
                 <DialogDescription>
                   {
-                    "Connect Builder.io to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
+                    "Connect Builder.io (free tier available) to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
                   }
                 </DialogDescription>
               </DialogHeader>
@@ -32623,7 +32999,7 @@ function DesignEditor() {
                 </ul>
                 <p className="pt-1 text-xs">
                   {
-                    "Requires Builder.io to be connected with a branch project configured." /* i18n-ignore */
+                    "Requires Builder.io to be connected (free tier available) with a branch project configured." /* i18n-ignore */
                   }
                 </p>
               </div>

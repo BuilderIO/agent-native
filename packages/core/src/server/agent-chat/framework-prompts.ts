@@ -1,6 +1,7 @@
 import nodePath from "node:path";
 
 import type { ActionEntry } from "../../agent/production-agent.js";
+import type { FrameworkToolGroup } from "../../framework-tools.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import {
   buildFrameworkCore,
@@ -33,7 +34,11 @@ import { lazyFs } from "./lazy-fs.js";
  */
 export function buildFrameworkPrompts(
   examples?: PromptExamples,
-  options?: { databaseTools?: DatabaseToolsOption; extensionTools?: boolean },
+  options?: {
+    databaseTools?: DatabaseToolsOption;
+    extensionTools?: boolean;
+    disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+  },
 ): {
   FRAMEWORK_CORE: string;
   FRAMEWORK_CORE_COMPACT: string;
@@ -44,6 +49,14 @@ export function buildFrameworkPrompts(
 } {
   const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
   const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
+  // Dev agents edit source directly, so their copy of the core drops the
+  // production-only "hand code changes to Builder" sentence.
+  const devCoreOptions = { ...options, canEditSource: true };
+  const DEV_FRAMEWORK_CORE = buildFrameworkCore(examples, devCoreOptions);
+  const DEV_FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(
+    examples,
+    devCoreOptions,
+  );
   const extensionToolsEnabled = options?.extensionTools === true;
   const planModeArtifactList = extensionToolsEnabled
     ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
@@ -131,7 +144,7 @@ When editing code, follow the agent-native architecture:
 - All SQL must be dialect-agnostic (works on SQLite and Postgres)
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE}`;
+${DEV_FRAMEWORK_CORE}`;
 
   const PROD_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Production Mode
 
@@ -167,7 +180,7 @@ When editing code, follow the agent-native architecture:
 - All SQL must be dialect-agnostic (works on SQLite and Postgres)
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE_COMPACT}`;
+${DEV_FRAMEWORK_CORE_COMPACT}`;
 
   return {
     FRAMEWORK_CORE,

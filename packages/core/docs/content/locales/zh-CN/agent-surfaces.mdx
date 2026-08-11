@@ -1,83 +1,45 @@
 ---
-title: "特工表面"
-description: "将 Agent-Native 无头使用，作为丰富的聊天，在现有应用程序中，或作为完整的代理本机应用程序。"
-search: "无头代理丰富聊天完整应用程序 BYO 代理运行时 AgentChatRuntime 嵌入 actions MCP A2A HTTP CLI"
+title: "Agent 界面"
+description: "选择智能应用的呈现方式：从聊天到内联 UI、持久化应用页面、嵌入式边栏、自动化以及外部 Agent 访问。"
+search: "智能应用 富聊天 原生聊天 UI 完整应用 自动化 无头 BYO agent runtime AgentChatRuntime 嵌入 动作 MCP A2A HTTP CLI"
 ---
 
-# 特工表面
+# Agent 界面
 
-## 完整的 Agent 工作区 {#agent-page}
+**界面（surface）**是用户（或其他系统）与你的应用交互的方式：聊天窗口、仪表板页面、后台作业、来自另一个 Agent 的 API 调用。Agent-Native 让你可以自由组合这些方式，而无需重建核心逻辑，因为每个界面都运行相同的底层动作（actions）。如果你是 Agent-Native 的新用户，请先阅读[核心概念](/docs/key-concepts)。
 
-当完整应用需要一个持久位置来检查和配置代理时，请在 `/agent` 挂载
-`AgentTabsPage`。将此路由加入应用导航，并向 `AgentSidebar` 传入
-`agentPageHref="/agent"`，这样 Resources 和 Settings 模式就可以链接到完整
-页面，而不必重复这些流程。
+## 界面之间的关系
 
-```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
-export default function AgentRoute() {
-  return <AgentTabsPage />;
-}
-```
+四种主要产品形态处于一个从最具交互性到完全无头的连续谱上。它们之所以可以自由组合，是因为共享相同的动作和 SQL 支持的应用状态。界面需要智能体时，使用框架的 Agent 循环。添加新界面并不意味着重写底层逻辑——你只是在增加一种访问相同操作的新方式。
 
-共享页面目前提供五个选项卡：
-
-- **Context** — 显示范围预览、令牌预算、按来源/治理/来源引用分组的有序系统部分、列表/treemap 视图和最新实时线程快照。
-- **Files** — 为个人或组织资源重新托管现有的 `ResourcesPanel`。
-- **Connections** — MCP 服务器管理和 A2A 远程代理列表，即此应用的代理可以调用什么。
-- **Automations** — 支持暂停/恢复、详情和删除的个人与组织 Scheduled/Event 自动化。兼容 URL 仍为 `/agent#jobs`。
-- **Access** — MCP URL、可用时的 A2A 代理卡片以及共享客户端设置指南；完整连接流程和令牌回退位于 `/mcp/connect`。
-
-该页面目前使用个人范围，不提供页面级 **Personal / Organization** 切换器。
-当底层操作支持时，选项卡可以显示自己的组织部分：**Automations** 显示 Scheduled
-与 Event 的个人和组织部分。组织 Event 自动化始终以创建者身份运行。该页面只是对现有组件、操作和访问
-检查的薄封装，不是新的管理控制台。
-
-Agent-Native 是故意可组合的。不用太多就可以使用代理UI，
-在没有内置代理运行时的情况下使用 UI，或者将两者一起用作完整的
-应用程序。
-
-有用的选择方法不是先按协议。选择产品表面
-你想要，然后使用匹配的原语。
-
-| 表面                          | 什么时候使用它                                                                   | 开始于                                                                                      |
-| ----------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **无头代理**                  | 代码、作业、脚本、另一个应用程序或另一个代理应直接调用该工作。                   | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Agent-Native 上的丰富聊天** | 您想要由内置代理循环支持的独立或嵌入式聊天。                                     | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
-| **与您的代理进行丰富的聊天**  | 您在其他地方构建了代理，并想要 Agent-Native 的编写器、脚本、工具卡和本机小部件。 | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **嵌入式边车**                | 您已经有一个 SaaS 应用程序，并希望在其旁边有一个具有页面上下文和主机命令的代理。 | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
-| **完整应用程序**              | 人类和代理应该共享持久的屏幕、数据、导航和协作。                                 | 模板、actions、SQL 状态、上下文感知                                                         |
-
-这些是阶段，而不是单独的产品。工作流程可以以无头方式启动
-代理只需执行一个操作，就会以表格或图表的形式出现在聊天中，然后成为
-应用程序中的全屏，而不更改代理调用的操作。
-
-<Diagram id="doc-block-qhr3cz" title={"表面光谱"} summary={"一个操作界面，四种产品形状——每一种都增加了 UI，而不改变下面的操作。"}>
+<Diagram id="doc-block-hvdxgh" title="界面连续谱" summary={"一个动作界面，四种产品形态，每种形态都在不改变底层操作的情况下增加 UI。"}>
 
 ```html
 <div class="diagram-spectrum">
   <div class="diagram-card">
-    <strong>Headless</strong
-    ><small class="diagram-muted">actions、任务、脚本、其他代理</small>
+    <strong>聊天</strong
+    ><small class="diagram-muted">输入框、对话记录、工具调用</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <strong>丰富聊天</strong
-    ><small class="diagram-muted">输入框、转录、工具卡片</small>
+    <strong>内联 UI</strong
+    ><small class="diagram-muted">表格、图表、卡片</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <strong>嵌入式 sidecar</strong
-    ><small class="diagram-muted">agent beside an existing app</small>
+    <strong>应用页面</strong
+    ><small class="diagram-muted">持久化界面、SQL 数据</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card accent-card">
-    <span class="diagram-pill accent">大部分 UI</span><strong>完整应用</strong
-    ><small class="diagram-muted">持久屏幕、数据、协作</small>
+    <span class="diagram-pill accent">无头</span><strong>自动化</strong
+    ><small class="diagram-muted">作业、脚本、外部 Agent</small>
   </div>
 </div>
 <div class="diagram-base" data-rough>
-  <span class="diagram-muted">相同 actions · 相同 SQL · 相同代理循环</span>
+  <span class="diagram-muted"
+    >相同动作 · SQL 支持的状态 · 按需使用 Agent 循环</span
+  >
 </div>
 ```
 
@@ -110,174 +72,25 @@ Agent-Native 是故意可组合的。不用太多就可以使用代理UI，
 
 </Diagram>
 
-## 无头代理 {#headless}
+## 选择起点
 
-当没有人需要盯着自定义应用屏幕时，请使用无头路径
-工作运行：计划作业、集成、后端工作流程、CLI 循环，
-另一个代理或调用 Agent-Native 的现有产品。
+聊天是最常见的切入点。随着输出内容越来越丰富，应用通常会逐步添加内联 UI；当用户需要持久化对象来浏览和分享时，则进一步添加完整应用页面。同样的动作为后续的按钮、定时作业和外部 Agent 提供支持。如果你要在已有产品中添加 Agent，请使用嵌入式边栏；如果工作无需浏览器即可运行，则选择自动化优先模式。以下是完整概览：
 
-这也是当**代理*是*产品**时要达到的形状 -
-app-agent 循环是前门，而不是仪表板。您从
-终端、Slack、电子邮件、预定工作、其他代理或聊天 —“总结我的
-未读电子邮件，”“将每日指标发布到 Slack，”“查找符合以下条件的候选人
-上周回复”——代理执行操作并返回结果
-属于。它仍然是一个真正的应用程序，而不是无状态提示：actions，身份验证会话，
-应用程序状态、线程/运行历史记录、设置、凭据和共享记录全部实时
-在SQL。
+| 界面                                        | 适用场景                                                           | 起点                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| **[富聊天](#rich-chat)**                    | 用户与 Agent 对话、查看工具调用并保留会话历史。                    | [Chat template](/docs/template-chat), `<AgentChatSurface>`            |
+| **[原生内联 UI](#native-inline-ui)**        | 动作结果应在聊天中以表格、图表、卡片或审批形式渲染。               | [Native Chat UI](/docs/native-chat-ui), `chatUI.renderer`             |
+| **[生成式内联 UI](#generated-inline-ui)**   | Agent 应在聊天中动态创建临时或可复用的控件。                       | [Generative UI](/docs/generative-ui), `render-inline-extension`       |
+| **[完整应用](#full-application)**           | 用户需要持久化界面、共享数据、导航和协作功能。                     | Templates, actions, SQL state, context awareness                      |
+| **[嵌入式边栏](#embedded-sidecar)**         | 你已有一个 SaaS 应用，想在其旁边添加一个能感知页面上下文的 Agent。 | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`            |
+| **[自动化优先](#headless)**                 | 作业、脚本或其他 Agent 直接调用工作，无需浏览器 UI。               | `agent-native create --headless`, `defineAction`, HTTP, CLI, MCP, A2A |
+| **[在你的 Agent 上使用富聊天](#byo-agent)** | 你在其他地方构建了 Agent，想用 Agent-Native 的聊天 UI 包裹它。     | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`               |
 
-在以下情况下选择此模式：
+## Agent-Native 上的富聊天 {#rich-chat}
 
-- **工作在后台进行。**大部分价值是在用户不注意的时候创造的 - 分类代理、每日报告代理、待命响应人员。
-- **输出离开应用程序。**代理发布到 Slack、发送电子邮件或更新第三方系统；应用内没有任何内容可供浏览。
-- **该域是一次性的。**研究机器人、摘要生成器、报告编写器 - 没有需要列表视图的持久对象。
-- **您正在制作原型。**立即发送代理；如果用户想要的话，稍后添加更丰富的 UI。
+当用户需要与 Agent 对话、查看工具调用、审批工作、查看原生结果，并保留持久化的会话历史时，请使用内置聊天功能。
 
-如果您的产品是围绕持久对象构建的，用户会浏览、透视和
-分享 — 电子邮件、事件、文档、图表 — 选择 [full application](#full-application)
-或 [template](/docs/cloneable-saas) 代替；这些添加了完整的 UI _plus_ 代理。
-
-### 盒子里装的是什么 {#in-the-box}
-
-无头应用程序会跳过数周的仪表板工作，并且从一天开始就与渠道无关
-一个 - 同一代理从网络、Slack、Telegram、电子邮件和其他代理运行
-因为一切都通过代理，而不是 UI。权衡是有的
-没有“一目了然地浏览所有内容”视图；如果用户需要，请混合模式和
-添加小型状态页面或列表视图。
-
-当添加内置的Chat shell时，框架提供了五种管理
-您不必构建的界面：**聊天**（主要输入）、**工作区**
-（skills、内存、指令、子代理、连接的 MCP 服务器、已调度
-jobs）、**作业历史记录**、**线程历史记录**和**设置**。这些通常是
-足够了——与它交谈，看看它做了什么，配置它的行为方式。伸手去拿
-[Chat](/docs/template-chat) 当您准备好添加浏览器 UI 时，或
-[Dispatch template](/docs/template-dispatch) 工作空间式启动
-使用 Slack/Telegram、计划作业和开箱即用的共享机密。
-
-最小的本地路径是无头代理脚手架加上一个操作：
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-cd my-agent
-pnpm install
-```
-
-然后定义持久操作：
-
-```ts filename="actions/summarize-week.ts"
-import { defineAction } from "@agent-native/core/action";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Summarize this week's submissions.",
-  readOnly: true,
-  schema: z.object({ formId: z.string() }),
-  run: async ({ formId }) => {
-    return { formId, summary: "34 submissions, up 18% from last week." };
-  },
-});
-```
-
-然后可以调用一个操作：
-
-- **HTTP** — `POST /_agent-native/actions/summarize-week`
-- **CLI** — `pnpm action summarize-week --formId form_123`
-- **应用程序代理 CLI** — `pnpm agent "Summarize form_123"`
-- **MCP** — 来自 Claude、ChatGPT、Codex、Cursor、OpenCode、Copilot 和其他 MCP 主机
-- **A2A** - 来自另一个代理本机应用程序或代理对等点
-- **UI** — 通过 `useActionQuery`、`useActionMutation` 或 `callAction`
-- **代理工具** - 来自内置聊天循环
-
-<Endpoint id="doc-block-1aq5tlg" title={"通过 HTTP 调用操作"} method="POST" path="/_agent-native/actions/summarize-week" summary={"通过 HTTP 按名称调用任何操作"} request={{
-  "contentType": "application/json",
-  "example": "{ \"formId\": \"form_123\" }"
-}} responses={[
-  {
-    "status": "200",
-    "description": "The action's return value as JSON",
-    "example": "{ \"formId\": \"form_123\", \"summary\": \"34 submissions, up 18% from last week.\" }"
-  },
-  {
-    "status": "400",
-    "description": "Input failed schema validation"
-  }
-]}>
-
-Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.
-
-</Endpoint>
-
-这不是无数据库或无状态模式。应用程序代理循环存储会话，
-线程、运行、设置、凭据、应用程序状态和共享记录
-SQL。本地开发默认为SQLite；托管无头应用程序应使用
-持久 SQL 数据库。
-
-如果您需要从项目文件夹中无头地执行整个代理循环，请使用：
-
-```bash
-pnpm agent "Summarize this week's forms."
-```
-
-如果另一个应用程序或脚本需要调用整个代理，请使用
-`agentNative.invoke("analytics", "...")` 或 `agent-native invoke` CLI。那
-将跨应用工作保留在 A2A 路径上，而本地工作保留在 actions 上。
-
-工作人员、作业、集成 webhooks 和自定义主机可以驱动代理循环
-直接通过服务器API。这比 actions 级别低 - 您提供
-您自己的引擎、模型、消息、actions 和事件接收器：
-
-```ts
-import { runAgentLoop } from "@agent-native/core/server";
-
-await runAgentLoop({ engine, model, systemPrompt, actions, messages, send });
-```
-
-对于大多数应用程序，计划的提示和集成 webhooks 已经调用此循环
-给你。仅在构建自定义无头主机时直接获取它，eval
-运行程序，或服务器端编排表面 - 请参阅[服务器 - 生产代理
-handler](/docs/server#agent-handler) 获取完整签名。
-
-### 针对文件夹运行 {#folder-loop}
-
-如果您的目标是“针对此文件夹运行代理”，请从应用程序代理开始
-在该文件夹中循环：构建无头应用程序，添加 actions/指令，运行
-`pnpm agent "..."`。这使工作保持在相同的操作/运行时/状态内
-应用程序将在生产中使用的合同。
-
-外部编码线束是用于嵌入 Claude 的独立产品表面
-Agent-Native 应用内的代码、Codex、Pi、Cursor、Mastra 或类似运行时。
-在构建编码代理产品时使用它们，而不是作为默认方式
-启动本地代理本机工作流程。
-
-### 云存储库访问 {#cloud-repo-access}
-
-对于需要存储库访问的云无头应用程序，请使用 GitHub 连接器
-加上代币CRUD模型：列出存储库、搜索文件、读取文件、创建或
-通过提供商范围编辑文件、删除文件和撤销访问权限
-凭证。在本地开发中，明确设置目标存储库：
-
-```bash
-GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
-```
-
-不要将虚拟机克隆或长期沙箱签出视为主要云
-存储库访问模型。沙箱对于隔离代码执行仍然很重要，但是
-存储库访问应该是明确的、经过许可的、可审核的和可撤销的
-通过连接器层。
-
-### 共享会话和运行 {#sharing-runs}
-
-无头会话和运行是持久对象。共享性应该分阶段进行：
-首先阅读/共享链接，以便队友可以检查经过清理的提示、输出
-和运行状态；稍后授予可写协作权限，因此继续运行，
-批准 actions、编辑计划或更改配置已完成
-显式访问检查。
-
-## Agent-Native 上的丰富聊天 {#rich-chat}
-
-当用户应该与代理交谈时使用内置聊天，查看工具调用，
-批准工作、检查本机结果并保留持久的线程历史记录。
-
-要获得完整的应用程序起点，请使用 [Chat template](/docs/template-chat)：
+如需完整的应用起点，请使用 [Chat template](/docs/template-chat)：
 
 ```bash
 npx @agent-native/core@latest create my-chat-app --template chat
@@ -293,11 +106,7 @@ export default function ChatRoute() {
 }
 ```
 
-当应用同时具有全页聊天选项卡和 `AgentSidebar` 时，请使用相同的
-在两个表面上安装`storageKey`，启用`chatViewTransition`，并安装
-布局中的聊天主页切换助手。聊天之外的普通应用内链接
-页面可以将完整的聊天内容转变为侧边栏，同时保持活动状态
-线程：
+当应用同时包含全页聊天标签页和 `AgentSidebar` 时，请在两个界面上使用相同的 `storageKey`，启用 `chatViewTransition`，并在布局中安装 chat-home 切换助手。这样，聊天页面中的普通应用内链接就可以将全屏聊天变形为边栏，同时保持当前活跃的会话：
 
 ```tsx
 import {
@@ -335,7 +144,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 ```
 
-使用您自己的 chrome 进行最简单的嵌入式聊天：
+使用自定义外壳的最简嵌入式聊天：
 
 ```tsx
 import { AssistantChat } from "@agent-native/core/client/chat";
@@ -345,51 +154,104 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 }
 ```
 
-Actions 可以返回显式的本机小部件结果，因此聊天输出不仅仅是
-文本。表格、图表和键入的产品卡呈现为第一方 React
-聊天中的组件，没有 iframe。参见[Native 聊天界面](/docs/native-chat-ui)。
+动作可以返回明确的原生控件结果，使聊天输出不仅仅是文字。表格、图表和带类型的产品卡片以第一方 React 组件的形式在聊天中渲染，无需 iframe。详见 [Native Chat UI](/docs/native-chat-ui)。当 Agent 需要的是任意生成的控件而非预定义的 React 组件时，请使用 [Generative UI](/docs/generative-ui)：它在沙箱中内联渲染 Alpine/Tailwind UI，可以读取应用状态和插槽上下文，并将选中的值发回聊天。
 
-## 与您的代理进行丰富的聊天 {#byo-agent}
+## 原生内联 UI {#native-inline-ui}
 
-当您的代理已使用其他框架构建时，请使用此路径
-运行时，你想要 Agent-Native 的聊天 UI 围绕它。 `AgentChatRuntime` 是
-边界：您的运行时流规范化事件，Agent-Native 呈现
-作曲家、脚本、工具调用、批准、本机小部件和应用布局。
+当你的动作返回结构化数据——记录列表、图表数据集、状态摘要——且这些数据应在聊天会话中以真实 UI 组件而非纯文字描述的形式渲染时，请使用此功能。你在动作上定义一个 `chatUI` 渲染器，Agent-Native 会将其渲染为第一方 React 组件：无 iframe，无独立渲染路径。
 
-```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+当输出具有清晰、可复用的形态，且你希望一次设计、在多个 Agent 响应中反复使用时，这是正确的选择。如果 Agent 需要在运行时动态创建控件，请参见[生成式内联 UI](#generated-inline-ui)。
 
-const runtime = createHttpAgentChatRuntime({
-  endpoint: "/api/support-agent/chat",
-});
+完整的渲染器 API、控件库以及 BYO agent runtime 集成，请参见 [Native Chat UI](/docs/native-chat-ui)。
 
-export function SupportAgentChat() {
-  return <AssistantChat runtime={runtime} threadId="support" />;
+## 生成式内联 UI {#generated-inline-ui}
+
+当 Agent 需要创建一个尚不存在于预构建控件中的控件时——自定义表单、基于当前上下文构建的选择器、一次性计算器——请使用此功能。与原生控件不同，生成式 UI 由 Agent 在运行时从 Alpine.js 和 Tailwind 组合而成，在 iframe 沙箱中运行，并可将选中的值发回聊天会话。
+
+生成式 UI 可以是临时的（渲染一次后丢弃），也可以保存为对用户持久化的可复用扩展。
+
+完整 API、沙箱约束和扩展持久化模型，请参见 [Generative UI](/docs/generative-ui)。
+
+## 完整应用 {#full-application}
+
+当用户需要持久化对象和工作流时——表单、仪表板、日历、收件箱、编辑器、文档、资产或报告——请选择完整应用路径。
+
+完整应用在相同的动作和 Agent 合约之上增加产品 UI：
+
+<Cards>
+
+### SQL 状态
+
+应用数据、导航、设置和聊天历史都持久化在 SQL 中。Agent 读写与 UI 相同的数据行。
+
+### 上下文感知
+
+Agent 知道当前路由、选择项和焦点对象，因此"编辑这个"始终指向正确的内容。
+
+### 实时同步
+
+Agent 的变更通过实时同步更新 UI，UI 的变更同时更新 Agent 的上下文。框架使用 SSE 和轮询回退，因此用户不需要手动刷新。
+
+### 深度链接
+
+动作结果可以直接打开对应的应用视图：图表链接到仪表板，草稿链接到收件箱。
+
+### 原生聊天控件
+
+表格、图表、卡片、审批和带类型的结果以第一方 React 组件的形式内联渲染在聊天中。
+
+### 生成式 UI 与扩展
+
+Agent 可以动态创建内联控件，并在工作流需要持久化时保存可复用的迷你应用。
+
+</Cards>
+
+当你想要围绕动作构建一个最简应用时，从 [Chat template](/docs/template-chat) 开始；当你想要一个完整的产品形态时，从某个领域[模板](/docs/cloneable-saas)开始。
+
+### 全页 Manage Agent {#agent-page}
+
+每个 Agent-Native 应用最终都需要一个让用户配置其 Agent 的地方：设置常驻指令、查看已完成的工作、连接 MCP 服务器、管理自动化，以及控制访问权限。从头构建该 UI 工作量很大。Agent-Native 内置了一个预构建的全页组件 `AgentTabsPage`，涵盖了所有这些功能，分布在十二个标签页中。
+
+在你的应用中将其挂载到 `/settings/agent`。当前模板将其作为规范路由，并向 `AgentSidebar` 传递 `agentPageHref="/settings/agent"`。`/agent` 作为旧版重定向保留。
+
+```tsx filename="app/routes/settings.agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
 }
 ```
 
-针对 OpenAI 代理、OpenAI 响应、Claude 存在现成的运行时助手
-Agent SDK、Vercel AI SDK 和 AG-UI，以及上面的标准化 HTTP 运行时
-对于任何其他代理（Mastra、Flue、Eve、LangGraph 或自定义服务）。 ACP 是
-不是最终用户应用聊天或 A2A 传输，并且 Agent-Native 目前没有
-要求 A2UI 支持。 ACP 在一个特定位置受支持 - 驾驶本地
-编码代理（Gemini CLI，Claude代码，...）通过
-[harness layer](/docs/harness-agents#acp)，这里不作为聊天运行时。
+该共享页面目前提供分为两组的十二个标签页：
 
-[Native 聊天界面 — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
-是事件形状、运行时助手和 `chatUI` 的规范主页
-工具结果元数据。将外部代理连接到聊天中时从这里开始。
+| 分组      | 标签页            | 显示内容                                                                                                                                                                   |
+| --------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | 用于个人或组织文件的现有 `ResourcesPanel`                                                                                                                                  |
+| Resources | **Instructions**  | 始终生效的 AGENTS.md 风格规则                                                                                                                                              |
+| Resources | **Agents**        | 自定义子 Agent 配置                                                                                                                                                        |
+| Resources | **Memory**        | 长期记忆笔记                                                                                                                                                               |
+| Resources | **Skills**        | 可复用的工作流                                                                                                                                                             |
+| Resources | **Learnings**     | 随时间积累的修正和模式                                                                                                                                                     |
+| Resources | **Remote agents** | 到其他 agent-native 应用的 A2A 连接（替代原 Connections 标签页所显示的内容）                                                                                               |
+| Agent     | **Snapshots**     | 范围预览、token 预算、按来源/治理/源分组排序的系统章节，以及最新的实时会话快照。由"Context"重命名而来；旧的 `#context` 链接将重定向至此。                                  |
+| Agent     | **Connections**   | 仅限 MCP 服务器管理                                                                                                                                                        |
+| Agent     | **Automations**   | 个人和组织的定时/事件自动化，支持暂停/恢复、详情和删除流程。兼容 URL `/agent#jobs` 保持稳定。                                                                              |
+| Agent     | **Settings**      | Agent 模型、API 密钥、限制、语音和自动化设置                                                                                                                               |
+| Agent     | **Access**        | 应用 MCP URL、可用时的 A2A agent card，以及适用于 Claude、ChatGPT、Cursor、Claude Code、Codex 等客户端的共享设置指南。链接到 `/mcp/connect` 以完成完整连接流程和令牌回退。 |
 
-## 嵌入式边车 {#embedded-sidecar}
+该页面仅显示个人（`user` 范围）数据，目前没有组织级别的切换。它是现有组件和访问检查的薄层封装，而非新的管理控制台：Connections 描述应用可以调用什么；Access 描述外部客户端如何连接到它。
 
-当主产品已经存在并且您想要一个时，请使用嵌入式 sidecar
-代理在旁边。
+尚未包含的功能：
 
-服务器插件将 Agent-Native 路由安装到您的主机应用程序中并解析
-主机身份服务器端：
+- 组织范围视图
+- 授权和范围编辑
+- 撤销 UI
+- 每次迭代的来源历史
+
+## 嵌入式边栏 {#embedded-sidecar}
+
+当主产品已经存在，你想在其旁边添加一个 Agent 时，请使用嵌入式边栏。
+
+服务端插件将 Agent-Native 路由挂载到你的宿主应用中，并在服务端解析宿主身份：
 
 ```ts
 import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
@@ -401,7 +263,7 @@ export default createAgentNativeEmbeddedPlugin({
 });
 ```
 
-React sidecar 传递页面上下文和主机命令：
+React 边栏传递页面上下文和宿主命令：
 
 ```tsx
 import { AgentNativeEmbedded } from "@agent-native/core/client/host";
@@ -423,14 +285,18 @@ export function AppShell({ children }) {
 }
 ```
 
-<Diagram id="doc-block-oblpnz" title={"Sidecar 如何桥接到主机应用程序"} summary={"该插件在服务器端挂载 Agent-Native 路由； React sidecar 流输入页面上下文并输出主机命令。"}>
+### 连接方式
+
+两个部分作为桥接器协同工作：宿主应用将页面上下文（当前路由、选中文本、焦点对象）传入 `AgentNativeEmbedded`，Agent 则通过 `onNavigate` 和 `onRefresh` 将命令发送回去。服务端插件负责处理身份——它解析宿主会话，使 Agent 以正确的用户身份运行，无需单独登录。宿主应用无需任何改动；插件将 Agent-Native 的路由附加到你现有路由旁边。
+
+<Diagram id="doc-block-27ug5y" title="边栏如何桥接到宿主应用" summary={"插件在服务端挂载 Agent-Native 路由；React 边栏将页面上下文流入，将宿主命令流出。"}>
 
 ```html
 <div class="diagram-sidecar">
   <div class="diagram-panel">
     <strong>宿主应用</strong><small class="diagram-muted">你现有的 SaaS</small>
     <div class="diagram-node">
-      getContext()<br /><small class="diagram-muted">路由 · 选择</small>
+      getContext()<br /><small class="diagram-muted">路由 · 选择项</small>
     </div>
     <div class="diagram-node">
       onNavigate / onRefresh<br /><small class="diagram-muted">宿主命令</small>
@@ -442,10 +308,10 @@ export function AppShell({ children }) {
   </div>
   <div class="diagram-panel accent-panel">
     <span class="diagram-pill accent">AgentNativeEmbedded</span
-    ><small class="diagram-muted">agent + workspace</small>
+    ><small class="diagram-muted">Agent + 资源</small>
     <div class="diagram-box" data-rough>
       Agent-Native 路由<br /><small class="diagram-muted"
-        >mounted by the server plugin</small
+        >由服务端插件挂载</small
       >
     </div>
   </div>
@@ -479,45 +345,180 @@ export function AppShell({ children }) {
 
 </Diagram>
 
-请参阅 [Embedding SDK](/docs/embedding-sdk) 以了解主机身份验证、数据库隔离，
-iframe/picker 模式，以及较低级别的桥 APIs。
+宿主认证、数据库隔离、iframe/选择器模式和底层桥接 API，请参见 [Embedding SDK](/docs/embedding-sdk)。
 
-## 完整应用程序 {#full-application}
+## 自动化优先应用 {#headless}
 
-当用户需要持久对象和工作流程时使用完整的应用路径：表单，
-仪表板、日历、收件箱、编辑器、文档、资产或报告。
+当工作运行期间无需自定义浏览器界面时，请选择自动化优先路径：定时作业、集成、后端工作流、CLI 循环、另一个 Agent，或者已有产品调用 Agent-Native。
 
-完整应用程序围绕相同的操作和代理合同添加产品 UI：
+这是当自动化本身就是产品界面时应选择的形态。你从终端、Slack、电子邮件、定时作业、另一个 Agent 或聊天（"总结我未读的邮件"、"将每日指标发布到 Slack"、"找出上周回复的候选人"）发送请求，Agent 执行后将结果返回到对应的地方。它仍然是一个真正的应用，而非无状态的提示词：动作、认证会话、应用状态、会话/运行历史、设置、凭证和共享记录都存储在 SQL 中。
 
-- **SQL 状态** — 应用数据、导航、设置和聊天历史记录是持久的。
-- **上下文感知** - 代理知道当前路线、选择和聚焦对象。
-- **实时同步** - 代理更改会更新 UI，UI 更改会更新代理的上下文。
-- **深层链接** — 操作结果可以打开正确的应用视图。
-- **本机聊天小部件** — 表格、图表、卡片、批准和键入的结果内联显示。
+在以下情况下选择此模式：
 
-当您想要一个最小的应用程序时，请从 [Chat template](/docs/template-chat) 开始
-您的 actions 周围，或来自域 [template](/docs/cloneable-saas)，当您
-想要一个完整的产品形状。
+- **工作在后台发生。** 大部分价值在用户不在线时创建：分类 Agent、日报 Agent、值班响应器。
+- **输出离开应用。** Agent 发布到 Slack、发送电子邮件或更新第三方系统；应用内没有可浏览的内容。
+- **领域是一次性的。** 研究机器人、摘要生成器、无需持久化对象和列表视图的报告撰写器。
+- **你在原型化一个自动化。** 现在发布操作；当用户需要检查和控制时再添加聊天或应用页面。
 
-## 如何选择 {#how-to-choose}
+如果你的产品围绕用户浏览、切换和共享的持久化对象（电子邮件、事件、文档、图表）构建，请选择[完整应用](#full-application)或[模板](/docs/cloneable-saas)；这些方案在 Agent 之上还提供完整的 UI。
 
-| 如果您在想...                                        | 选择                      |
-| ---------------------------------------------------- | ------------------------- |
-| “我只需要一个可调用的工具或工作流程。”               | 无头代理                  |
-| “我想要框架的代理，但是聊天应该是主要的UI。”         | Agent-Native 上的丰富聊天 |
-| “我已经有一个代理；我需要一个完美的聊天 UI。”        | 与您的代理进行丰富的聊天  |
-| “我已经有一个 SaaS 应用程序；在它旁边添加一个代理。” | 嵌入式边车                |
-| “代理和 UI 应该作为产品一起进化。”                   | 完整应用程序              |
+### 开箱即用的功能 {#in-the-box}
 
-保持合约较小：将持久操作定义为 actions，显式返回
-聊天需要丰富UI时的小部件结果，并且仅在用户时添加全屏
-需要浏览、比较、配置或协作持久对象。
+自动化优先应用跳过了仪表板工作，并从第一天起就是渠道无关的。相同的 Agent 可以从 Web、Slack、Telegram、电子邮件和其他 Agent 运行，因为所有内容都通过相同的动作处理。权衡之处在于没有"一览全局"视图；如果用户需要这个，请从 [Chat](/docs/template-chat) 开始或添加一个小型状态页面或列表视图。
+
+当你添加内置 Chat 壳层时，框架提供五个无需自己构建的管理界面：**Chat**（主要输入）、**Resources**（技能、记忆、指令、子 Agent 和已连接的 MCP 服务器）、**Automations**、**Thread history** 和 **Settings**。这些通常已经足够：与它对话、查看它做了什么、配置它的行为。当你准备好添加浏览器 UI 时，请使用 [Chat](/docs/template-chat)；或者使用 [Dispatch template](/docs/template-dispatch) 作为工作区风格的起点，开箱即用地支持 Slack/Telegram、定时作业和共享密钥。
+
+最小的无浏览器本地路径是脚手架加上一个动作：
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+```
+
+然后定义持久化操作：
+
+```ts filename="actions/summarize-week.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Summarize this week's submissions.",
+  readOnly: true,
+  schema: z.object({ formId: z.string() }),
+  run: async ({ formId }) => {
+    return { formId, summary: "34 submissions, up 18% from last week." };
+  },
+});
+```
+
+一个动作随后可以通过以下方式调用：
+
+- **HTTP：** `POST /_agent-native/actions/summarize-week`
+- **CLI：** `pnpm action summarize-week --formId form_123`
+- **App-agent CLI：** `pnpm agent "Summarize form_123"`
+- **MCP：** 来自 Claude、ChatGPT、Codex、Cursor、OpenCode、Copilot 和其他 MCP 宿主
+- **A2A：** 来自另一个 agent-native 应用或 Agent 对等方
+- **UI：** 通过 `useActionQuery`、`useActionMutation` 或 `callAction`
+- **Agent 工具：** 来自内置聊天循环
+
+<Endpoint id="doc-block-kdx289" title="通过 HTTP 调用动作" method="POST" path="/_agent-native/actions/summarize-week" summary="通过 HTTP 按名称调用任意动作" request={{
+  "contentType": "application/json",
+  "example": "{ \"formId\": \"form_123\" }"
+}} responses={[
+  {
+    "status": "200",
+    "description": "动作的返回值（JSON 格式）",
+    "example": "{ \"formId\": \"form_123\", \"summary\": \"34 submissions, up 18% from last week.\" }"
+  },
+  {
+    "status": "400",
+    "description": "输入未通过 schema 校验"
+  }
+]}>
+
+每个 `defineAction` 都自动挂载到 `/_agent-native/actions/<name>`。JSON 请求体在 `run` 执行前会针对动作的 zod schema 进行校验。如需使用长期有效的 bearer token 从外部系统调用，请参见 [HTTP API](/docs/http-api)。
+
+</Endpoint>
+
+这不是无数据库或无状态模式。App-agent 循环将会话、线程、运行、设置、凭证、应用状态和共享记录存储在 SQL 中。本地开发默认使用 SQLite；托管的自动化优先应用应使用持久化 SQL 数据库。
+
+如果你需要从项目文件夹无头运行整个 Agent 循环，请使用：
+
+```bash
+pnpm agent "Summarize this week's forms."
+```
+
+如果另一个应用或脚本需要调用整个 Agent，请使用 `agentNative.invoke("analytics", "...")` 或 `agent-native invoke` CLI。这样可以将跨应用的工作保持在 A2A 路径上，而本地工作则保持在动作上。
+
+Workers、作业、集成 webhooks 和自定义宿主可以通过服务端 API 直接驱动 Agent 循环。这比动作更底层——你需要自己提供引擎、模型、消息、工具、动作、事件接收器和中止信号：
+
+```ts
+import { runAgentLoop } from "@agent-native/core/server";
+
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  actions,
+  messages,
+  send,
+  signal,
+});
+```
+
+对于大多数应用，定时提示词和集成 webhooks 已经会为你调用此循环。只有在构建自定义无浏览器宿主、评估运行器或服务端编排界面时才直接使用它。完整签名请参见 [Server: Production agent handler](/docs/server-plugins#agent-chat-plugin)。
+
+### 针对文件夹运行 {#folder-loop}
+
+如果你的目标是"针对此文件夹运行一个 Agent"，请从该文件夹中的 app-agent 循环开始：搭建自动化优先应用，添加动作/指令，运行 `pnpm agent "..."`。这样可以将工作保持在应用在生产环境中使用的相同动作/运行时/状态合约内。
+
+外部编码工具是一个独立的产品界面，用于在 Agent-Native 应用中嵌入 Claude Code、Codex、Pi、Cursor、Mastra 或类似运行时。当你在构建编码 Agent 产品时使用它们，而不是作为启动本地 agent-native 工作流的默认方式。
+
+### 云端仓库访问 {#cloud-repo-access}
+
+对于需要仓库访问的云端自动化优先应用，请使用 GitHub 连接器加令牌 CRUD 模型：通过提供商范围的凭证列出仓库、搜索文件、读取文件、创建或编辑文件、删除文件以及撤销访问。在本地开发中，请明确设置目标仓库：
+
+```bash
+GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
+```
+
+不要将虚拟机克隆或长期存在的沙箱检出作为主要的云端仓库访问模型。沙箱在隔离代码执行方面仍然很重要，但仓库访问应该是明确的、有权限的、可审计的，并且可以通过连接器层撤销。
+
+### 共享会话和运行 {#sharing-runs}
+
+自动化优先的会话和运行是持久化对象。共享能力应该分阶段实现：首先是只读/共享链接，让团队成员可以查看经过净化的提示词、输出和运行状态；之后是有权限的可写协作，使继续运行、审批动作、编辑计划或更改配置需要通过明确的访问检查。
+
+## 在你的 Agent 上使用富聊天 {#byo-agent}
+
+当你的 Agent 已经用其他框架或运行时构建好，并且你想用 Agent-Native 的聊天 UI 包裹它时，请选择此路径。`AgentChatRuntime` 是边界所在：你的运行时流式传输归一化的事件，Agent-Native 负责渲染输入框、对话记录、工具调用、审批、原生控件和应用布局。
+
+```tsx
+import {
+  AssistantChat,
+  createHttpAgentChatRuntime,
+} from "@agent-native/core/client/chat";
+
+const runtime = createHttpAgentChatRuntime({
+  endpoint: "/api/support-agent/chat",
+});
+
+export function SupportAgentChat() {
+  return <AssistantChat runtime={runtime} threadId="support" />;
+}
+```
+
+现成的运行时助手适用于 OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK 和 AG-UI，以及上面用于任何其他 Agent（Mastra、Flue、Eve、LangGraph 或自定义服务）的归一化 HTTP 运行时。ACP 不是面向终端用户的应用聊天或 A2A 传输，Agent-Native 目前也不声称支持 A2UI。ACP 仅在一个特定场景中受支持：通过[工具层](/docs/harness-agents#acp)驱动本地编码 Agent（Gemini CLI、Claude Code 等），而非此处的聊天运行时。
+
+[Native Chat UI: BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes) 是事件形态、运行时助手和 `chatUI` 工具结果元数据的规范文档。将外部 Agent 接入聊天时请从那里开始。
 
 ## 下一步 {#related-docs}
 
-- [**Actions**](/docs/actions) — 只需定义一次操作；上述每个界面都会调用同一个操作
-- [**Native 聊天界面**](/docs/native-chat-ui) — 在聊天中将类型化的 action 结果呈现为表格、图表和卡片
-- [**Generative UI**](/docs/generative-ui) — 在聊天中生成临时或持久化的沙盒 UI
-- [**Automation-First Apps**](/docs/pure-agent-apps) — 面向作业、队列、脚本和外部代理的完整无浏览器模式
-- [**External Agents**](/docs/external-agents) — 将 MCP 兼容主机连接到应用
-- [**A2A Protocol**](/docs/a2a-protocol) — 从其他 Agent-Native 应用调用代理
+<Cards>
+
+### [动作（Actions）](/docs/actions)
+
+一次定义操作，以上所有界面都调用同一个。
+
+### [原生聊天 UI（Native Chat UI）](/docs/native-chat-ui)
+
+在聊天中直接将带类型的动作结果渲染为表格、图表和卡片。
+
+### [生成式 UI（Generative UI）](/docs/generative-ui)
+
+在聊天中内联生成临时或持久化的沙箱 UI。
+
+### [自动化优先应用（Automation-First Apps）](/docs/pure-agent-apps)
+
+作业、队列、脚本和外部 Agent 的完整无浏览器模式。
+
+### [外部 Agent（External Agents）](/docs/external-agents)
+
+将兼容 MCP 的宿主作为工具服务器连接到你的应用。
+
+### [A2A 协议（A2A Protocol）](/docs/a2a-protocol)
+
+通过 A2A 标准从其他 agent-native 应用调用 Agent。
+
+</Cards>

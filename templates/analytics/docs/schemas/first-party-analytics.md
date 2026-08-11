@@ -173,7 +173,7 @@ Agent Native observability panels belong in the canonical Agent Native dashboard
 (`agent-native-templates-first-party`), including generation metrics, explicit
 feedback sentiment, optional inferred message sentiment, and separate
 by-main-model breakdowns. Do not publish or install a separate observability
-dashboard template.
+dashboard.
 
 Example dashboard panel:
 

@@ -187,6 +187,14 @@ function splitSqlStatements(sql: string): string[] {
 
 export interface RunMigrationsOptions {
   /**
+   * Run migrations even inside a serverless request runtime. Off by default:
+   * see the guard in {@link runMigrations} for why request-path DDL is what
+   * took analytics down. Only set this when the caller has no scheduled or
+   * background runtime that could migrate instead.
+   */
+  runInServerlessRequest?: boolean;
+
+  /**
    * Name of the migrations bookkeeping table. REQUIRED — there is intentionally
    * no default. Two templates that share a database (e.g. via the same Neon URL)
    * each have their own version space starting at v1, and a single shared
@@ -219,6 +227,19 @@ export interface RunMigrationsOptions {
  */
 export type MigrationSql = string | { postgres?: string; sqlite?: string };
 
+/**
+ * A run-only migration can defer its work without recording itself as applied.
+ * This is for serialized backfills where another instance owns the advisory
+ * lock; throwing would turn an expected loser into a startup retry storm.
+ */
+export const MIGRATION_DEFERRED = Symbol("migration-deferred");
+
+export function deferMigration(): typeof MIGRATION_DEFERRED {
+  return MIGRATION_DEFERRED;
+}
+
+export type MigrationRunResult = void | typeof MIGRATION_DEFERRED;
+
 export interface MigrationEntry {
   version: number;
   sql: MigrationSql;
@@ -234,11 +255,13 @@ export interface MigrationEntry {
    * JS step for a backfill SQL cannot express — e.g. a repair whose value comes
    * from application-level parsing of a stored blob. Runs BEFORE this entry's
    * SQL and before the bookkeeping row is written, so a throw leaves the
-   * migration unrecorded and it retries on the next boot. Pass `sql: {}` for a
-   * run-only entry. Give run-only entries a `name`: the legacy version gate
+   * migration unrecorded and it retries on the next boot. Return
+   * `deferMigration()` when another instance owns a serialized backfill; the
+   * entry stays pending without logging a startup failure. Pass `sql: {}` for
+   * a run-only entry. Give run-only entries a `name`: the legacy version gate
    * would otherwise mark them applied via any later migration's MAX advance.
    */
-  run?: () => Promise<void>;
+  run?: () => Promise<MigrationRunResult>;
 }
 
 function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
@@ -304,6 +327,75 @@ function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
  * extend the same list concurrently), giving new entries a name is what makes
  * them immune to the collision class described above.
  */
+/**
+ * True in a production serverless runtime that serves user REQUESTS.
+ *
+ * Deliberately mirrors the analytics template's own predicate rather than
+ * importing it: `packages/core/src/db` must not depend on a template, and the
+ * agent/background modules that carry the sibling predicates would introduce a
+ * cycle here.
+ */
+function isServerlessRequestRuntime(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  return (
+    process.env.NETLIFY === "true" ||
+    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT) ||
+    process.env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    process.env.VERCEL === "1"
+  );
+}
+
+/**
+ * Whether this deployment has a release-time migration runner. Request-path
+ * migration skipping is safe only when that runner owns schema setup.
+ */
+function appMigratesAtRelease(): boolean {
+  const raw = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim();
+  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
+/**
+ * A runtime that is ALLOWED to migrate: release scripts, scheduled jobs, and
+ * durable background workers, which are off the request path and may take as
+ * long as they need. Claimed with {@link withMigrationRuntime}.
+ */
+function isMigrationAuthorizedRuntime(): boolean {
+  return (
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_MIGRATION_RUNTIME__ === true
+  );
+}
+
+/**
+ * Run an explicit release-time migration job with migration duty enabled.
+ *
+ * The flag is process-local and restored even when the job fails, so a build
+ * step can opt in without creating a permanent escape hatch for request code.
+ */
+export async function withMigrationRuntime<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  const runtime = globalThis as typeof globalThis & {
+    __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+  };
+  const previous = runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+  runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = true;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+    } else {
+      runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = previous;
+    }
+  }
+}
+
 export function runMigrations(
   migrations: Array<MigrationEntry>,
   options: RunMigrationsOptions,
@@ -337,9 +429,39 @@ export function runMigrations(
     }
   }
 
+  // A plugin with no migrations is intentionally a no-op. Creating or reading
+  // a bookkeeping table here turns an empty app plugin into a database cold
+  // start on every serverless boot.
+  if (migrations.length === 0) return async () => {};
+
   const namedTable = `${table}_named`;
 
   return async () => {
+    // Migrations are schema DDL plus an introspection pass. On serverless
+    // "first touch" is EVERY cold start, so this lands on the critical path of
+    // a user request — measured at ~5.5-8.6s for the version check alone on a
+    // 180-table database, with 4-6 copies running concurrently under load.
+    //
+    // Guarded HERE rather than at each call site on purpose. The analytics
+    // template guarded its own runner in #2708; three core plugins
+    // (org, context-xray, observational-memory) kept calling this unguarded,
+    // so the probe storm survived the fix that was supposed to end it. A
+    // fourth special case would have shipped the same bug a fourth time.
+    //
+    // Schema still has to exist: a scheduled/background runtime sets
+    // `__AGENT_NATIVE_MIGRATION_RUNTIME__`, and `runInServerlessRequest` is
+    // the explicit opt-in for a caller that genuinely cannot defer.
+    if (
+      options?.runInServerlessRequest !== true &&
+      isServerlessRequestRuntime() &&
+      appMigratesAtRelease() &&
+      !isMigrationAuthorizedRuntime()
+    ) {
+      console.info(
+        `[migrations] Skipping "${table}" migrations in a serverless request runtime`,
+      );
+      return;
+    }
     try {
       // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
       const d1 =
@@ -377,7 +499,13 @@ export function runMigrations(
           try {
             // D1 is SQLite-compatible
             const raw = resolveMigrationSql(m.sql, false);
-            if (m.run) await m.run();
+            const runResult = m.run ? await m.run() : undefined;
+            if (runResult === MIGRATION_DEFERRED) {
+              console.info(
+                `[db] Deferred migration ${m.name ? `"${m.name}" ` : ""}v${m.version}; it remains pending for a later boot`,
+              );
+              continue;
+            }
             const recordStatements = [
               m.name
                 ? d1
@@ -465,11 +593,12 @@ export function runMigrations(
       //
       // Now: use the pooled singleton (getDbExec) for the bookkeeping SELECT. If
       // the migrations table does not yet exist we treat it as "all migrations
-      // pending" (current = -1). Only when there are pending migrations do we open
-      // the direct-endpoint exec (DDL is the only thing Neon's PgBouncer blocks —
-      // documented at getMigrationDatabaseUrl). The direct exec is shared across
-      // concurrent runners via acquireMigrationExec() and closed after the last
-      // caller via releaseMigrationExec().
+      // pending" (current = -1). Pending SQL/DDL opens the direct-endpoint exec
+      // (DDL is the only thing Neon's PgBouncer blocks — documented at
+      // getMigrationDatabaseUrl); run-only entries stay on the pooled client once
+      // both bookkeeping tables are known to exist. The direct exec is shared
+      // across concurrent runners via acquireMigrationExec() and closed after the
+      // last caller via releaseMigrationExec().
       // ---------------------------------------------------------------------------
 
       let current = -1; // sentinel: "table missing" → treat all as pending
@@ -516,31 +645,49 @@ export function runMigrations(
         return;
       }
 
+      // A run-only migration does not need the direct endpoint: the fast path
+      // already proved both bookkeeping tables exist, and its `run` callback is
+      // responsible for its own pooled database work. Keep the direct path for
+      // any pending SQL or for the first boot, where the tables still need DDL.
+      const runOnlyPending =
+        pg &&
+        current >= 0 &&
+        !namedRowsMissing &&
+        pendingFast !== null &&
+        pendingFast.length > 0 &&
+        pendingFast.every((m) => resolveMigrationSql(m.sql, pg) === null);
+
       // Acquire the exec appropriate for the dialect.
       // For Postgres: the shared direct-endpoint exec (DDL-safe, closed on release).
       // For SQLite/libsql: the singleton pooled exec (no pooler concern).
-      const exec = pg ? await acquireMigrationExec() : getDbExec();
+      const exec = pg
+        ? runOnlyPending
+          ? getDbExec()
+          : await acquireMigrationExec()
+        : getDbExec();
 
       try {
-        // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
-        // restarts when WAL files from the previous process haven't been released yet.
-        await retrySqliteBusy(
-          () =>
-            exec.execute(
-              `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
-            ),
-          { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
-        );
-        // Companion name-keyed bookkeeping table — never alters the existing
-        // `${table}`'s PRIMARY KEY, so legacy version rows keep working exactly
-        // as before. See the `runMigrations` doc comment for why this exists.
-        await retrySqliteBusy(
-          () =>
-            exec.execute(
-              `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version INTEGER, applied_at ${pg ? "TIMESTAMP NOT NULL DEFAULT now()" : "TEXT NOT NULL DEFAULT (datetime('now'))"})`,
-            ),
-          { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
-        );
+        if (!runOnlyPending) {
+          // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
+          // restarts when WAL files from the previous process haven't been released yet.
+          await retrySqliteBusy(
+            () =>
+              exec.execute(
+                `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
+              ),
+            { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
+          );
+          // Companion name-keyed bookkeeping table — never alters the existing
+          // `${table}`'s PRIMARY KEY, so legacy version rows keep working exactly
+          // as before. See the `runMigrations` doc comment for why this exists.
+          await retrySqliteBusy(
+            () =>
+              exec.execute(
+                `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version INTEGER, applied_at ${pg ? "TIMESTAMP NOT NULL DEFAULT now()" : "TEXT NOT NULL DEFAULT (datetime('now'))"})`,
+              ),
+            { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
+          );
+        }
 
         // For Postgres, current was already set by the fast-path SELECT above.
         // For SQLite we run the SELECT now (via the same exec, which is the singleton).
@@ -555,7 +702,10 @@ export function runMigrations(
             );
             appliedNames = new Set(nameRows.map((r) => String(r.name)));
           }
-        } else if (current === -1 || (hasNamedMigrations && namedRowsMissing)) {
+        } else if (
+          !runOnlyPending &&
+          (current === -1 || (hasNamedMigrations && namedRowsMissing))
+        ) {
           // Fast-path read failed (table was absent on the pooler): re-read via the
           // direct exec now that CREATE TABLE IF NOT EXISTS has ensured it exists.
           if (current === -1) {
@@ -579,9 +729,11 @@ export function runMigrations(
           ? `INSERT INTO ${namedTable} (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`
           : `INSERT OR IGNORE INTO ${namedTable} (name, version) VALUES (?, ?)`;
 
-        const pending = migrations.filter((m) =>
-          m.name ? !appliedNames.has(m.name) : m.version > current,
-        );
+        const pending = runOnlyPending
+          ? pendingFast!
+          : migrations.filter((m) =>
+              m.name ? !appliedNames.has(m.name) : m.version > current,
+            );
         if (pending.length > 0) {
           console.log(
             `[db] Applying ${pending.length} migration(s) on ${pg ? "Postgres" : "SQLite/libsql"}…`,
@@ -613,7 +765,13 @@ export function runMigrations(
           // A throw here escapes to the outer handler with nothing recorded,
           // so the entry is retried on the next boot rather than being marked
           // applied against work that never happened.
-          if (m.run) await m.run();
+          const runResult = m.run ? await m.run() : undefined;
+          if (runResult === MIGRATION_DEFERRED) {
+            console.info(
+              `[db] Deferred migration ${label}; it remains pending for a later boot`,
+            );
+            continue;
+          }
 
           if (raw == null) {
             // Dialect-gated migration with no SQL for this dialect; still mark
@@ -685,10 +843,10 @@ export function runMigrations(
           }
         }
       } finally {
-        // Release the direct-endpoint exec (Postgres only). For SQLite getDbExec()
-        // returns the process-lifetime singleton, so releaseMigrationExec is a no-op
-        // (refCount never incremented for SQLite path, guard in releaseMigrationExec).
-        if (pg) await releaseMigrationExec();
+        // Release the direct-endpoint exec (Postgres only). Run-only migrations
+        // use the process-lifetime pooled singleton, so there is nothing to close
+        // in that branch.
+        if (pg && !runOnlyPending) await releaseMigrationExec();
       }
     } catch (err) {
       console.error("[db] Migration failed:", (err as Error).message);
@@ -704,6 +862,10 @@ export function runMigrations(
         !!globalThis.process?.env?.VERCEL ||
         "__cf_env" in globalThis ||
         "__env__" in globalThis;
+      // A release migration runs in the same Netlify environment as a request,
+      // but it must fail the deploy when DDL fails instead of publishing an
+      // app against an incomplete schema.
+      if (isMigrationAuthorizedRuntime()) throw err;
       if (typeof globalThis.process?.exit === "function" && !isServerless) {
         process.exit(1);
       }

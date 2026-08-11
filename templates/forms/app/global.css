@@ -224,6 +224,7 @@
   [data-agent-empty-state="centered"]
   .agent-composer-area--hero {
   width: 100%;
+  max-width: min(750px, 100%);
 }
 
 .forms-ask-chat-panel .agent-composer-root--hero {

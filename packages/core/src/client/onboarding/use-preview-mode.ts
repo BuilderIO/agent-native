@@ -4,15 +4,26 @@
  *
  * Storage key matches the dev-overlay option id `framework-onboarding/show-as-new-user`
  * so toggling the option in the overlay automatically activates preview mode here.
+ * The `?onboarding=preview` query also enables it for an existing account.
  */
 
 import { useEffect, useState } from "react";
 
 export const ONBOARDING_PREVIEW_STORAGE_KEY =
   "agent-native-dev-overlay-option-framework-onboarding-show-as-new-user";
+export const ONBOARDING_PREVIEW_QUERY_PARAM = "onboarding";
+export const ONBOARDING_PREVIEW_QUERY_VALUE = "preview";
+
+export function isOnboardingPreviewQuery(search: string): boolean {
+  return (
+    new URLSearchParams(search).get(ONBOARDING_PREVIEW_QUERY_PARAM) ===
+    ONBOARDING_PREVIEW_QUERY_VALUE
+  );
+}
 
 function readPreview(): boolean {
   if (typeof window === "undefined") return false;
+  if (isOnboardingPreviewQuery(window.location.search)) return true;
   try {
     return (
       JSON.parse(

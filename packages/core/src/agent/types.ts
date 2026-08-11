@@ -211,7 +211,7 @@ export interface AgentChatRequest {
   model?: string;
   /** Per-request engine override (sent alongside model for cross-provider switches). */
   engine?: string;
-  /** Per-request reasoning effort override (ephemeral, from the composer picker). */
+  /** Per-request effort override (ephemeral, from the composer picker). */
   effort?: ReasoningEffort;
   /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
@@ -245,6 +245,10 @@ export type AgentChatEvent =
       id?: string;
       progressBytes?: number;
     }
+  /** The model is still assembling an action input; sent before tool_start. */
+  | { type: "tool_input_start"; tool?: string; id?: string }
+  /** Incremental action-input text, kept separate from the finalized input. */
+  | { type: "tool_input_delta"; tool?: string; id?: string; text: string }
   | { type: "stream_keepalive" }
   | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
@@ -281,6 +285,13 @@ export type AgentChatEvent =
       /** Remote task to resume when status is pending/input-required. */
       taskId?: string;
       durationMs?: number;
+      /**
+       * Why the call ended, on a terminal status. Already computed for
+       * telemetry; without it here the persisted event says only that a
+       * cross-app call failed after N ms and never why, so a failed A2A call
+       * cannot be diagnosed from the database without a repro.
+       */
+      terminalCode?: string;
     }
   | {
       /**

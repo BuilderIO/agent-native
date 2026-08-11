@@ -156,6 +156,7 @@ const messages = {
       artboardCanvas: "Plan 아트보드 캔버스",
       zoomIn: "확대",
       zoomOut: "축소",
+      zoomHint: "⌘/Ctrl을 누른 채 스크롤하여 확대/축소",
       markupSaveFailed: "마크업을 저장할 수 없습니다. 다시 시도하세요.",
     },
     document: {

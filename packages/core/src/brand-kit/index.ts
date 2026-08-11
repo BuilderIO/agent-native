@@ -17,6 +17,7 @@
 
 export * from "./types.js";
 export * from "./brand-signals.js";
+export * from "./tokens.js";
 
 // Import-source parsing + token extraction (Tailwind/CSS/GitHub/URL/document/
 // code analysis). These already power the import-* actions across templates.
@@ -36,6 +37,7 @@ export {
   // Code-file analysis
   createCodeAnalysisState,
   analyzeCodeFile,
+  analyzeCodeFiles,
   analyzeCssFile,
   analyzeTailwindConfig,
   analyzeJsonTheme,
@@ -66,6 +68,8 @@ export type {
   ParsedCss,
   ParsedTailwindConfig,
   CodeAnalysisState,
+  CodeAnalysisFile,
+  CodeAnalysisResult,
   UrlExtractionResult,
   GitHubFetchOptions,
   GitHubJsonResult,

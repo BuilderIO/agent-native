@@ -65,7 +65,7 @@ export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 // hasDataQueryAttempt, but they should stop the guard from steering a
 // template-clone turn into "connect a missing source". Deliberately limited
 // to read/inspection actions: update-dashboard/mutate-dashboard/
-// compose-dashboard/install-dashboard-template/create-extension/
+// compose-dashboard/create-extension/
 // update-extension can all author brand-new SQL or extension content, so
 // calling one of those alone is not proof the turn actually inspected a
 // template rather than inventing it from scratch. If the tool run also
@@ -74,7 +74,6 @@ export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-sql-dashboard",
   "list-sql-dashboards",
-  "list-dashboard-templates",
   "list-extensions",
   "get-extension",
 ]);
@@ -88,7 +87,6 @@ export const DASHBOARD_MUTATION_ACTIONS = new Set([
   "mutate-dashboard",
   "update-dashboard",
   "compose-dashboard",
-  "install-dashboard-template",
   "create-extension",
   "update-extension",
 ]);
@@ -145,7 +143,7 @@ function isDashboardMutationActionName(name: string): boolean {
 // dashboard construction, distinct from an analytics-result question. Turns
 // like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
-  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;

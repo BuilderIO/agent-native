@@ -4,10 +4,12 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import { pollSlackChannel } from "../server/triage/slack-poller.js";
 
@@ -17,19 +19,27 @@ export default defineAction({
   schema: z.object({
     channelId: z.string().trim().min(1).max(128).optional(),
   }),
-  http: { method: "POST" },
+  http: false,
   run: async ({ channelId: requestedChannelId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
+    );
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "sourcePolling",
     );
     const db = getDb();
     const config = (
       await db
         .select()
         .from(triageConfig)
-        .where(eq(triageConfig.id, orgId))
+        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
+    if (config?.pollingEnabled !== 1) {
+      throw new Error("Enable Slack polling before polling Slack.");
+    }
     const channelId = requestedChannelId ?? config?.slackChannelId;
     if (!channelId) {
       throw new Error("Configure a Slack channel before polling.");
@@ -83,7 +93,6 @@ export default defineAction({
               channelId: envelope.channelId ?? null,
               threadTs: envelope.threadTs ?? null,
               coverage: envelope.coverage,
-              metadataJson: JSON.stringify(envelope.metadata ?? {}),
               lastSeenAt: now,
               updatedAt: now,
             },
@@ -103,6 +112,43 @@ export default defineAction({
           );
       }
     });
+
+    if (result.envelopes.length === 0) {
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "poll-slack-channel",
+          kind: "observed",
+          source: "slack",
+          summary: "No new Slack feedback was observed.",
+          details: {
+            channelId,
+            coverage: result.hasMore ? "partial" : "complete",
+          },
+        },
+      );
+    } else {
+      for (const envelope of result.envelopes) {
+        await recordFactoryAudit(
+          context,
+          { userEmail, orgId },
+          {
+            action: "poll-slack-channel",
+            kind: "observed",
+            itemId: itemDedupeKey(envelope, orgId),
+            source: envelope.source,
+            sourceUrl: envelope.sourceUrl ?? null,
+            summary: envelope.summary ?? envelope.title,
+            details: {
+              channelId,
+              threadTs: envelope.threadTs ?? null,
+              coverage: envelope.coverage,
+            },
+          },
+        );
+      }
+    }
 
     return {
       ok: true,

@@ -5,6 +5,7 @@ import {
   fireInternalDispatch,
   FRAMEWORK_ROUTE_PREFIX,
   getH3App,
+  isInBackgroundFunctionRuntime,
   readBody,
   verifyInternalToken,
   type NitroPluginDef,
@@ -51,8 +52,10 @@ export function createCreativeContextWorkerPlugin(input: {
     registerCreativeContextBackgroundDispatcher((dispatch) =>
       scheduleHostedBackgroundDispatch({ ...dispatch, appId }),
     );
-    startCreativeContextImportSweep({ appId });
-    startCreativeContextDailyMaintenance({ appId });
+    if (!isInBackgroundFunctionRuntime()) {
+      startCreativeContextImportSweep({ appId });
+      startCreativeContextDailyMaintenance({ appId });
+    }
     const h3App = getH3App(nitroApp);
     h3App.use(CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE, async (event: any) => {
       if (event?.req?.method !== "POST") {
@@ -199,16 +202,23 @@ export function startCreativeContextImportSweep(input: {
   if (!appId) throw new Error("appId is required.");
   const existing = sweepTimers.get(appId);
   if (!existing) {
+    let running = false;
     const run = () => {
+      if (running) return;
+      running = true;
       void Promise.all([
         processDueCreativeContextImportJobs({ appId }),
         processDueCreativeContextBackgroundJobs({ appId }),
-      ]).catch((error) => {
-        console.error(
-          "[creative-context] due job sweep failed:",
-          error instanceof Error ? error.message : error,
-        );
-      });
+      ])
+        .catch((error) => {
+          console.error(
+            "[creative-context] due job sweep failed:",
+            error instanceof Error ? error.message : error,
+          );
+        })
+        .finally(() => {
+          running = false;
+        });
     };
     run();
     const timer = setInterval(

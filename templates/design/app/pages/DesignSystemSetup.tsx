@@ -19,7 +19,7 @@ import {
   IconWorld,
   IconFileDescription,
   IconPhoto,
-  IconPalette,
+  IconComponents,
   IconCheck,
   IconExternalLink,
   IconChevronDown,
@@ -444,13 +444,13 @@ export default function DesignSystemSetup() {
 
     if (normalizedWebsiteUrls.length > 0) {
       parts.push(
-        `\n## Website URLs\nExtract design tokens from these websites:\n${normalizedWebsiteUrls.map((u) => `- ${u}`).join("\n")}\n\n**Best approach:** Call \`activate-browser\` first, then use chrome-devtools MCP tools to navigate each URL and extract computed styles (colors, fonts, spacing, CSS custom properties) via \`evaluate_script\`. This captures the real rendered design — including JS-injected styles, CSS-in-JS, and SPA content that plain HTML fetch misses. Take a screenshot too for visual reference. If Builder is not connected, fall back to \`import-from-url\` for each URL (limited to static HTML parsing).`,
+        `\n## Website URLs\nExtract design tokens from these websites:\n${normalizedWebsiteUrls.map((u) => `- ${u}`).join("\n")}\n\nCall \`import-from-url\` for each URL. It uses the shared layered renderer: Builder Browser when available, then local Playwright or an approved attached browser, with an explicit SSRF-safe static fallback. The result includes hydrated computed styles (including React, CSS-in-JS, Tailwind, SPA content, and loaded fonts), desktop/mobile screenshot evidence, and a bounded design.md-style summary. Use that result as the source of truth; do not replace it with a plain HTML fetch.`,
       );
     }
 
     if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder from Settings instead of asking me to paste repository credentials into chat.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 
@@ -714,7 +714,7 @@ export default function DesignSystemSetup() {
             </Section>
 
             <SourceAccordionRow
-              icon={IconPalette}
+              icon={IconComponents}
               title={t("designSystemSetup.otherSources")}
               description={t("designSystemSetup.otherSourcesDescription")}
               expanded={sourcePanel === "other"}
@@ -734,7 +734,7 @@ export default function DesignSystemSetup() {
                 <div className="divide-y divide-border">
                   <SourceAccordionRow
                     className="rounded-none border-0"
-                    icon={IconPalette}
+                    icon={IconComponents}
                     title={t("designSystemSetup.sections.company.title")}
                     description={t(
                       "designSystemSetup.sections.company.description",
@@ -769,7 +769,7 @@ export default function DesignSystemSetup() {
                     existingSystems.length > 0) && (
                     <SourceAccordionRow
                       className="rounded-none border-0"
-                      icon={IconPalette}
+                      icon={IconComponents}
                       title={t(
                         "designSystemSetup.sections.importExisting.title",
                       )}
@@ -903,7 +903,7 @@ export default function DesignSystemSetup() {
                 <p className="mt-2 text-xs text-muted-foreground/80">
                   {t("designSystemSetup.privateRepoPrefix")}{" "}
                   <a
-                    href="/settings#secrets:GITHUB_TOKEN"
+                    href="/settings/integrations#secrets:GITHUB_TOKEN"
                     className="font-medium text-foreground/80 underline-offset-2 hover:underline"
                   >
                     GITHUB_TOKEN
@@ -1134,7 +1134,7 @@ export default function DesignSystemSetup() {
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                        <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
                         <span className="text-sm text-foreground/70 truncate">
                           {ds.title}
                         </span>

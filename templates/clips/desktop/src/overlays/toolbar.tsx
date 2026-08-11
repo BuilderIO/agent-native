@@ -81,12 +81,14 @@ export function Toolbar() {
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
+    const listenerPromises: Array<Promise<() => void>> = [];
     let stopped = false;
     // Same race-safe listen tracker as elsewhere: if this effect
     // cleans up before `listen()` resolves, the unlisten is called
     // immediately — otherwise the listener lingers for the life of
     // the webview, holding the setState closures captive.
     const trackListen = (p: Promise<() => void>) => {
+      listenerPromises.push(p);
       p.then((u) => {
         if (stopped) {
           try {
@@ -134,6 +136,11 @@ export function Toolbar() {
       }),
     );
     trackListen(
+      listen("clips:toolbar-sync", () => {
+        emit("clips:toolbar-ready", {}).catch(() => {});
+      }),
+    );
+    trackListen(
       listen<boolean>("clips:toolbar-preparing", (ev) => {
         setPreparing(!!ev.payload);
       }),
@@ -160,6 +167,9 @@ export function Toolbar() {
         setDiskSpaceLevel("ok");
       }),
     );
+    void Promise.allSettled(listenerPromises).then(() => {
+      if (!stopped) emit("clips:toolbar-ready", {}).catch(() => {});
+    });
     return () => {
       stopped = true;
       unlistens.forEach((u) => {
@@ -262,7 +272,7 @@ export function Toolbar() {
       });
   }
   function cancel() {
-    if (pendingAction || !enabled) return;
+    if (pendingAction) return;
     setPendingAction("cancel");
     console.log(
       "[clips-toolbar] cancel clicked — emitting clips:recorder-cancel",
@@ -418,14 +428,14 @@ export function Toolbar() {
         <button
           className="toolbar-v-action toolbar-v-action-danger"
           onClick={cancel}
-          disabled={!enabled || !!pendingAction}
-          aria-label="Cancel recording"
+          disabled={!!pendingAction}
+          aria-label={enabled ? "Cancel recording" : "Cancel recording setup"}
           title={
             pendingAction === "cancel"
               ? pendingActionLabel
               : enabled
                 ? "Cancel"
-                : "Recording not started yet"
+                : "Cancel recording setup"
           }
           data-no-drag
         >

@@ -1,7 +1,7 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Text, View } from "react-native";
 
 import AppWebView from "@/components/AppWebView";
 import { NativeClipsLibraryScreen } from "@/components/NativeClipsLibrary";
@@ -35,8 +35,23 @@ export default function ClipsTab() {
 
   useEffect(() => {
     if (authState !== "signed-out") return;
-    const interval = setInterval(() => void refreshAuth(), 800);
-    return () => clearInterval(interval);
+    let active = AppState.currentState === "active";
+    let inFlight = false;
+    const tick = () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      void refreshAuth().finally(() => {
+        inFlight = false;
+      });
+    };
+    const interval = setInterval(tick, 800);
+    const subscription = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
   }, [authState, refreshAuth]);
 
   useEffect(() => {
@@ -51,7 +66,7 @@ export default function ClipsTab() {
     return (
       <SafeAreaView className="flex-1 bg-background-dark">
         <View className="items-center flex-1 justify-center">
-          <ActivityIndicator color="#c7f36b" />
+          <ActivityIndicator color="#d4d4d8" />
           <Text className="text-status-gray text-[13px] mt-2.5">
             Opening Clips…
           </Text>

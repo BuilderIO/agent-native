@@ -28,6 +28,15 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
 }));
 
+vi.mock("@agent-native/core/client/collab", () => ({
+  emailToColor: () => "#000000",
+  emailToName: (email: string) => email,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrgMembers: () => ({ data: undefined }),
+}));
+
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (name: string) => {
     if (name === "list-designs") {
@@ -65,6 +74,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             : vi.fn().mockResolvedValue(undefined),
     mutate: vi.fn(),
   }),
+  useSession: () => ({ session: null, isLoading: false }),
+  useAvatarUrl: () => null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

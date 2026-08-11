@@ -13,6 +13,8 @@ import {
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  _installReactRouterVirtualInvalidationMirror,
+  _mirrorReactRouterVirtualInvalidation,
   _nitroModuleGraphSignature,
   _nitroStartupGate,
   _nitroStartupRecovery,
@@ -732,6 +734,25 @@ describe("route warmup config", () => {
     }
   });
 
+  it("embeds release migration ownership into the server bundle", () => {
+    const previous = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = " 1 ";
+
+    try {
+      const config = defineConfig();
+
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"],
+      ).toBe(JSON.stringify("1"));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+      } else {
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = previous;
+      }
+    }
+  });
+
   it("exposes the build-time GTM container id for SSR bundles", () => {
     const previous = process.env.GTM_CONTAINER_ID;
     process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";
@@ -751,6 +772,288 @@ describe("route warmup config", () => {
       } else {
         process.env.GTM_CONTAINER_ID = previous;
       }
+    }
+  });
+});
+
+describe("agent-native app config", () => {
+  it("serializes the resolved onboarding mode into the client config", () => {
+    const config = defineConfig({
+      agentNativeConfig: {
+        version: 1,
+        onboarding: {
+          firstRun: {
+            development: "connect",
+            production: "connect-and-integrations",
+          },
+        },
+      },
+    });
+
+    expect(
+      JSON.parse(String(config.define?.__AGENT_NATIVE_APP_CONFIG__)),
+    ).toEqual({
+      version: 1,
+      onboarding: { firstRun: "connect" },
+    });
+  });
+
+  it("evaluates a typed config factory for the Vite command and mode", async () => {
+    const plugins = flatPlugins(
+      agentNative({
+        agentNativeConfig: ({ isBuild }) => ({
+          version: 1,
+          onboarding: {
+            firstRun: isBuild ? "connect-and-integrations" : "connect",
+          },
+        }),
+      }),
+    );
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const config = (await configPlugin.config(
+      {},
+      { command: "build", mode: "production" },
+    )) as any;
+
+    expect(
+      JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+    ).toEqual({
+      version: 1,
+      onboarding: { firstRun: "connect-and-integrations" },
+    });
+  });
+
+  it("loads an agent-native.config.ts from the app root", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-app-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.config.ts"),
+      `export default ({ command }) => ({
+  version: 1,
+  onboarding: {
+    firstRun: command === "serve" ? "connect" : "connect-and-integrations",
+  },
+});\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toEqual({
+        version: 1,
+        onboarding: { firstRun: "connect" },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads an agent-native.config.ts through the legacy defineConfig wrapper", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-legacy-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.config.ts"),
+      `export default ({ command }) => ({
+  version: 1,
+  onboarding: {
+    firstRun: command === "serve" ? "connect" : "connect-and-integrations",
+  },
+});\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const config = defineConfig();
+      const configPlugin = flatPlugins(config.plugins).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const resolved = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(resolved.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toEqual({
+        version: 1,
+        onboarding: { firstRun: "connect" },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers agent-native.config.ts when both typed filename aliases exist", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-primary-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.ts"),
+      `export default {
+  onboarding: { firstRun: "connect" },
+};\n`,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.config.ts"),
+      `export default {
+  onboarding: { firstRun: "off" },
+};\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        onboarding: { firstRun: "off" },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads agent-native.ts and deep-merges it with JSON defaults", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-bare-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        version: 1,
+        runtime: {
+          auth: { enabled: true },
+          environment: { required: ["NOTION_API_KEY"] },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.ts"),
+      `export default ({ isBuild }) => ({
+  runtime: {
+    database: { required: isBuild },
+    environment: { required: ["GOOGLE_CLIENT_ID"] },
+  },
+});\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toEqual({
+        version: 1,
+        runtime: {
+          auth: { enabled: true },
+          database: { required: false },
+          environment: {
+            required: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"],
+          },
+        },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses Vite production env files for build diagnostics", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-env-config-"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        runtime: {
+          auth: { enabled: false },
+          database: { required: false },
+          environment: { required: ["NOTION_API_KEY"] },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, ".env.production"),
+      "NOTION_API_KEY=local-test\n",
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      await configPlugin.config({}, { command: "build", mode: "production" });
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads agent-native.json defaults from the app root", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-json-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        version: 1,
+        onboarding: {
+          firstRun: {
+            development: "off",
+            production: "connect-and-integrations",
+          },
+        },
+      }),
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toEqual({
+        version: 1,
+        onboarding: { firstRun: "connect-and-integrations" },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });
@@ -836,6 +1139,33 @@ describe("agentNative Vite plugin preset", () => {
     expect(pluginNames).toContain("agent-native-port-exposer");
   });
 
+  it("does not start Nitro during React Router's build-time preview", () => {
+    const previous = process.env.IS_RR_BUILD_REQUEST;
+    const nitroPreview = flatPlugins(agentNative()).find(
+      (plugin) => plugin?.name === "nitro:preview",
+    );
+    expect(nitroPreview).toBeDefined();
+
+    try {
+      process.env.IS_RR_BUILD_REQUEST = "yes";
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: true, mode: "production" },
+        ),
+      ).toBe(false);
+      expect(
+        nitroPreview.apply(
+          {},
+          { command: "serve", isPreview: false, mode: "development" },
+        ),
+      ).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.IS_RR_BUILD_REQUEST;
+      else process.env.IS_RR_BUILD_REQUEST = previous;
+    }
+  });
+
   it("applies framework defaults without clobbering ordinary Vite config", async () => {
     const plugins = flatPlugins(
       agentNative({ routeWarmup: { strategy: "render" } }),
@@ -899,10 +1229,74 @@ describe("agentNative Vite plugin preset", () => {
     expect(config.optimizeDeps.include).toContain("date-fns");
     expect(config.optimizeDeps.exclude).toContain("lodash");
     expect(config.resolve.dedupe).toContain("zustand");
+    expect(config.resolve.dedupe).toEqual(
+      expect.arrayContaining([
+        "@assistant-ui/react",
+        "@assistant-ui/core",
+        "@assistant-ui/store",
+        "@assistant-ui/tap",
+      ]),
+    );
+    expect(config.resolve.alias).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ find: /^@assistant-ui\/react$/ }),
+        expect.objectContaining({ find: /^@assistant-ui\/core$/ }),
+        expect.objectContaining({ find: /^@assistant-ui\/store$/ }),
+        expect.objectContaining({ find: /^@assistant-ui\/tap$/ }),
+      ]),
+    );
     expect(config.resolve.alias).toContainEqual({
       find: "~",
       replacement: "/tmp/app",
     });
+  });
+
+  it("stops the dep optimizer from writing prebundle sourcemaps", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const config = (await configPlugin.config(
+      {
+        optimizeDeps: {
+          rolldownOptions: { plugins: [{ name: "app-dep-plugin" }] },
+        },
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    const depPlugins = config.optimizeDeps.rolldownOptions.plugins;
+    expect(depPlugins.map((p: any) => p.name)).toEqual([
+      "app-dep-plugin",
+      "agent-native:no-dep-prebundle-sourcemaps",
+    ]);
+    // Vite hardcodes `sourcemap: "hidden"` in the optimizer's bundle.write();
+    // only a late outputOptions hook can turn it back off.
+    expect(depPlugins.at(-1).outputOptions({ dir: "/deps" })).toEqual({
+      dir: "/deps",
+      sourcemap: false,
+    });
+  });
+
+  it("restores dep prebundle sourcemaps when AGENT_NATIVE_DEP_SOURCEMAPS=1", async () => {
+    const previous = process.env.AGENT_NATIVE_DEP_SOURCEMAPS;
+    process.env.AGENT_NATIVE_DEP_SOURCEMAPS = "1";
+    try {
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (p) => p?.name === "agent-native-config",
+      );
+
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(config.optimizeDeps.rolldownOptions).toBeUndefined();
+    } finally {
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_DEP_SOURCEMAPS;
+      else process.env.AGENT_NATIVE_DEP_SOURCEMAPS = previous;
+    }
   });
 
   it("externalizes singleton and native deps for production SSR builds", async () => {
@@ -1491,6 +1885,157 @@ describe("Nitro dev full-reload debounce", () => {
   it("leaves plugins without a hotUpdate hook unchanged", () => {
     const plugin = { name: "nitro:env" } as any;
     expect(_debounceNitroFullReloadHotUpdate(plugin)).toBe(plugin);
+  });
+});
+
+describe("React Router virtual-module invalidation mirror", () => {
+  const SERVER_BUILD_ID = "\0virtual:react-router/server-build";
+  const BROWSER_MANIFEST_ID = "\0virtual:react-router/browser-manifest";
+
+  // These fakes mirror the shapes both sides of the bug actually use:
+  // react-router's framework plugin calls `server.moduleGraph.invalidateModule`
+  // (Vite's back-compat graph, which proxies only client + ssr), while requests
+  // are served from Nitro's own environment.
+  function fakeEnvironment(
+    name: string,
+    { ids = [] as string[], consumer = "server" } = {},
+  ) {
+    const modules = new Map(
+      ids.map((id) => [id, { id, transformResult: {}, lastHMRTimestamp: 0 }]),
+    );
+    return {
+      name,
+      config: { consumer },
+      hot: { send: vi.fn() },
+      moduleGraph: {
+        idToModuleMap: modules,
+        getModuleById: (id: string) => modules.get(id) ?? null,
+        invalidateModule: vi.fn(
+          (mod: any, _seen: unknown, timestamp: number, isHmr: boolean) => {
+            mod.transformResult = null;
+            if (isHmr) mod.lastHMRTimestamp = timestamp;
+          },
+        ),
+      },
+    };
+  }
+
+  function fakeServer(environments: ReturnType<typeof fakeEnvironment>[]) {
+    return {
+      environments: Object.fromEntries(environments.map((e) => [e.name, e])),
+      // Vite's deprecated back-compat graph. Only its `invalidateModule` matters
+      // here — react-router calls it, and it never reaches `nitro`.
+      moduleGraph: { invalidateModule: vi.fn(() => "original-result") },
+    } as any;
+  }
+
+  it("invalidates the server build in Nitro's environment when react-router only invalidated ssr", () => {
+    vi.useFakeTimers();
+    try {
+      const ssr = fakeEnvironment("ssr", { ids: [SERVER_BUILD_ID] });
+      const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+      const server = fakeServer([ssr, nitro]);
+
+      expect(_installReactRouterVirtualInvalidationMirror(server)).toBe(true);
+      server.moduleGraph.invalidateModule({ id: SERVER_BUILD_ID });
+      vi.advanceTimersByTime(300);
+
+      expect(nitro.moduleGraph.invalidateModule).toHaveBeenCalledTimes(1);
+      expect(nitro.hot.send).toHaveBeenCalledWith({ type: "full-reload" });
+      expect(
+        nitro.moduleGraph.getModuleById(SERVER_BUILD_ID)?.transformResult,
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces a burst of route-file changes into a single reload", () => {
+    vi.useFakeTimers();
+    try {
+      const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+      const server = fakeServer([nitro]);
+      _installReactRouterVirtualInvalidationMirror(server);
+
+      for (let i = 0; i < 8; i++) {
+        server.moduleGraph.invalidateModule({ id: SERVER_BUILD_ID });
+      }
+
+      expect(nitro.hot.send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(299);
+      expect(nitro.hot.send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(nitro.hot.send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes the original invalidation through untouched", () => {
+    const server = fakeServer([fakeEnvironment("nitro")]);
+    const original = server.moduleGraph.invalidateModule;
+    _installReactRouterVirtualInvalidationMirror(server);
+
+    const mod = { id: SERVER_BUILD_ID };
+    expect(server.moduleGraph.invalidateModule(mod, "seen")).toBe(
+      "original-result",
+    );
+    expect(original).toHaveBeenCalledWith(mod, "seen");
+  });
+
+  it("ignores invalidations of modules react-router does not own", () => {
+    vi.useFakeTimers();
+    try {
+      const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+      const server = fakeServer([nitro]);
+      _installReactRouterVirtualInvalidationMirror(server);
+
+      server.moduleGraph.invalidateModule({ id: "/app/root.tsx" });
+      server.moduleGraph.invalidateModule({ id: undefined });
+      vi.advanceTimersByTime(300);
+
+      expect(nitro.moduleGraph.invalidateModule).not.toHaveBeenCalled();
+      expect(nitro.hot.send).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never broadcasts a server reload to a client environment", () => {
+    const client = fakeEnvironment("client", {
+      ids: [BROWSER_MANIFEST_ID],
+      consumer: "client",
+    });
+    const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+
+    expect(
+      _mirrorReactRouterVirtualInvalidation(fakeServer([client, nitro])),
+    ).toEqual(["client", "nitro"]);
+    expect(client.moduleGraph.invalidateModule).toHaveBeenCalledTimes(1);
+    expect(client.hot.send).not.toHaveBeenCalled();
+    expect(nitro.hot.send).toHaveBeenCalledWith({ type: "full-reload" });
+  });
+
+  it("leaves environments with no react-router virtual modules alone", () => {
+    const nitro = fakeEnvironment("nitro", { ids: ["/app/server.ts"] });
+
+    expect(_mirrorReactRouterVirtualInvalidation(fakeServer([nitro]))).toEqual(
+      [],
+    );
+    expect(nitro.hot.send).not.toHaveBeenCalled();
+  });
+
+  it("warns loudly instead of silently doing nothing when Vite drops the back-compat graph", () => {
+    const warn = vi.fn();
+
+    expect(
+      _installReactRouterVirtualInvalidationMirror(
+        { environments: {} } as any,
+        { warn },
+      ),
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("dev server restart");
   });
 });
 

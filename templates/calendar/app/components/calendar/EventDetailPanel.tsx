@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { ResearchMeetingButton } from "@/components/calendar/ApolloPanel";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import { EventCalendarSelect } from "@/components/calendar/EventCalendarSelect";
 import {
   RenderedDescription,
   AutoGrowTextarea,
@@ -133,6 +134,9 @@ export function EventDetailPanel({
   );
   const titleInputRef = useRef<HTMLInputElement>(null);
   const updateEvent = useUpdateEvent();
+  const [selectedAccountEmail, setSelectedAccountEmail] = useState(
+    event?.accountEmail,
+  );
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const isOverlay = !!event?.overlayEmail;
@@ -156,6 +160,10 @@ export function EventDetailPanel({
     setEditDescription(event?.description || "");
     lastSavedDescriptionRef.current = event?.description || "";
   }, [event?.id]);
+
+  useEffect(() => {
+    setSelectedAccountEmail(event?.accountEmail);
+  }, [event?.id, event?.accountEmail]);
 
   useEffect(() => {
     if (isEditingTitle) {
@@ -202,6 +210,47 @@ export function EventDetailPanel({
     setEventDetailSidebar(false);
     onClose();
   };
+
+  const handleAccountChange = useCallback(
+    (targetAccountEmail: string) => {
+      if (
+        !event ||
+        !event.accountEmail ||
+        targetAccountEmail === event.accountEmail ||
+        updateEvent.isPending
+      ) {
+        return;
+      }
+
+      setSelectedAccountEmail(targetAccountEmail);
+      void (async () => {
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+        });
+        if (!guestNotification) {
+          setSelectedAccountEmail(event.accountEmail);
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            targetAccountEmail,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast.success(t("eventForm.eventUpdated")),
+            onError: () => {
+              setSelectedAccountEmail(event.accountEmail);
+              toast.error(t("eventForm.updateFailed"));
+            },
+          },
+        );
+      })();
+    },
+    [event, promptGuestNotification, t, updateEvent],
+  );
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event || updateEvent.isPending) return;
@@ -376,6 +425,14 @@ export function EventDetailPanel({
                   >
                     {getWorkingLocationTitle(event, workingLocationLabels)}
                   </h2>
+                )}
+
+                {!isOverlay && event.source === "google" && (
+                  <EventCalendarSelect
+                    accountEmail={selectedAccountEmail}
+                    onAccountChange={handleAccountChange}
+                    disabled={updateEvent.isPending}
+                  />
                 )}
 
                 {/* Time */}

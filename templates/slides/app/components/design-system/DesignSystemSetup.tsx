@@ -8,7 +8,7 @@ import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
-  IconPalette,
+  IconComponents,
   IconLoader2,
   IconBrandGithub,
   IconBrandFigma,
@@ -479,13 +479,13 @@ export function DesignSystemSetup({
 
     if (websiteUrls.length > 0) {
       parts.push(
-        `\n## Website URLs\nAnalyze these websites for design tokens. Call \`import-from-url\` for each:\n${websiteUrls.map((u) => `- ${u}`).join("\n")}`,
+        `\n## Website URLs\nAnalyze these websites for design tokens. Call \`import-from-url\` for each:\n${websiteUrls.map((u) => `- ${u}`).join("\n")}\n\nThe shared action uses the layered real-browser renderer so hydrated React, CSS-in-JS, Tailwind, SPA content, loaded fonts, computed colors, component styles, CSS variables, and desktop/mobile screenshot evidence are captured consistently. It falls back explicitly to SSRF-safe static extraction only when a browser is unavailable. Use its design.md-style result as the source of truth for the deck style.`,
       );
     }
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings.`,
       );
     }
 
@@ -721,7 +721,7 @@ export function DesignSystemSetup({
                   </div>
 
                   <SourceAccordionRow
-                    icon={IconPalette}
+                    icon={IconComponents}
                     title={t("designSystemSetup.otherSources")}
                     description={t("designSystemSetup.otherSourcesDescription")}
                     expanded={sourcePanel === "other"}
@@ -741,7 +741,7 @@ export function DesignSystemSetup({
                       <div className="divide-y divide-border">
                         <SourceAccordionRow
                           className="rounded-none border-0"
-                          icon={IconPalette}
+                          icon={IconComponents}
                           title={t("designSystemSetup.companyBrand")}
                           description={t(
                             "designSystemSetup.companyBrandPlaceholder",
@@ -771,7 +771,7 @@ export function DesignSystemSetup({
                         {existingSystems.length > 0 && (
                           <SourceAccordionRow
                             className="rounded-none border-0"
-                            icon={IconPalette}
+                            icon={IconComponents}
                             title={t("designSystemSetup.forkExisting")}
                             description={t(
                               "designSystemSetup.customInstructionsDescription",
@@ -1064,7 +1064,7 @@ export function DesignSystemSetup({
                               }`}
                             >
                               <div className="flex items-center gap-2">
-                                <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                                <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
                                 <span className="text-sm text-foreground/80 truncate">
                                   {ds.title}
                                 </span>
@@ -1276,7 +1276,7 @@ function BuilderSourceStatus({ builder }: { builder: BuilderSourceDetails }) {
         ? IconBrandGithub
         : sourceKind === "code"
           ? IconFolder
-          : IconPalette;
+          : IconComponents;
   const sourceTitle =
     sourceKind === "figma"
       ? t("designSystemSetup.sourceFigma")

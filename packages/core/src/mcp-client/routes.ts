@@ -6,9 +6,13 @@
  * hot-reload the configured server set.
  *
  *   GET    /_agent-native/mcp/servers           list user + org servers
+ *   GET    /_agent-native/mcp/servers/runtime-config
+ *                                                reserved; returns 410 until a
+ *                                                desktop capability broker exists
  *   POST   /_agent-native/mcp/servers           add a server
  *   DELETE /_agent-native/mcp/servers/:id       remove a server (scope via ?scope=)
  *   POST   /_agent-native/mcp/servers/:id/test  dry-run connect (no persist)
+ *   POST   /_agent-native/mcp/servers/:id/reconnect retry connect + refresh
  *   POST   /_agent-native/mcp/servers/test      dry-run a URL before persisting
  *   GET    /_agent-native/mcp/builtin           list built-in capability toggles
  *   POST   /_agent-native/mcp/builtin           update built-in capability toggles
@@ -32,6 +36,7 @@ import { getSession } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { shouldDisableInProcessSweeps } from "../server/sweep-runtime.js";
 import { getAllSettings, getSettingsEmitter } from "../settings/store.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
@@ -76,6 +81,24 @@ import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
 export { formatMcpConnectError } from "./errors.js";
 
+/**
+ * The settings table backing remote/built-in MCP servers could not be read.
+ *
+ * Distinct from `buildMergedConfig()` returning `null`, which means the app is
+ * genuinely configured with zero MCP servers. Coercing an unreachable database
+ * into an empty settings map made every caller report "no MCP servers
+ * configured" while the real answer was "could not read the configuration".
+ */
+export class McpConfigUnreadableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Could not read MCP configuration from settings: ${(cause as any)?.message ?? cause}`,
+    );
+    this.name = "McpConfigUnreadableError";
+    this.cause = cause;
+  }
+}
+
 /** Redact obvious auth header values before sending to the client. */
 function redactHeaders(
   headers?: Record<string, string>,
@@ -108,6 +131,18 @@ function projectForClient(
     createdAt: stored.createdAt,
     mergedId: mergedConfigKey(scope, stored, ownerId),
     status,
+  };
+}
+
+function reconnectStatusForClient(
+  manager: McpClientManager,
+  mergedId: string,
+): ServerStatus {
+  const status = statusFor(manager, mergedId);
+  if (status.state !== "error") return status;
+  return {
+    state: "error",
+    error: formatMcpConnectError(status.error),
   };
 }
 
@@ -198,7 +233,12 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
   const base = loadMcpConfig() ?? autoDetectMcpConfig();
   const servers: Record<string, McpServerConfig> = { ...(base?.servers ?? {}) };
 
-  const all = await getAllSettings().catch(() => ({}));
+  const all = await getAllSettings().catch((err: unknown) => {
+    console.warn(
+      `[mcp-client] settings read failed: ${(err as any)?.message ?? err}`,
+    );
+    throw new McpConfigUnreadableError(err);
+  });
   for (const [fullKey, value] of Object.entries(all)) {
     const userMatch = /^u:([^:]+):mcp-servers-remote$/.exec(fullKey);
     const orgMatch = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
@@ -311,6 +351,11 @@ export function startMcpConfigRefresh(
 ): (() => void) | null {
   const intervalMs = mcpConfigRefreshIntervalMs();
   if (intervalMs <= 0 || typeof setInterval !== "function") return null;
+  // Billed per warm container on serverless, and the first tick always runs a
+  // full settings scan because `settingsDirty` starts true. Request-driven
+  // reconfigures (`waitUntilReady` on the MCP routes, `refreshGlobalMcpManager`)
+  // already cover config changes there, and a fresh container re-reads config.
+  if (shouldDisableInProcessSweeps()) return null;
 
   let currentSignature = sortedConfigSignature(manager.getConfig());
   let refreshing = false;
@@ -428,6 +473,14 @@ export function mountMcpServersRoutes(
 
         setResponseHeader(event, "Content-Type", "application/json");
 
+        if (
+          method === "GET" &&
+          parts.length === 1 &&
+          parts[0] === "runtime-config"
+        ) {
+          return handleRuntimeConfig(event);
+        }
+
         // POST /servers/test — dry-run a URL+headers before persisting
         if (method === "POST" && parts.length === 1 && parts[0] === "test") {
           return handleTestUrl(event);
@@ -446,6 +499,13 @@ export function mountMcpServersRoutes(
           const id = parts[0];
           if (parts.length === 2 && parts[1] === "test" && method === "POST") {
             return handleTestExisting(event, manager, id);
+          }
+          if (
+            parts.length === 2 &&
+            parts[1] === "reconnect" &&
+            method === "POST"
+          ) {
+            return handleReconnectExisting(event, manager, id);
           }
           if (parts.length === 1 && method === "DELETE") {
             return handleDelete(event, manager, id);
@@ -900,6 +960,14 @@ async function handleList(
   };
 }
 
+function handleRuntimeConfig(event: H3Event): { error: string } {
+  setResponseStatus(event, 410);
+  return {
+    error:
+      "Cleartext MCP runtime config requires a desktop capability broker and is not available over session-authenticated HTTP.",
+  };
+}
+
 async function handleAdd(event: H3Event, manager: McpClientManager) {
   const body = (await readBody(event).catch(() => ({}))) as {
     scope?: unknown;
@@ -1076,6 +1144,48 @@ async function handleTestExisting(
     return { ok: false, error: result.error };
   }
   return { ok: true, toolCount: result.toolCount, tools: result.tools };
+}
+
+async function handleReconnectExisting(
+  event: H3Event,
+  manager: McpClientManager,
+  id: string,
+) {
+  const scope = getQuery(event).scope;
+  const parsedScope =
+    scope === "org" ? "org" : scope === "user" ? "user" : null;
+  if (!parsedScope) {
+    setResponseStatus(event, 400);
+    return { error: 'scope query param must be "user" or "org"' };
+  }
+  const { email, orgId } = await resolveContextForRequest(event);
+
+  let scopeId: string | null = null;
+  if (parsedScope === "user") {
+    scopeId = email;
+  } else {
+    scopeId = orgId;
+  }
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+
+  const list = await listRemoteServers(parsedScope, scopeId);
+  const server = list.find((s) => s.id === id);
+  if (!server) {
+    setResponseStatus(event, 404);
+    return { error: "Server not found" };
+  }
+
+  await reconfigureManager(manager);
+  const mergedId = mergedConfigKey(parsedScope, server, scopeId);
+  const status = reconnectStatusForClient(manager, mergedId);
+  const projected = projectForClient(server, parsedScope, scopeId, status);
+  return {
+    ok: true,
+    server: projected,
+  };
 }
 
 async function tryConnect(

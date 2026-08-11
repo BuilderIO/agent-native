@@ -8,35 +8,52 @@ import type {
   ContentDatabaseResponse,
   DisconnectContentDatabaseSourceRequest,
 } from "../shared/api.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   getExistingSource,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
-async function deleteSourceRecords(sourceId: string) {
+async function deleteSourceRecords(databaseId: string, sourceId: string) {
   const db = getDb();
-  await db
-    .delete(schema.contentDatabaseBodyHydrationQueue)
-    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
-  await db
-    .delete(schema.contentDatabaseSourceExecutions)
-    .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
-  await db
-    .delete(schema.contentDatabaseSourceChangeReviews)
-    .where(eq(schema.contentDatabaseSourceChangeReviews.sourceId, sourceId));
-  await db
-    .delete(schema.contentDatabaseSourceChangeSets)
-    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, sourceId));
-  await db
-    .delete(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
-  await db
-    .delete(schema.contentDatabaseSourceFields)
-    .where(eq(schema.contentDatabaseSourceFields.sourceId, sourceId));
-  await db
-    .delete(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  await db.transaction(async (tx) => {
+    await lockContentDatabaseMutation(
+      tx as unknown as ReturnType<typeof getDb>,
+      databaseId,
+    );
+    const [source] = await tx
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, sourceId),
+          eq(schema.contentDatabaseSources.databaseId, databaseId),
+        ),
+      );
+    if (!source) return;
+    await tx
+      .delete(schema.contentDatabaseBodyHydrationQueue)
+      .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+    await tx
+      .delete(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
+    await tx
+      .delete(schema.contentDatabaseSourceChangeReviews)
+      .where(eq(schema.contentDatabaseSourceChangeReviews.sourceId, sourceId));
+    await tx
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, sourceId));
+    await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+    await tx
+      .delete(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, sourceId));
+    await tx
+      .delete(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, sourceId));
+  });
 }
 
 export default defineAction({
@@ -70,13 +87,13 @@ export default defineAction({
             eq(schema.contentDatabaseSources.databaseId, database.id),
           ),
         );
-      if (target) await deleteSourceRecords(target.id);
+      if (target) await deleteSourceRecords(database.id, target.id);
       return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
     }
 
     const source = await getExistingSource(database.id);
     if (source) {
-      await deleteSourceRecords(source.id);
+      await deleteSourceRecords(database.id, source.id);
     }
 
     return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });

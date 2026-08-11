@@ -1,0 +1,234 @@
+---
+title: "Servidor"
+description: "A camada de servidor Nitro em um aplicativo nativo do agente: para que serve, quando recorrer a rotas personalizadas e como suas partes se conectam."
+---
+
+# Servidor
+
+O diretório `server/` é a camada de infraestrutura de um aplicativo nativo do agente. Ele cuida de tarefas de inicialização, autenticação e das superfícies HTTP que as actions não cobrem. A maior parte do comportamento do produto pertence a [Actions](/docs/actions). O servidor é o que torna essas actions disponíveis.
+
+<Diagram id="doc-block-server-overview-1" title="Como as requisições fluem pelo servidor" summary="Os chamadores chegam ao servidor Nitro, que trata a maioria das requisições por meio de Actions. Middleware e Rotas cobrem os casos que as Actions não conseguem. Os dois caminhos podem consultar o banco de dados.">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">Navegador / UI</div>
+    <div class="diagram-node">Loop do agente</div>
+    <div class="diagram-node">
+      Clientes externos<br /><small class="diagram-muted"
+        >HTTP · MCP · A2A</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Servidor Nitro</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">caminho principal</small>
+    </div>
+    <div class="srv-or diagram-muted">ou</div>
+    <div class="srv-path">
+      <span class="diagram-pill">Middleware</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">Rotas</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Banco de dados SQL<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Onde o servidor se encaixa {#role}
+
+Em um aplicativo web tradicional, o servidor é onde reside a maior parte da lógica. Regras de negócio, acesso a dados e apresentação acontecem todos dentro dos manipuladores de rota. Aplicativos nativos do agente funcionam de forma diferente. A lógica reside nas actions, que o agente e a UI compartilham como parceiros iguais. O trabalho do servidor é de coordenação: executar migrações de banco de dados, configurar a autenticação, montar o loop do agente e cuidar do conjunto restrito de questões HTTP que as actions não conseguem expressar sozinhas.
+
+<Diagram id="doc-block-server-overview-2" title="Servidor tradicional vs. Agent Native">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Tradicional</div>
+    <div class="diagram-node">Navegador</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Servidor</strong>
+      <small class="diagram-muted">a lógica vive aqui</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Manipuladores de rota</span>
+        <span class="cmp-tag">Lógica de negócio</span>
+        <span class="cmp-tag">Acesso a dados</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Banco de dados</div>
+  </div>
+  <div class="cmp-vs diagram-muted">vs</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">Navegador / UI</div>
+      <div class="diagram-node">Agente</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Servidor</strong>
+      <small class="diagram-muted">apenas coordenação</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">Autenticação</span>
+        <span class="cmp-tag">Migrações</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Banco de dados</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Requisições do navegador, o loop do agente e clientes de API externos passam todos pelo mesmo servidor Nitro e leem do mesmo banco de dados SQL. Não existe um backend separado para o agente ou para a UI. A camada de servidor é o que expõe as actions para o mundo externo.
+
+## O que há no diretório server/ {#server-directory}
+
+Estes são os diretórios e arquivos dentro de `server/` que todo aplicativo nativo do agente inclui. Cada um corresponde a uma parte específica da camada de servidor: o que ela faz, quando recorrer a ela e como se conecta ao restante da estrutura.
+
+| Página                                      | O que aborda                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **[Banco de dados](/docs/server-database)** | Definição de esquema com os auxiliares `table()`, `getDb` e os padrões de tabelas ownable                     |
+| **[Middleware](/docs/server-middleware)**   | Guardas de autenticação em `server/middleware/` e por que rodam ali em vez de num plugin                      |
+| **[Plugins](/docs/server-plugins)**         | Plugins de inicialização para auth e agent-chat, além de migrações de BD opcionais do app                     |
+| **[Rotas](/docs/server-routes)**            | Rotas baseadas em arquivo, o catch-all de SSR e como restringir rotas personalizadas ao usuário da requisição |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) é o conjunto de ferramentas de servidor que sustenta a camada HTTP nativa do agente. A maior parte do que você configura em `server/` é Nitro: rotas baseadas em arquivo, plugins de inicialização e middleware.
+
+- **Roteamento baseado em arquivo**: o nome do arquivo mapeia diretamente para um método HTTP e um caminho de URL, sem necessidade de registro. `server/routes/api/health.get.ts` se torna `GET /api/health` automaticamente. Consulte [Rotas](/docs/server-routes) para mais detalhes.
+- **Plugins**: código registrado na inicialização do servidor e carregado uma vez. Os helpers do framework inicializam auth e agent-chat; migrações opcionais do app podem ainda estar em execução quando a primeira requisição chegar. Consulte [Plugins](/docs/server-plugins) para mais detalhes.
+- **Middleware**: código que roda em toda requisição recebida antes de ela chegar a uma rota. A guarda de autenticação fica em `server/middleware/`. Consulte [Middleware](/docs/server-middleware) para mais detalhes.
+
+O Nitro também é agnóstico quanto à implantação. O mesmo aplicativo é implantado em Node.js, Cloudflare Workers, Netlify, Vercel e outros runtimes sem nenhuma alteração de código. Basta definir um preset. Consulte [Implantação](/docs/deployment).
+
+A API de requisição/resposta subjacente é o [H3](https://h3.unjs.io). Quando você vir `defineEventHandler`, `createError` ou `getQuery` em rotas personalizadas, isso é H3. Os [docs do Nitro](https://nitro.build/guide) e os [docs do H3](https://h3.unjs.io) são a referência para tudo o que a estrutura não cobre diretamente.
+
+## Prefira Actions primeiro {#actions-first}
+
+A arquitetura do Agent Native é diferente. Sempre que pensar em um novo recurso para o seu aplicativo, considere primeiro se ele pode ser uma action. Por exemplo, se a UI e o agente precisam fazer a mesma coisa, defina uma action em vez de uma rota de API personalizada. As actions se tornam automaticamente:
+
+- Ferramentas do agente.
+- Ganchos tipados de frontend.
+- Endpoints HTTP em `/_agent-native/actions/:name`.
+- Ferramentas chamáveis por MCP e A2A.
+- Comandos CLI para desenvolvimento.
+
+Use rotas `/api/*` personalizadas apenas quando precisar de um protocolo em forma de rota ou de comportamento binário/streaming. Para mais detalhes, consulte [Actions](/docs/actions).
+
+## O que vem a seguir {#whats-next}
+
+- [**Actions**](/docs/actions): a superfície de operação padrão. Recorra a uma rota personalizada apenas quando ela não se encaixar.
+- [**Banco de dados**](/docs/server-database): o padrão `getDb()`/esquema que rotas personalizadas e actions importam
+- [**Middleware**](/docs/server-middleware): guardas de autenticação e o diretório `server/middleware/`
+- [**Plugins**](/docs/server-plugins): plugins de inicialização para migrações, auth e o agente
+- [**Rotas**](/docs/server-routes): rotas baseadas em arquivo, contexto da requisição e o catch-all de SSR

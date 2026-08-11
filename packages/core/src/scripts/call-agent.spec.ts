@@ -63,6 +63,9 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
   getRequestRunContext: () => ({ model: "claude-opus-4-8" }),
+  // `track()` reads the ambient browser session through this getter, so a mock
+  // that omits it makes every tracked event throw inside a best-effort catch.
+  getRequestContext: () => ({ userEmail: "alice+qa@agent-native.test" }),
   isIntegrationCallerRequest: () => true,
   getIntegrationRequestContext: integrationRequestContextMock,
 }));
@@ -156,6 +159,9 @@ describe("call-agent action", () => {
     );
     expect(tool.description).toContain(
       "never expose or call a direct action to work around",
+    );
+    expect(tool.description).toContain(
+      "Never put a create, update, delete, send, save, publish, or any other side effect in action",
     );
   });
 
@@ -494,13 +500,20 @@ describe("call-agent action", () => {
       const { run } = await import("./call-agent.js");
       const send = vi.fn();
 
-      const result = await run(
-        { agent: "analytics", message: "analyze customers" },
-        { send } as any,
-      );
+      const result = run({ agent: "analytics", message: "analyze customers" }, {
+        send,
+      } as any);
 
-      expect(result).toContain(responseText);
-      if (state === "failed") expect(result).toMatch(/^Error:/);
+      if (state === "failed") {
+        await expect(result).rejects.toThrow(responseText);
+      } else {
+        const resolved = await result;
+        expect(resolved).toContain(responseText);
+        if (state === "input-required") {
+          expect(resolved).toContain(`taskId "task-${state}"`);
+          expect(resolved).toContain(`taskId="task-${state}" (omit message)`);
+        }
+      }
       expect(send).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "agent_call",
@@ -511,8 +524,6 @@ describe("call-agent action", () => {
         expect.objectContaining({ type: "agent_call", status: "done" }),
       );
       if (state === "input-required") {
-        expect(result).toContain(`taskId "task-${state}"`);
-        expect(result).toContain(`taskId="task-${state}" (omit message)`);
         expect(send).toHaveBeenCalledWith(
           expect.objectContaining({
             type: "agent_call",
@@ -550,6 +561,16 @@ describe("call-agent action", () => {
     expect(send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent_call", status: "done" }),
     );
+    // The reason has to ride on the event, not only on the telemetry call.
+    // This event is what lands in agent_run_events, and without a code the
+    // stored record says a cross-app call failed after N ms and never why.
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call",
+        status: "error",
+        terminalCode: "direct_action_failed",
+      }),
+    );
   });
 
   it("tracks a content-free sender outcome for failed delegated tasks", async () => {
@@ -572,16 +593,18 @@ describe("call-agent action", () => {
       );
       const { run } = await import("./call-agent.js");
 
-      await run(
-        { agent: "analytics", message: "private customer request" },
-        {
-          send: vi.fn(),
-          threadId: "thread-qa",
-          runId: "run-qa",
-          turnId: "turn-qa",
-        } as any,
-        "mail",
-      );
+      await expect(
+        run(
+          { agent: "analytics", message: "private customer request" },
+          {
+            send: vi.fn(),
+            threadId: "thread-qa",
+            runId: "run-qa",
+            turnId: "turn-qa",
+          } as any,
+          "mail",
+        ),
+      ).rejects.toThrow("provider retries exhausted");
 
       const event = tracked.find(
         (candidate) => candidate.name === "$a2a_invocation",
@@ -610,12 +633,11 @@ describe("call-agent action", () => {
     const { run } = await import("./call-agent.js");
     const send = vi.fn();
 
-    const result = await run(
-      { agent: "analytics", message: "analyze customers" },
-      { send } as any,
-    );
-
-    expect(result).toBe("Error: The Slides agent returned no result.");
+    await expect(
+      run({ agent: "analytics", message: "analyze customers" }, {
+        send,
+      } as any),
+    ).rejects.toThrow("The Slides agent returned no result.");
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent_call", status: "error" }),
     );
@@ -1108,7 +1130,9 @@ describe("call-agent action", () => {
       const { run } = await import("./call-agent.js");
       const send = vi.fn();
 
-      await run({ agent: "slides", message: "x" }, { send } as any);
+      await expect(
+        run({ agent: "slides", message: "x" }, { send } as any),
+      ).rejects.toThrow("fetch failed");
 
       const events = send.mock.calls.map(([e]) => e);
       expect(

@@ -26,6 +26,7 @@ import {
   AssistantUiStaleIndexErrorBoundary,
   assistantMessageRunId,
   assistantChatAutoscrollStatusKey,
+  assistantUiMessageListStructureKey,
   assistantUiRecoverableRenderErrorKind,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
@@ -47,6 +48,65 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("assistantUiMessageListStructureKey", () => {
+  it("ignores text changes within existing message resources", () => {
+    const before = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "before", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const after = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "after", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+
+    expect(after).toBe(before);
+  });
+
+  it("changes when indexed message resources grow or shrink", () => {
+    const onePart = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }],
+      },
+    ]);
+    const twoParts = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }, { toolCallId: "tool-1" }],
+      },
+    ]);
+    const noMessages = assistantUiMessageListStructureKey([]);
+
+    expect(twoParts).not.toBe(onePart);
+    expect(noMessages).not.toBe(twoParts);
+  });
+
+  it("tracks attachment resource ids", () => {
+    const firstAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const secondAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-2" }],
+      },
+    ]);
+
+    expect(secondAttachment).not.toBe(firstAttachment);
+  });
+});
 
 describe("queuedMessageImageSources", () => {
   it("renders images serialized into queued attachment content", () => {
@@ -274,6 +334,22 @@ describe("hoistQueuedMessageToFront", () => {
 });
 
 describe("createUserMessageRunConfig model snapshot", () => {
+  it("preserves approval grants on queued continuation messages", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["create-builder-branch:{}"],
+      "queued-approval",
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      approvedToolCalls: ["create-builder-branch:{}"],
+      agentNativeQueuedMessageId: "queued-approval",
+    });
+  });
+
   it("sends the model a queued message was composed with", () => {
     const options = createUserMessageRunConfig(
       undefined,
@@ -1265,7 +1341,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 });
 
 describe("missing agent engine setup", () => {
-  it("renders a stable in-composer trigger with a responsive popover", () => {
+  it("renders the sidebar setup card and keeps the page popover responsive", () => {
     const css = readFileSync("src/styles/agent-native.css", {
       encoding: "utf8",
     });
@@ -1291,6 +1367,12 @@ describe("missing agent engine setup", () => {
     expect(messageComponents).toContain("agent-selection-attached-pill");
     expect(source).toContain("missingKeySetupOpen");
     expect(source).toContain("requestMissingKeySetup");
+    expect(source).toContain("modelCatalogConfirmsMissing");
+    expect(source).toContain('agentEngineConfigured.state === "missing" &&');
+    expect(source).toContain("willQueue={engineSetupRequired || isRunning}");
+    expect(source).toContain("<BuilderSetupCard");
+    expect(source).toContain("showInlineMissingKeySetup");
+    expect(source).toContain("Connect AI above to start chatting...");
     expect(source).toContain('className="agent-composer-missing-key-trigger"');
     expect(source).toContain('className="agent-composer-missing-key-cta"');
     expect(source).toContain("<BuilderSetupContent");
@@ -1306,6 +1388,55 @@ describe("missing agent engine setup", () => {
     );
     expect(css).toMatch(
       /\.agent-composer-missing-key-cta\s*\{[^}]*background:\s*hsl\(var\(--foreground\)\);[^}]*color:\s*hsl\(var\(--background\)\);/s,
+    );
+  });
+
+  it("keeps a no-provider prompt queued until setup is connected", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const dequeueStart = source.indexOf("// Auto-dequeue:");
+    const dequeueEnd = source.indexOf(
+      "// Clear frozen reconnect content",
+      dequeueStart,
+    );
+    const dequeueSource = source.slice(dequeueStart, dequeueEnd);
+    const submitStart = source.indexOf("const addToQueue = useCallback");
+    const submitEnd = source.indexOf("const mcpResumeTimerRef", submitStart);
+    const submitSource = source.slice(submitStart, submitEnd);
+
+    expect(dequeueSource).toContain("engineSetupRequired");
+    expect(submitSource).toContain("requestMissingKeySetup();");
+    expect(submitSource).toContain(
+      'engineSetupRequired || (isRunning && intent === "queued")',
+    );
+    expect(submitSource).not.toContain(
+      'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
+    );
+  });
+});
+
+describe("chat connection suggestion alignment", () => {
+  it("uses the fullscreen composer width contract and removes page-only insets", () => {
+    const panelSource = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const suggestionSource = readFileSync(
+      "src/client/resources/McpConnectionSuggestion.tsx",
+      { encoding: "utf8" },
+    );
+
+    expect(panelSource).toContain(
+      "[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,",
+    );
+    expect(panelSource).toContain(
+      ".agent-composer-area:not(.agent-composer-area--compact)",
+    );
+    expect(panelSource).toContain("const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;");
+    expect(panelSource).toContain("padding-left:0;padding-right:0;");
+    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),750px)]");
+    expect(suggestionSource).toContain(
+      "agent-mcp-connection-suggestion-error--composer",
     );
   });
 });
@@ -1346,6 +1477,20 @@ describe("resolveAssistantChatRunningState", () => {
         hasActiveServerRun: true,
       }),
     ).toEqual({ isRunning: true, showRunningInUI: true });
+  });
+
+  it("hides the running presentation after a terminal run error", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: false,
+        hasActiveServerRun: true,
+        hasTerminalRunError: true,
+      }),
+    ).toEqual({ isRunning: true, showRunningInUI: false });
   });
 
   it("keeps auto-resume visible through the between-chunk idle gap", () => {
@@ -2109,6 +2254,9 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).toContain("adapterHandoffPending");
+    expect(renderSource.replace(/\s+/g, "")).toContain(
+      "allowActivitySpinner={!reconnectFrozen}",
+    );
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
@@ -2147,6 +2295,7 @@ describe("waitForThreadRunToClear", () => {
     );
     expect(completionSource).not.toContain("setReconnectFrozen(true)");
     expect(materializeSource).toContain("!reconnectCanMaterializeRef.current");
+    expect(materializeSource).toContain("includeActivity: true");
     expect(materializeSource).toContain("setReconnectContent([])");
     expect(materializeSource).toContain("return;");
   });
@@ -2466,6 +2615,49 @@ describe("AssistantMessageListErrorBoundary", () => {
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
   });
 
+  it("keeps the message list visibly updating during recovery", async () => {
+    let shouldFail = false;
+    function FlakyMessageList() {
+      if (shouldFail) {
+        throw new Error("tapClientLookup: Index 79 out of bounds (length: 78)");
+      }
+      return React.createElement("div", null, "Current messages");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages" },
+          React.createElement(FlakyMessageList),
+        ),
+      );
+    });
+
+    shouldFail = true;
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages" },
+          React.createElement(FlakyMessageList),
+        ),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    shouldFail = false;
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(container.textContent).toContain("Current messages");
+  });
+
   it("preserves message disclosure state when the message reset key changes", () => {
     function StatefulMessageList() {
       const [expanded, setExpanded] = React.useState(false);
@@ -2590,6 +2782,25 @@ describe("AssistantUiStaleIndexErrorBoundary", () => {
 
     expect(container.textContent).toContain("Recovered composer");
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a visible recovery state when no fallback is provided", () => {
+    function BrokenComposer() {
+      throw new Error("tapClientLookup: Index 4 out of bounds (length: 3)");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantUiStaleIndexErrorBoundary,
+          { resetKey: "thread-1", componentName: "AssistantChat" },
+          React.createElement(BrokenComposer),
+        ),
+      );
+    });
+
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.textContent).toContain("Updating chat...");
   });
 
   it("remounts any assistant-ui subtree after a React fiber unmount error", async () => {

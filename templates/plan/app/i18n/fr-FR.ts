@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Canevas de plan",
       zoomIn: "Zoom avant",
       zoomOut: "Zoom arriere",
+      zoomHint: "Maintenez ⌘/Ctrl et faites défiler pour zoomer",
       markupSaveFailed: "Impossible d enregistrer l annotation. Reessayez.",
     },
     document: {

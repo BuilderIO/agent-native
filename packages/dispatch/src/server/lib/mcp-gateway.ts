@@ -24,7 +24,7 @@ import {
 } from "./mcp-access-store.js";
 
 const DISPATCH_APP_ID = "dispatch";
-const DISPATCH_NAME = "Agent-Native Dispatch";
+const DISPATCH_NAME = "Dispatch";
 const DISPATCH_DESCRIPTION =
   "Workspace control plane for extensions, agents, vault, integrations, approvals, and app routing.";
 const DISPATCH_COLOR = "#14B8A6";
@@ -449,6 +449,24 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
 
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
+}
+
+function resolveGrantedAppEmbedStartUrl(
+  app: DispatchMcpAccessibleApp,
+  startUrl: string,
+): string {
+  try {
+    const baseUrl = appBaseUrl(app);
+    const resolved = new URL(startUrl, `${baseUrl}/`);
+    if (!appMatchesUrlPath(app, resolved)) {
+      throw new Error(
+        "Target app returned an embed start URL outside the granted app.",
+      );
+    }
+    return resolved.toString();
+  } catch {
+    throw new Error("Target app returned an invalid embed start URL.");
+  }
 }
 
 function appBasePath(app: DispatchMcpAccessibleApp): string {
@@ -994,7 +1012,7 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     expiresAt?: number;
     app: string;
   } = {
-    startUrl: parsed.startUrl,
+    startUrl: resolveGrantedAppEmbedStartUrl(target.app, parsed.startUrl),
     app: target.app.id,
   };
   if (parsed.targetPath) output.targetPath = parsed.targetPath;
