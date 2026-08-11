@@ -191,6 +191,9 @@ separately approved.
 Treat the Canary user-agent marker only as an availability hint, never as
 remote attestation or an authentication boundary. Bind supervised acceptance
 to exact signed-artifact provenance.
+The Canary must not intercept anonymous app sign-in navigation. The user
+explicitly chooses workspace sign-in in Desktop Settings for the active
+registered app; ordinary app sign-in remains the default path.
 
 Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 
