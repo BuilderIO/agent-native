@@ -54,6 +54,7 @@ import {
   stringifyJson,
 } from "./helpers.js";
 import { createJob, enqueueContextRebuildJob } from "./jobs.js";
+import { nativeArtifactSummary } from "./native-artifact-summary.js";
 
 function mapItem(row: any): ContextItemSummary {
   return {
@@ -1142,6 +1143,7 @@ export async function listAccessibleSearchDocuments(
         starred: schema.contextItems.starred,
         indexState: schema.contextItems.indexState,
         parseStatus: schema.contextItemVersions.parseStatus,
+        versionMetadata: schema.contextItemVersions.metadata,
         canonicalUrl: schema.contextItems.canonicalUrl,
         mimeType: schema.contextItems.mimeType,
       })
@@ -1225,6 +1227,7 @@ export async function listAccessibleSearchDocuments(
       score: 0,
       canonicalUrl: row.canonicalUrl ?? null,
       mimeType: row.mimeType ?? null,
+      nativeArtifact: nativeArtifactSummary(row.versionMetadata),
     }),
   );
   if (!documents.length) return documents;
@@ -1388,6 +1391,7 @@ export async function listAccessibleLexicalCandidates(
         body: sql<string>`substr(${schema.contextChunks.text}, 1, 12000)`,
         summary: schema.contextItemVersions.summary,
         metadata: schema.contextItems.metadata,
+        versionMetadata: schema.contextItemVersions.metadata,
         tags: schema.contextItems.tags,
         colors: schema.contextItems.colors,
         curationRank: schema.contextItems.curationRank,
@@ -1455,6 +1459,7 @@ export async function listAccessibleLexicalCandidates(
         sourceName: row.sourceName,
         kind: row.kind,
         title: row.title,
+        nativeArtifact: nativeArtifactSummary(row.versionMetadata),
         excerpt: buildSearchSnippet(row.body, terms, 600),
         score:
           scoreSearchText(

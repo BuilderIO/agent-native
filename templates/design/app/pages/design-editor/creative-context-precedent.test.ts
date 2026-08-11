@@ -1,10 +1,15 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   callAction,
   readClientAppState,
 } from "@agent-native/core/client/hooks";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { probeCreativeContextPrecedent } from "./creative-context-precedent";
+import {
+  designPrecedentDirectives,
+  probeCreativeContextPrecedent,
+  type CreativeContextPrecedentMatch,
+} from "./creative-context-precedent";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: vi.fn(),
@@ -14,11 +19,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 const mockedCallAction = vi.mocked(callAction);
 const mockedReadAppState = vi.mocked(readClientAppState);
 
-function results(count: number) {
+function results(count: number, withNativeCode = false) {
   return Array.from({ length: count }, (_, index) => ({
     itemId: "item-" + index,
+    itemVersionId: "version-" + index,
     title: "LinkedIn ad " + index,
     kind: "design",
+    nativeArtifact: withNativeCode
+      ? { app: "design", format: "design-html" }
+      : null,
   }));
 }
 
@@ -29,6 +38,19 @@ function coverage(lanes: { lexical?: number; fts?: number; vector?: number }) {
       fts: { count: lanes.fts ?? 0 },
       vector: { count: lanes.vector ?? 0 },
     },
+  };
+}
+
+function match(
+  overrides: Partial<CreativeContextPrecedentMatch> = {},
+): CreativeContextPrecedentMatch {
+  return {
+    itemId: "item-1",
+    itemVersionId: "version-1",
+    title: "LinkedIn ad",
+    kind: "design",
+    nativeFormat: null,
+    ...overrides,
   };
 }
 
@@ -65,6 +87,19 @@ describe("probeCreativeContextPrecedent", () => {
     );
   });
 
+  it("carries the native artifact format through to matches", async () => {
+    mockedCallAction.mockResolvedValue({
+      results: results(3, true),
+      coverage: coverage({ lexical: 3 }),
+    });
+
+    const precedent = await probeCreativeContextPrecedent("linkedin ad");
+
+    expect(
+      precedent.status === "strong" ? precedent.matches[0].nativeFormat : null,
+    ).toBe("design-html");
+  });
+
   it("counts each item once when several chunks match", async () => {
     mockedCallAction.mockResolvedValue({
       results: [...results(2), ...results(2)],
@@ -93,5 +128,24 @@ describe("probeCreativeContextPrecedent", () => {
     await expect(probeCreativeContextPrecedent("linkedin ad")).resolves.toEqual(
       { status: "unavailable", reason: "search index offline" },
     );
+  });
+});
+
+describe("designPrecedentDirectives", () => {
+  it("names the exact ids to retrieve when artifacts carry code", () => {
+    const directives = designPrecedentDirectives([
+      match({ nativeFormat: "design-html" }),
+    ]).join("\n");
+
+    expect(directives).toContain("get-context-item");
+    expect(directives).toContain("version-1");
+    expect(directives).not.toContain("only have text excerpts");
+  });
+
+  it("tells the agent to admit when only text excerpts exist", () => {
+    const directives = designPrecedentDirectives([match()]).join("\n");
+
+    expect(directives).toContain("only have text excerpts");
+    expect(directives).not.toContain("get-context-item");
   });
 });
