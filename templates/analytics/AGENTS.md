@@ -59,10 +59,10 @@ Read the relevant skill before deeper work:
   absence-sensitive Gong work, stage raw API data and use
   `query-staged-dataset` or a Data Program; use `provider-corpus-job` for raw
   transcript bodies. See `provider-api`, `data-programs`, and `gong`.
-- Custom APIs use the `provider-api-register` action for public HTTPS provider
-  metadata and `test-custom-api-connection` for bounded GET previews. Store
-  credential values in Settings, pass only key names to provider actions, and
-  hand successful endpoint tests to `save-data-program` for refreshable panels.
+- Custom APIs use `provider-api-register` for public HTTPS provider metadata and
+  `test-custom-api-connection` for bounded GET previews. Store credential values
+  in Settings, pass only key names to provider actions, and hand successful
+  endpoint tests to `save-data-program` for refreshable panels.
 - Hosted Analytics cannot reach localhost or private network APIs. Use a
   deployed HTTPS endpoint or an explicitly supported secure tunnel; never
   weaken the provider runtime's SSRF boundary.
@@ -83,9 +83,8 @@ Read the relevant skill before deeper work:
 - External MCP callers default to `ask_app` for interpretation, source choice,
   analysis, or multi-step work. Direct reads require exact, complete input;
   writes stay `ask_app`-only.
-- Dashboard email reports and analytics alert rules are SQL-backed,
-  self-describing action surfaces — don't hand-wire routes around them. Reports
-  cap at five recipients.
+- Dashboard email reports and alert rules are SQL-backed, self-describing action
+  surfaces — don't hand-wire routes around them. Reports cap at five recipients.
 
 ## Application State
 
@@ -96,3 +95,8 @@ Read the relevant skill before deeper work:
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
   with `type="dashboard-panel"`. Read `dashboard-management` for the
   `/dashboards` overview and folder actions.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

@@ -5,8 +5,6 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 
 ## Skills
 
-Read the matching skill before deeper work in that area:
-
 - `recording` — capture, upload, playback, Loom import, mobile, folders, bulk
   moves, Chrome extension.
 - `ai-video-tools` — transcription, cleanup, titles, summaries, chapters,
@@ -69,7 +67,6 @@ Read the matching skill before deeper work in that area:
   the pasted URL.
 - `record-intent` — an agent-requested capture the recorder UI picks up, then
   clears.
-- Read transcripts and media metadata through data actions, not screen context.
 
 ## Actions
 
@@ -97,3 +94,8 @@ Read the matching skill before deeper work in that area:
 | `export-to-brain` | Send ready transcripts to Brain |
 | `get-builder-credit-status` | Whether credits pause AI work |
 | `tool-search` | Any other Clips action, e.g. screen-memory |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

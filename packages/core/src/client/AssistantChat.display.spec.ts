@@ -2254,7 +2254,9 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).toContain("adapterHandoffPending");
-    expect(renderSource).toContain("allowActivitySpinner={!reconnectFrozen}");
+    expect(renderSource.replace(/\s+/g, "")).toContain(
+      "allowActivitySpinner={!reconnectFrozen}",
+    );
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 

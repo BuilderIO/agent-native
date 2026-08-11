@@ -17,7 +17,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { parseSkillFrontmatter } from "../../server/agents-bundle.js";
+import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "../../server/agents-bundle.js";
 import { isValidPath, parseArgs } from "../utils.js";
 
 export interface SourceFile {
@@ -199,7 +202,7 @@ function isRuntimeVisibleCorpusPath(
 
   try {
     const raw = fs.readFileSync(skillEntryPath, "utf-8");
-    return parseSkillFrontmatter(raw).scope !== "dev";
+    return isRuntimeVisibleScope(parseSkillFrontmatter(raw).scope);
   } catch {
     return true;
   }

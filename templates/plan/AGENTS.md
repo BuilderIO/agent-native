@@ -15,7 +15,6 @@ generating or editing a plan.
   and `create-visual-questions`.
 - `visual-recap` — `/visual-recap`, visual code-review recaps for PRs, commits,
   branches, and git diffs.
-- `visualize-repo` — repo-native visual docs from local plan folders.
 - `plan-authoring-flow` — command/action routing and design fidelity.
 - `plan-hosted-writes` — session, revision guard, post-write verify.
 - `plan-comments-and-feedback` — feedback fields, anchors, replies, deletion.
@@ -78,3 +77,8 @@ generating or editing a plan.
 | `read-visual-plan-source`, `import-visual-plan-source`, `patch-visual-plan-source` | Read, replace, patch MDX source |
 | `get-local-plan-folder`, `update-local-plan-folder`, `update-local-plan-comments`, `promote-local-plan-folder`, `validate-local-plan-source` | DB-free local plan folders |
 | `delete-visual-plan`, `report-visual-plan` | Delete/restore; report abuse |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.
