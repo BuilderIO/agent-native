@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.151.2
+
+### Patch Changes
+
+- 42db301: Sync the bundled template copies of the `frontend-design` skill with the canonical version, so scaffolded apps get the guidance about confirming Tabler icon names before importing them.
+
 ## 0.151.1
 
 ### Patch Changes
