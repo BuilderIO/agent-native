@@ -40,6 +40,7 @@ import {
   isRetryableError,
   actionsToEngineTools,
   filterInitialEngineTools,
+  findApprovedStructuredToolCall,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
@@ -692,6 +693,42 @@ describe("buildUserContentWithAttachments", () => {
         ],
       },
     ]);
+  });
+
+  it("finds the latest exact pending approval call from structured history", () => {
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-1",
+                name: "create-builder-branch",
+                input: { branchName: "feature/test" },
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-1",
+                content:
+                  "Awaiting human approval to run the action. This action did NOT execute.",
+              },
+            ],
+          },
+        ],
+        ['create-builder-branch:{"branchName":"feature/test"}'],
+      ),
+    ).toEqual({
+      callId: "call-1",
+      name: "create-builder-branch",
+      input: { branchName: "feature/test" },
+    });
   });
 
   it("appends a text note when a sibling tool-result is orphaned", () => {

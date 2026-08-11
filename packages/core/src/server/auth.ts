@@ -1502,14 +1502,23 @@ export interface DesktopExchangeErrorPayload {
 }
 
 type DesktopExchangeEntry =
-  | { token: string; email: string; expiresAt: number }
+  | { challenge: true; verifierHash: string; expiresAt: number }
+  | {
+      token: string;
+      email: string;
+      expiresAt: number;
+      verifierHash?: string;
+    }
   | { error: DesktopExchangeErrorPayload; expiresAt: number };
 type DesktopExchangeStoredEntry =
-  | { token: string; email: string }
+  | { challenge: true; verifierHash: string }
+  | { token: string; email: string; verifierHash?: string }
   | { error: DesktopExchangeErrorPayload };
 
 const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
+const DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX = "__magic-link-challenge__::";
+const DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX = "__magic-link-exchange__::";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
@@ -1524,6 +1533,114 @@ function normalizeDesktopFlowId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const flowId = value.trim();
   return /^[A-Za-z0-9_-]{1,128}$/.test(flowId) ? flowId : null;
+}
+
+function normalizeDesktopFlowVerifier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const verifier = value.trim();
+  return /^[A-Za-z0-9_-]{32,128}$/.test(verifier) ? verifier : null;
+}
+
+function desktopFlowVerifierHash(verifier: string): string {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+function matchesDesktopFlowVerifier(
+  verifier: string,
+  expectedHash: string,
+): boolean {
+  const actual = Buffer.from(desktopFlowVerifierHash(verifier));
+  const expected = Buffer.from(expectedHash);
+  return (
+    actual.length === expected.length &&
+    crypto.timingSafeEqual(actual, expected)
+  );
+}
+
+function parseDesktopExchangeStoredEntry(
+  packed: string,
+): DesktopExchangeStoredEntry | null {
+  if (packed.startsWith(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX)) {
+    const verifierHash = packed.slice(
+      DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX.length,
+    );
+    return verifierHash ? { challenge: true, verifierHash } : null;
+  }
+  if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
+    const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
+    return {
+      error: JSON.parse(Buffer.from(raw, "base64url").toString()),
+    };
+  }
+  const isMagicLinkExchange = packed.startsWith(
+    DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX,
+  );
+  const encoded = isMagicLinkExchange
+    ? packed.slice(DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX.length)
+    : packed;
+  const verifierSeparator = isMagicLinkExchange ? encoded.indexOf("::") : -1;
+  const verifierHash =
+    verifierSeparator >= 0 ? encoded.slice(0, verifierSeparator) : undefined;
+  const tokenAndEmail =
+    verifierSeparator >= 0 ? encoded.slice(verifierSeparator + 2) : encoded;
+  const sepIdx = tokenAndEmail.indexOf("::");
+  if (sepIdx === -1) return null;
+  return {
+    token: tokenAndEmail.slice(0, sepIdx),
+    email: tokenAndEmail.slice(sepIdx + 2),
+    ...(verifierHash ? { verifierHash } : {}),
+  };
+}
+
+function isDesktopMagicLinkCallbackPath(value: string): boolean {
+  try {
+    return new URL(value, "http://agent-native.invalid").pathname.endsWith(
+      "/_agent-native/auth/magic-link/desktop-callback",
+    );
+  } catch {
+    return false;
+  }
+}
+
+function withDesktopMagicLinkFlow(
+  callbackURL: string,
+  flow: { flowId: string; verifier: string },
+): string {
+  const url = new URL(callbackURL, "http://agent-native.invalid");
+  url.searchParams.set("flow_id", flow.flowId);
+  url.searchParams.set("verifier", flow.verifier);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+async function persistDesktopMagicLinkChallenge(
+  flowId: string,
+  verifierHash: string,
+): Promise<void> {
+  await addSession(
+    `dex:${flowId}`,
+    `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+  );
+}
+
+async function issueDesktopMagicLinkFlow(): Promise<{
+  flowId: string;
+  verifier: string;
+}> {
+  const flowId = crypto.randomBytes(32).toString("base64url");
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const verifierHash = desktopFlowVerifierHash(verifier);
+  _desktopExchanges.set(flowId, {
+    challenge: true,
+    verifierHash,
+    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+  });
+  try {
+    await persistDesktopMagicLinkChallenge(flowId, verifierHash);
+  } catch (error) {
+    _desktopExchanges.delete(flowId);
+    throw error;
+  }
+  return { flowId, verifier };
 }
 
 export function setDesktopExchange(
@@ -1565,9 +1682,13 @@ async function persistDesktopExchangeToDB(
   flowId: string,
   token: string,
   email: string,
+  verifierHash?: string,
 ): Promise<void> {
   try {
-    await addSession(`dex:${flowId}`, `${token}::${email}`);
+    const packed = verifierHash
+      ? `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`
+      : `${token}::${email}`;
+    await addSession(`dex:${flowId}`, packed);
   } catch {
     // non-fatal — in-memory Map is the primary path
   }
@@ -1604,24 +1725,86 @@ async function consumeDesktopExchangeFromDB(
     // redeemed with the session table's default 30-day TTL.
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
-      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? AND email NOT LIKE ? RETURNING email`,
+      args: [
+        `dex:${flowId}`,
+        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
+        `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}%`,
+      ],
     });
     forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
-    if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
-      const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
-      return {
-        error: JSON.parse(Buffer.from(raw, "base64url").toString()),
-      };
-    }
-    const sepIdx = packed.indexOf("::");
-    if (sepIdx === -1) return null;
-    return { token: packed.slice(0, sepIdx), email: packed.slice(sepIdx + 2) };
+    return parseDesktopExchangeStoredEntry(packed);
   } catch {
     return null;
+  }
+}
+
+async function readDesktopMagicLinkChallengeFromDB(
+  flowId: string,
+): Promise<{ verifierHash: string } | null> {
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT email FROM sessions WHERE token = ? AND created_at > ? LIMIT 1`,
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+    });
+    if (rows.length === 0) return null;
+    const packed = (rows[0].email ?? rows[0][0]) as string | null;
+    if (!packed) return null;
+    const entry = parseDesktopExchangeStoredEntry(packed);
+    return entry && "challenge" in entry
+      ? { verifierHash: entry.verifierHash }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function claimDesktopMagicLinkFlow(
+  flowId: string,
+  verifier: string,
+  token: string,
+  email: string,
+): Promise<boolean> {
+  const verifierHash = desktopFlowVerifierHash(verifier);
+  const entry = _desktopExchanges.get(flowId);
+  if (entry) {
+    if (
+      !("challenge" in entry) ||
+      entry.expiresAt < Date.now() ||
+      !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+    ) {
+      return false;
+    }
+    _desktopExchanges.set(flowId, {
+      token,
+      email,
+      verifierHash,
+      expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+    });
+    await persistDesktopExchangeToDB(flowId, token, email, verifierHash);
+    return true;
+  }
+
+  try {
+    const client = getDbExec();
+    const packed = `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`;
+    const { rows } = await client.execute({
+      sql: `UPDATE sessions SET email = ?, created_at = ? WHERE token = ? AND created_at > ? AND email = ? RETURNING email`,
+      args: [
+        packed,
+        Date.now(),
+        `dex:${flowId}`,
+        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
+        `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+      ],
+    });
+    return rows.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -3452,8 +3635,20 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
+      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
       let entry = _desktopExchanges.get(flowId);
       if (!entry || entry.expiresAt < Date.now()) {
+        const challenge = await readDesktopMagicLinkChallengeFromDB(flowId);
+        if (challenge) {
+          if (
+            !verifier ||
+            !matchesDesktopFlowVerifier(verifier, challenge.verifierHash)
+          ) {
+            setResponseStatus(event, 403);
+            return { error: "Invalid desktop exchange verifier." };
+          }
+          return { pending: true, flow: oauthDebugFlowId(flowId) };
+        }
         // In-memory miss — fall back to the DB-persisted entry. This handles
         // cross-instance routing (Cloudflare Workers, multi-region) where the
         // OAuth callback and the polling request may hit different isolates.
@@ -3469,11 +3664,39 @@ async function mountBetterAuthRoutes(
         entry =
           "error" in fromDb
             ? { error: fromDb.error, expiresAt: Date.now() + 1 }
-            : {
-                token: fromDb.token,
-                email: fromDb.email,
-                expiresAt: Date.now() + 1,
-              };
+            : "challenge" in fromDb
+              ? {
+                  challenge: true,
+                  verifierHash: fromDb.verifierHash,
+                  expiresAt: Date.now() + 1,
+                }
+              : {
+                  token: fromDb.token,
+                  email: fromDb.email,
+                  ...(fromDb.verifierHash
+                    ? { verifierHash: fromDb.verifierHash }
+                    : {}),
+                  expiresAt: Date.now() + 1,
+                };
+      }
+      if ("challenge" in entry) {
+        if (
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Invalid desktop exchange verifier." };
+        }
+        return { pending: true, flow: oauthDebugFlowId(flowId) };
+      }
+      if ("token" in entry && entry.verifierHash) {
+        if (
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Invalid desktop exchange verifier." };
+        }
       }
       _desktopExchanges.delete(flowId);
       // Also wipe the DB-persisted entry so it cannot be replayed via the
@@ -3525,9 +3748,13 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const flowId = normalizeDesktopFlowId(getQuery(event).flow_id);
+      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
+      }
+      if (!verifier) {
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
       const session = await getSession(event);
@@ -3555,7 +3782,16 @@ async function mountBetterAuthRoutes(
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
-      setDesktopExchange(flowId, session.token, session.email);
+      if (
+        !(await claimDesktopMagicLinkFlow(
+          flowId,
+          verifier,
+          session.token,
+          session.email,
+        ))
+      ) {
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
       return oauthDesktopExchangePage(
         "Sign-in complete. You can return to the app.",
       );
@@ -3924,10 +4160,11 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
       const rawEmail = typeof body?.email === "string" ? body.email : "";
       const email = normalizeAuthEmail(rawEmail);
-      const callbackURL =
+      let callbackURL =
         typeof body?.callbackURL === "string"
           ? safeReturnPath(body.callbackURL)
           : "/";
+      let desktopFlow: { flowId: string; verifier: string } | undefined;
 
       if (!email) {
         setResponseStatus(event, 400);
@@ -3940,6 +4177,10 @@ async function mountBetterAuthRoutes(
       }
 
       try {
+        if (isDesktopMagicLinkCallbackPath(callbackURL)) {
+          desktopFlow = await issueDesktopMagicLinkFlow();
+          callbackURL = withDesktopMagicLinkFlow(callbackURL, desktopFlow);
+        }
         await auth.api.signInMagicLink({
           body: {
             email,
@@ -3948,7 +4189,10 @@ async function mountBetterAuthRoutes(
           },
           headers: event.headers,
         });
-        return { ok: true };
+        return {
+          ok: true,
+          ...(desktopFlow ?? {}),
+        };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "magic-link", email });

@@ -3304,6 +3304,58 @@ export function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 
+export function findApprovedStructuredToolCall(
+  history: AgentChatStructuredMessage[] | undefined,
+  approvedToolCalls: readonly string[] | undefined,
+): { name: string; input: unknown; callId: string } | undefined {
+  if (!Array.isArray(history) || !approvedToolCalls?.length) return undefined;
+  const approved = new Set(approvedToolCalls);
+  const calls = new Map<string, { name: string; input: unknown }>();
+  let match: { name: string; input: unknown; callId: string } | undefined;
+
+  for (const message of history) {
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type !== "tool-call") continue;
+        const callId =
+          typeof part.id === "string"
+            ? part.id
+            : typeof part.toolCallId === "string"
+              ? part.toolCallId
+              : "";
+        const name =
+          typeof part.name === "string"
+            ? part.name
+            : typeof part.toolName === "string"
+              ? part.toolName
+              : "";
+        if (!callId || !name) continue;
+        calls.set(callId, { name, input: part.input ?? part.args ?? {} });
+      }
+      continue;
+    }
+
+    for (const part of message.content) {
+      if (part.type !== "tool-result") continue;
+      const call = calls.get(part.toolCallId);
+      if (!call || !approved.has(toolCallCacheKey(call.name, call.input))) {
+        continue;
+      }
+      const result = part.content.toLowerCase();
+      if (
+        !result.includes("did not execute") &&
+        !result.includes("awaiting human approval") &&
+        !result.includes("waiting for your approval")
+      ) {
+        continue;
+      }
+      match = { ...call, callId: part.toolCallId };
+    }
+  }
+
+  return match;
+}
+
 const INTERRUPTED_TOOL_LEDGER_POLL_MS =
   process.env.NODE_ENV === "test" ? 0 : 2_000;
 
@@ -8511,6 +8563,16 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
+    const approvedToolCalls =
+      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
+        ? body.approvedToolCalls
+            .filter((key: unknown): key is string => typeof key === "string")
+            .slice(0, 200)
+        : undefined;
+    const exactApprovedToolCall = findApprovedStructuredToolCall(
+      structuredHistory,
+      approvedToolCalls,
+    );
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
       isFirstRequest: history.length === 0,
       systemPrompt: requestSystemPrompt,
@@ -9456,14 +9518,7 @@ export function createProductionAgentHandler(
             : {}),
           // Human-in-the-loop approval grants for this turn (sanitized — the
           // request is untrusted; accept only a bounded list of string keys).
-          ...(Array.isArray(body.approvedToolCalls) &&
-          body.approvedToolCalls.length
-            ? {
-                approvedToolCalls: body.approvedToolCalls
-                  .filter((k: unknown): k is string => typeof k === "string")
-                  .slice(0, 200),
-              }
-            : {}),
+          ...(approvedToolCalls ? { approvedToolCalls } : {}),
           // A worker PROVEN to be running inside the real 15-min Netlify
           // `-background` function (`runsInBackgroundFunction`) has minutes of
           // budget left on THIS invocation. Let it catch a recoverable
@@ -9490,6 +9545,30 @@ export function createProductionAgentHandler(
 
         let instrumented = false;
         try {
+          if (
+            exactApprovedToolCall &&
+            requestActions[exactApprovedToolCall.name]
+          ) {
+            send({
+              type: "activity",
+              label: `Running approved ${exactApprovedToolCall.name} action`,
+              tool: exactApprovedToolCall.name,
+            });
+            await executeAgentToolCall({
+              actions: requestActions,
+              name: exactApprovedToolCall.name,
+              input: exactApprovedToolCall.input,
+              callId: exactApprovedToolCall.callId,
+              signal: agentLoopOpts.signal,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? null,
+              threadId: effectiveThreadId,
+              turnId: effectiveTurnId,
+              approvedToolCalls,
+              send,
+            });
+            return;
+          }
           try {
             const { getObservabilityConfig, instrumentAgentLoop } =
               await import("../observability/traces.js");

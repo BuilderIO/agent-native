@@ -283,10 +283,10 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain("/_agent-native/auth/magic-link");
-    expect(html).toContain("callbackURL: magicFlowId");
+    expect(html).toContain("callbackURL: isDesktopMagicLink");
     expect(html).toContain("/_agent-native/auth/magic-link/desktop-callback");
     expect(html).toContain(
-      "__anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link')",
+      "__anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier)",
     );
     expect(html).toContain(
       "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",

@@ -334,6 +334,22 @@ describe("hoistQueuedMessageToFront", () => {
 });
 
 describe("createUserMessageRunConfig model snapshot", () => {
+  it("preserves approval grants on queued continuation messages", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["create-builder-branch:{}"],
+      "queued-approval",
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      approvedToolCalls: ["create-builder-branch:{}"],
+      agentNativeQueuedMessageId: "queued-approval",
+    });
+  });
+
   it("sends the model a queued message was composed with", () => {
     const options = createUserMessageRunConfig(
       undefined,

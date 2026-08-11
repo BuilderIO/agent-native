@@ -457,7 +457,13 @@ function resolveGrantedAppEmbedStartUrl(
 ): string {
   try {
     const baseUrl = appBaseUrl(app);
-    return new URL(startUrl, `${baseUrl}/`).toString();
+    const resolved = new URL(startUrl, `${baseUrl}/`);
+    if (!appMatchesUrlPath(app, resolved)) {
+      throw new Error(
+        "Target app returned an embed start URL outside the granted app.",
+      );
+    }
+    return resolved.toString();
   } catch {
     throw new Error("Target app returned an invalid embed start URL.");
   }

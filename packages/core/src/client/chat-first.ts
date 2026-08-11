@@ -748,9 +748,18 @@ function readChatFirstSurfaceTabsState(
       return { tabs: [], activeTabId: null };
     }
     const value = scoped as Record<string, unknown>;
+    let migratedLegacyPlacement = false;
     const tabs = Array.isArray(value.tabs)
       ? value.tabs.flatMap((candidate) => {
           const tab = normalizePersistedChatFirstSurfaceTab(candidate);
+          if (
+            tab?.kind === "app" &&
+            candidate !== null &&
+            typeof candidate === "object" &&
+            !("placement" in candidate)
+          ) {
+            migratedLegacyPlacement = true;
+          }
           return tab ? [tab] : [];
         })
       : [];
@@ -759,7 +768,9 @@ function readChatFirstSurfaceTabsState(
       tabs.some((tab) => tab.id === value.activeTabId)
         ? value.activeTabId
         : (tabs[0]?.id ?? null);
-    return { tabs, activeTabId };
+    const state = { tabs, activeTabId };
+    if (migratedLegacyPlacement) writeChatFirstSurfaceTabsState(scope, state);
+    return state;
   } catch {
     return { tabs: [], activeTabId: null };
   }
@@ -805,7 +816,7 @@ function normalizePersistedChatFirstSurfaceTab(
       id,
       title,
       appId,
-      ...(placement ? { placement } : {}),
+      placement: placement ?? "main",
     };
   }
   if (kind === "browser") {

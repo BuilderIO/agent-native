@@ -2066,7 +2066,11 @@ export function App() {
     setSignInError(message);
   }
 
-  function startDesktopAuthExchange(flowId: string, kind: DesktopAuthKind) {
+  function startDesktopAuthExchange(
+    flowId: string,
+    kind: DesktopAuthKind,
+    verifier?: string,
+  ) {
     let tickInFlight = false;
     const base = serverUrl.replace(/\/+$/, "");
     const start = Date.now();
@@ -2087,8 +2091,10 @@ export function App() {
       const controller = new AbortController();
       const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
       try {
+        const exchangeParams = new URLSearchParams({ flow_id: flowId });
+        if (verifier) exchangeParams.set("verifier", verifier);
         const xr = await fetch(
-          `${base}/_agent-native/auth/desktop-exchange?flow_id=${encodeURIComponent(flowId)}`,
+          `${base}/_agent-native/auth/desktop-exchange?${exchangeParams.toString()}`,
           { credentials: "include", signal: controller.signal },
         );
         if (!xr.ok) {
@@ -2187,9 +2193,6 @@ export function App() {
   async function requestMagicLink(email: string) {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
-    const flowId =
-      crypto.randomUUID?.() ||
-      Math.random().toString(36).slice(2) + Date.now().toString(36);
     const base = serverUrl.replace(/\/+$/, "");
     try {
       setSignInError(null);
@@ -2198,21 +2201,28 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: email.trim(),
-          callbackURL: `/_agent-native/auth/magic-link/desktop-callback?flow_id=${encodeURIComponent(flowId)}`,
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
         }),
         credentials: "include",
       });
       const json = (await res.json()) as {
         error?: string;
+        flowId?: string;
+        verifier?: string;
       } | null;
       if (!res.ok) {
         throw new Error(
           json?.error || `Could not send sign-in link (${res.status})`,
         );
       }
+      if (!json?.flowId || !json.verifier) {
+        throw new Error(
+          "The sign-in flow was not initialized. Please request a new link.",
+        );
+      }
       setMagicLinkEmail(email.trim());
       setSignInPending("magic-link");
-      startDesktopAuthExchange(flowId, "magic-link");
+      startDesktopAuthExchange(json.flowId, "magic-link", json.verifier);
     } catch (err) {
       signInInflightRef.current = false;
       setSignInPending(null);

@@ -353,6 +353,17 @@ export function assistantMessageRunId(message: unknown): string | undefined {
       : undefined;
 }
 
+export function resolveAssistantRequestId(
+  message: unknown,
+  activeRun: { threadId: string; runId: string } | null,
+  threadId: string,
+): string | undefined {
+  return (
+    assistantMessageRunId(message) ||
+    (activeRun?.threadId === threadId ? activeRun.runId : undefined)
+  );
+}
+
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
@@ -589,9 +600,11 @@ function UserMessageEditComposer() {
 export function MessageActionsMenu({
   showRevert,
   onRevert,
+  threadId = "",
 }: {
   showRevert?: boolean;
   onRevert?: () => void;
+  threadId?: string;
 } = {}) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -620,24 +633,23 @@ export function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    // If the message carries no run id (e.g. the run is still in flight and
-    // this is the first message), fall back to the active-run state so a hung /
-    // mid-stream chat still surfaces a usable trace ID. Last resort is the
-    // assistant-ui local message id.
-    const runId =
-      assistantMessageRunId(m) ||
-      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
-      m.id ||
-      "";
+    const runId = resolveAssistantRequestId(m, getActiveRun(), threadId);
+    if (!runId) {
+      setCopied("id-unavailable");
+      return;
+    }
     void writeClipboardText(runId).then((ok) => {
-      if (!ok) return;
+      if (!ok) {
+        setCopied("id-failed");
+        return;
+      }
       setCopied("id");
       setTimeout(() => {
         setCopied(null);
         setOpen(false);
       }, 1000);
     });
-  }, [messageRuntime]);
+  }, [messageRuntime, threadId]);
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
@@ -697,7 +709,13 @@ export function MessageActionsMenu({
           ) : (
             <IconId className="h-3.5 w-3.5" />
           )}
-          {copied === "id" ? "Copied!" : "Copy Request ID"}
+          {copied === "id"
+            ? "Copied!"
+            : copied === "id-unavailable"
+              ? "Request ID unavailable"
+              : copied === "id-failed"
+                ? "Copy failed"
+                : "Copy Request ID"}
         </DropdownMenuItem>
         {showRevert && (
           <DropdownMenuItem onSelect={handleRevert}>
@@ -1894,6 +1912,7 @@ export function AssistantMessage() {
             <MessageActionsMenu
               showRevert={showRestore && restoreState === "idle"}
               onRevert={handleRestore}
+              threadId={cpCtx?.threadId ?? ""}
             />
             {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
             {isLast && (

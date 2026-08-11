@@ -341,6 +341,12 @@ describe("chat-first session watch contract", () => {
               placement: "main",
             },
             {
+              id: "app:legacy:/",
+              kind: "app",
+              title: "Legacy",
+              appId: "legacy",
+            },
+            {
               id: "app:invalid:/",
               kind: "app",
               title: "Invalid",
@@ -362,7 +368,18 @@ describe("chat-first session watch contract", () => {
         appId: "analytics",
         placement: "main",
       },
+      {
+        id: "app:legacy:/",
+        kind: "app",
+        title: "Legacy",
+        appId: "legacy",
+        placement: "main",
+      },
     ]);
+    expect(
+      JSON.parse(storage.getItem(CHAT_FIRST_SURFACE_TABS_STORAGE_KEY)!)[scope]
+        .tabs[1].placement,
+    ).toBe("main");
     store.closeAll();
     storage.removeItem(CHAT_FIRST_SURFACE_TABS_STORAGE_KEY);
     vi.unstubAllGlobals();

@@ -715,22 +715,6 @@ export function loadApps(): AppConfig[] {
     );
     if (apps.length !== before) migrated = true;
 
-    if (
-      preferences.appModeDefaultsVersion !== DESKTOP_APP_MODE_DEFAULTS_VERSION
-    ) {
-      // Older unpackaged builds seeded built-in apps as dev without a user
-      // choice. Convert that implicit default once, then preserve later edits.
-      for (const app of apps) {
-        if (app.isBuiltIn && app.mode === "dev" && defaultsById.has(app.id)) {
-          app.mode = "prod";
-          migrated = true;
-        }
-      }
-      saveDesktopAppPreferences({
-        appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
-      });
-    }
-
     // Add new built-in apps that aren't in the persisted config
     for (const def of defaults) {
       if (!persistedIds.has(def.id)) {
@@ -778,6 +762,18 @@ export function loadApps(): AppConfig[] {
           migrated = true;
         }
       }
+    }
+
+    if (
+      preferences.appModeDefaultsVersion !== DESKTOP_APP_MODE_DEFAULTS_VERSION
+    ) {
+      // Record the migration only after legacy useCliHarness values have been
+      // normalized. An explicit persisted mode cannot be distinguished from
+      // the old implicit default, so changing every legacy dev app to prod
+      // would silently overwrite a user's local-development choice.
+      saveDesktopAppPreferences({
+        appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+      });
     }
 
     const orderedApps = orderAppsForDesktop(apps);

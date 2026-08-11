@@ -1018,7 +1018,7 @@ export default function EditorToolbar({
       </div>
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
-        to={`/deck/${deckId}/present`}
+        to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
         className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <IconPlayerPlay className="w-3.5 h-3.5" />

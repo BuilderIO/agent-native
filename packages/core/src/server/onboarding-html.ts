@@ -3595,7 +3595,7 @@ ${identitySsoScript}
         __anShowOAuthError(err, btn, __anT('failedToConnect'));
       }
     }
-    function __anWaitForOAuthExchange(flowId, ret, btn, err, kind) {
+    function __anWaitForOAuthExchange(flowId, ret, btn, err, kind, verifier) {
       var started = Date.now();
       var timeoutMs = 5 * 60 * 1000;
       var isMagicLink = kind === 'magic-link';
@@ -3603,7 +3603,9 @@ ${identitySsoScript}
       async function check() {
         __anOAuthPollCount++;
         try {
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
+          var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
+          if (verifier) exchangeParams += '&verifier=' + encodeURIComponent(verifier);
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, { credentials: 'include' });
           var data = await res.json().catch(function() { return {}; });
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -4151,7 +4153,7 @@ ${
     var msg = document.getElementById('m-msg');
     var emailInput = document.getElementById('m-email');
     var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
-    var magicFlowId = __anIsAgentNativeDesktop() ? __anNewOAuthFlowId() : null;
+    var isDesktopMagicLink = __anIsAgentNativeDesktop();
     msg.classList.remove('show', 'error', 'success');
     if (!__anIsValidAuthEmail(email)) {
       __anShowEmailValidationError(emailInput, msg);
@@ -4159,7 +4161,7 @@ ${
     }
     var originalLabel = btn.textContent;
     btn.disabled = true;
-    __anMagicLinkInFlight = !!magicFlowId;
+    __anMagicLinkInFlight = isDesktopMagicLink;
     btn.textContent = __anT('sending');
     try {
       var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
@@ -4167,8 +4169,8 @@ ${
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: email,
-          callbackURL: magicFlowId
-            ? __anPath('/_agent-native/auth/magic-link/desktop-callback') + '?flow_id=' + encodeURIComponent(magicFlowId)
+          callbackURL: isDesktopMagicLink
+            ? __anPath('/_agent-native/auth/magic-link/desktop-callback')
             : __anResumeHref(),
         }),
       });
@@ -4180,8 +4182,13 @@ ${
         btn.disabled = false;
         btn.textContent = originalLabel;
         showMagicLinkSuccess(email);
-        if (magicFlowId) {
-          __anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link');
+        if (isDesktopMagicLink) {
+          var magicFlowId = data && typeof data.flowId === 'string' ? data.flowId : '';
+          var magicVerifier = data && typeof data.verifier === 'string' ? data.verifier : '';
+          if (!magicFlowId || !magicVerifier) {
+            throw new Error('The sign-in flow was not initialized.');
+          }
+          __anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier);
         }
         return;
       }

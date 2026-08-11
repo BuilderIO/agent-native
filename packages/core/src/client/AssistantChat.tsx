@@ -1703,6 +1703,7 @@ type QueuedMessage = {
   recoveryAction?: AgentRecoveryAction;
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
+  approvedToolCalls?: string[];
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -4305,7 +4306,7 @@ const AssistantChatInner = forwardRef<
               next.requestMode,
               next.recoveryAction,
               next.trackInRunsTray,
-              undefined,
+              next.approvedToolCalls,
               next.id,
               next.hideUserMessage,
               {
@@ -4673,6 +4674,7 @@ const AssistantChatInner = forwardRef<
       preserveReconnectAutoRecoveryBudget = false,
       hideUserMessage = false,
       submitMessageId?: string,
+      approvedToolCalls?: string[],
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       if (engineSetupRequired) {
@@ -4853,6 +4855,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            approvedToolCalls,
             ...modelSnapshot,
           },
         ]);
@@ -4874,6 +4877,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            approvedToolCalls,
             ...modelSnapshot,
           },
         ]);
@@ -4891,7 +4895,7 @@ const AssistantChatInner = forwardRef<
               effectiveRequestMode,
               recoveryAction,
               trackInRunsTray,
-              undefined,
+              approvedToolCalls,
               undefined,
               hideUserMessage,
             ),
@@ -5437,27 +5441,21 @@ const AssistantChatInner = forwardRef<
       getApprovalResolution,
       onApprovalResolved: recordApprovalResolution,
       onApprove: (approvalKey: string) => {
-        markOptimisticRunning();
-        appendThreadMessage({
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Approved. Go ahead and run the requested action.",
-            },
-          ],
-          ...createUserMessageRunConfig(
-            undefined,
-            execMode === "plan"
-              ? "plan"
-              : execMode === "build"
-                ? "act"
-                : undefined,
-            undefined,
-            undefined,
-            [approvalKey],
-          ),
-        } as Parameters<typeof threadRuntime.append>[0]);
+        void addToQueue(
+          "Approved. Go ahead and run the requested action.",
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          undefined,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          [approvalKey],
+        );
       },
       ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
       ...(approvalActions?.onAlwaysAllow
@@ -5465,10 +5463,9 @@ const AssistantChatInner = forwardRef<
         : {}),
     }),
     [
-      appendThreadMessage,
+      addToQueue,
       execMode,
       getApprovalResolution,
-      markOptimisticRunning,
       approvalActions,
       recordApprovalResolution,
     ],

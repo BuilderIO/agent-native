@@ -56,7 +56,7 @@ describe("desktop app mode defaults", () => {
     ).toBe("prod");
   });
 
-  it("migrates implicit legacy dev defaults without changing custom choices", () => {
+  it("preserves explicit built-in dev choices during defaults migration", () => {
     const initialApps = loadApps();
     const customApp = {
       ...initialApps[0],
@@ -65,9 +65,37 @@ describe("desktop app mode defaults", () => {
       isBuiltIn: false,
       mode: "dev" as const,
     };
+    const legacyApps = [{ ...initialApps[0], mode: "dev" as const }, customApp];
+    fs.writeFileSync(
+      path.join(electronState.userData, "app-config.json"),
+      JSON.stringify(legacyApps),
+    );
+    fs.rmSync(
+      path.join(electronState.userData, "desktop-app-preferences.json"),
+    );
+
+    const migrated = loadApps();
+
+    expect(migrated.find((app) => app.id === initialApps[0].id)?.mode).toBe(
+      "dev",
+    );
+    expect(migrated.find((app) => app.id === customApp.id)?.mode).toBe("dev");
+    expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
+  });
+
+  it("normalizes legacy harness flags before recording the mode migration", () => {
+    const initialApps = loadApps();
     const legacyApps = [
-      ...initialApps.map((app) => ({ ...app, mode: "dev" as const })),
-      customApp,
+      {
+        ...initialApps[0],
+        mode: undefined,
+        useCliHarness: true,
+      },
+      {
+        ...initialApps[1],
+        mode: undefined,
+        useCliHarness: false,
+      },
     ];
     fs.writeFileSync(
       path.join(electronState.userData, "app-config.json"),
@@ -79,11 +107,20 @@ describe("desktop app mode defaults", () => {
 
     const migrated = loadApps();
 
+    expect(migrated.find((app) => app.id === initialApps[0].id)?.mode).toBe(
+      "dev",
+    );
+    expect(migrated.find((app) => app.id === initialApps[1].id)?.mode).toBe(
+      "prod",
+    );
+    expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
     expect(
-      migrated
-        .filter((app) => app.isBuiltIn)
-        .every((app) => app.mode === "prod"),
+      JSON.parse(
+        fs.readFileSync(
+          path.join(electronState.userData, "app-config.json"),
+          "utf8",
+        ),
+      ).every((app: Record<string, unknown>) => !("useCliHarness" in app)),
     ).toBe(true);
-    expect(migrated.find((app) => app.id === customApp.id)?.mode).toBe("dev");
   });
 });

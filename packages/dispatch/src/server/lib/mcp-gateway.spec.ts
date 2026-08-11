@@ -905,6 +905,29 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
   });
 
+  it("rejects cross-origin embed start URLs from a granted app", async () => {
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl: "https://attacker.example/steal?ticket=remote",
+      },
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/overview",
+            chrome: "minimal",
+          }),
+      ),
+    ).rejects.toThrow(/invalid embed start URL/);
+  });
+
   it("rejects a URL that does not belong to the explicitly named app", async () => {
     await expect(
       runWithRequestContext(
@@ -930,6 +953,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         url: "http://localhost:8092/analytics",
       },
     ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "http://localhost:8092/analytics/_agent-native/embed/start?ticket=remote",
+      },
+    });
 
     const result = await runWithRequestContext(
       {
@@ -959,7 +988,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     );
     expect(result).toEqual({
       app: "analytics",
-      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      startUrl:
+        "http://localhost:8092/analytics/_agent-native/embed/start?ticket=remote",
     });
   });
 
@@ -980,6 +1010,12 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         color: "#2563EB",
       },
     ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://mail.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
 
     const result = await runWithRequestContext(
       {
@@ -1001,7 +1037,8 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     });
     expect(result).toEqual({
       app: "mail",
-      startUrl: "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+      startUrl:
+        "https://mail.agent-native.com/_agent-native/embed/start?ticket=remote",
     });
   });
 

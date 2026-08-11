@@ -683,7 +683,7 @@ function DispatchChatsSection({
       )}
     >
       {showNewChat && chatFirstNavigation ? (
-        <nav className="space-y-0.5 px-2 py-2">
+        <nav className="space-y-0.5 px-0 py-2">
           <ChatFirstPrimaryNavigation
             copy={chatFirstCopy}
             onNewChat={() => void handleNewChat()}
