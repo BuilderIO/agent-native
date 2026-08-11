@@ -67,7 +67,6 @@ vi.mock("electron-updater", () => ({ autoUpdater: updaterState }));
 import { IPC } from "@shared/ipc-channels";
 
 let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
-let compareDesktopVersions: typeof import("./updates.js").compareDesktopVersions;
 let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
@@ -84,12 +83,8 @@ describe("desktop updates", () => {
     updaterState.downloadUpdate.mockReset();
     electronState.notification.isSupported.mockReturnValue(false);
     vi.resetModules();
-    ({
-      checkForAppUpdates,
-      compareDesktopVersions,
-      getCurrentUpdateStatus,
-      registerUpdatesIpc,
-    } = await import("./updates.js"));
+    ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
+      await import("./updates.js"));
   });
 
   it("shows a clear result when a manual check finds no update", async () => {
@@ -221,16 +216,5 @@ describe("desktop updates", () => {
     installHandler?.();
     expect(electronState.app.relaunch).not.toHaveBeenCalled();
     expect(electronState.app.exit).not.toHaveBeenCalled();
-  });
-
-  it("orders stable and prerelease desktop versions", () => {
-    expect(compareDesktopVersions("1.1.0", "1.0.9")).toBeGreaterThan(0);
-    expect(compareDesktopVersions("1.0.0", "1.0.0-beta.2")).toBeGreaterThan(0);
-    expect(
-      compareDesktopVersions("1.0.0-beta.2", "1.0.0-beta.10"),
-    ).toBeLessThan(0);
-    expect(() => compareDesktopVersions("local", "1.0.0")).toThrow(
-      "Invalid desktop version comparison",
-    );
   });
 });

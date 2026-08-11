@@ -22,9 +22,8 @@ describe("UpdateIndicator", () => {
       value: {
         updater: {
           getStatus: vi.fn().mockResolvedValue({
-            state: "restart-required",
+            state: "downloaded",
             version: "1.1.0",
-            currentVersion: "1.0.0",
           }),
           install,
           onStatusChange: vi.fn(() => vi.fn()),

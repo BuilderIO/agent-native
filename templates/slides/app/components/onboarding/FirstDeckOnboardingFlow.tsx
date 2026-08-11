@@ -167,6 +167,17 @@ export function FirstDeckOnboardingFlow({
             ),
           });
         },
+        onSetupFailure: (failedPrompt, _failedFiles, failure) => {
+          setPromptInitialText(failedPrompt);
+          setPromptInitialTextKey(Date.now());
+          setStep("prompt");
+          toast.error(t("home.generationStartFailed"), {
+            description:
+              failure instanceof Error
+                ? failure.message
+                : t("home.generationStartFailedDescription"),
+          });
+        },
       });
       if (result === "started") onComplete();
     },

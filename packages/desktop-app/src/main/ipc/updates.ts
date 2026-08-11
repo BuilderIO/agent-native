@@ -93,8 +93,7 @@ function publishDownloadedUpdate() {
 function hasUpdateReadyToInstall(): boolean {
   return (
     pendingDownloadedUpdate !== null ||
-    currentUpdateStatus.state === "downloaded" ||
-    currentUpdateStatus.state === "restart-required"
+    currentUpdateStatus.state === "downloaded"
   );
 }
 
@@ -119,86 +118,6 @@ function withUpdateCheckTimeout<T>(promise: Promise<T>): Promise<T> {
     );
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-type ParsedDesktopVersion = {
-  major: number;
-  minor: number;
-  patch: number;
-  prerelease: string[];
-};
-
-function parseDesktopVersion(value: string): ParsedDesktopVersion | null {
-  const match =
-    /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
-      value.trim(),
-    );
-  if (!match) return null;
-
-  const [major, minor, patch] = match.slice(1, 4).map(Number);
-  if (![major, minor, patch].every(Number.isSafeInteger)) return null;
-
-  const prerelease = match[4]?.split(".") ?? [];
-  if (
-    prerelease.some(
-      (identifier) =>
-        /^\d+$/.test(identifier) &&
-        identifier.length > 1 &&
-        identifier.startsWith("0"),
-    )
-  ) {
-    return null;
-  }
-
-  return { major, minor, patch, prerelease };
-}
-
-function comparePrereleaseIdentifiers(left: string, right: string): number {
-  const leftNumeric = /^\d+$/.test(left);
-  const rightNumeric = /^\d+$/.test(right);
-  if (leftNumeric && rightNumeric) return Number(left) - Number(right);
-  if (leftNumeric) return -1;
-  if (rightNumeric) return 1;
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-/** Compares the desktop's stable and prerelease semantic versions. */
-export function compareDesktopVersions(left: string, right: string): number {
-  const leftParsed = parseDesktopVersion(left);
-  const rightParsed = parseDesktopVersion(right);
-  if (!leftParsed || !rightParsed) {
-    throw new Error(`Invalid desktop version comparison: ${left} vs ${right}`);
-  }
-
-  for (const key of ["major", "minor", "patch"] as const) {
-    if (leftParsed[key] !== rightParsed[key]) {
-      return leftParsed[key] - rightParsed[key];
-    }
-  }
-
-  if (leftParsed.prerelease.length === 0 && rightParsed.prerelease.length) {
-    return 1;
-  }
-  if (leftParsed.prerelease.length && rightParsed.prerelease.length === 0) {
-    return -1;
-  }
-
-  const length = Math.max(
-    leftParsed.prerelease.length,
-    rightParsed.prerelease.length,
-  );
-  for (let index = 0; index < length; index += 1) {
-    const leftIdentifier = leftParsed.prerelease[index];
-    const rightIdentifier = rightParsed.prerelease[index];
-    if (leftIdentifier === undefined) return -1;
-    if (rightIdentifier === undefined) return 1;
-    const comparison = comparePrereleaseIdentifiers(
-      leftIdentifier,
-      rightIdentifier,
-    );
-    if (comparison !== 0) return comparison;
-  }
-  return 0;
 }
 
 async function checkDevelopmentUpdateSupport(): Promise<void> {
@@ -283,12 +202,7 @@ function showUpdateCheckResultNotification(status: UpdateStatus) {
             title: "Could not check for Agent Native updates",
             body: status.message,
           })
-        : status.state === "restart-required"
-          ? new Notification({
-              title: "Agent Native update available",
-              body: `Production version ${status.version} is newer than this local version. Restart Agent Native to update.`,
-            })
-          : null;
+        : null;
 
   if (!notification) return;
   notification.on("click", () => getDeps().focusMainWindow());
@@ -403,12 +317,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   });
 
   ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-    if (IS_DEV_BUILD) {
-      if (currentUpdateStatus.state !== "restart-required") return;
-      app.relaunch();
-      app.exit(0);
-      return;
-    }
+    if (IS_DEV_BUILD) return;
     // isSilent=false so any installer UI shows; isForceRunAfter=true so the
     // app relaunches after the update completes.
     autoUpdater.quitAndInstall(false, true);

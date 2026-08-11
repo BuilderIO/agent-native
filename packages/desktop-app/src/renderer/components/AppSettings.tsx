@@ -216,14 +216,6 @@ function updateStatusCopy(status: UpdateStatus | null): {
     };
   }
 
-  if (status.state === "restart-required") {
-    return {
-      label: "Restart required",
-      description: `Production version ${status.version} is newer than this local version (${status.currentVersion}). Restart Agent Native to load it.`,
-      tone: "ready",
-    };
-  }
-
   if (status.state === "downloading") {
     return {
       label: "Downloading",
@@ -413,12 +405,9 @@ function SoftwareUpdateCard() {
     Boolean(updater) &&
     !isBusy &&
     status?.state !== "downloaded" &&
-    status?.state !== "restart-required" &&
     status?.state !== "unsupported";
   const canDownload = Boolean(updater) && status?.state === "available";
-  const canInstall =
-    Boolean(updater) &&
-    (status?.state === "downloaded" || status?.state === "restart-required");
+  const canInstall = Boolean(updater) && status?.state === "downloaded";
 
   const handleCheck = useCallback(async () => {
     if (!updater || !canCheck) return;
