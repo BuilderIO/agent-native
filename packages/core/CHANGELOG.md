@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.151.0
+
+### Minor Changes
+
+- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
+
+  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
+
 ## 0.150.0
 
 ### Minor Changes
