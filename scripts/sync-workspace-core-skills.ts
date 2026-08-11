@@ -277,6 +277,7 @@ const workspaceSkillExcludes = [
   "ship",
   "ship-desktop",
   "verifying-changes",
+  "writing-reference-docs",
 ];
 
 const check = process.argv.includes("--check");
