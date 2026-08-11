@@ -368,7 +368,7 @@ async function waitForUnauthenticatedPollReady(
 ): Promise<void> {
   const deadline = Date.now() + 180_000;
   let lastError = "dev port has not accepted a request";
-  let transient503s = 0;
+  let transientStartupFailures = 0;
 
   while (Date.now() < deadline) {
     if (running.isClosed()) {
@@ -400,13 +400,22 @@ async function waitForUnauthenticatedPollReady(
     const body = await response.text();
     if (response.status === 401) {
       log(
-        `startup poll reached HTTP 401 after ${transient503s} transient 503 response(s)`,
+        `startup poll reached HTTP 401 after ${transientStartupFailures} transient startup failure(s)`,
       );
       return;
     }
     if (response.status === 503) {
-      transient503s += 1;
-      lastError = `startup poll HTTP 503 (${transient503s} transient response(s))`;
+      transientStartupFailures += 1;
+      lastError = `startup poll HTTP 503 (${transientStartupFailures} transient response(s))`;
+      await sleep(100);
+      continue;
+    }
+    if (
+      response.status === 500 &&
+      body.includes('"message":"socket hang up"')
+    ) {
+      transientStartupFailures += 1;
+      lastError = `startup poll HTTP 500 socket hang up (${transientStartupFailures} transient response(s))`;
       await sleep(100);
       continue;
     }
