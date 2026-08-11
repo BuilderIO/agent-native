@@ -2058,10 +2058,7 @@ export function App() {
     }
   }
 
-  function finishDesktopAuthWithError(
-    kind: DesktopAuthKind,
-    message: string,
-  ) {
+  function finishDesktopAuthWithError(kind: DesktopAuthKind, message: string) {
     stopDesktopAuthPolling();
     signInInflightRef.current = false;
     setSignInPending(null);
@@ -2209,7 +2206,9 @@ export function App() {
         error?: string;
       } | null;
       if (!res.ok) {
-        throw new Error(json?.error || `Could not send sign-in link (${res.status})`);
+        throw new Error(
+          json?.error || `Could not send sign-in link (${res.status})`,
+        );
       }
       setMagicLinkEmail(email.trim());
       setSignInPending("magic-link");
@@ -4910,8 +4909,9 @@ function SignInForm({
       <div className="signin signin-success" aria-live="polite">
         <div className="signin-title">Check your email</div>
         <p className="signin-success-copy">
-          We sent a secure sign-in link to{" "}
-          <strong>{magicLinkSentEmail}</strong>.
+          {"We sent a secure sign-in link to "}
+          <strong>{magicLinkSentEmail}</strong>
+          {"."}
         </p>
         <button
           type="button"
@@ -4970,9 +4970,7 @@ function SignInForm({
         type="submit"
         className="primary start"
         disabled={
-          submitting ||
-          !email ||
-          (authMode === "password" && !password)
+          submitting || !email || (authMode === "password" && !password)
         }
       >
         {submitting

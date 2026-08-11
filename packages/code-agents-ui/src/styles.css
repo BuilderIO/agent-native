@@ -643,6 +643,7 @@
 .code-agents-overview--chat .code-agents-detail--chat {
   flex: 1 1 auto;
   height: auto;
+  width: 100%;
 }
 
 .code-agents-start {
