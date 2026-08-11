@@ -66,25 +66,36 @@ export function withDeckLock<T>(
 // Operation schemas
 // ---------------------------------------------------------------------------
 
-// Mirrors `SlideAnimation` in app/context/DeckContext.tsx. Spelled out rather
-// than left as `unknown` so a caller can build a reveal without first probing
-// the shape against a live deck.
+// Spelled out rather than left as `unknown` so a caller can build a reveal
+// without first probing the shape against a live deck. Every field stays
+// optional to match what `normalizeSlideAnimation` in shared/api.ts already
+// tolerates: decks predating this shape hold path-only entries and entries
+// without an id, and the editor re-sends the whole stored array on every
+// animation edit. Rejecting those here would fail the user's save, so the
+// requirements for new entries live in the descriptions instead.
 const SlideAnimationSchema = z.object({
-  id: z.string().describe("Stable id for this reveal step"),
+  id: z
+    .string()
+    .optional()
+    .describe("Stable unique id for this reveal step. Set one on new entries."),
   elementIndex: z
     .number()
     .int()
     .min(0)
+    .optional()
     .describe(
-      "Child index of the target element within the slide content. Required: the editor and presentation runtime read it directly.",
+      "Legacy fallback target: child index within the slide's content container, used only when elementPath does not resolve.",
     ),
   elementPath: z
     .array(z.number().int().min(0))
     .optional()
     .describe(
-      "More precise target: child-index path from the outer .fmd-slide wrapper. Send it alongside elementIndex.",
+      "Preferred target: child-index path from the outer .fmd-slide wrapper. Resolved first, and survives sibling edits that shift elementIndex.",
     ),
-  type: z.enum(["appear", "fade", "slide-up", "zoom"]),
+  type: z
+    .enum(["appear", "fade", "slide-up", "zoom"])
+    .optional()
+    .describe("Reveal style. Treated as slide-up when absent."),
 });
 
 const SlideFieldsSchema = z.object({

@@ -100,13 +100,17 @@ The field is a full replacement, so send the complete list the slide should end
 with. Three reveals is one operation carrying three entries — patching them in
 one at a time leaves the slide with only the last.
 
-Every entry needs both targets: `elementIndex`, the child index within the slide
-content, and `elementPath`, the child-index path from the outer `.fmd-slide`
-wrapper. The editor and presentation runtime read `elementIndex` directly, so an
-entry without it targets the wrong element; `elementPath` is the more precise
-target and survives sibling edits that shift a flat index. Read the current list
-with `get-deck` before changing it so an edit preserves the reveals the user
-already has.
+`elementPath` — the child-index path from the outer `.fmd-slide` wrapper — is
+the target the runtime resolves first, and it survives sibling edits that shift
+a flat index. `elementIndex` is the legacy fallback, used only when the path
+does not resolve. Give a new entry a unique `id` and both targets when you can
+derive both from the current HTML; never invent a path you did not read off the
+element, since a wrong path silently redirects the reveal.
+
+Read the current list with `get-deck` before changing it and carry existing
+entries through untouched, including older ones that carry only a path or no
+id. Rewriting them to look uniform is how a reveal ends up on the wrong
+element.
 
 ## Freeform Canvas Objects
 

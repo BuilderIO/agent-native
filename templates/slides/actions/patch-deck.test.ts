@@ -5,6 +5,7 @@ import {
   applyOperation,
   assertSourceImportOperationsPreserved,
   isAgentPatchCaller,
+  OperationSchema,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -337,10 +338,28 @@ describe("patch-deck agent schema", () => {
       "slide-up",
       "zoom",
     ]);
-    expect(animations.items.required).toEqual(
-      expect.arrayContaining(["id", "elementIndex", "type"]),
-    );
+    expect(animations.items.properties).toHaveProperty("id");
+    expect(animations.items.properties).toHaveProperty("elementIndex");
     expect(animations.items.properties).toHaveProperty("elementPath");
+  });
+
+  // The editor re-sends a slide's whole stored animation array on every edit,
+  // so anything `normalizeSlideAnimation` tolerates has to survive validation
+  // here or the user's save fails on a deck they could previously edit.
+  it("still accepts animation entries stored before the shape was pinned down", () => {
+    const legacyEntries = [
+      { elementPath: [0, 2], type: "fade" as const },
+      { id: "a2", elementIndex: 1 },
+      { id: "a3", elementIndex: 2, elementPath: [2], type: "zoom" as const },
+    ];
+
+    const parsed = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { animations: legacyEntries },
+    });
+
+    expect(parsed.success).toBe(true);
   });
 });
 
