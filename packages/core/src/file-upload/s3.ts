@@ -89,7 +89,7 @@ async function resolveStorageSecret(
 }
 
 async function readRequestConfig(): Promise<S3Config | null> {
-  return buildConfig({
+  const scopedConfig = buildConfig({
     bucket: await resolveStorageSecret("S3_BUCKET", "R2_BUCKET"),
     accessKeyId: await resolveStorageSecret(
       "S3_ACCESS_KEY_ID",
@@ -106,6 +106,7 @@ async function readRequestConfig(): Promise<S3Config | null> {
       "R2_PUBLIC_BASE_URL",
     ),
   });
+  return scopedConfig ?? readEnvConfig();
 }
 
 async function hmac(key: ArrayBuffer, message: string): Promise<ArrayBuffer> {

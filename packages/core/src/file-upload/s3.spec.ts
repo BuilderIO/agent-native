@@ -20,6 +20,12 @@ describe("s3FileUploadProvider", () => {
       "S3_SECRET_ACCESS_KEY",
       "S3_REGION",
       "S3_PUBLIC_BASE_URL",
+      "R2_ENDPOINT",
+      "R2_BUCKET",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
+      "R2_REGION",
+      "R2_PUBLIC_BASE_URL",
     ]) {
       delete process.env[key];
     }
@@ -83,5 +89,35 @@ describe("s3FileUploadProvider", () => {
         "content-type": "image/png",
       }),
     });
+  });
+
+  it("uploads through environment-backed storage when scoped secrets are absent", async () => {
+    Object.assign(process.env, {
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_BUCKET: "uploads-example",
+      S3_ACCESS_KEY_ID: "access-example",
+      S3_SECRET_ACCESS_KEY: "secret-example",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+    });
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () => "",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(s3FileUploadProvider.isConfiguredForRequest?.()).resolves.toBe(
+      true,
+    );
+    await expect(
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1, 2, 3]),
+        filename: "env-backed.txt",
+        mimeType: "text/plain",
+      }),
+    ).resolves.toMatchObject({ provider: "s3" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

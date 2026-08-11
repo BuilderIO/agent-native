@@ -178,18 +178,21 @@ export function chatFirstAppSurfaceTab(
   };
 }
 
-const DISPATCH_CONTROL_PLANE_PATHS = new Set([
+const DISPATCH_CONTROL_PLANE_PATHS = [
   "/integrations",
   "/automations",
   "/admin/integrations",
   "/admin/automations",
-]);
+] as const;
 
 export function isDispatchControlPlanePath(path?: string): boolean {
   if (!path?.trim()) return false;
   const base = "http://agent-native.invalid";
   if (!URL.canParse(path, base)) return false;
-  return DISPATCH_CONTROL_PLANE_PATHS.has(new URL(path, base).pathname);
+  const pathname = new URL(path, base).pathname;
+  return DISPATCH_CONTROL_PLANE_PATHS.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
 }
 
 export function dispatchControlPlaneUrlParams(

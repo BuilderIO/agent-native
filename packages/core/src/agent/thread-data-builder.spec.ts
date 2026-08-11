@@ -1864,4 +1864,28 @@ describe("upsertUserMessage", () => {
     expect(JSON.stringify(storedAtt)).not.toContain("A".repeat(100));
     expect(storedAtt.metadata).toEqual({ storageRequired: true });
   });
+
+  it("preserves bounded text attachments when storage is required", () => {
+    const message = buildUserMessage({
+      text: "Keep these notes in the thread",
+      runId: "run-text-attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          text: "Important notes",
+          storageRequired: true,
+        } as any,
+      ],
+    });
+
+    const storedAtt = message.attachments?.[0];
+    expect(storedAtt).toBeDefined();
+    expect(storedAtt.content[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("Important notes"),
+    });
+    expect(storedAtt.metadata).toBeUndefined();
+  });
 });

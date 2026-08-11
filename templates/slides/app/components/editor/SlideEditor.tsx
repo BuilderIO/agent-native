@@ -2497,7 +2497,9 @@ export default function SlideEditor({
     }
 
     const html = readCurrentSlideContentHtml();
-    if (html !== null) onUpdateSlideRef.current({ content: html });
+    if (html !== null) {
+      onUpdateSlideRef.current({ content: html, animations: [] });
+    }
     syncSelectionToAppState(null);
     return true;
   }, [

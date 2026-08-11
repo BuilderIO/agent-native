@@ -295,10 +295,15 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
   it("opens Dispatch control-plane pages without nested navigation chrome", () => {
     expect(isDispatchControlPlanePath("/integrations")).toBe(true);
+    expect(isDispatchControlPlanePath("/integrations/stripe")).toBe(true);
     expect(isDispatchControlPlanePath("/admin/automations?view=all")).toBe(
       true,
     );
+    expect(isDispatchControlPlanePath("/admin/integrations/slack/setup")).toBe(
+      true,
+    );
     expect(isDispatchControlPlanePath("/overview")).toBe(false);
+    expect(isDispatchControlPlanePath("/integrations-extra")).toBe(false);
     expect(dispatchControlPlaneUrlParams("/automations")).toEqual({
       embedded: "1",
       chatFirst: null,

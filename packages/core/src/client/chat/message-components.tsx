@@ -1572,9 +1572,9 @@ export function AssistantMessage() {
   const wasLiveRef = useRef(false);
   const messageRunId = assistantMessageRunId(msg);
   const messageTurnId = assistantMessageTurnId(msg);
+  const userStoppedRun = React.useContext(UserStoppedRunContext);
   const isUserStoppedRun =
-    assistantMessageWasUserStopped(msg) ||
-    React.useContext(UserStoppedRunContext)(messageRunId);
+    assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const missingWarningText = missingFinalResponseWarningText(msg.content);

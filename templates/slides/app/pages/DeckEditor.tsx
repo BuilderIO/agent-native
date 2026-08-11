@@ -508,10 +508,15 @@ export default function DeckEditor() {
       position?: { x: number; y: number },
     ) => {
       if (!id || !currentSlideRef.current) return;
-      const targetSlide = currentSlideRef.current;
+      const targetSlideId = currentSlideRef.current.id;
       if (!replaceSrc) {
         try {
           const newUrl = await uploadImageAsset(file);
+          const targetSlide =
+            currentSlideRef.current?.id === targetSlideId
+              ? currentSlideRef.current
+              : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
+          if (!targetSlide) return;
           const updatedContent = insertDroppedImageIntoSlideHtml(
             targetSlide.content,
             newUrl,
@@ -535,6 +540,11 @@ export default function DeckEditor() {
       }
       try {
         const newUrl = await uploadImageAsset(file);
+        const targetSlide =
+          currentSlideRef.current?.id === targetSlideId
+            ? currentSlideRef.current
+            : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
+        if (!targetSlide) return;
         const updatedContent = replaceImageTargetInSlideHtml(
           targetSlide.content,
           replaceSrc,
@@ -556,7 +566,7 @@ export default function DeckEditor() {
         });
       }
     },
-    [id, t, updateSlide, uploadImageAsset],
+    [getDeck, id, t, updateSlide, uploadImageAsset],
   );
 
   // Drag an already-hosted image (e.g. dragged out of a generated-image

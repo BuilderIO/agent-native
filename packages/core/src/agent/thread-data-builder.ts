@@ -1255,6 +1255,19 @@ function buildStoredAttachments(
         };
       }
 
+      if (typeof att.text === "string" && att.text.length > 0) {
+        return {
+          id,
+          type: "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [
+            { type: "text", text: textAttachmentEnvelope(att, att.text) },
+          ],
+        };
+      }
+
       // Binary attachment data is request-scoped input, not thread state. If
       // the provider was unavailable or failed, retain only a visible marker
       // so the transcript can explain why the attachment needs storage setup
@@ -1273,18 +1286,6 @@ function buildStoredAttachments(
             },
           ],
           metadata: { storageRequired: true },
-        };
-      }
-      if (typeof att.text === "string" && att.text.length > 0) {
-        return {
-          id,
-          type: "file",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [
-            { type: "text", text: textAttachmentEnvelope(att, att.text) },
-          ],
         };
       }
       return null;
