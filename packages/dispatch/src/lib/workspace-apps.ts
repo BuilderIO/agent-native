@@ -27,6 +27,21 @@ export interface WorkspaceAppSummary {
   archived?: boolean;
 }
 
+export function isDispatchWorkspaceAppId(appId: string): boolean {
+  return appId.trim().toLowerCase() === "dispatch";
+}
+
+export function isDefaultWorkspaceAppHiddenId(appId: string): boolean {
+  const normalized = appId.trim().toLowerCase();
+  return normalized === "chat" || isDispatchWorkspaceAppId(normalized);
+}
+
+export function isWorkspaceAppVisibleInDefaultLaunchers(
+  app: Pick<WorkspaceAppSummary, "id" | "isDispatch">,
+): boolean {
+  return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
+}
+
 export function workspaceAppRoute(appId: string): string {
   return `/apps/${encodeURIComponent(appId)}`;
 }

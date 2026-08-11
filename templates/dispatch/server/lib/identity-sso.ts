@@ -43,26 +43,30 @@ export const IDENTITY_TOKEN_TTL = "2m";
 /** JWT `scope` claim marking this as an identity (login) token, not A2A/MCP. */
 export const IDENTITY_SCOPE = "identity";
 
-/**
- * Host suffixes that a `redirect_uri` may belong to. This is the core
- * open-redirect / token-theft guard: an attacker-supplied `redirect_uri`
- * pointing anywhere else would exfiltrate the identity token.
- *
- * `.agent-native.com` covers every first-party hosted app
- * (mail.agent-native.com, calendar.agent-native.com, …) — the shared
- * first-party prod-URL registry is exactly the `*.agent-native.com`
- * subdomain space, so a suffix check is both sufficient and the least
- * footgun-prone (no per-app list to keep in sync).
- *
- * These are matched as DOT-prefixed suffixes against the parsed URL
- * hostname, so `agent-native.com.evil.com` does NOT match
- * `.agent-native.com` (it ends in `.evil.com`), and a bare
- * `agent-native.com` apex is intentionally NOT matched (all first-party
- * apps are subdomains; the apex is the marketing site).
- */
-export const DEFAULT_ALLOWED_HOST_SUFFIXES: readonly string[] = [
-  ".agent-native.com",
-];
+/** Exact first-party clients trusted to receive identity tokens. */
+export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
+  analytics: "https://analytics.agent-native.com",
+  assets: "https://assets.agent-native.com",
+  brain: "https://brain.agent-native.com",
+  calendar: "https://calendar.agent-native.com",
+  chat: "https://chat.agent-native.com",
+  clips: "https://clips.agent-native.com",
+  content: "https://content.agent-native.com",
+  crm: "https://crm.agent-native.com",
+  design: "https://design.agent-native.com",
+  dispatch: "https://dispatch.agent-native.com",
+  forms: "https://forms.agent-native.com",
+  macros: "https://macros.agent-native.com",
+  mail: "https://mail.agent-native.com",
+  plan: "https://plan.agent-native.com",
+  slides: "https://slides.agent-native.com",
+  tasks: "https://tasks.agent-native.com",
+} as const;
+
+export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = Object.values(
+  CANONICAL_IDENTITY_SSO_APP_ORIGINS,
+);
+const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
 
 /** Loopback hosts allowed for local development of the client side. */
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
@@ -102,14 +106,11 @@ export function getConfiguredHostSuffixes(
  *      `http:` is also allowed (TLS is not available on localhost).
  *   3. It has no embedded credentials (`user:pass@host`) — those are an
  *      open-redirect obfuscation vector.
- *   4. Its hostname is either a loopback host, OR ends in one of the
- *      allowed host suffixes (default `.agent-native.com`, plus any
- *      configured via env). The suffix is matched against the FULL parsed
- *      hostname with a leading dot, so `agent-native.com.evil.com` is
- *      rejected (ends in `.evil.com`) and substring spoofs cannot pass.
+ *   4. Its origin is an exact registered first-party app, a loopback host,
+ *      or an operator-configured extra host suffix.
  *
- * Everything else is rejected. Fragments/queries on the URI are allowed
- * (the client may have its own) — we append our params safely.
+ * Everything else is rejected. The authorize endpoint adds a second check
+ * that binds the app id to the exact origin and callback path.
  */
 export function isAllowedRedirectUri(
   rawRedirectUri: unknown,
@@ -145,10 +146,9 @@ export function isAllowedRedirectUri(
 
   if (isLoopback) return true;
 
-  const suffixes = [
-    ...DEFAULT_ALLOWED_HOST_SUFFIXES,
-    ...(options.allowedHostSuffixes ?? getConfiguredHostSuffixes()),
-  ];
+  if (DEFAULT_ALLOWED_ORIGINS.includes(url.origin)) return true;
+
+  const suffixes = options.allowedHostSuffixes ?? getConfiguredHostSuffixes();
 
   // Suffix match against the full hostname, leading-dot anchored so a
   // sibling/parent host can never satisfy a child's suffix:
@@ -156,6 +156,32 @@ export function isAllowedRedirectUri(
   //   "agent-native.com.evil.com".endsWith(".agent-native.com")    -> false
   //   "evil-agent-native.com".endsWith(".agent-native.com")        -> false
   return suffixes.some((suffix) => hostname.endsWith(suffix));
+}
+
+const APP_ID = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+export function isAllowedIdentityRedirect(
+  appId: unknown,
+  rawRedirectUri: unknown,
+  options: { allowedHostSuffixes?: readonly string[] } = {},
+): boolean {
+  if (typeof appId !== "string" || !APP_ID.test(appId)) return false;
+  if (!isAllowedRedirectUri(rawRedirectUri, options)) return false;
+
+  const url = new URL(rawRedirectUri as string);
+  if (url.pathname !== IDENTITY_SSO_CALLBACK_PATH || url.search || url.hash) {
+    return false;
+  }
+
+  if (DEFAULT_ALLOWED_ORIGINS.includes(url.origin)) {
+    return (
+      CANONICAL_IDENTITY_SSO_APP_ORIGINS[
+        appId as keyof typeof CANONICAL_IDENTITY_SSO_APP_ORIGINS
+      ] === url.origin
+    );
+  }
+
+  return true;
 }
 
 export interface IdentityClaims {

@@ -168,9 +168,32 @@ Set `A2A_SECRET` (same value) on all apps that must verify each other's identity
 Each hosted `*.agent-native.com` app has its **own user store**, so "sign in once" is identity federation, not a shared cookie. **Dispatch is the identity authority.**
 
 - **Opt-in per app via one env var:** set `AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com` and the app shows a "Sign in with Agent-Native" option. **Unset = zero behavior change** — the whole path is dormant. Reversible at any time.
-- **Flow:** app → `GET <hub>/_agent-native/identity/authorize?app=&redirect_uri=&state=` → user logs in at Dispatch → 302 back with a short-lived (`≤5min`) `A2A_SECRET`-signed identity JWT (`sub`/`email`/`name`/`org_domain`/`scope:"identity"`). Strict `redirect_uri` allowlist (`*.agent-native.com` + localhost). App verifies the token, **JIT-links strictly by verified email** (existing same-email user → reused unchanged; new email → created), then mints a normal local session.
+- **Flow:** app → `GET <hub>/_agent-native/identity/authorize?app=&redirect_uri=&state=` → user logs in at Dispatch → 302 back with a short-lived (`≤5min`) `A2A_SECRET`-signed identity JWT (`sub`/`email`/`name`/`org_domain`/`scope:"identity"`). Canonical clients require an exact registered app ID, origin, and callback path; localhost remains available for development. App verifies the token, **JIT-links strictly by verified email** (existing same-email user → reused unchanged; new email → created), then mints a normal local session.
 - **Invariant (do not break):** identity rows are only ever **added** — never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the only thing that crosses the trust boundary; the app never trusts a user id, role, or org from the wire.
 - **Canary rollout:** deploy with the env unset everywhere (no-op) → set it on **one** app (mail) only → verify (logout → SSO → Dispatch → back to the same pre-existing account, data intact, direct logins still work) → expand app-by-app → rollback = unset the env on that app's deploy (instant, no data change).
+
+### Packaged Desktop workspace sign-in
+
+For canonical first-party hosted apps, the packaged Desktop SSO Canary may compose the same
+federation into one workspace sign-in. Dispatch owns the default-off
+`desktop.workspace-sso` availability flag; every app still owns its local
+session. The flag is never an auth or authorization boundary. Keep nonce,
+signature, exact origin/callback, authenticated-session, app-binding, cookie
+allowlist, revocation, and credential-custody checks unconditional. When the
+flag is Off or unreadable, Desktop must leave ordinary per-app sign-in, sign-out,
+and Settings unchanged. Never extend the broker to custom or third-party apps,
+and never expose cookies, identity tokens, or provider credentials through IPC.
+Canonical hosted apps recognize packaged Desktop requests without per-app
+identity-hub environment configuration. Ordinary browsers and self-hosted apps
+still require `AGENT_NATIVE_IDENTITY_HUB_URL`.
+Stable Desktop builds must not initialize the broker until a later release is
+separately approved.
+Treat the Canary user-agent marker only as an availability hint, never as
+remote attestation or an authentication boundary. Bind supervised acceptance
+to exact signed-artifact provenance.
+The Canary must not intercept anonymous app sign-in navigation. The user
+explicitly chooses workspace sign-in in Desktop Settings for the active
+registered app; ordinary app sign-in remains the default path.
 
 Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 

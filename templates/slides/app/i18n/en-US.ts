@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "Ask me anything about your presentations",
-    thisDeck: "This Deck",
+    thisSlide: "This Slide",
+    currentSelection: "Current Selection",
     suggestionPitch: "Build a 10-slide pitch from this doc",
     suggestionBrand: "Apply our brand to this deck",
     suggestionHero: "Generate a hero image for this slide",
@@ -436,6 +437,10 @@ const messages = {
     order: "Order",
     bringToFront: "Bring to front",
     sendToBack: "Send to back",
+    copyStyle: "Copy style",
+    pasteStyle: "Paste style",
+    copy: "Copy",
+    paste: "Paste",
   },
   animations: {
     appear: "Appear",

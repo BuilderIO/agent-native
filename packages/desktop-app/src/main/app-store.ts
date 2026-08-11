@@ -34,7 +34,7 @@ const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const SHORTCUT_STORE_FILE = "shortcut-config.json";
 const QUICK_PROMPT_STORE_FILE = "quick-prompt-config.json";
 const DESKTOP_APP_PREFERENCES_STORE_FILE = "desktop-app-preferences.json";
-const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
+const REMOVED_DESKTOP_APP_IDS = new Set(["starter", "chat"]);
 const DESKTOP_APP_MODE_DEFAULTS_VERSION = 1;
 
 type StoredSecret =

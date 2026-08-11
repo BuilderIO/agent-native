@@ -8,6 +8,10 @@
     <string>Clips uses your microphone to record audio with screen recordings.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Clips records your screen and system audio when you start a Clip.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Clips uses your calendars to show upcoming meetings and offer meeting capture.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Clips uses your calendars to show upcoming meetings and offer meeting capture.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Clips uses speech recognition for on-device voice dictation.</string>
     <key>NSAccessibilityUsageDescription</key>

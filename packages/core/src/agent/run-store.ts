@@ -2056,6 +2056,7 @@ export async function getRunStatus(runId: string): Promise<string | null> {
  * a second, competing truth.
  */
 const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
+const USER_INITIATED_ABORT_REASONS = new Set(["user", "abort"]);
 
 // Only infrastructure interruptions that the client can safely resume are
 // recoverable. An arbitrary caller-supplied abort reason must never become an
@@ -2085,9 +2086,13 @@ export function terminalEventForAbortReason(
   }
   if (
     TURN_ENDING_ABORT_REASONS.has(normalized) ||
+    USER_INITIATED_ABORT_REASONS.has(normalized) ||
     normalized.startsWith("user_")
   ) {
-    return { type: "done" };
+    return {
+      type: "done",
+      ...(normalized !== "displaced" ? { reason: "user" } : {}),
+    };
   }
   return {
     type: "error",

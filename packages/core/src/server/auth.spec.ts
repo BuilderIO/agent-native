@@ -161,7 +161,14 @@ describe("server/auth", () => {
         })),
         getBetterAuthSync: vi.fn(() => undefined),
       }));
-
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
       const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
@@ -186,6 +193,73 @@ describe("server/auth", () => {
         },
         headers: event.headers,
       });
+    });
+
+    it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const signInMagicLink = vi.fn(async () => ({ status: true }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+      expect(handler).toBeTypeOf("function");
+
+      const callbackPath = "/?utm_source=friend&utm_content=button:hero#signup";
+      await expect(
+        handler(
+          createJsonPostEvent(
+            "/_agent-native/auth/magic-link",
+            {
+              email: "owner@example.com",
+              callbackURL: callbackPath,
+            },
+            undefined,
+            "https://self-hosted.example",
+          ),
+        ),
+      ).resolves.toEqual({ ok: true });
+
+      const request = signInMagicLink.mock.calls[0]?.[0];
+      expect(request.body.callbackURL).toMatch(
+        /^https:\/\/self-hosted\.example\//,
+      );
+      const callbackURL = new URL(request.body.callbackURL);
+      expect(callbackURL.searchParams.get("utm_source")).toBe("friend");
+      expect(callbackURL.searchParams.get("utm_content")).toBe("button:hero");
+      expect(callbackURL.hash).toBe("#signup");
+
+      expect(request.body.newUserCallbackURL).toMatch(/^https?:\/\//);
+      const newUserCallbackURL = new URL(request.body.newUserCallbackURL);
+      expect(newUserCallbackURL.pathname).toMatch(
+        /\/_agent-native\/auth\/magic-link\/new-user$/,
+      );
+      expect(newUserCallbackURL.searchParams.get("return")).toBe(callbackPath);
     });
 
     it("bridges a verified magic-link callback to a native desktop exchange", async () => {
@@ -513,6 +587,32 @@ describe("server/auth", () => {
       errorSpy.mockRestore();
     });
 
+    it("passes a custom max age through to Better Auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const getBetterAuth = vi.fn(async () => ({
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          getSession: vi.fn(async () => null),
+          signInEmail: vi.fn(),
+          signUpEmail: vi.fn(),
+          signOut: vi.fn(),
+        },
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth,
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      await autoMountAuth(createMockApp(), { maxAge: 60 * 60 * 24 * 90 });
+
+      expect(getBetterAuth).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionMaxAge: 60 * 60 * 24 * 90 }),
+      );
+    });
+
     it("enables Better Auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("DEBUG", "1");
@@ -562,6 +662,14 @@ describe("server/auth", () => {
           },
         })),
         getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
       }));
 
       const { autoMountAuth } = await import("./auth.js");
@@ -1498,7 +1606,7 @@ describe("server/auth", () => {
       });
     });
 
-    it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
+    it("bypasses only the two federated-SSO entry routes", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
@@ -1514,20 +1622,56 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      // Env UNSET → the identity routes are NOT bypassed: the guard must
-      // treat them like any other unauthenticated /_agent-native/* request
-      // (it returns a 401 body, i.e. NOT `undefined`). This is the
-      // regression assertion for the env-unset-no-op invariant.
+      // Ordinary requests remain protected while direct web SSO is unset.
       for (const path of [
         "/_agent-native/identity/login",
         "/_agent-native/identity/callback",
       ]) {
-        const result = await guard(createMockEvent({ path }));
-        expect(result).not.toBeUndefined();
+        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
+          error: "Unauthorized",
+        });
       }
 
-      // Env SET → both routes bypass the blanket guard so the handler can
-      // run its own signature/CSRF verification.
+      vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(
+          guard(
+            createMockEvent({
+              path,
+              headers: {
+                host: "mail.agent-native.com",
+                "x-forwarded-proto": "https",
+                "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+              },
+            }),
+          ),
+        ).resolves.toBeUndefined();
+      }
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/login",
+            headers: {
+              host: "untrusted.example",
+              "x-forwarded-proto": "https",
+              "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+            },
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/desktop-complete",
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
@@ -5558,8 +5702,9 @@ function createJsonPostEvent(
   path: string,
   body: unknown,
   headers?: Record<string, string>,
+  origin = "http://localhost",
 ): any {
-  const request = new Request(`http://localhost${path}`, {
+  const request = new Request(`${origin}${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -5569,6 +5714,7 @@ function createJsonPostEvent(
   });
   const requestHeaders = Object.fromEntries(request.headers.entries());
   const event = createMockEvent({ path, headers: requestHeaders });
+  event.url = new URL(`${origin}${path}`);
   event.req = request;
   event.headers = request.headers;
   event.node.req.method = "POST";

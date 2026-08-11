@@ -123,6 +123,11 @@ pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
     }
 }
 
+pub fn shutdown(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    macos::stop(app);
+}
+
 #[tauri::command]
 pub async fn whisper_transcription_reset_timeline() -> Result<(), String> {
     #[cfg(target_os = "macos")]

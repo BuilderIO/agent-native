@@ -94,6 +94,7 @@ import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
+import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
 import { AgentProviderPicker } from "./ProviderSetupForm.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
@@ -3177,13 +3178,15 @@ function SettingsPanelContent({
                     />
                     <ManualSetupCard
                       title="Set up manually"
-                      hint="Configure your own file or object storage provider."
+                      hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
                       docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
                       dim={connected}
                       bare
                       popover
                       popoverLabel="Manage"
-                    />
+                    >
+                      <FileStorageSettingsForm />
+                    </ManualSetupCard>
                   </div>
                 }
               />
@@ -3397,10 +3400,12 @@ function SettingsPanelContent({
                 trackingFlow="file_upload"
               />
               <ManualSetupCard
-                hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
+                hint="Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Connect Builder or use an S3-compatible bucket below."
                 docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
                 dim={connected}
-              />
+              >
+                <FileStorageSettingsForm />
+              </ManualSetupCard>
             </div>
           </SettingsSection>
         )}

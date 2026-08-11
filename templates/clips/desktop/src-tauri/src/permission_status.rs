@@ -75,6 +75,9 @@ mod macos {
     }
 
     fn check_speech() -> bool {
+        if !crate::native_speech::macos::has_speech_usage_description() {
+            return false;
+        }
         unsafe {
             SFSpeechRecognizer::authorizationStatus()
                 == SFSpeechRecognizerAuthorizationStatus::Authorized

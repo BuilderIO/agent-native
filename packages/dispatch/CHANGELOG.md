@@ -1,5 +1,23 @@
 # @agent-native/dispatch
 
+## 0.23.5
+
+### Patch Changes
+
+- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
+
+  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
+
+## 0.23.4
+
+### Patch Changes
+
+- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
+- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
+- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
+- Updated dependencies [7c5888c]
+  - @agent-native/toolkit@0.13.10
+
 ## 0.23.3
 
 ### Patch Changes

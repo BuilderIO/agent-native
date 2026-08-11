@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { workspaceAppIdFromRoute, workspaceAppRoute } from "./workspace-apps";
+import {
+  isDefaultWorkspaceAppHiddenId,
+  isDispatchWorkspaceAppId,
+  isWorkspaceAppVisibleInDefaultLaunchers,
+  workspaceAppIdFromRoute,
+  workspaceAppRoute,
+} from "./workspace-apps";
 
 describe("workspace app routes", () => {
   it("round-trips encoded app ids", () => {
@@ -17,5 +23,22 @@ describe("workspace app routes", () => {
 
   it("accepts nested app routes while preserving the app id", () => {
     expect(workspaceAppIdFromRoute("/apps/mail/inbox")).toBe("mail");
+  });
+
+  it("identifies Dispatch regardless of casing or surrounding whitespace", () => {
+    expect(isDispatchWorkspaceAppId(" Dispatch ")).toBe(true);
+    expect(isDispatchWorkspaceAppId("dispatch-tools")).toBe(false);
+  });
+
+  it("hides the generic chat starter and Dispatch from default launchers", () => {
+    expect(isDefaultWorkspaceAppHiddenId(" Chat ")).toBe(true);
+    expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "chat" })).toBe(false);
+    expect(
+      isWorkspaceAppVisibleInDefaultLaunchers({
+        id: "dispatch",
+        isDispatch: true,
+      }),
+    ).toBe(false);
+    expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "mail" })).toBe(true);
   });
 });

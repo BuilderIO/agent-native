@@ -19,6 +19,7 @@ import { fileURLToPath } from "url";
 
 import { buildChatFirstAppCreationPrompt } from "@agent-native/core/shared";
 import {
+  DESKTOP_DEFAULT_APPS,
   FRAME_PORT,
   getDesktopTemplateGatewayAppUrl,
   getTemplate,
@@ -38,6 +39,7 @@ import {
 } from "@shared/code-agents";
 import {
   formatDesktopShortcutAccelerator,
+  isMacAppHideShortcut,
   normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
@@ -107,6 +109,7 @@ import {
   type DesktopPlanFilesResult,
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
+  type DesktopIdentityStatus,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -117,6 +120,7 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  net,
   Notification,
   screen,
   session,
@@ -183,11 +187,23 @@ import {
 } from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
+  DESKTOP_IDENTITY_PARTITION,
+  DesktopIdentityBroker,
+  desktopWorkspaceLogoutPath,
+  fetchDesktopIdentityAvailability,
+  isDesktopIdentityConfiguredAppEligible,
+  type DesktopIdentityApp,
+} from "./desktop-identity";
+import {
   captureWebviewLogs,
   initializeDesktopLogger,
   revealLogFolder,
   getLogFilePath,
 } from "./desktop-logger";
+import {
+  initializeDesktopStartup,
+  resolveDesktopSsoBrokerStatePath,
+} from "./desktop-startup.js";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -196,6 +212,7 @@ import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
 import { registerShortcutsIpc } from "./ipc/shortcuts";
+import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
@@ -216,10 +233,24 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 
-initializeDesktopSentry();
-initializeDesktopLogger();
+initializeDesktopStartup({
+  isPackaged: app.isPackaged,
+  version: app.getVersion(),
+  appDataPath: app.getPath("appData"),
+  createDirectory: (directoryPath) =>
+    fs.mkdirSync(directoryPath, { recursive: true }),
+  setUserDataPath: (directoryPath) => app.setPath("userData", directoryPath),
+  initializeSentry: initializeDesktopSentry,
+  initializeLogger: initializeDesktopLogger,
+  logError: console.error,
+  logWarning: console.warn,
+});
+
+const IS_DESKTOP_SSO_CANARY =
+  app.isPackaged && isDesktopSsoCanaryVersion(app.getVersion());
 
 const DESKTOP_CODE_AGENT_PERSISTENCE_LOCK = {
   lockWaitMs: 50,
@@ -280,6 +311,9 @@ if (IS_DEV) {
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
 // Open Agent Native" screen whose deep link can't fire.
 app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}`;
+if (IS_DESKTOP_SSO_CANARY) {
+  app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktopSsoCanary/${app.getVersion()}`;
+}
 
 // ---------- Deep link protocol (agentnative://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
@@ -298,6 +332,8 @@ let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
+let desktopIdentityBroker: DesktopIdentityBroker | null = null;
+const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -574,6 +610,111 @@ function getInjectionTargetForAppId(
     origin: getAppOrigin(appConfig),
     session: session.fromPartition(`persist:app-${appConfig.id}`),
   };
+}
+
+function resolveDesktopIdentityApp(
+  appId: string,
+  options?: { forCleanup?: boolean },
+): DesktopIdentityApp | null {
+  if (!app.isPackaged) return null;
+  const canonical = DESKTOP_DEFAULT_APPS.find(
+    (candidate) => candidate.id === appId,
+  );
+  if (!canonical) return null;
+  const canonicalOrigin = getAppOrigin({ ...canonical, mode: "prod" });
+  if (!canonicalOrigin?.startsWith("https://")) return null;
+
+  const configured = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === appId,
+  );
+  if (
+    !options?.forCleanup &&
+    !isDesktopIdentityConfiguredAppEligible(configured)
+  ) {
+    return null;
+  }
+  if (!options?.forCleanup) {
+    const configuredOrigin = getAppOrigin(configured!);
+    if (canonicalOrigin !== configuredOrigin) return null;
+  }
+
+  const primaryCookieName = getCookieNameForApp(appId);
+  const appSlug = primaryCookieName.replace(/^an_session_/, "");
+  const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
+  return {
+    id: appId,
+    origin: canonicalOrigin,
+    session: session.fromPartition(`persist:app-${appId}`),
+    cookieNames:
+      primaryCookieName === "an_session"
+        ? [primaryCookieName]
+        : [primaryCookieName, "an_session"],
+    cookieNamesToClear: [
+      primaryCookieName,
+      "an_session",
+      `${betterAuthPrefix}.session_token`,
+      `__Secure-${betterAuthPrefix}.session_token`,
+      "an.session_token",
+      "__Secure-an.session_token",
+    ],
+    identityAuthority: appId === "dispatch",
+  };
+}
+
+function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
+  return DESKTOP_DEFAULT_APPS.map((candidate) =>
+    resolveDesktopIdentityApp(candidate.id, { forCleanup: true }),
+  ).filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
+async function isDesktopIdentityAvailable(
+  authorityApp: DesktopIdentityApp,
+  identitySession: Electron.Session,
+): Promise<boolean> {
+  return fetchDesktopIdentityAvailability(authorityApp, identitySession);
+}
+
+function resolveDesktopIdentityLoginRedirect(
+  requestUrl: string,
+  identitySession: Electron.Session,
+): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({
+      url: requestUrl,
+      session: identitySession,
+      redirect: "manual",
+    });
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (redirectUrl: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(redirectUrl);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(error);
+    };
+
+    request.on("redirect", (_statusCode, _method, redirectUrl) => {
+      finish(redirectUrl);
+      request.abort();
+    });
+    request.on("response", (response) => {
+      response.on("data", () => {});
+      response.on("end", () => finish(null));
+      response.on("error", fail);
+    });
+    request.on("error", fail);
+    timer = setTimeout(() => {
+      request.abort();
+      fail(new Error("Identity redirect preflight timed out"));
+    }, 15_000);
+    request.end();
+  });
 }
 
 function getOAuthInjectionTarget(
@@ -999,6 +1140,40 @@ app.on("browser-window-focus", () => {
 // update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
 // (imported above) are also used by the application menu below.
 registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
+
+function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
+  return Boolean(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    event.sender.id === mainWindow.webContents.id,
+  );
+}
+
+ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
+  if (!isShellIdentityIpc(event)) {
+    return "idle" satisfies DesktopIdentityStatus;
+  }
+  await desktopIdentityBroker?.refreshStatus(
+    resolveDesktopIdentityApp("dispatch"),
+  );
+  return desktopIdentityBroker?.getStatus() ?? "idle";
+});
+
+ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
+  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
+  const status = desktopIdentityBroker.getStatus();
+  if (status !== "sign-in-required" && status !== "failed") return false;
+  const identityApp = resolveDesktopIdentityApp(activeAppId);
+  if (!identityApp) return false;
+  return desktopIdentityBroker.signIn(identityApp.id);
+});
+
+ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
+  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
+  if (desktopIdentityBroker.getStatus() === "idle") return false;
+  await desktopIdentityBroker.signOut(listDesktopIdentityCleanupApps());
+  return true;
+});
 
 function createWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4241,14 +4416,20 @@ async function createCodeAgentRun(
       error: "Missing prompt.",
     };
   }
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
+  const isDesktopAppCreation = userMetadata.kind === "desktop-create-app";
   const provider = ensureCodeAgentLlmProvider();
-  if (!provider.ok) {
+  if (!provider.ok && !isDesktopAppCreation) {
     return {
       ok: false,
       message: "Connect a model provider before starting a coding chat.",
       error: provider.error,
     };
   }
+
+  // App creation must still produce a visible chat when setup is incomplete.
+  // The runner records the credential gap on this queued run, which lets the
+  // chat render the shared Builder/custom-key recovery actions and retry it.
 
   const goal =
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
@@ -4264,7 +4445,6 @@ async function createCodeAgentRun(
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
-  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   const retryOf = firstStringValue(userMetadata.retryOf, payload.retryOf);
   const rerunOf = firstStringValue(userMetadata.rerunOf, payload.rerunOf);
   const attempt = Number(userMetadata.attempt ?? payload.attempt);
@@ -5551,8 +5731,8 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
       console.log(`[desktop-app:${appId}] ${text}`);
       emitDesktopAppRuntimeStatus({
         appId,
-        state: "running",
-        message: "Preview updated.",
+        state: "starting",
+        message: "Building the local preview.",
       });
     });
     child.stderr?.on("data", (chunk) => {
@@ -9254,17 +9434,7 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     }
   };
 
-  contents.on("will-frame-navigate", (event) => {
-    if (event.isMainFrame) return;
-    handleNavigation(event, event.url, { isMainFrame: false });
-  });
-
-  // Belt-and-suspenders for existing deployed app bundles that may still
-  // fall back to assigning window.location when Electron reports a manually
-  // handled popup as null. Keep Builder/Google OAuth out of the app webview.
-  contents.on("will-navigate", (event) => {
-    handleNavigation(event, event.url, { isMainFrame: true });
-  });
+  installWebviewNavigationListeners(contents, handleNavigation);
 }
 
 // ---------- Webview popup handling ----------
@@ -9314,6 +9484,12 @@ app.on("web-contents-created", (_event, contents) => {
   // renderer so they work even when a webview has keyboard focus.
   contents.on("before-input-event", (event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
+
+    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
+      event.preventDefault();
+      app.hide();
+      return;
+    }
 
     const key = input.key.toLowerCase();
 
@@ -9476,9 +9652,23 @@ function installApplicationMenu() {
       buildUpdateMenuItem(),
       buildCurrentVersionMenuItem(),
       { type: "separator" as const },
+      ...(desktopIdentityBroker && desktopIdentityBroker.getStatus() !== "idle"
+        ? [
+            {
+              label: "Sign Out of Agent Native",
+              click: () =>
+                void desktopIdentityBroker?.signOut(
+                  listDesktopIdentityCleanupApps(),
+                ),
+            } satisfies Electron.MenuItemConstructorOptions,
+            { type: "separator" as const },
+          ]
+        : []),
       { role: "services" as const },
       { type: "separator" as const },
-      { role: "hide" as const },
+      // Keep Cmd+H explicit because the custom menu replaces Electron's
+      // default app menu, whose implicit hide accelerator is easy to lose.
+      { role: "hide" as const, accelerator: "Command+H" },
       { role: "hideOthers" as const },
       { role: "unhide" as const },
       { type: "separator" as const },
@@ -9656,6 +9846,43 @@ function configurePermissionHandlers(
 }
 
 app.whenReady().then(async () => {
+  if (IS_DESKTOP_SSO_CANARY) {
+    desktopIdentityBroker = new DesktopIdentityBroker({
+      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+      isAvailable: isDesktopIdentityAvailable,
+      resolveLoginRedirect: resolveDesktopIdentityLoginRedirect,
+      resolveApp: resolveDesktopIdentityApp,
+      createWindow: (options) => new BrowserWindow(options),
+      parentWindow: () => mainWindow,
+      handleWindowOpen: (contents, url) =>
+        handleWindowOpenForContents(contents, url),
+      handleOAuthNavigation: (url, contents) =>
+        openOAuthFromWebviewNavigation(url, contents),
+      reloadApp: (identityApp) =>
+        reloadWebviewsForTarget({
+          appId: identityApp.id,
+          origin: identityApp.origin,
+          session: identityApp.session,
+        }),
+      clearLocalBroker: async () => {
+        await fs.promises
+          .rm(resolveDesktopSsoBrokerStatePath(app.getPath("userData")), {
+            force: true,
+          })
+          .catch(() => {});
+      },
+      onStatus: (status: DesktopIdentityStatus) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
+        }
+        refreshApplicationMenu();
+      },
+    });
+    await desktopIdentityBroker.refreshStatus(
+      resolveDesktopIdentityApp("dispatch"),
+    );
+  }
+
   await initializeDesktopComputerMcpBridge();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
@@ -9694,8 +9921,51 @@ app.whenReady().then(async () => {
     // Each partition is bound to a specific app, so route to that app's port
     // rather than falling back to a hardcoded mail/calendar preference.
     sess.webRequest.onBeforeRequest(
-      { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
+      {
+        urls: [
+          `http://localhost:${FRAME_PORT}/api/google/*`,
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
       (details, callback) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          identityApp &&
+          logoutPath &&
+          details.method === "POST" &&
+          desktopIdentityBroker &&
+          desktopIdentityBroker.getStatus() !== "idle" &&
+          !desktopIdentityBroker.isInternalRevocationRequest(details.url)
+        ) {
+          void desktopIdentityBroker
+            .prepareExternalSignOut(listDesktopIdentityCleanupApps(), {
+              logoutPath,
+              alreadyRevokedAppId: identityApp.id,
+            })
+            .then(
+              () => callback({}),
+              (error) => {
+                console.error(
+                  "[main] Failed to prepare Desktop workspace sign-out:",
+                  error,
+                );
+                callback({});
+              },
+            );
+          return;
+        }
+        if (
+          !details.url.startsWith(`http://localhost:${FRAME_PORT}/api/google/`)
+        ) {
+          callback({});
+          return;
+        }
         let apps: AppConfig[] = [];
         try {
           apps = AppStore.loadApps();
@@ -9718,6 +9988,70 @@ app.whenReady().then(async () => {
         } else {
           callback({});
         }
+      },
+    );
+
+    sess.webRequest.onCompleted(
+      {
+        urls: [
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
+      (details) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          !identityApp ||
+          !logoutPath ||
+          desktopIdentityBroker?.isInternalRevocationRequest(details.url) ||
+          details.method !== "POST" ||
+          !desktopIdentityBroker ||
+          desktopIdentityBroker.getStatus() === "idle"
+        ) {
+          return;
+        }
+        void desktopIdentityBroker.completeExternalSignOut(
+          listDesktopIdentityCleanupApps(),
+          { logoutPath, alreadyRevokedAppId: identityApp.id },
+          details.statusCode >= 200 && details.statusCode < 300,
+        );
+      },
+    );
+
+    sess.webRequest.onErrorOccurred(
+      {
+        urls: [
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
+      (details) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          !identityApp ||
+          !logoutPath ||
+          desktopIdentityBroker?.isInternalRevocationRequest(details.url) ||
+          details.method !== "POST" ||
+          !desktopIdentityBroker ||
+          desktopIdentityBroker.getStatus() === "idle"
+        ) {
+          return;
+        }
+        void desktopIdentityBroker.completeExternalSignOut(
+          listDesktopIdentityCleanupApps(),
+          { logoutPath, alreadyRevokedAppId: identityApp.id },
+          false,
+        );
       },
     );
   }
@@ -9754,6 +10088,7 @@ app.whenReady().then(async () => {
       } catch {}
     }
     configureWebviewSession(wc.session, id);
+    if (id) desktopWebviewAppIds.set(wc, id);
     // Capture renderer console messages to the log file so they survive
     // across sessions without DevTools needing to be open.
     captureWebviewLogs(wc, id ?? "webview");
@@ -9785,6 +10120,13 @@ app.whenReady().then(async () => {
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
+
+    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
+      _event.preventDefault();
+      app.hide();
+      return;
+    }
+
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell

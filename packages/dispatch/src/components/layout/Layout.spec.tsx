@@ -9,6 +9,7 @@ import { TooltipProvider } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   formatThreadAge,
+  isElectronEmbeddedSearch,
   NavContent,
 } from "./Layout";
 
@@ -116,6 +117,14 @@ describe("chat-first embed sessions", () => {
       path: "/mail/inbox",
       chrome: "minimal",
     });
+  });
+});
+
+describe("Electron control-plane mode", () => {
+  it("recognizes only the explicit Electron query flag", () => {
+    expect(isElectronEmbeddedSearch("?electron=1")).toBe(true);
+    expect(isElectronEmbeddedSearch("?electron=0")).toBe(false);
+    expect(isElectronEmbeddedSearch("?chatFirst=1")).toBe(false);
   });
 });
 

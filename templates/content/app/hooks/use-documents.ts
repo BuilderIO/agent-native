@@ -1,4 +1,5 @@
 import {
+  callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -7,6 +8,7 @@ import type {
   ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
+  DocumentListResponse,
   DocumentPropertiesResponse,
   DocumentUpdateRequest,
   DocumentUpdateResponse,
@@ -15,7 +17,7 @@ import type {
   DocumentTreeNode,
 } from "@shared/api";
 import type { QueryClient } from "@tanstack/react-query";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
@@ -62,6 +64,74 @@ export const LIST_DOCUMENTS_QUERY_KEY = [
   "list-documents",
   undefined,
 ] as const;
+
+const DOCUMENT_LIST_PAGE_SIZE = 200;
+
+export async function fetchCompleteDocumentList(
+  fetchPage: (offset: number, limit: number) => Promise<DocumentListResponse>,
+) {
+  const documents: Document[] = [];
+  const documentIds = new Set<string>();
+  let offset = 0;
+  let expectedTotal: number | null = null;
+
+  while (true) {
+    const page = await fetchPage(offset, DOCUMENT_LIST_PAGE_SIZE);
+    const { pagination } = page;
+    if (!pagination) {
+      throw new Error(
+        "list-documents returned no pagination boundary; refusing to treat the result as complete.",
+      );
+    }
+    if (
+      pagination.offset !== offset ||
+      pagination.limit !== DOCUMENT_LIST_PAGE_SIZE ||
+      pagination.returnedItems !== page.documents.length
+    ) {
+      throw new Error(
+        "list-documents returned inconsistent pagination metadata; retry the complete read.",
+      );
+    }
+    if (expectedTotal === null) expectedTotal = pagination.totalItems;
+    if (pagination.totalItems !== expectedTotal) {
+      throw new Error(
+        "Documents changed during paginated discovery; retry the complete read.",
+      );
+    }
+    for (const document of page.documents) {
+      if (documentIds.has(document.id)) {
+        throw new Error(
+          `list-documents repeated document "${document.id}" across pages; refusing an ambiguous result.`,
+        );
+      }
+      documentIds.add(document.id);
+      documents.push(document);
+    }
+
+    const expectedNextOffset = offset + page.documents.length;
+    if (!pagination.hasMore) {
+      if (
+        pagination.nextOffset !== null ||
+        expectedNextOffset !== expectedTotal ||
+        documents.length !== expectedTotal
+      ) {
+        throw new Error(
+          "list-documents claimed exhaustion before every declared document was returned.",
+        );
+      }
+      return documents;
+    }
+    if (
+      pagination.nextOffset !== expectedNextOffset ||
+      pagination.nextOffset <= offset
+    ) {
+      throw new Error(
+        "list-documents returned a non-advancing continuation; refusing a clipped result.",
+      );
+    }
+    offset = pagination.nextOffset;
+  }
+}
 
 export function documentPropertiesQueryKey(
   documentId: string,
@@ -317,11 +387,19 @@ export function seedDatabaseItemDocumentCaches(
 }
 
 export function useDocuments() {
-  return useActionQuery<Document[]>("list-documents", undefined, {
-    select: (data: any) => {
-      const docs = data?.documents ?? data;
-      return Array.isArray(docs) ? docs : [];
-    },
+  return useQuery({
+    queryKey: LIST_DOCUMENTS_QUERY_KEY,
+    queryFn: async ({ signal }) => ({
+      documents: await fetchCompleteDocumentList((offset, limit) =>
+        callAction<DocumentListResponse>(
+          "list-documents",
+          { offset, limit },
+          { method: "GET", signal },
+        ),
+      ),
+    }),
+    select: (data) => data.documents,
+    retry: false,
   });
 }
 

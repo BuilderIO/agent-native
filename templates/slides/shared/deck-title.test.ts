@@ -5,6 +5,7 @@ import {
   deriveDeckTitleFromSlideContent,
   isOpaqueDeckTitle,
   repairGeneratedDeckTitle,
+  resolveImportedDeckTitle,
 } from "./deck-title";
 
 describe("deck title safeguards", () => {
@@ -40,6 +41,24 @@ describe("deck title safeguards", () => {
         "Q4 Review",
       ),
     ).toBe("Q4 Review");
+  });
+
+  it("prefers slide content over imported filename placeholders", () => {
+    expect(
+      resolveImportedDeckTitle(
+        "Untitled scene",
+        '<div style="font-size: 54px;">Agent-Native Strategy</div>',
+      ),
+    ).toBe("Agent-Native Strategy");
+    expect(resolveImportedDeckTitle("Untitled scene", "<div></div>")).toBe(
+      "Imported File",
+    );
+    expect(
+      resolveImportedDeckTitle(
+        "Quarterly Business Review",
+        "<h1>Executive summary</h1>",
+      ),
+    ).toBe("Quarterly Business Review");
   });
 
   it("fails loudly when an opaque title cannot be recovered", () => {

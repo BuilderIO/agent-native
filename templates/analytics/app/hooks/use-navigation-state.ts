@@ -1,4 +1,5 @@
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
+import { useLocation } from "react-router";
 
 import { rememberLastOpened } from "@/lib/last-opened";
 import { TAB_ID } from "@/lib/tab-id";
@@ -19,8 +20,11 @@ interface NavigationState {
 }
 
 const SESSION_FILTER_KEYS = ["range", "app", "q"] as const;
+const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
 export function useNavigationState() {
+  const location = useLocation();
+
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     getNavigationState: ({ pathname, searchParams }) => {
@@ -107,52 +111,86 @@ export function useNavigationState() {
 
       return state;
     },
-    getCommandPath: (cmd) => {
-      if (cmd.view === "adhoc" && cmd.dashboardId)
-        return `/dashboards/${cmd.dashboardId}`;
-      if (cmd.view === "analyses" && cmd.analysisId)
-        return `/analyses/${cmd.analysisId}`;
-      if (cmd.view === "analyses") return "/dashboards";
-      if (cmd.view === "extensions" && cmd.extensionId)
-        return `/extensions/${cmd.extensionId}`;
-      if (cmd.view === "extensions") return "/settings/extensions";
-      if (cmd.view === "sessions" && cmd.recordingId)
-        return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
-      if (cmd.view === "sessions") return "/sessions";
-      if (
-        cmd.view === "agents" &&
-        (cmd.agentsView === "database" ||
-          cmd.agentsView === "dashboards" ||
-          cmd.agentsView === "flags")
-      ) {
-        const params = new URLSearchParams({ view: cmd.agentsView });
-        if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {
-          params.set("db", cmd.dbAdminConnectionId);
-        }
-        return `/agents?${params.toString()}`;
-      }
-      if (cmd.view === "agents") return "/agents";
-      if (cmd.view === "monitoring") {
-        const params = new URLSearchParams();
-        if (cmd.monitoringView === "errors") {
-          params.set("view", "errors");
-          if (cmd.errorIssueId) params.set("issue", cmd.errorIssueId);
-        } else if (cmd.statusPageId) {
-          params.set("statuspage", cmd.statusPageId);
-        } else if (cmd.monitorId) {
-          params.set("monitor", cmd.monitorId);
-        }
-        const qs = params.toString();
-        return qs ? `/monitoring?${qs}` : "/monitoring";
-      }
-      if (cmd.view === "data-sources") return "/data-sources";
-      if (cmd.view === "data-dictionary") return "/data-dictionary";
-      if (cmd.view === "ask") return "/ask";
-      if (cmd.view === "settings") return "/settings";
-      if (cmd.view === "overview" || cmd.view === "home") return "/ask";
-      return "/";
-    },
+    getCommandPath: (cmd) =>
+      preserveActiveDashboardTab(
+        commandPathForNavigation(cmd),
+        location.pathname,
+        location.search,
+      ),
   });
+}
+
+function commandPathForNavigation(cmd: NavigationState): string {
+  if (cmd.view === "adhoc" && cmd.dashboardId)
+    return `/dashboards/${cmd.dashboardId}`;
+  if (cmd.view === "analyses" && cmd.analysisId)
+    return `/analyses/${cmd.analysisId}`;
+  if (cmd.view === "analyses") return "/dashboards";
+  if (cmd.view === "extensions" && cmd.extensionId)
+    return `/extensions/${cmd.extensionId}`;
+  if (cmd.view === "extensions") return "/settings/extensions";
+  if (cmd.view === "sessions" && cmd.recordingId)
+    return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
+  if (cmd.view === "sessions") return "/sessions";
+  if (
+    cmd.view === "agents" &&
+    (cmd.agentsView === "database" ||
+      cmd.agentsView === "dashboards" ||
+      cmd.agentsView === "flags")
+  ) {
+    const params = new URLSearchParams({ view: cmd.agentsView });
+    if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {
+      params.set("db", cmd.dbAdminConnectionId);
+    }
+    return `/agents?${params.toString()}`;
+  }
+  if (cmd.view === "agents") return "/agents";
+  if (cmd.view === "monitoring") {
+    const params = new URLSearchParams();
+    if (cmd.monitoringView === "errors") {
+      params.set("view", "errors");
+      if (cmd.errorIssueId) params.set("issue", cmd.errorIssueId);
+    } else if (cmd.statusPageId) {
+      params.set("statuspage", cmd.statusPageId);
+    } else if (cmd.monitorId) {
+      params.set("monitor", cmd.monitorId);
+    }
+    const qs = params.toString();
+    return qs ? `/monitoring?${qs}` : "/monitoring";
+  }
+  if (cmd.view === "data-sources") return "/data-sources";
+  if (cmd.view === "data-dictionary") return "/data-dictionary";
+  if (cmd.view === "ask") return "/ask";
+  if (cmd.view === "settings") return "/settings";
+  if (cmd.view === "overview" || cmd.view === "home") return "/ask";
+  return "/";
+}
+
+export function preserveActiveDashboardTab(
+  targetPath: string,
+  currentPathname: string,
+  currentSearch: string,
+): string {
+  const targetUrl = new URL(targetPath, "https://analytics.local");
+  if (targetUrl.search || targetUrl.hash) return targetPath;
+
+  const targetDashboardId = dashboardIdFromPath(targetUrl.pathname);
+  const currentDashboardId = dashboardIdFromPath(currentPathname);
+  if (!targetDashboardId || targetDashboardId !== currentDashboardId) {
+    return targetPath;
+  }
+
+  const activeTab = new URLSearchParams(currentSearch).get("tab");
+  if (!activeTab) return targetPath;
+
+  // Agent navigation identifies the dashboard, but the active tab is UI state
+  // held in the URL and is not part of the navigate action payload.
+  targetUrl.searchParams.set("tab", activeTab);
+  return `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`;
+}
+
+function dashboardIdFromPath(pathname: string): string | undefined {
+  return pathname.match(DASHBOARD_PATH_RE)?.[1];
 }
 
 function sessionFilters(

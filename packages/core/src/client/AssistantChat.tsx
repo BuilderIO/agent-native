@@ -111,6 +111,7 @@ import {
   displayableUserMessageText,
   isHiddenUserMessage,
   ServerRunActiveContext,
+  UserStoppedRunContext,
 } from "./chat/message-components.js";
 import {
   repoHasAssistantMessage,
@@ -4631,6 +4632,51 @@ const AssistantChatInner = forwardRef<
     }
   }, [tabId, threadId, threadRuntime]);
 
+  const markVisibleRunStopped = useCallback(() => {
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const messages = getRepoMessages(repo);
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const entry = messages[index];
+        const message = getRepoMessage(entry);
+        if (message?.role !== "assistant") continue;
+        const metadata = message.metadata ?? {};
+        const custom =
+          metadata.custom && typeof metadata.custom === "object"
+            ? (metadata.custom as Record<string, unknown>)
+            : {};
+        if (custom.userStopped === true) return;
+        const nextMessage = {
+          ...message,
+          metadata: {
+            ...metadata,
+            custom: { ...custom, userStopped: true },
+          },
+        };
+        const nextMessages = messages.slice();
+        nextMessages[index] =
+          entry.message === undefined
+            ? { ...entry, ...nextMessage }
+            : { ...entry, message: nextMessage };
+        threadRuntime.import(
+          ensureMessageMetadata({ ...repo, messages: nextMessages }),
+        );
+        return;
+      }
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "mark-user-stopped-run",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+        },
+      });
+    }
+  }, [tabId, threadId, threadRuntime]);
+
   // Abort the active server run (identical to what the Stop button does) so
   // an immediate-while-running send can proceed cleanly without a 409 race.
   // Captured in a stable ref so addToQueue can call it without listing
@@ -4700,6 +4746,7 @@ const AssistantChatInner = forwardRef<
         reconnectTailOnlyRef.current = false;
       }
       settleVisibleInterruptedTools();
+      markVisibleRunStopped();
       threadRuntime.cancelRun();
       if (typeof window !== "undefined") {
         window.dispatchEvent(
@@ -4718,6 +4765,7 @@ const AssistantChatInner = forwardRef<
       applyLocalQueuedMessages,
       clearAutoResume,
       isReconnecting,
+      markVisibleRunStopped,
       resetRunningActivity,
       reconnectContent,
       settleVisibleInterruptedTools,
@@ -5790,18 +5838,22 @@ const AssistantChatInner = forwardRef<
                                   <AssistantMessageListErrorBoundary
                                     resetKey={messageListResetKey}
                                   >
-                                    <ThreadPrimitive.Messages
-                                      // assistant-ui indexes message parts through tap resources.
-                                      // Keep this key tied to that shape so clear/add transitions remount stale
-                                      // lookups without remounting on every streamed text update.
-                                      key={messageListResetKey}
-                                      components={{
-                                        UserMessage:
-                                          AssistantChatUserMessageItem,
-                                        AssistantMessage:
-                                          AssistantChatAssistantMessageItem,
-                                      }}
-                                    />
+                                    <UserStoppedRunContext.Provider
+                                      value={wasRecentlyStoppedRun}
+                                    >
+                                      <ThreadPrimitive.Messages
+                                        // assistant-ui indexes message parts through tap resources.
+                                        // Keep this key tied to that shape so clear/add transitions remount stale
+                                        // lookups without remounting on every streamed text update.
+                                        key={messageListResetKey}
+                                        components={{
+                                          UserMessage:
+                                            AssistantChatUserMessageItem,
+                                          AssistantMessage:
+                                            AssistantChatAssistantMessageItem,
+                                        }}
+                                      />
+                                    </UserStoppedRunContext.Provider>
                                   </AssistantMessageListErrorBoundary>
                                   {visibleLoopLimit && !showRunningInUI && (
                                     <MessageScrollerItem>
@@ -6215,7 +6267,11 @@ const AssistantChatInner = forwardRef<
                                           <TooltipTrigger asChild>
                                             <button
                                               type="button"
-                                              onClick={() => stopActiveRun()}
+                                              onClick={() =>
+                                                stopActiveRun({
+                                                  preserveQueuedMessages: true,
+                                                })
+                                              }
                                               aria-label="Stop response"
                                               data-agent-composer-slot="stop-button"
                                               className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"

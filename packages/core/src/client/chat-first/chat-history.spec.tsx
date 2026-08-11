@@ -65,4 +65,31 @@ describe("ChatFirstChatHistory", () => {
     ).not.toBe(null);
     expect(container.textContent).toContain("Chats");
   });
+
+  it("lets the Chats heading return focus to the current conversation", () => {
+    const onOpenChats = vi.fn();
+    act(() => {
+      root.render(
+        <ChatFirstChatHistory
+          items={[{ id: "chat-1", title: "First chat" }]}
+          onSelect={() => {}}
+          label={
+            <button type="button" onClick={onOpenChats}>
+              Chats
+            </button>
+          }
+        />,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-chat-first-chat-history-header] button",
+        )
+        ?.click();
+    });
+
+    expect(onOpenChats).toHaveBeenCalledOnce();
+  });
 });

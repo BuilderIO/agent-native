@@ -40,6 +40,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
+import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
 import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
@@ -817,6 +818,19 @@ function ToolCallDisplayGeneric({
         );
       }
     } catch {
+      // coercion-ok: malformed tool output should fall through to the default tool pill
+      // fall through to default pill rendering
+    }
+  }
+
+  if (toolName === "connect-file-storage" && result) {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed?.kind === "connect-file-storage-card") {
+        return <FileStorageSetupCard />;
+      }
+    } catch {
+      // coercion-ok: malformed storage tool output should fall through to the default tool pill
       // fall through to default pill rendering
     }
   }

@@ -1,5 +1,42 @@
 # @agent-native/core
 
+## 0.151.1
+
+### Patch Changes
+
+- 31fdef9: Rework the Key Concepts doc for clarity: reordered "What Agent Native includes" into a table right after the five rules, removed em dashes and rhetorical questions throughout, added missing context around the SQL stores and action examples, and translated into all 10 locales.
+
+## 0.151.0
+
+### Minor Changes
+
+- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
+
+  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
+
+## 0.150.0
+
+### Minor Changes
+
+- 7c5888c: Store chat attachments as durable object-storage references and surface Builder/custom storage setup during onboarding.
+
+### Patch Changes
+
+- 7c5888c: Keep sandboxed extension chat messages draft-only unless a user action explicitly submits them.
+- 7c5888c: Keep email and magic-link callbacks with tracking parameters compatible with Better Auth.
+- 7c5888c: Keep queued agent-chat messages when stopping an active response.
+- 7c5888c: Keep Clips Desktop sessions active for 90 days between sign-ins.
+- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
+- 7c5888c: Keep intentional chat stops neutral instead of showing missing-final-response warnings.
+- Updated dependencies [7c5888c]
+  - @agent-native/toolkit@0.13.10
+
+## 0.149.6
+
+### Patch Changes
+
+- 5cc6f6e: Sync the bundled frontend-design skill copies with the canonical `.agents/skills` source.
+
 ## 0.149.5
 
 ### Patch Changes
