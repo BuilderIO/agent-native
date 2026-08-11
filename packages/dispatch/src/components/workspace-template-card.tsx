@@ -222,7 +222,6 @@ export function WorkspaceTemplateCard({
                 target="_blank"
                 rel="noreferrer"
                 labels={{ openApp: labels.openApp }}
-                showNewTabOption
               />
             ) : null}
             <Button

@@ -106,6 +106,32 @@ describe("get-deck", () => {
       zeroBasedIndex: 1,
       content: "<p>Metrics</p>",
     });
+    expect(result.slides[0].contentHash).toMatch(/^[0-9a-f]+$/);
+  });
+
+  it("can return readable HTML while hashing the persisted source", async () => {
+    mockResolveAccess.mockResolvedValue({
+      resource: {
+        id: "deck-1",
+        title: "Formatted",
+        visibility: "private",
+        designSystemId: null,
+        data: JSON.stringify({
+          title: "Formatted",
+          slides: [
+            { id: "slide-a", content: "<section><h1>Title</h1></section>" },
+          ],
+        }),
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1", slideId: "slide-a", format: "true" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.slides[0].content).toContain("\n");
+    expect(result.slides[0].contentHash).toMatch(/^[0-9a-f]+$/);
   });
 
   it("supports compact summaries for a single requested slide", async () => {
