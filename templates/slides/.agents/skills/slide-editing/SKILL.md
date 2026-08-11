@@ -72,16 +72,35 @@ To edit a slide's content:
 3. **Modify the content** HTML string for the intended slide. Preserve an
    approved native template or component when it already fits; generate
    net-new structure only when the relevant corpus is empty.
-4. **Update the slide** with the `update-slide` action using `deckId`,
-   `slideId`, and `fullContent`. Do not write deck rows directly or add raw
-   full-deck writes for normal slide edits; use `patch-deck` for browser/editor
-   changes.
+4. **Update the slide** with `update-slide` using `deckId`, `slideId`, and
+   ordered `edits`. For code-style work, first read with `get-deck` using the
+   target `slideId`, `compact=false`, and `format=true`, then send the returned
+   `contentHash` as `baseContentHash`. Use exact replace, insert before/after,
+   replace between markers, or regex replace. Set `expectedMatches` whenever a
+   marker could be ambiguous. All edits are applied in memory under the deck
+   lock; if one required edit fails, nothing is written. Set `format=true` on
+   `update-slide` to persist readable Prettier line breaks. Use `fullContent`
+   only for an intentional full rewrite - do not regenerate a slide to make a
+   small change. Do not write deck rows directly or add raw full-deck writes;
+   use `patch-deck` for browser/editor changes.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
 6. For factual edits, compare changed text against the retrieved source and
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
+
+## Click-to-reveal animations
+
+Animations are metadata over the final slide HTML, not alternate slide markup.
+Read the full target slide, keep its existing visual structure, and patch the
+complete ordered `animations` list with `elementPath` values from that exact
+HTML. Elements omitted from the list remain visible immediately, so labels and
+headings need no duplicate markup. Do not add hidden duplicates, layout
+spacers, absolute-positioned copies, transforms, or placeholder content to
+simulate reveals. When content and reveals change together, send both fields in
+one `patch-deck` operation. To remove reveals, send `animations: []` with the
+existing content and verify the persisted slide afterward.
 
 If retrieval produces a new immutable context pack, keep its `contextPackId`
 and reuse labels with the deck provenance. Existing slide HTML is not proof of

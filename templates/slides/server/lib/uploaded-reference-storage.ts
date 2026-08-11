@@ -84,25 +84,44 @@ export async function readUploadedReferenceBlob(
       decryptSecretValue(reference.slice(UPLOADED_REFERENCE_PREFIX.length)),
     ) as UploadedReferenceDescriptor;
   } catch {
+    console.warn("[slides-upload] invalid uploaded reference descriptor", {
+      reason: "decrypt-or-parse",
+    });
     throw new Error("Invalid uploaded file reference");
   }
 
+  const requestOrgId = getRequestOrgId() ?? null;
+  const ownerMatches = descriptor?.ownerKey === tenantFileKey(email);
+  const orgMatches = descriptor?.orgId === requestOrgId;
+  const filename = descriptor?.filename;
+  const safeFilename =
+    typeof filename === "string" && filename === path.basename(filename)
+      ? filename
+      : null;
+  const handleIsOpaque = descriptor?.handle?.opaque === true;
   if (
     descriptor?.kind !== "slides-upload" ||
-    descriptor.version !== 1 ||
-    descriptor.ownerKey !== tenantFileKey(email) ||
-    descriptor.orgId !== (getRequestOrgId() ?? null) ||
-    typeof descriptor.filename !== "string" ||
-    descriptor.filename !== path.basename(descriptor.filename) ||
-    typeof descriptor.handle?.id !== "string" ||
-    typeof descriptor.handle?.provider !== "string" ||
-    descriptor.handle.opaque !== true
+    descriptor?.version !== 1 ||
+    !ownerMatches ||
+    !orgMatches ||
+    safeFilename === null ||
+    typeof descriptor?.handle?.id !== "string" ||
+    typeof descriptor?.handle?.provider !== "string" ||
+    !handleIsOpaque
   ) {
+    console.warn("[slides-upload] uploaded reference rejected", {
+      handleIsOpaque,
+      hasDescriptorOrg: descriptor?.orgId != null,
+      hasRequestOrg: requestOrgId != null,
+      orgMatches,
+      ownerMatches,
+      reason: "scope-or-handle-validation",
+    });
     throw new Error(
       "Access denied: uploaded file reference is not valid for this user or organization",
     );
   }
 
   const blob = await readPrivateBlob(descriptor.handle);
-  return { data: Buffer.from(blob.data), filename: descriptor.filename };
+  return { data: Buffer.from(blob.data), filename: safeFilename };
 }
