@@ -280,7 +280,7 @@ export async function addOAuthRemoteServer(
     });
     const result = await addRemoteServerInternal(scope, scopeId, {
       name: input.name,
-      url: input.url,
+      url: credentials.serverUrl,
       description: input.description,
       oauthSecretKey,
     });

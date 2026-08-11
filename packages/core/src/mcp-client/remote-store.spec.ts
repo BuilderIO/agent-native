@@ -5,6 +5,7 @@ const oauthMocks = vi.hoisted(() => ({
   save: vi.fn(),
 }));
 const getUserSettingMock = vi.hoisted(() => vi.fn());
+const putUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./oauth-client.js", () => ({
   deleteMcpOAuthCredentials: oauthMocks.delete,
@@ -16,7 +17,7 @@ vi.mock("./oauth-client.js", () => ({
 vi.mock("../settings/user-settings.js", () => ({
   deleteUserSetting: vi.fn(),
   getUserSetting: getUserSettingMock,
-  putUserSetting: vi.fn(),
+  putUserSetting: putUserSettingMock,
 }));
 
 import {
@@ -73,6 +74,36 @@ describe("validateRemoteUrl", () => {
 });
 
 describe("OAuth remote MCP metadata", () => {
+  it("stores the canonical OAuth resource URL on the server", async () => {
+    await expect(
+      addOAuthRemoteServer("user", "user@example.com", {
+        name: "example",
+        url: "https://mcp.example.com",
+        credentials: {
+          serverUrl: "https://mcp.example.com",
+          clientInformation: {
+            client_id: "example-client",
+            redirect_uris: ["https://app.example.com/callback"],
+          },
+          tokens: {
+            access_token: "<ACCESS_TOKEN>",
+            token_type: "bearer",
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      server: { url: "https://mcp.example.com/" },
+    });
+    expect(putUserSettingMock).toHaveBeenCalledWith(
+      "user@example.com",
+      expect.any(String),
+      expect.objectContaining({
+        servers: [expect.objectContaining({ url: "https://mcp.example.com/" })],
+      }),
+    );
+  });
+
   it("rejects a server URL that differs from the credential resource", async () => {
     await expect(
       addOAuthRemoteServer("user", "user@example.com", {

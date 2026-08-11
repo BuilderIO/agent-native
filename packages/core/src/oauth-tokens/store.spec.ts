@@ -170,6 +170,40 @@ describe("oauth token store", () => {
     });
   });
 
+  it("normalizes a matching legacy mixed-case user owner when saving", async () => {
+    existingOwner = "user:Alice@Example.com";
+
+    await expect(
+      saveOAuthTokens(
+        "mcp",
+        "mcp_oauth:test",
+        { access_token: "new-token" },
+        "user:alice@example.com",
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(lastInsert().sql).toContain("SET owner=excluded.owner");
+    expect(lastInsert().sql).toContain(
+      "LOWER(oauth_tokens.owner) = LOWER(excluded.owner)",
+    );
+    expect(lastInsert().args[2]).toBe("user:alice@example.com");
+  });
+
+  it("does not treat differently cased organization owners as equivalent", async () => {
+    existingOwner = "org:Example";
+
+    await expect(
+      saveOAuthTokens(
+        "mcp",
+        "mcp_oauth:test",
+        { access_token: "new-token" },
+        "org:example",
+      ),
+    ).rejects.toMatchObject({
+      name: "OAuthAccountOwnedByOtherUserError",
+    });
+  });
+
   it("refuses a different owner that wins the row between the pre-read and upsert", async () => {
     conflictOwnerAfterUpsert = "other@example.com";
 

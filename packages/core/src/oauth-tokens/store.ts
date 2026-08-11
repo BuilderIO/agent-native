@@ -304,6 +304,18 @@ export class OAuthAccountOwnedByOtherUserError extends Error {
   }
 }
 
+function ownersRepresentSameUser(
+  existingOwner: string,
+  attemptedOwner: string,
+) {
+  return (
+    existingOwner === attemptedOwner ||
+    (existingOwner.startsWith("user:") &&
+      attemptedOwner.startsWith("user:") &&
+      existingOwner.toLowerCase() === attemptedOwner.toLowerCase())
+  );
+}
+
 /**
  * Save OAuth tokens. The `owner` parameter specifies which user owns this
  * account — defaults to `accountId` (the account itself is the owner).
@@ -350,7 +362,11 @@ export async function saveOAuthTokens(
   if (!owner) {
     // Token-refresh path: keep the existing owner/displayName unchanged.
     if (existingOwner) resolvedOwner = existingOwner;
-  } else if (existingOwner && owner && existingOwner !== owner) {
+  } else if (
+    existingOwner &&
+    owner &&
+    !ownersRepresentSameUser(existingOwner, owner)
+  ) {
     // Refuse to silently re-bind an account from one user to another.
     // This is the case the docstring promised but the previous
     // implementation didn't enforce — `ON CONFLICT DO UPDATE SET
@@ -373,8 +389,8 @@ export async function saveOAuthTokens(
 
   const result = await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner`
-      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=excluded.updated_at, revision=MAX(COALESCE(${table}.revision, 0) + 1, excluded.revision) WHERE ${table}.owner = excluded.owner`,
+      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner OR (LOWER(${table}.owner) = LOWER(EXCLUDED.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(EXCLUDED.owner) LIKE 'user:%')`
+      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=excluded.owner, display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=excluded.updated_at, revision=MAX(COALESCE(${table}.revision, 0) + 1, excluded.revision) WHERE ${table}.owner = excluded.owner OR (LOWER(${table}.owner) = LOWER(excluded.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(excluded.owner) LIKE 'user:%')`,
     args: [
       provider,
       accountId,
@@ -392,7 +408,7 @@ export async function saveOAuthTokens(
     args: [provider, accountId],
   });
   const conflictOwner = (conflict[0]?.owner as string | undefined) ?? "";
-  if (conflictOwner && conflictOwner !== resolvedOwner) {
+  if (conflictOwner && !ownersRepresentSameUser(conflictOwner, resolvedOwner)) {
     throw new OAuthAccountOwnedByOtherUserError({
       provider,
       accountId,
