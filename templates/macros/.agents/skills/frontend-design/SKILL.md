@@ -1,11 +1,10 @@
 ---
 name: frontend-design
 description: >-
-  Sets the visual direction for a new or redesigned surface, with production
-  quality that avoids generic AI aesthetics. Use when building, redesigning, or
-  cleaning up any user-facing UI, including screenshot-driven feedback, copy or
-  density reduction, settings, control placement, or a design pass ("make this
-  look good"). Do not load it only for purely mechanical wiring or formatting.
+  Sets the visual direction for UI work, avoiding generic AI aesthetics. Use
+  for any user-facing UI change: new surfaces, screenshot-driven feedback,
+  copy/density cleanup, settings, control placement, or a "make this look
+  good" pass. Do not load it only for purely mechanical wiring or formatting.
 scope: dev
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md

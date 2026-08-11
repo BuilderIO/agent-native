@@ -1509,11 +1509,11 @@ function currentRssMb(): number {
  * stuck-detector can tell "process alive but nothing happening" from
  * "process dead." Callers should throttle (run-manager debounces to ~1/s).
  */
-export async function bumpRunProgress(runId: string): Promise<void> {
+export async function bumpRunProgress(runId: string): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
-  await client.execute({
+  const { rowsAffected } = await client.execute({
     // Multiple event-persistence paths and serverless isolates can bump the
     // same run concurrently. A slower, older write must never land after a
     // newer one and move the user-visible no-progress clock backwards.
@@ -1521,6 +1521,7 @@ export async function bumpRunProgress(runId: string): Promise<void> {
     sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
     args: [now, now, runId],
   });
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**
@@ -1534,31 +1535,36 @@ export async function bumpRunProgress(runId: string): Promise<void> {
  * depth belt-and-suspenders against a nested 1->2 transition clobbering the
  * ORIGINAL start time with a later one (the caller's own counter already
  * dedupes 0->1 transitions; this WHERE just makes the write itself
- * idempotent/order-independent too). `inFlight: false` always clears
- * unconditionally — if it races a fresh 0->1 write from a *different* tool
- * finishing/starting back to back, worst case is losing a few seconds of
- * grace, never gaining an incorrect one.
+ * idempotent/order-independent too). When `markerSince` is supplied for a
+ * clear, the UPDATE is conditional on the marker still having that value. The
+ * run manager serializes marker writes and supplies this token so a delayed
+ * clear from one tool cannot erase a newer tool's marker.
  *
- * Best-effort: callers fire-and-forget (`.catch(() => {})`) so a write
- * failure here never blocks event emission or aborts the run. If this write
- * itself fails (the same DB pressure that could be starving the heartbeat),
- * the row simply gets no grace — never worse than today's behavior.
+ * Best-effort: callers fire-and-forget so a write failure here never blocks
+ * event emission or aborts the run. The run manager logs marker-write failures
+ * while preserving transition order. If this write itself fails (the same DB
+ * pressure that could be starving the heartbeat), the row simply gets no grace
+ * - never worse than today's behavior.
  */
 export async function setRunInFlightMarker(
   runId: string,
   inFlight: boolean,
+  markerSince?: number,
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   if (inFlight) {
     await client.execute({
       sql: `UPDATE agent_runs SET in_flight_since = ? WHERE id = ? AND status = 'running' AND in_flight_since IS NULL`,
-      args: [Date.now(), runId],
+      args: [markerSince ?? Date.now(), runId],
     });
   } else {
     await client.execute({
-      sql: `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`,
-      args: [runId],
+      sql:
+        markerSince == null
+          ? `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`
+          : `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ? AND in_flight_since = ?`,
+      args: markerSince == null ? [runId] : [runId, markerSince],
     });
   }
 }

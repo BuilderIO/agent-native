@@ -392,6 +392,7 @@ describe("Dispatch NavContent", () => {
           <TooltipProvider>
             <NavContent
               chatFirstMode
+              collapsible
               chatFirstApps={[{ id: "mail", name: "Mail" }]}
             />
           </TooltipProvider>
@@ -403,7 +404,13 @@ describe("Dispatch NavContent", () => {
     expect(container.querySelector("[data-chat-first-app]")).not.toBeNull();
     expect(
       container.querySelector("[data-chat-first-app] span[style]"),
-    ).toBeNull();
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-feedback]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-collapse]"),
+    ).not.toBeNull();
   });
 
   it("opens a workspace app in the main app route from the left rail", async () => {

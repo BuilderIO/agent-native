@@ -7,11 +7,23 @@ remain readable for compatibility.
 Use connected sources and MCP tools; reason over fetched data here, not via
 another AI tool.
 
-Prompt cap: 6,000; put detail in `.agents/skills/*`.
+## Skills
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-discover existing primitives and patterns. Read `customizing-agent-native`
-before adapting shared UI: configure → compose → eject → propose.
+Read the relevant skill before deeper work:
+
+- `data-querying` for source inspection, SQL generation, result handling, and
+  `/chart` embeds; `bigquery`, `hubspot`, `gong`, `prometheus` for provider
+  specifics.
+- `cross-source-analysis` for questions spanning sources (identity stitching,
+  de-duplication).
+- `dashboard-management` for dashboard/panel storage, layout, extensions,
+  mutation and sharing.
+- `adhoc-analysis` and `analysis-workspace` for one-off answers and large
+  multi-source work.
+- `provider-api` and `data-programs` for the escape hatch and durable,
+  refreshable data sources.
+- `creative-context` for governed contexts and immutable dashboard revisions.
+- `admin-surfaces` for the `/agents` fleet flags, usage audit, and connected DBs.
 
 ## How To Answer A Data Question
 
@@ -47,10 +59,10 @@ before adapting shared UI: configure → compose → eject → propose.
   absence-sensitive Gong work, stage raw API data and use
   `query-staged-dataset` or a Data Program; use `provider-corpus-job` for raw
   transcript bodies. See `provider-api`, `data-programs`, and `gong`.
-- Custom APIs use the `provider-api-register` action for public HTTPS provider
-  metadata and `test-custom-api-connection` for bounded GET previews. Store
-  credential values in Settings, pass only key names to provider actions, and
-  hand successful endpoint tests to `save-data-program` for refreshable panels.
+- Custom APIs use `provider-api-register` for public HTTPS provider metadata and
+  `test-custom-api-connection` for bounded GET previews. Store credential values
+  in Settings, pass only key names to provider actions, and hand successful
+  endpoint tests to `save-data-program` for refreshable panels.
 - Hosted Analytics cannot reach localhost or private network APIs. Use a
   deployed HTTPS endpoint or an explicitly supported secure tunnel; never
   weaken the provider runtime's SSRF boundary.
@@ -71,9 +83,8 @@ before adapting shared UI: configure → compose → eject → propose.
 - External MCP callers default to `ask_app` for interpretation, source choice,
   analysis, or multi-step work. Direct reads require exact, complete input;
   writes stay `ask_app`-only.
-- Dashboard email reports and analytics alert rules are SQL-backed,
-  self-describing action surfaces — don't hand-wire routes around them. Reports
-  cap at five recipients. See `dashboard-ops`.
+- Dashboard email reports and alert rules are SQL-backed, self-describing action
+  surfaces — don't hand-wire routes around them. Reports cap at five recipients.
 
 ## Application State
 
@@ -85,25 +96,7 @@ before adapting shared UI: configure → compose → eject → propose.
   with `type="dashboard-panel"`. Read `dashboard-management` for the
   `/dashboards` overview and folder actions.
 
-## Skills
+## Source Changes
 
-Read the relevant skill before deeper work:
-
-- `data-querying` for source inspection, SQL generation, result handling, and
-  `/chart` embeds; `bigquery`, `hubspot`, `gong`, `prometheus` for provider
-  specifics.
-- `cross-source-analysis` for questions spanning sources (identity stitching,
-  de-duplication).
-- `dashboard-management` for dashboard/panel storage, layout, extensions,
-  mutation and sharing.
-- `adhoc-analysis` and `analysis-workspace` for one-off answers and large
-  multi-source work.
-- `provider-api` and `data-programs` for the escape hatch and durable,
-  refreshable data sources.
-- `creative-context` for governed contexts and immutable dashboard revisions.
-- `admin-surfaces` (`/agents` fleet flags, usage audit, connected DBs),
-  `dashboard-ops`, `monitoring`, and `session-replay` for those surfaces.
-- `agent-native-toolkit` and `customizing-agent-native` before building shared
-  workspace UI.
-- `storing-data`, `real-time-sync`, `security`, `actions`, and
-  `frontend-design` for framework work.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

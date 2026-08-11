@@ -385,6 +385,29 @@ function useSlideAutofit(
 
     let raf = 0;
     let disposed = false;
+    // Measuring costs a full-document reflow per slide (every descendant is
+    // read with getBoundingClientRect, interleaved with style writes). A deck
+    // with dozens of slides mounts that many renderers at once, so off-screen
+    // thumbnails are left unmeasured until they scroll into view. Without an
+    // IntersectionObserver there is nothing to defer against, so measure
+    // eagerly as before.
+    const canDefer = typeof IntersectionObserver !== "undefined";
+    // Resolved synchronously rather than waiting for the observer's first
+    // callback: a slide that is already on screen must be measured on this
+    // pass, and nothing may depend on a callback that a given environment
+    // might never deliver. This reads one rect, not one per descendant.
+    const isNearViewport = () => {
+      const rect = root.getBoundingClientRect();
+      const margin = 200;
+      return (
+        rect.bottom >= -margin &&
+        rect.right >= -margin &&
+        rect.top <= (window.innerHeight || 0) + margin &&
+        rect.left <= (window.innerWidth || 0) + margin
+      );
+    };
+    let visible = !canDefer || isNearViewport();
+    let measurePending = false;
 
     const resetTarget = (target: HTMLElement) => {
       target.style.setProperty("--fmd-fit-scale", "1");
@@ -482,6 +505,10 @@ function useSlideAutofit(
 
     const scheduleMeasure = () => {
       if (disposed) return;
+      if (!visible) {
+        measurePending = true;
+        return;
+      }
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(measureNow);
     };
@@ -502,11 +529,30 @@ function useSlideAutofit(
     root.addEventListener("load", scheduleMeasure, true);
     document.fonts?.ready.then(scheduleMeasure).catch(() => {});
 
+    // `rootMargin` measures a thumbnail just before it scrolls in, so the fit
+    // transform is already applied by the time it is on screen.
+    const visibilityObserver = canDefer
+      ? new IntersectionObserver(
+          (entries) => {
+            const isVisible = entries.some((entry) => entry.isIntersecting);
+            if (isVisible === visible) return;
+            visible = isVisible;
+            if (visible && measurePending) {
+              measurePending = false;
+              scheduleMeasure();
+            }
+          },
+          { rootMargin: "200px" },
+        )
+      : null;
+    visibilityObserver?.observe(root);
+
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
+      visibilityObserver?.disconnect();
       root.removeEventListener("load", scheduleMeasure, true);
     };
   }, [canvasWidth, canvasHeight, fitKey, ref]);

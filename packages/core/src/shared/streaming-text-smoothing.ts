@@ -42,7 +42,26 @@ interface SegmenterCache {
   graphemes: string[];
 }
 
-let _segCache: SegmenterCache | null = null;
+/**
+ * A single shared slot is not enough: an assistant message and each of its
+ * streaming reasoning blocks segment concurrently, and with one slot every
+ * caller evicts the previous one's entry, so all of them take the full-fallback
+ * branch on every call and the incremental path never fires. Keep the few most
+ * recent entries so concurrent streams each keep their own.
+ */
+const SEGMENTER_CACHE_SLOTS = 8;
+
+let _segCaches: SegmenterCache[] = [];
+
+/** Move `entry` to the front (most-recently-used) and cap the cache size. */
+function promoteSegmenterCache(entry: SegmenterCache): void {
+  const existing = _segCaches.indexOf(entry);
+  if (existing !== -1) _segCaches.splice(existing, 1);
+  _segCaches.unshift(entry);
+  if (_segCaches.length > SEGMENTER_CACHE_SLOTS) {
+    _segCaches.length = SEGMENTER_CACHE_SLOTS;
+  }
+}
 
 /**
  * Split `text` into grapheme clusters.
@@ -63,14 +82,22 @@ export function splitStreamingTextGraphemes(text: string): string[] {
   }
 
   // Fast path: exact cache hit
-  if (_segCache && _segCache.text === text) {
-    return _segCache.graphemes;
+  const exact = _segCaches.find((entry) => entry.text === text);
+  if (exact) {
+    promoteSegmenterCache(exact);
+    return exact.graphemes;
   }
 
-  // Incremental path: new text extends the cached text
-  if (_segCache && text.startsWith(_segCache.text)) {
-    const prevLen = _segCache.text.length;
-    const cached = _segCache.graphemes;
+  // Incremental path: new text extends one of the cached texts. Prefer the
+  // longest match so the re-segmented suffix stays as short as possible.
+  let best: SegmenterCache | null = null;
+  for (const entry of _segCaches) {
+    if (!text.startsWith(entry.text)) continue;
+    if (!best || entry.text.length > best.text.length) best = entry;
+  }
+  if (best) {
+    const prevLen = best.text.length;
+    const cached = best.graphemes;
     // Walk back over cached graphemes until at least OVERLAP characters have
     // been released, so the re-segmented suffix starts on a known grapheme
     // boundary. Slicing at a fixed character offset instead would cut a
@@ -90,16 +117,18 @@ export function splitStreamingTextGraphemes(text: string): string[] {
       (entry) => entry.segment,
     );
     const merged = cached.slice(0, stableCount).concat(newGraphemes);
-    _segCache = { text, graphemes: merged };
+    best.text = text;
+    best.graphemes = merged;
+    promoteSegmenterCache(best);
     return merged;
   }
 
-  // Full fallback: text is not an append of cached text (reset or replacement)
+  // Full fallback: text is not an append of any cached text (reset or replacement)
   const graphemes = Array.from(
     segmenter.segment(text),
     (entry) => entry.segment,
   );
-  _segCache = { text, graphemes };
+  promoteSegmenterCache({ text, graphemes });
   return graphemes;
 }
 
@@ -110,7 +139,7 @@ export function splitStreamingTextGraphemes(text: string): string[] {
  * but avoids holding a reference to the last message's text string.)
  */
 export function resetSegmenterCache(): void {
-  _segCache = null;
+  _segCaches = [];
 }
 
 export function initialSmoothStreamingGraphemeCount(

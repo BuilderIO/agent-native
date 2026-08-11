@@ -21,25 +21,28 @@
  * Result is cached in module scope so it's only computed once per cold start.
  */
 
-/**
- * Where a skill is meant to be used:
- *   - `runtime` — only the in-app agent at runtime (not the human's coding agent).
- *   - `dev`     — only the human's development/coding agent (e.g. Claude Code).
- *                 EXCLUDED from the runtime agent's prompt block and docs-search.
- *   - `both`    — loaded everywhere. This is the default when `scope` is absent
- *                 or set to an unrecognized value (fully backward compatible).
- */
-export type SkillScope = "runtime" | "dev" | "both";
+import {
+  DEFAULT_SKILL_SCOPE,
+  isRuntimeVisibleScope,
+  normalizeSkillScope,
+  type SkillScope,
+} from "./agent-chat/skill-frontmatter.js";
 
-export const DEFAULT_SKILL_SCOPE: SkillScope = "both";
+export {
+  DEFAULT_SKILL_SCOPE,
+  isRuntimeVisibleScope,
+  normalizeSkillScope,
+  type SkillScope,
+};
 
 export interface SkillMeta {
   name: string;
   description: string;
   /**
    * Audience for the skill. Defaults to `both` when the SKILL.md frontmatter
-   * omits `scope` or specifies an unknown value. `dev`-scoped skills are hidden
-   * from the runtime agent everywhere (prompt block + docs-search).
+   * omits `scope`. An unrecognized value parses to `invalid`, which is hidden
+   * from the runtime agent everywhere (prompt block + docs-search) exactly
+   * like `dev`. `dev`-scoped skills are likewise hidden from the runtime agent.
    */
   scope: SkillScope;
 }
@@ -125,28 +128,6 @@ export function resolveAgentInstructionPaths(
 let cached: AgentsBundle | null = null;
 
 /**
- * Coerce a raw frontmatter `scope` value into a known `SkillScope`. Unknown,
- * empty, or malformed values fall back to the default (`both`) so a typo never
- * silently hides a skill from the runtime agent. Optionally warns once per
- * distinct bad value to aid debugging without spamming logs.
- */
-const warnedBadScopes = new Set<string>();
-export function normalizeSkillScope(raw: string | undefined): SkillScope {
-  if (!raw) return DEFAULT_SKILL_SCOPE;
-  const value = raw.trim().toLowerCase();
-  if (value === "runtime" || value === "dev" || value === "both") {
-    return value;
-  }
-  if (value && !warnedBadScopes.has(value)) {
-    warnedBadScopes.add(value);
-    console.warn(
-      `[agents-bundle] Unknown skill scope "${raw}" — treating as "${DEFAULT_SKILL_SCOPE}". Valid values: runtime, dev, both.`,
-    );
-  }
-  return DEFAULT_SKILL_SCOPE;
-}
-
-/**
  * Parse the YAML frontmatter at the top of a skill file.
  * Only pulls out `name`, `description`, and `scope` — deliberately simple, no
  * YAML lib.
@@ -154,8 +135,14 @@ export function normalizeSkillScope(raw: string | undefined): SkillScope {
  *   - Inline: `description: Some text`
  *   - Folded scalar: `description: >-\n  multi\n  line` → "multi line"
  *   - Literal scalar: `description: |\n  multi\n  line` → "multi\nline"
+ *
+ * `sourceLabel` only names the file in the invalid-scope log; pass it wherever
+ * a path is known so a typo is traceable to the SKILL.md that carries it.
  */
-export function parseSkillFrontmatter(content: string): Partial<SkillMeta> {
+export function parseSkillFrontmatter(
+  content: string,
+  sourceLabel?: string,
+): Partial<SkillMeta> {
   const match = content.match(/^---\r?\n([\s\S]+?)\r?\n---/);
   if (!match) return {};
   const lines = match[1].split(/\r?\n/);
@@ -200,7 +187,7 @@ export function parseSkillFrontmatter(content: string): Partial<SkillMeta> {
     if (key === "name" && value) result.name = value;
     else if (key === "description" && value) result.description = value;
     else if (key === "scope" && value)
-      result.scope = normalizeSkillScope(value);
+      result.scope = normalizeSkillScope(value, sourceLabel ?? result.name);
   }
 
   return result;
@@ -290,7 +277,10 @@ function readSkillsDir(
       const realSkillFile = fs.realpathSync(skillFile);
       if (!fs.existsSync(realSkillFile)) continue;
       const content = fs.readFileSync(realSkillFile, "utf-8");
-      const meta = parseSkillFrontmatter(content);
+      const meta = parseSkillFrontmatter(
+        content,
+        path.relative(rootForRelative, skillFile).replace(/\\/g, "/"),
+      );
       const name = meta.name ?? entry.name;
       if (skipExistingNames && out[name]) continue; // Template wins
 
@@ -519,20 +509,22 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
  */
 /**
  * Skills visible to the agent-native RUNTIME agent. Excludes `scope: dev`
- * skills (those are for the human's coding agent only). Skills with no scope,
- * `scope: runtime`, or `scope: both` are all included. Use this anywhere the
- * runtime agent's view of skills is built (prompt block + docs-search) so a
- * dev-scoped skill is invisible to the runtime agent everywhere.
+ * skills (those are for the human's coding agent only) and skills whose scope
+ * could not be read. Skills with no scope, `scope: runtime`, or `scope: both`
+ * are all included. Use this anywhere the runtime agent's view of skills is
+ * built (prompt block + docs-search) so a dev-scoped skill is invisible to the
+ * runtime agent everywhere.
  */
 export function getRuntimeSkills(bundle: AgentsBundle): Skill[] {
-  return Object.values(bundle.skills).filter(
-    (skill) => skill.meta.scope !== "dev",
+  return Object.values(bundle.skills).filter((skill) =>
+    isRuntimeVisibleScope(skill.meta.scope),
   );
 }
 
 /**
  * Skills visible to development/coding agents. Excludes `scope: runtime`
- * skills that are intended only for the deployed in-app agent.
+ * skills that are intended only for the deployed in-app agent. An `invalid`
+ * scope stays visible here on purpose — this is the audience that can fix it.
  */
 export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   return Object.values(bundle.skills).filter(
@@ -598,16 +590,14 @@ function generateSkillsPromptBlockForEntries(
       }
     }
     const runtimeHint =
-      mode === "runtime"
-        ? ` Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`
-        : "";
+      mode === "runtime" ? ` [${skillDocsSlug(s.meta.name)}]` : "";
     return `- \`${s.meta.name}\` at \`${s.dir}/\` — ${s.meta.description || "(no description)"}${extras}${runtimeHint}`;
   });
 
   const readHint =
     mode === "runtime"
-      ? `To read a skill in the in-app runtime agent:
-  \`docs-search --slug "skill-<skill-name>"\`
+      ? `To read a skill in the in-app runtime agent, before starting a task it applies to:
+  \`docs-search --slug "<slug>"\` — each skill's slug is the [bracketed] token ending its line
   \`docs-search --query "<topic>"\` to discover matching docs/skills`
       : `To read a skill in dev mode (when you have bash access):
   \`bash(command="cat <skill-dir>/SKILL.md")\`

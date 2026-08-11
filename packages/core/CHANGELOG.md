@@ -1,5 +1,80 @@
 # @agent-native/core
 
+## 0.149.5
+
+### Patch Changes
+
+- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
+- a426c4f: Retry transient reads from encrypted public-upload private blob handles so newly uploaded references are available before import begins.
+- a426c4f: Pin the Tiptap dependency family in fresh scaffolds so generated builds use the tested versions together.
+
+## 0.149.4
+
+### Patch Changes
+
+- 86a9c74: Declare `includedFiles: ["**"]` on the emitted `agent-native-recurring-jobs` Netlify scheduled function so publishing no longer fails with "outside the supported packaging slice"; its entry imports `node:crypto`, and the deploy packager only accepts an omitted `includedFiles` for import-free scheduled functions.
+
+## 0.149.3
+
+### Patch Changes
+
+- 44ac2c4: Support Cloudflare D1 when initializing Better Auth.
+- 44ac2c4: Prevent chat turns from getting stuck after active-run conflicts or delayed progress persistence, and keep completion controls synchronized with terminal state.
+- 44ac2c4: Require an explicit Slack mention for each channel agent turn so ordinary thread replies do not retrigger work.
+
+## 0.149.2
+
+### Patch Changes
+
+- dab8787: Fix the chat sidebar repainting glitches that made app content flash, shift, and
+  render as flat empty rectangles while the agent was generating.
+
+  Three properties on the always-mounted sidebar promoted or re-promoted a
+  compositing layer on every app that renders `AgentSidebar`:
+  - `will-change: transform` sat permanently on the sidebar panel (desktop, mobile
+    and drawer variants). It wraps the whole chat transcript and is never
+    unmounted, so the hint was never retired. The 260ms transform transition is
+    promoted by the browser on its own for exactly as long as it runs.
+  - `view-transition-name` was stamped on the panel unconditionally, including in
+    apps that never start a chat view transition. A permanent name makes the panel
+    a stacking context and the containing block for every fixed and absolutely
+    positioned descendant, and enlists it as a captured group in unrelated route
+    view transitions. It is now applied only while the wide-drawer morph runs.
+  - The chat scroller's top-fade `mask-image` was added and removed with the
+    `hasContentAbove` class, which flips as replies stream into an auto-scrolled
+    transcript. The mask is now always declared and only its length changes.
+
+  The same two defects existed independently on the workspace shell sidebar in
+  `@agent-native/frame`, which hosts the agent panel, so the promotions nested.
+  Fixed there too.
+
+  Regression tests cover all three invariants, and a new repo-wide
+  `pnpm guard:persistent-compositing` fails on any new compositing promotion on a
+  long-lived surface. Genuinely transient elements (a popover that unmounts on
+  close, a drag preview) opt out with a `compositing-ok: <reason>` comment.
+
+- dab8787: Keep Claude Code runs in auto-edit mode edit-capable instead of silently downgrading them to read-only.
+- dab8787: Keep native desktop sign-in aligned with the shared magic-link and Google login flow.
+- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
+- dab8787: Run approved chat actions deterministically and copy the server request ID from chat message actions.
+- dab8787: Call model effort "Effort" in chat controls and default model selections to GPT-5.6 Luna with high effort.
+- dab8787: Keep historical Electron chats read until unread completion is observed, and add a Chats overflow menu for marking all chats as read.
+- dab8787: Bind approval-based tool resumes to server-created one-shot records.
+- dab8787: Clear stale agent activity labels when a chat run reaches a terminal outcome.
+- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/toolkit@0.13.9
+
+## 0.149.1
+
+### Patch Changes
+
+- dae1840: Keep the runs tray refreshing while a run still reads as active, so a run
+  abandoned mid-flight (budget exhausted, dead worker) can no longer spin
+  indefinitely in hosts that disable idle polling with `pollMs={0}`.
+
 ## 0.149.0
 
 ### Minor Changes

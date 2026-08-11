@@ -18,6 +18,7 @@ import {
   ChatFirstChatHistory,
   ChatFirstPrimaryNavigation,
   type ChatFirstOpenAppDetail,
+  type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
@@ -40,6 +41,7 @@ import {
   IconCopy,
   IconDeviceMobile,
   IconDeviceDesktop,
+  IconDots,
   IconEye,
   IconFolder,
   IconFolderPlus,
@@ -128,6 +130,12 @@ import {
   DialogDescription,
   DialogTitle,
 } from "./ui/dialog.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu.js";
 import {
   Select,
   SelectContent,
@@ -297,6 +305,8 @@ export interface CodeAgentsAppProps {
   renderChatFirstMainSurface?: ReactNode;
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
+    activeTab?: ChatFirstPrimaryTab;
+    onNewChat?: () => void;
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
@@ -309,6 +319,8 @@ export interface CodeAgentsAppProps {
   ) => void;
   /** Exposes the already-loaded run list to a host-owned side surface. */
   onRunsChange?: (runs: CodeAgentRun[]) => void;
+  /** Exposes the selected primary chat to a host-owned surface controller. */
+  onSelectedRunChange?: (runId: string | null) => void;
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> | null {
@@ -448,15 +460,15 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   {
     engine: "ai-sdk:openai",
     engineLabel: "OpenAI",
-    model: "gpt-5.6-sol",
-    label: "GPT-5.6 Sol",
+    model: "gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
     description: "Model list is loading.",
     configured: false,
   },
 ];
 
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
-const CODE_AGENT_VIEWED_RUN_IDS_KEY = "agent-native-code:viewed-run-ids";
+const CODE_AGENT_UNREAD_RUN_IDS_KEY = "agent-native-code:unread-run-ids";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
 const HOST_CALL_TIMEOUT_MIN_MS = 10_000;
@@ -523,6 +535,39 @@ const codeAgentComposerRootStyle = {
   boxSizing: "border-box",
 } satisfies CSSProperties;
 
+function CodeAgentsChatHistoryHeaderActions({
+  hasUnread,
+  onMarkAllRead,
+}: {
+  hasUnread: boolean;
+  onMarkAllRead: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="code-agents-chat-history__menu-trigger"
+          aria-label="Chat list options"
+          title="Chat list options"
+        >
+          <IconDots size={15} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={4}
+        className="code-agents-chat-history__menu-content"
+      >
+        <DropdownMenuItem disabled={!hasUnread} onSelect={onMarkAllRead}>
+          <IconCheck size={14} strokeWidth={1.8} aria-hidden="true" />
+          <span>Mark all as read</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function CodeAgentsApp({
   apps,
   host,
@@ -549,6 +594,7 @@ export default function CodeAgentsApp({
   onChatFirstOpenApp,
   onWatchedRunChange,
   onRunsChange,
+  onSelectedRunChange,
 }: CodeAgentsAppProps) {
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
@@ -639,6 +685,10 @@ export default function CodeAgentsApp({
   useEffect(() => {
     onRunsChange?.(runs);
   }, [onRunsChange, runs]);
+
+  useEffect(() => {
+    onSelectedRunChange?.(selectedRunId);
+  }, [onSelectedRunChange, selectedRunId]);
 
   useEffect(() => {
     if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;
@@ -735,18 +785,11 @@ export default function CodeAgentsApp({
   const searchTranscriptCacheRef = useRef(
     new Map<string, CodeAgentTranscriptEvent[]>(),
   );
-  const initialViewedRunIdsRef = useRef<{
-    initialized: boolean;
-    ids: Set<string>;
-  } | null>(null);
-  if (initialViewedRunIdsRef.current === null) {
-    initialViewedRunIdsRef.current = readStoredViewedRunIds();
-  }
-  const viewedRunIdsInitializedRef = useRef(
-    initialViewedRunIdsRef.current.initialized,
+  const [unreadRunIds, setUnreadRunIds] = useState<Set<string>>(() =>
+    readStoredUnreadRunIds(),
   );
-  const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(
-    () => new Set(initialViewedRunIdsRef.current!.ids),
+  const observedRunsByGoalRef = useRef(
+    new Map<string, Map<string, CodeAgentRun>>(),
   );
   const railItemCacheRef = useRef(new Map<string, RailItemCacheEntry>());
   const railItems = useMemo<ChatHistoryItem[]>(() => {
@@ -755,7 +798,7 @@ export default function CodeAgentsApp({
       const title = getRunTitle(run);
       const pinned = isRunPinned(run);
       const active = isRunActive(run);
-      const unread = !active && !viewedRunIds.has(run.id);
+      const unread = !active && unreadRunIds.has(run.id);
       const timestampKey = active
         ? "active"
         : unread
@@ -786,8 +829,8 @@ export default function CodeAgentsApp({
         ) : unread ? (
           <span
             className="code-agents-run-status-dot"
-            aria-label="Done — unread"
-            title="Done"
+            aria-label="Unread chat"
+            title="Unread"
           />
         ) : (
           timestampKey
@@ -799,18 +842,35 @@ export default function CodeAgentsApp({
     });
     railItemCacheRef.current = nextCache;
     return nextItems;
-  }, [runs, viewedRunIds]);
+  }, [runs, unreadRunIds]);
 
-  const markRunsViewed = useCallback((runIds: string[]) => {
+  const markRunsUnread = useCallback((runIds: string[]) => {
     const ids = runIds.filter(Boolean);
-    setViewedRunIds((current) => {
+    if (ids.length === 0) return;
+    setUnreadRunIds((current) => {
       const next = new Set(current);
       for (const id of ids) next.add(id);
       if (next.size === current.size) return current;
-      writeStoredViewedRunIds(next);
+      writeStoredUnreadRunIds(next);
       return next;
     });
   }, []);
+
+  const markRunsRead = useCallback((runIds: string[]) => {
+    const ids = runIds.filter(Boolean);
+    if (ids.length === 0) return;
+    setUnreadRunIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      if (next.size === current.size) return current;
+      writeStoredUnreadRunIds(next);
+      return next;
+    });
+  }, []);
+
+  const markAllRunsRead = useCallback(() => {
+    markRunsRead(runsRef.current.map((run) => run.id));
+  }, [markRunsRead]);
 
   const seedNewPrompt = useCallback((value: string) => {
     setNewPrompt(value);
@@ -830,18 +890,27 @@ export default function CodeAgentsApp({
         );
         setStatus(result.status);
         setError(result.error ?? null);
+        if (result.status === "ok") {
+          const previousRuns = observedRunsByGoalRef.current.get(
+            selectedGoal.id,
+          );
+          const newlyUnreadRunIds = findRunsThatBecameUnread(
+            previousRuns ? [...previousRuns.values()] : undefined,
+            result.runs,
+            selectedRunIdRef.current,
+          );
+          markRunsUnread(newlyUnreadRunIds);
+          observedRunsByGoalRef.current.set(
+            selectedGoal.id,
+            new Map(result.runs.map((run) => [run.id, run])),
+          );
+        }
         setRuns((current) =>
           areCodeAgentRunListsEqual(current, result.runs)
             ? current
             : result.runs,
         );
         if (result.status === "ok") setRunsLoaded(true);
-        if (result.status === "ok" && !viewedRunIdsInitializedRef.current) {
-          const initialIds = result.runs.map((run) => run.id);
-          viewedRunIdsInitializedRef.current = true;
-          setViewedRunIds(new Set(initialIds));
-          writeStoredViewedRunIds(new Set(initialIds));
-        }
       } catch (err) {
         setStatus("unavailable");
         setError(err instanceof Error ? err.message : String(err));
@@ -850,7 +919,7 @@ export default function CodeAgentsApp({
         setLoading(false);
       }
     },
-    [host, selectedGoal.id],
+    [host, markRunsUnread, selectedGoal.id],
   );
 
   const loadSearchRuns = useCallback(async () => {
@@ -1245,8 +1314,8 @@ export default function CodeAgentsApp({
   }, [selectedRunId, selectedRunStoredPermissionMode]);
 
   useEffect(() => {
-    if (selectedRunId) markRunsViewed([selectedRunId]);
-  }, [markRunsViewed, selectedRunId]);
+    if (selectedRunId) markRunsRead([selectedRunId]);
+  }, [markRunsRead, selectedRunId]);
 
   useEffect(() => {
     if (!searchPanelOpen) return;
@@ -1960,26 +2029,26 @@ export default function CodeAgentsApp({
   const handleRailSelect = useCallback(
     (id: string) => {
       onChatFirstMainKindChangeRef.current?.("code");
-      markRunsViewed([id]);
+      markRunsRead([id]);
       setSelectedExtensionDetailId(null);
       setSelectedRunId(id);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
     },
-    [markRunsViewed],
+    [markRunsRead],
   );
 
   const handleRailOpen = useCallback(
     (id: string) => {
       onChatFirstMainKindChangeRef.current?.("code");
-      markRunsViewed([id]);
+      markRunsRead([id]);
       setSelectedExtensionDetailId(null);
       setSelectedRunId(id);
       setWorkbenchOpen(true);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
     },
-    [markRunsViewed],
+    [markRunsRead],
   );
 
   const handleRailTogglePin = useCallback((id: string) => {
@@ -2057,15 +2126,22 @@ export default function CodeAgentsApp({
         className="code-agents-rail"
         aria-label="Agent chats and navigation"
       >
+        {chatFirstMode ? (
+          <div className="code-agents-window-drag-region" aria-hidden="true" />
+        ) : null}
         <div className="code-agents-nav-list" aria-label="Agent navigation">
           {chatFirstMode ? (
             <ChatFirstPrimaryNavigation
-              onNewChat={openSelectedGoal}
+              onNewChat={() => {
+                chatFirstNavigation?.onNewChat?.();
+                openSelectedGoal();
+              }}
               onOpenIntegrations={() =>
                 chatFirstNavigation?.onOpenIntegrations()
               }
               onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
               onSearch={openSearchPanel}
+              activeTab={chatFirstNavigation?.activeTab}
             />
           ) : (
             <>
@@ -2139,6 +2215,12 @@ export default function CodeAgentsApp({
         <ChatFirstChatHistory
           items={railItems}
           activeId={selectedRunId}
+          headerAction={
+            <CodeAgentsChatHistoryHeaderActions
+              hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
+              onMarkAllRead={markAllRunsRead}
+            />
+          }
           loading={loading}
           loadingLabel={<RunListSkeleton />}
           emptyLabel="No chats yet."
@@ -3183,7 +3265,7 @@ export function normalizeModelSelection(
   return {
     engine: selected.engine,
     model: selected.model,
-    effort: normalizeReasoningEffort(value.effort ?? "auto"),
+    effort: normalizeReasoningEffort(value.effort ?? "high"),
   };
 }
 
@@ -3217,9 +3299,10 @@ export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
 }
 
 function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
+  if (value === "auto") return "high";
   return CODE_AGENT_REASONING_EFFORTS.some((effort) => effort.id === value)
     ? (value as CodeAgentReasoningEffort)
-    : "auto";
+    : "high";
 }
 
 function readStoredModelSelection(): CodeAgentModelSelection {
@@ -3250,16 +3333,11 @@ function writeStoredModelSelection(value: CodeAgentModelSelection): void {
   }
 }
 
-function readStoredViewedRunIds(): {
-  initialized: boolean;
-  ids: Set<string>;
-} {
-  if (typeof window === "undefined") {
-    return { initialized: true, ids: new Set() };
-  }
+function readStoredUnreadRunIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(CODE_AGENT_VIEWED_RUN_IDS_KEY);
-    if (!raw) return { initialized: false, ids: new Set() };
+    const raw = window.localStorage.getItem(CODE_AGENT_UNREAD_RUN_IDS_KEY);
+    if (!raw) return new Set();
     const parsed = JSON.parse(raw) as unknown;
     const ids = Array.isArray(parsed)
       ? parsed
@@ -3268,20 +3346,19 @@ function readStoredViewedRunIds(): {
           Array.isArray((parsed as { ids?: unknown }).ids)
         ? (parsed as { ids: unknown[] }).ids
         : [];
-    return {
-      initialized: true,
-      ids: new Set(ids.filter((id): id is string => typeof id === "string")),
-    };
+    return new Set(ids.filter((id): id is string => typeof id === "string"));
   } catch {
-    return { initialized: false, ids: new Set() };
+    // An unread marker is advisory; unreadable local state must not create
+    // dozens of false-positive attention indicators.
+    return new Set();
   }
 }
 
-function writeStoredViewedRunIds(ids: Set<string>): void {
+function writeStoredUnreadRunIds(ids: Set<string>): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
-      CODE_AGENT_VIEWED_RUN_IDS_KEY,
+      CODE_AGENT_UNREAD_RUN_IDS_KEY,
       JSON.stringify({ version: 1, ids: [...ids].slice(-1000) }),
     );
   } catch {
@@ -3418,6 +3495,26 @@ function normalizePromptForSelectedGoal(
 
 function isRunActive(run: CodeAgentRun): boolean {
   return isCodeAgentRunActive(run);
+}
+
+export function findRunsThatBecameUnread(
+  previousRuns: readonly CodeAgentRun[] | undefined,
+  nextRuns: readonly CodeAgentRun[],
+  selectedRunId?: string | null,
+): string[] {
+  if (!previousRuns) return [];
+  const previousById = new Map(previousRuns.map((run) => [run.id, run]));
+  return nextRuns
+    .filter((run) => {
+      const previous = previousById.get(run.id);
+      return (
+        previous !== undefined &&
+        isRunActive(previous) &&
+        !isRunActive(run) &&
+        run.id !== selectedRunId
+      );
+    })
+    .map((run) => run.id);
 }
 
 function areCodeAgentRunListsEqual(
@@ -4259,7 +4356,7 @@ function TranscriptPanel({
   const selectedEngine =
     normalizedModel.engine ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].engine;
   const selectedEffort = normalizeReasoningEffort(
-    normalizedModel.effort ?? "auto",
+    normalizedModel.effort ?? "high",
   );
   const availableModels = groupCodeAgentModelOptions(modelOptions);
   const eventsRef = useRef(events);

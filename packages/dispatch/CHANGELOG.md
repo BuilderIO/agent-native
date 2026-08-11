@@ -1,5 +1,29 @@
 # @agent-native/dispatch
 
+## 0.23.3
+
+### Patch Changes
+
+- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
+- a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
+
+## 0.23.2
+
+### Patch Changes
+
+- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
+
+## 0.23.1
+
+### Patch Changes
+
+- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
+- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/toolkit@0.13.9
+
 ## 0.23.0
 
 ### Minor Changes

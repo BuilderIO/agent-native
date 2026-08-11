@@ -8,6 +8,7 @@ description: >-
   indicate API drift, or high-stakes auth, security, billing, data, migration,
   deployment, compliance, or privacy behavior. Forces Codex to web-search for
   current official docs and read primary docs before assuming from memory.
+scope: dev
 ---
 
 # Read The Damn Docs

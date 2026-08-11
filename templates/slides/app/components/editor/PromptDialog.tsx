@@ -3,9 +3,12 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconArrowLeft,
   IconBrandGoogle,
   IconFileTypePdf,
+  IconLoader2,
   IconPresentation,
+  IconUpload,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -86,7 +89,7 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void;
+  onSubmit: (prompt: string, files: UploadedFile[]) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -125,10 +128,14 @@ export default function PromptPopover({
 }: PromptPopoverProps) {
   const t = useT();
   const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
-  const [googleSlidesInputOpen, setGoogleSlidesInputOpen] = useState(false);
+  const [importMode, setImportMode] = useState<PromptImportSource | null>(null);
+  const [selectedImportFile, setSelectedImportFile] = useState<File | null>(
+    null,
+  );
   const [importingSource, setImportingSource] =
     useState<PromptImportSource | null>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -216,16 +223,20 @@ export default function PromptPopover({
       if (files.length > 0 && onBeforeUpload?.(enrichedText, files) === false) {
         return;
       }
+      setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
-        onSubmit(enrichedText, uploaded);
+        await onSubmit(enrichedText, uploaded);
+        setSubmitting(false);
       } catch (error) {
+        setSubmitting(false);
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
               ? error.message
               : t("raw.uploadAttachedFailed"),
         });
+        throw error;
       }
     },
     [googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
@@ -255,10 +266,24 @@ export default function PromptPopover({
   const handleFileImport = useCallback(
     (kind: "pdf" | "pptx", file: File | undefined) => {
       if (!file) return;
+      setSelectedImportFile(file);
       void runImport({ kind, files: [file] });
     },
     [runImport],
   );
+
+  const chooseImportMode = useCallback((kind: PromptImportSource) => {
+    setImportMode(kind);
+    setSelectedImportFile(null);
+    setGoogleSlidesUrl("");
+  }, []);
+
+  const returnToPrompt = useCallback(() => {
+    if (importingSource) return;
+    setImportMode(null);
+    setSelectedImportFile(null);
+    setGoogleSlidesUrl("");
+  }, [importingSource]);
 
   const handleGoogleSlidesImport = useCallback(() => {
     const url = googleSlidesUrl.trim();
@@ -271,12 +296,30 @@ export default function PromptPopover({
       setPromptText("");
       setGoogleDocContext("");
       setGoogleSlidesUrl("");
-      setGoogleSlidesInputOpen(false);
+      setImportMode(null);
+      setSelectedImportFile(null);
       setImportingSource(null);
+      setSubmitting(false);
     }
   }, [open]);
 
   if (!open) return null;
+
+  const importEnabled = Boolean(onImport && importFromLabel);
+  const normalizedImportFromLabel = importFromLabel
+    ?.trim()
+    .replace(/^or\s+/i, "")
+    .toLowerCase();
+  const importFromCopy = normalizedImportFromLabel
+    ? `Or ${normalizedImportFromLabel}`
+    : "";
+  const importModeLabel =
+    importMode === "google-slides"
+      ? t("home.googleSlidesReferenceTitle")
+      : importMode === "pdf"
+        ? "PDF"
+        : "PPT";
+  const importInputRef = importMode === "pdf" ? pdfInputRef : pptxInputRef;
 
   const popover = (
     <>
@@ -296,7 +339,7 @@ export default function PromptPopover({
       >
         <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
           <span className="text-sm font-medium text-foreground">{title}</span>
-          {onSkip && (
+          {onSkip && !importMode && !submitting && (
             <button
               type="button"
               onClick={() => {
@@ -310,132 +353,214 @@ export default function PromptPopover({
           )}
         </div>
 
-        <div className="px-2.5 pb-2.5">
-          <PromptComposer
-            autoFocus
-            attachmentsEnabled
-            maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
-            documentAttachmentLimitLabel="Slides reference files"
-            disabled={loading || uploading}
-            placeholder={placeholder}
-            onSubmit={handleSubmit}
-            onTextChange={setPromptText}
-            draftScope={draftScope}
-            initialText={initialText}
-            initialTextKey={initialTextKey}
+        {importEnabled && (
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="sr-only"
+            aria-label={t("editorToolbar.importFile")}
+            onChange={(event) => {
+              handleFileImport("pdf", event.target.files?.[0]);
+              event.target.value = "";
+            }}
           />
-        </div>
+        )}
+        {importEnabled && (
+          <input
+            ref={pptxInputRef}
+            type="file"
+            accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            className="sr-only"
+            aria-label={t("editorToolbar.importFile")}
+            onChange={(event) => {
+              handleFileImport("pptx", event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+        )}
 
-        {onImport && importFromLabel && (
-          <div className="border-t border-border/60 px-4 pb-3 pt-2.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="mr-1 text-xs text-muted-foreground">
-                {importFromLabel}
-              </span>
-              <input
-                ref={pdfInputRef}
-                type="file"
-                accept=".pdf,application/pdf"
-                className="sr-only"
-                aria-label={t("editorToolbar.importFile")}
-                onChange={(event) => {
-                  handleFileImport("pdf", event.target.files?.[0]);
-                  event.target.value = "";
-                }}
+        <div className={importEnabled ? "grid" : undefined}>
+          <div
+            className={[
+              importEnabled ? "col-start-1 row-start-1" : "",
+              importMode ? "invisible pointer-events-none" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            aria-hidden={importMode ? true : undefined}
+          >
+            <div className="px-2.5 pb-2.5">
+              <PromptComposer
+                autoFocus
+                attachmentsEnabled
+                maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+                documentAttachmentLimitLabel="Slides reference files"
+                disabled={
+                  loading || uploading || submitting || Boolean(importMode)
+                }
+                placeholder={placeholder}
+                onSubmit={handleSubmit}
+                onTextChange={setPromptText}
+                draftScope={draftScope}
+                initialText={initialText}
+                initialTextKey={initialTextKey}
               />
-              <input
-                ref={pptxInputRef}
-                type="file"
-                accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                className="sr-only"
-                aria-label={t("editorToolbar.importFile")}
-                onChange={(event) => {
-                  handleFileImport("pptx", event.target.files?.[0]);
-                  event.target.value = "";
-                }}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                disabled={importingSource !== null || loading || uploading}
-                onClick={() => pdfInputRef.current?.click()}
-              >
-                <IconFileTypePdf className="size-3.5" />
-                PDF
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                disabled={importingSource !== null || loading || uploading}
-                onClick={() => setGoogleSlidesInputOpen((current) => !current)}
-              >
-                <IconBrandGoogle className="size-3.5" />
-                {t("home.googleSlidesReferenceTitle")}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                disabled={importingSource !== null || loading || uploading}
-                onClick={() => pptxInputRef.current?.click()}
-              >
-                <IconPresentation className="size-3.5" />
-                PPT
-              </Button>
-              {importingSource && (
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {importingLabel}
-                </span>
-              )}
             </div>
-            {googleSlidesInputOpen && (
-              <div className="mt-2 space-y-2">
-                <GoogleDriveConnectionCta />
-                <div className="flex gap-2">
-                  <Input
-                    autoFocus
-                    type="url"
-                    value={googleSlidesUrl}
-                    placeholder={t("home.googleSlidesReferenceUrl")}
-                    aria-label={t("home.googleSlidesReferenceUrl")}
-                    className="h-8 text-xs"
-                    disabled={importingSource !== null || loading || uploading}
-                    onChange={(event) => setGoogleSlidesUrl(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") handleGoogleSlidesImport();
-                    }}
-                  />
+
+            {submitting && (
+              <div
+                className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <IconLoader2 className="size-3.5 animate-spin" />
+                <span>{t("raw.uploading")}</span>
+              </div>
+            )}
+
+            {importEnabled && (
+              <div className="border-t border-border/60 px-4 pb-3 pt-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 text-xs text-muted-foreground">
+                    {importFromCopy}
+                  </span>
                   <Button
                     type="button"
+                    variant="ghost"
                     size="sm"
-                    className="h-8 shrink-0 px-3 text-xs"
-                    disabled={
-                      !googleSlidesUrl.trim() ||
-                      importingSource !== null ||
-                      loading ||
-                      uploading
-                    }
-                    onClick={handleGoogleSlidesImport}
+                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    disabled={loading || uploading || submitting}
+                    onClick={() => chooseImportMode("pdf")}
                   >
-                    Import
+                    <IconFileTypePdf className="size-3.5" />
+                    PDF
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    disabled={loading || uploading || submitting}
+                    onClick={() => chooseImportMode("google-slides")}
+                  >
+                    <IconBrandGoogle className="size-3.5" />
+                    {t("home.googleSlidesImportLabel")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    disabled={loading || uploading || submitting}
+                    onClick={() => chooseImportMode("pptx")}
+                  >
+                    <IconPresentation className="size-3.5" />
+                    PPT
                   </Button>
                 </div>
               </div>
             )}
+
+            {children}
+
+            <GoogleDocImportHint
+              promptText={promptText}
+              onSourceContextChange={setGoogleDocContext}
+            />
           </div>
-        )}
 
-        {children}
+          {importEnabled && importMode && (
+            <div className="col-start-1 row-start-1 flex min-h-full flex-col px-4 pb-4 pt-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={returnToPrompt}
+                  disabled={importingSource !== null}
+                  className="-ms-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                  aria-label={
+                    "Back to prompt" /* i18n-ignore -- local import-flow control label */
+                  }
+                >
+                  <IconArrowLeft className="size-4" />
+                </button>
+                <span className="text-sm font-medium text-foreground">
+                  Import {importModeLabel}
+                </span>
+              </div>
 
-        <GoogleDocImportHint
-          promptText={promptText}
-          onSourceContextChange={setGoogleDocContext}
-        />
+              <div className="flex flex-1 flex-col justify-center gap-3">
+                {importMode === "google-slides" ? (
+                  <>
+                    <GoogleDriveConnectionCta />
+                    <div className="flex gap-2">
+                      <Input
+                        autoFocus
+                        type="url"
+                        value={googleSlidesUrl}
+                        placeholder={t("home.googleSlidesReferenceUrl")}
+                        aria-label={t("home.googleSlidesReferenceUrl")}
+                        className="h-8 text-xs"
+                        disabled={importingSource !== null || loading}
+                        onChange={(event) =>
+                          setGoogleSlidesUrl(event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") handleGoogleSlidesImport();
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 shrink-0 px-3 text-xs"
+                        disabled={
+                          !googleSlidesUrl.trim() ||
+                          importingSource !== null ||
+                          loading
+                        }
+                        onClick={handleGoogleSlidesImport}
+                      >
+                        Import
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Choose a {importModeLabel} file to open it as a deck.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-center gap-2"
+                      disabled={importingSource !== null || loading}
+                      onClick={() => importInputRef.current?.click()}
+                    >
+                      <IconUpload className="size-4" />
+                      Upload {importModeLabel}
+                    </Button>
+                    {selectedImportFile && (
+                      <p className="truncate text-center text-xs text-muted-foreground">
+                        {selectedImportFile.name}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {importingSource && (
+                <div
+                  className="flex items-center justify-center gap-2 text-xs text-muted-foreground"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <IconLoader2 className="size-3.5 animate-spin" />
+                  <span>{importingLabel}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

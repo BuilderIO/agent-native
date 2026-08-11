@@ -1,5 +1,10 @@
 import fs from "fs";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   createServer,
@@ -113,6 +118,7 @@ import {
   ipcMain,
   Menu,
   Notification,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -153,6 +159,7 @@ import {
   parseAdditionalChromeExtensionIds,
 } from "./browser-control/native-host";
 import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
+import { cachedCliStatus, createCliStatusCache } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
@@ -209,6 +216,7 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { installWindowDragController } from "./window-drag";
 
 initializeDesktopSentry();
 initializeDesktopLogger();
@@ -1028,12 +1036,18 @@ function createWindow(): BrowserWindow {
   installSentryWebContentsInstrumentation(win.webContents, {
     role: "shell-renderer",
   });
+  const disposeWindowDragController = installWindowDragController(win, {
+    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
+  });
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
   win.webContents.on("did-finish-load", () => {
+    // A reloaded renderer has no status yet, so the dedup cache must not
+    // suppress the next send as an unchanged repeat.
+    lastDesktopAppRuntimeStatus.clear();
     flushPendingOpenRequests(win);
     flushPendingDesktopShortcutActivations(win);
   });
@@ -1048,6 +1062,7 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();
     desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;
@@ -5418,8 +5433,20 @@ async function createDesktopAppFromPrompt(
   };
 }
 
+const lastDesktopAppRuntimeStatus = new Map<string, string>();
+
+/**
+ * This is a state, not an event stream: a managed dev server emits a stdout
+ * chunk per HMR update and per transform, and each one re-sends the identical
+ * "running / Preview updated." status. Forwarding every one floods the renderer
+ * with IPC and re-renders for a status that has not changed. Send only on an
+ * actual transition.
+ */
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  const signature = `${status.state} ${status.message ?? ""}`;
+  if (lastDesktopAppRuntimeStatus.get(status.appId) === signature) return;
+  lastDesktopAppRuntimeStatus.set(status.appId, signature);
   mainWindow.webContents.send(IPC.APP_STATUS, status);
 }
 
@@ -7401,7 +7428,55 @@ function ensureCodeAgentLlmProvider(): {
   };
 }
 
-function getLocalCodexCliStatus(): {
+const CLI_PROBE_TIMEOUT_MS = 1500;
+
+interface CliRun {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: NodeJS.ErrnoException;
+}
+
+function runCliSync(command: string, args: string[]): CliRun {
+  const result = spawnSync(command, args, {
+    encoding: "utf-8",
+    timeout: CLI_PROBE_TIMEOUT_MS,
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: (result.error as NodeJS.ErrnoException | undefined) ?? undefined,
+  };
+}
+
+function runCliAsync(command: string, args: string[]): Promise<CliRun> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
+      (error, stdout, stderr) => {
+        const errno = error as NodeJS.ErrnoException | null;
+        // A non-zero exit is an answer ("not logged in"), not a probe failure —
+        // only a failure to run the binary at all is reported as `error`.
+        const spawnFailed = Boolean(errno && typeof errno.code === "string");
+        resolve({
+          status: errno
+            ? typeof errno.code === "number"
+              ? errno.code
+              : null
+            : 0,
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
+          error: spawnFailed ? (errno ?? undefined) : undefined,
+        });
+      },
+    );
+  });
+}
+
+interface LocalCodexCliStatus {
   available: boolean;
   authenticated: boolean;
   label: string;
@@ -7409,26 +7484,47 @@ function getLocalCodexCliStatus(): {
   version?: string;
   model?: string;
   error?: string;
-} {
-  const versionResult = spawnSync("codex", ["--version"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
-  if (versionResult.error) {
+}
+
+const localCodexCliStatusCache = createCliStatusCache<LocalCodexCliStatus>();
+
+function getLocalCodexCliStatus(): LocalCodexCliStatus {
+  return cachedCliStatus(
+    localCodexCliStatusCache,
+    () => {
+      const version = runCliSync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        runCliSync("codex", ["login", "status"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        await runCliAsync("codex", ["login", "status"]),
+      );
+    },
+  );
+}
+
+function parseLocalCodexCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalCodexCliStatus {
+  if (versionResult.error || !statusResult) {
     return {
       available: false,
       authenticated: false,
       label: "Codex CLI",
       error:
-        (versionResult.error as NodeJS.ErrnoException).code === "ENOENT"
+        versionResult.error?.code === "ENOENT"
           ? "Codex CLI was not found."
-          : versionResult.error.message,
+          : versionResult.error?.message,
     };
   }
-  const statusResult = spawnSync("codex", ["login", "status"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
   const statusText =
     `${statusResult.stdout ?? ""}\n${statusResult.stderr ?? ""}`.trim();
   const authMode = /using\s+(.+)$/i.exec(statusText)?.[1]?.trim();
@@ -7473,33 +7569,54 @@ function readConfiguredCodexModel(): string | undefined {
   return undefined;
 }
 
-function getLocalClaudeCliStatus(): {
+interface LocalClaudeCliStatus {
   available: boolean;
   authenticated: boolean;
   label: string;
   version?: string;
   error?: string;
-} {
-  const versionResult = spawnSync("claude", ["--version"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
-  if (versionResult.error) {
+}
+
+const localClaudeCliStatusCache = createCliStatusCache<LocalClaudeCliStatus>();
+
+function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
+  return cachedCliStatus(
+    localClaudeCliStatusCache,
+    () => {
+      const version = runCliSync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        runCliSync("claude", ["auth", "status", "--json"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        await runCliAsync("claude", ["auth", "status", "--json"]),
+      );
+    },
+  );
+}
+
+function parseLocalClaudeCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalClaudeCliStatus {
+  if (versionResult.error || !statusResult) {
     return {
       available: false,
       authenticated: false,
       label: "Claude Code",
       error:
-        (versionResult.error as NodeJS.ErrnoException).code === "ENOENT"
+        versionResult.error?.code === "ENOENT"
           ? "Claude Code CLI was not found."
-          : versionResult.error.message,
+          : versionResult.error?.message,
     };
   }
 
-  const statusResult = spawnSync("claude", ["auth", "status", "--json"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
   let status: Record<string, unknown> | null = null;
   try {
     const parsed = JSON.parse(statusResult.stdout ?? "") as unknown;

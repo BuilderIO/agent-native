@@ -163,6 +163,26 @@ describe("add-slide", () => {
     expect(action.parallelSafe).toBeUndefined();
   });
 
+  it("repairs an opaque generated title from the first slide", async () => {
+    deckData = {
+      title: "H3sVsnns-TEVUOpz9w",
+      slides: [],
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-title",
+      layout: "title",
+      content:
+        '<div class="fmd-slide"><div style="font-size: 54px;">Agent-Native Strategy</div></div>',
+    });
+
+    expect(updatedFields?.title).toBe("Agent-Native Strategy");
+    expect(JSON.parse(updatedFields!.data as string).title).toBe(
+      "Agent-Native Strategy",
+    );
+  });
+
   it("accepts CLI-style string positions and inserts at the requested index", async () => {
     const result = await action.run({
       deckId: "deck-1",

@@ -3,8 +3,8 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconBuildingCommunity,
+  IconComponents,
   IconDots,
-  IconPalette,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -190,7 +190,7 @@ export function DesignSystemCard({
       {/* Info area */}
       <div className="p-4 space-y-1.5">
         <div className="flex items-center gap-2 min-w-0">
-          <IconPalette className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <IconComponents className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
           <h3
             className="font-medium text-sm text-foreground truncate"
             title={title}

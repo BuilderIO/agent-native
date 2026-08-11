@@ -89,7 +89,7 @@ export function buildReferenceDeckContext({
 
   lines.push(
     "",
-    `These are samples, not the full deck. Call \`get-deck --id ${id}\` if you need to see how this deck handles a case the patterns above do not cover.`,
+    `These are samples, not the full deck. Call \`get-deck --id ${id} --compact false\` only if you need full slide HTML for a case the patterns above do not cover.`,
   );
 
   return truncate(lines.join("\n"), MAX_CONTEXT_CHARS);
@@ -99,7 +99,7 @@ export default defineAction({
   description:
     "Get an existing deck's visual language as a reusable pattern library so a new deck can be written in the same style. " +
     "Returns one worked HTML example per layout as `agentContext`, deliberately without the deck's slide order — the new deck's structure comes from its own content. " +
-    "Use `get-deck` when you need a specific slide's full content instead.",
+    "Use `get-deck` with compact=false when you need full slide content instead.",
   schema: z.object({
     id: z.string().describe("Deck ID to use as the reference"),
   }),

@@ -8,7 +8,6 @@ import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
-  completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
   getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
@@ -26,8 +25,52 @@ import {
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
+  assistantMessageRunId,
+  assistantMessageTurnId,
+  resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
+
+describe("assistant request ID resolution", () => {
+  it("prefers the server run ID attached to the message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id", metadata: { custom: { runId: "run-1" } } },
+        { threadId: "thread-1", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("uses the current thread's active server run ID for an in-flight message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-1", runId: "run-1" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("never falls back to a local message ID or another thread's run", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-2", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBeUndefined();
+    expect(assistantMessageRunId({ id: "local-message-id" })).toBeUndefined();
+  });
+
+  it("reads the stable logical turn ID from assistant metadata", () => {
+    expect(
+      assistantMessageTurnId({
+        metadata: { custom: { turnId: "turn-1" } },
+      }),
+    ).toBe("turn-1");
+  });
+});
 
 describe("ThinkingIndicator", () => {
   let container: HTMLDivElement;
@@ -110,7 +153,7 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
-  it("keeps completed historical assistant controls visible while chat work runs", () => {
+  it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
         isLast: false,
@@ -119,6 +162,48 @@ describe("shouldShowAssistantMessageFooter", () => {
         statusIsTerminal: true,
       }),
     ).toBe(true);
+  });
+
+  it("hides historical controls when they belong to the active run", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-active",
+        messageRunId: "run-active",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides historical controls across continuation run IDs in the same turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-successor",
+        messageRunId: "run-original",
+        activeTurnId: "turn-shared",
+        messageTurnId: "turn-shared",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat missing turn metadata as a different turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-same",
+        messageRunId: "run-same",
+        activeTurnId: "turn-current",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -400,30 +485,6 @@ describe("assistant completion notices", () => {
     expect(isMissingFinalResponseWarningText("The work is complete.")).toBe(
       false,
     );
-  });
-
-  it("lists completed tools after the latest assistant text in arrival order", () => {
-    expect(
-      completedAssistantToolNamesAfterLastText([
-        { type: "text", text: "I will inspect the workspace." },
-        {
-          type: "tool-call",
-          toolCallId: "call-1",
-          toolName: "view-screen",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-        {
-          type: "tool-call",
-          toolCallId: "call-2",
-          toolName: "workspace-read",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-      ]),
-    ).toEqual(["view screen", "workspace read"]);
   });
 });
 

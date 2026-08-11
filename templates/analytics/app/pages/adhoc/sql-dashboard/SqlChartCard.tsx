@@ -11,6 +11,7 @@ import {
   IconTrash,
   IconCode,
   IconDownload,
+  IconCopy,
   IconMessageCircle,
   IconBrandGoogle,
   IconArrowUpRight,
@@ -148,6 +149,9 @@ export function SqlChartCard({
   const [expanded, setExpanded] = useState(false);
   const [extRefreshKey, setExtRefreshKey] = useState(0);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
+  const [copyTable, setCopyTable] = useState<(() => Promise<void>) | null>(
+    null,
+  );
   const [shouldLoadData, setShouldLoadData] = useState(
     eagerLoad ||
       panel.chartType === "section" ||
@@ -171,6 +175,23 @@ export function SqlChartCard({
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
+
+  const handleCopyTableChange = useCallback(
+    (handler: (() => Promise<void>) | null) => {
+      setCopyTable(handler ? () => handler : null);
+    },
+    [],
+  );
+
+  const handleCopyTable = useCallback(async () => {
+    if (!copyTable) return;
+    try {
+      await copyTable();
+      toast.success(t("sqlDashboard.copied"));
+    } catch {
+      toast.error(t("sqlDashboard.couldNotCopyTable"));
+    }
+  }, [copyTable, t]);
 
   const handleRefresh = useCallback(() => {
     setShouldLoadData(true);
@@ -288,6 +309,7 @@ export function SqlChartCard({
 
   useEffect(() => {
     setExportCsv(null);
+    setCopyTable(null);
   }, [panel.id]);
 
   useEffect(() => {
@@ -649,6 +671,15 @@ export function SqlChartCard({
                       {t("sqlDashboard.downloadCsv")}
                     </DropdownMenuItem>
                   )}
+                  {panel.chartType === "table" && (
+                    <DropdownMenuItem
+                      disabled={!copyTable}
+                      onSelect={() => void handleCopyTable()}
+                    >
+                      <IconCopy className="h-4 w-4 mr-2" />
+                      {t("sqlDashboard.copyTable")}
+                    </DropdownMenuItem>
+                  )}
                   {panel.chartType === "table" && dashboardId ? (
                     <DropdownMenuItem
                       disabled={exportToGoogleSheets.isPending}
@@ -705,6 +736,7 @@ export function SqlChartCard({
             loadData={shouldLoadData}
             reportScreenshot={reportScreenshot}
             onExportCsvChange={handleExportCsvChange}
+            onCopyTableChange={handleCopyTableChange}
             extensionContext={extensionContext}
           />
         </CardContent>

@@ -306,6 +306,8 @@ export interface SSEStreamOptions {
   noProgressTimeoutMs?: number;
   /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
   actionPreparationStallTimeoutMs?: number;
+  /** Mark the adapter's final `done` snapshot terminal before it is yielded. */
+  markTerminalResults?: boolean;
   /**
    * Optional caller-owned preparation watchdog state. Passing the same object
    * across reconnect reads keeps a stuck action preparation from getting a
@@ -361,6 +363,23 @@ function isMeaningfulProgressEvent(
   }
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     if (options?.durableBackgroundRun === true) return true;
+    return actionPreparationProgress === true;
+  }
+  return true;
+}
+
+/**
+ * The browser's durable liveness cursor must mirror the server's
+ * `last_progress_at` predicate. The stream watchdog intentionally has a
+ * broader background policy, so it cannot be reused for this cursor: raw
+ * keepalives and repeated zero-byte preparation are not proof of real work.
+ */
+function isDurableProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+): boolean {
+  if (ev.type === "stream_keepalive" || ev.type === "clear") return false;
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     return actionPreparationProgress === true;
   }
   return true;
@@ -1741,6 +1760,9 @@ export function processEvent(
         }),
       );
     }
+    // This event is terminal. There may be no visible text or tool_done after
+    // the last preparation activity, so do not leave its label mounted.
+    dispatchActivityClear(tabId);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
@@ -1844,6 +1866,9 @@ export function processEvent(
       ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
       ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
     };
+    // Non-recoverable errors end the turn. Recoverable errors return above as
+    // auto-continue signals and must keep their activity state alive.
+    dispatchActivityClear(tabId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
@@ -1867,6 +1892,10 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
+    // `done` is authoritative even when the final model chunk contains only
+    // a wrap-up marker. Clear any preparation label before inspecting pending
+    // tools so both success and interrupted-terminal paths settle the UI.
+    dispatchActivityClear(tabId);
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,
@@ -1963,7 +1992,7 @@ export async function* readSSEStream(
   content: ContentPart[],
   toolCallCounter: { value: number },
   tabId: string | undefined,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   runId?: string | null,
   options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
@@ -2081,14 +2110,23 @@ export async function* readSSEStream(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {
@@ -2122,9 +2160,22 @@ export async function* readSSEStream(
           processEventState,
         );
 
-        if (result) {
+        const terminalResult =
+          result &&
+          options?.markTerminalResults === true &&
+          action === "done" &&
+          result.status == null
+            ? {
+                ...result,
+                status: {
+                  type: "complete" as const,
+                  reason: "stop" as const,
+                },
+              }
+            : result;
+        if (terminalResult) {
           await paceRenderUpdate();
-          yield withStreamMetadata(result);
+          yield withStreamMetadata(terminalResult);
         }
         if (
           hasStalledPreparingAction(
@@ -2198,7 +2249,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
@@ -2272,13 +2323,22 @@ export async function readSSEStreamRaw(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {

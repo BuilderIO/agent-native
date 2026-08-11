@@ -334,6 +334,22 @@ describe("hoistQueuedMessageToFront", () => {
 });
 
 describe("createUserMessageRunConfig model snapshot", () => {
+  it("preserves approval grants on queued continuation messages", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      ["create-builder-branch:{}"],
+      "queued-approval",
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      approvedToolCalls: ["create-builder-branch:{}"],
+      agentNativeQueuedMessageId: "queued-approval",
+    });
+  });
+
   it("sends the model a queued message was composed with", () => {
     const options = createUserMessageRunConfig(
       undefined,
@@ -1416,6 +1432,7 @@ describe("chat connection suggestion alignment", () => {
     expect(panelSource).toContain(
       ".agent-composer-area:not(.agent-composer-area--compact)",
     );
+    expect(panelSource).toContain("const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;");
     expect(panelSource).toContain("padding-left:0;padding-right:0;");
     expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),750px)]");
     expect(suggestionSource).toContain(
@@ -1460,6 +1477,20 @@ describe("resolveAssistantChatRunningState", () => {
         hasActiveServerRun: true,
       }),
     ).toEqual({ isRunning: true, showRunningInUI: true });
+  });
+
+  it("hides the running presentation after a terminal run error", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: false,
+        hasActiveServerRun: true,
+        hasTerminalRunError: true,
+      }),
+    ).toEqual({ isRunning: true, showRunningInUI: false });
   });
 
   it("keeps auto-resume visible through the between-chunk idle gap", () => {
@@ -2223,7 +2254,9 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).toContain("adapterHandoffPending");
-    expect(renderSource).toContain("allowActivitySpinner={!reconnectFrozen}");
+    expect(renderSource.replace(/\s+/g, "")).toContain(
+      "allowActivitySpinner={!reconnectFrozen}",
+    );
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
