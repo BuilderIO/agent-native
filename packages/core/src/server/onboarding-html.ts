@@ -3236,6 +3236,7 @@ ${signInJourneyInlineScript()}
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
       __anGoogleSignInInFlight = false;
+      __anMagicLinkInFlight = false;
       if (__anIsBuilderPreview()) {
         if (sessionToken) {
           __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
@@ -3491,6 +3492,7 @@ ${identitySsoScript}
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
+    var __anMagicLinkInFlight = false;
     var __anGoogleRecoverBound = false;
     function __anNewOAuthFlowId() {
       try {
@@ -3524,15 +3526,26 @@ ${identitySsoScript}
         if (showDebugOverlay) debug.classList.add('show');
       }
     }
-    function __anShowOAuthError(err, btn, message) {
+    function __anStopOAuthExchangePolling() {
       if (__anOAuthPollTimer) {
         clearInterval(__anOAuthPollTimer);
         __anOAuthPollTimer = null;
       }
+    }
+    function __anShowAuthExchangeError(err, btn, message, kind) {
+      __anStopOAuthExchangePolling();
       err.textContent = message;
-      err.classList.add('show');
+      err.classList.add('show', 'error');
       btn.disabled = false;
-      __anGoogleSignInInFlight = false;
+      if (kind === 'magic-link') {
+        __anMagicLinkInFlight = false;
+        showMagicLinkForm();
+      } else {
+        __anGoogleSignInInFlight = false;
+      }
+    }
+    function __anShowOAuthError(err, btn, message) {
+      __anShowAuthExchangeError(err, btn, message, 'google');
     }
     function __anRecoverGoogleSignInAfterReturn() {
       // The user left for the Google sign-in window and came back. If the flow
@@ -3582,9 +3595,10 @@ ${identitySsoScript}
         __anShowOAuthError(err, btn, __anT('failedToConnect'));
       }
     }
-    function __anWaitForOAuthExchange(flowId, ret, btn, err) {
+    function __anWaitForOAuthExchange(flowId, ret, btn, err, kind) {
       var started = Date.now();
       var timeoutMs = 5 * 60 * 1000;
+      var isMagicLink = kind === 'magic-link';
       __anOAuthPollCount = 0;
       async function check() {
         __anOAuthPollCount++;
@@ -3599,7 +3613,12 @@ ${identitySsoScript}
           }
           if (data && data.error) {
             __anSetOAuthDebug('OAuth exchange returned an error: ' + (data.message || data.error), flowId);
-            __anShowOAuthError(err, btn, __anAuthErrorText(data, __anT('googleNotConfigured')));
+            __anShowAuthExchangeError(
+              err,
+              btn,
+              __anAuthErrorText(data, isMagicLink ? __anT('magicLinkFailed') : __anT('googleNotConfigured')),
+              isMagicLink ? 'magic-link' : 'google',
+            );
             return;
           }
           if (data && data.pending && (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0)) {
@@ -3611,10 +3630,17 @@ ${identitySsoScript}
           }
         }
         if (Date.now() - started > timeoutMs) {
-          __anShowOAuthError(err, btn, __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.');
+          __anShowAuthExchangeError(
+            err,
+            btn,
+            isMagicLink
+              ? __anT('magicLinkFailed')
+              : __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.',
+            isMagicLink ? 'magic-link' : 'google',
+          );
         }
       }
-      if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+      __anStopOAuthExchangePolling();
       __anOAuthPollTimer = setInterval(check, 1000);
       setTimeout(check, 500);
     }
@@ -3751,6 +3777,8 @@ ${
       __anSetAuthView('magicLinkSent');
     }
     function showMagicLinkForm() {
+      __anStopOAuthExchangePolling();
+      __anMagicLinkInFlight = false;
       var form = document.getElementById('magic-link-form');
       if (!form) return;
       hideMagicLinkSuccess();
@@ -4123,6 +4151,7 @@ ${
     var msg = document.getElementById('m-msg');
     var emailInput = document.getElementById('m-email');
     var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+    var magicFlowId = __anIsAgentNativeDesktop() ? __anNewOAuthFlowId() : null;
     msg.classList.remove('show', 'error', 'success');
     if (!__anIsValidAuthEmail(email)) {
       __anShowEmailValidationError(emailInput, msg);
@@ -4130,12 +4159,18 @@ ${
     }
     var originalLabel = btn.textContent;
     btn.disabled = true;
+    __anMagicLinkInFlight = !!magicFlowId;
     btn.textContent = __anT('sending');
     try {
       var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
+        body: JSON.stringify({
+          email: email,
+          callbackURL: magicFlowId
+            ? __anPath('/_agent-native/auth/magic-link/desktop-callback') + '?flow_id=' + encodeURIComponent(magicFlowId)
+            : __anResumeHref(),
+        }),
       });
       var data = await res.json().catch(function(error) {
         console.warn('[auth] Could not parse magic-link response', error);
@@ -4145,13 +4180,18 @@ ${
         btn.disabled = false;
         btn.textContent = originalLabel;
         showMagicLinkSuccess(email);
+        if (magicFlowId) {
+          __anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link');
+        }
         return;
       }
+      __anMagicLinkInFlight = false;
       msg.textContent = __anAuthErrorText(data, __anT('magicLinkFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = originalLabel;
     } catch (err) {
+      __anMagicLinkInFlight = false;
       msg.textContent = __anT('networkErrorDashRetry');
       msg.classList.add('show', 'error');
       btn.disabled = false;

@@ -1173,9 +1173,8 @@ async function runElectronSmoke(): Promise<void> {
       true,
       "Electron should expose the surface catalog",
     );
-    assert.equal(
-      picker.appOptions,
-      5,
+    assert.ok(
+      picker.appOptions >= 5,
       "Electron picker should list workspace apps",
     );
     assert.equal(

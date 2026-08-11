@@ -1022,13 +1022,17 @@ export function App() {
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
-  const [signInPending, setSignInPending] = useState(false);
+  const [signInPending, setSignInPending] = useState<
+    "google" | "magic-link" | null
+  >(null);
+  const [magicLinkEmail, setMagicLinkEmail] = useState<string | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
-  // Ref-based lock so two fast clicks cannot both enter signInExternal()
+  // Ref-based lock so two fast clicks cannot start competing desktop auth
   // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const signInVisibilityRef = useRef<(() => void) | null>(null);
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
