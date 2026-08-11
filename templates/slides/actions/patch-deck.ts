@@ -435,6 +435,33 @@ export function applyOperation(deck: any, op: Operation): void {
 }
 
 /**
+ * Agent content rewrites must not inherit click-reveal paths implicitly. A
+ * caller that wants to revise both HTML and reveals sends `animations` in the
+ * same patch, including the complete ordered list.
+ */
+export function clearOmittedAnimationsForAgentContentPatches(
+  deck: any,
+  operations: readonly Operation[],
+): void {
+  const slideIds = new Set(
+    operations.flatMap((operation) =>
+      operation.op === "patch-slide" &&
+      operation.fields.content !== undefined &&
+      operation.fields.animations === undefined
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+  if (!slideIds.size) return;
+
+  for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
+    if (slideIds.has(slide?.id) && Array.isArray(slide.animations)) {
+      delete slide.animations;
+    }
+  }
+}
+
+/**
  * Content and animation metadata are one contract. Validate only slides whose
  * content or animation list changed so unrelated note/title writes do not
  * resurrect old metadata failures, while any edit that can stale a path is
@@ -619,6 +646,9 @@ export default defineAction({
 
       for (const op of operations) {
         applyOperation(deck, op);
+      }
+      if (isAgentCaller) {
+        clearOmittedAnimationsForAgentContentPatches(deck, operations);
       }
       assertPatchedSlideAnimationsResolve(deck, operations, {
         requireElementPaths: isAgentCaller,

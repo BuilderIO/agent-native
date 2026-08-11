@@ -4,7 +4,9 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
+import { hashSlideContent } from "../shared/slide-fit.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 function stripHtml(html: string): string {
@@ -75,6 +77,12 @@ export default defineAction({
       .optional()
       .describe(
         "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId default to compact output.",
+      ),
+    format: z
+      .enum(["true", "false"])
+      .optional()
+      .describe(
+        "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
       ),
   }),
   http: { method: "GET" },
@@ -169,6 +177,22 @@ export default defineAction({
     const deckMetadata = { ...data };
     delete deckMetadata.slides;
 
+    const formatHtml = args.format === "true";
+    const fullSlides = await Promise.all(
+      slideEntries.map(async ({ slide: s, index: i }) => ({
+        ...s,
+        slideNumber: i + 1,
+        zeroBasedIndex: i,
+        id: s.id,
+        layout: s.layout ?? null,
+        content: formatHtml
+          ? await formatSlideHtml(String(s.content ?? ""))
+          : s.content,
+        contentHash: hashSlideContent(String(s.content ?? "")),
+        notes: s.notes ?? null,
+      })),
+    );
+
     return {
       ...deckMetadata,
       id: row.id,
@@ -184,15 +208,7 @@ export default defineAction({
       updatedAt: row.updatedAt,
       deepLink: deckDeepLink(row.id),
       ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
-      slides: slideEntries.map(({ slide: s, index: i }) => ({
-        ...s,
-        slideNumber: i + 1,
-        zeroBasedIndex: i,
-        id: s.id,
-        layout: s.layout ?? null,
-        content: s.content,
-        notes: s.notes ?? null,
-      })),
+      slides: fullSlides,
     };
   },
   link: ({ result, args }) => {

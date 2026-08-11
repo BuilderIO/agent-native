@@ -6,6 +6,7 @@ import {
   assertPatchedSlideAnimationsResolve,
   assertSourceImportOperationsPreserved,
   assertSourceImportSlidesCovered,
+  clearOmittedAnimationsForAgentContentPatches,
   isAgentPatchCaller,
   resolveDeckColumnUpdates,
   withDeckLock,
@@ -506,6 +507,45 @@ describe("animation target validation", () => {
         [{ op: "patch-slide", slideId: "s1", fields: { notes: "Updated" } }],
       ),
     ).not.toThrow();
+  });
+
+  it("clears omitted animations when an agent revises slide content", () => {
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toBeUndefined();
+  });
+
+  it("keeps an explicit complete animation list with revised content", () => {
+    const nextContent =
+      '<div class="fmd-slide"><div><h2>New title</h2></div></div>';
+    const nextAnimations = [animation({ elementPath: [0, 0] })];
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent, animations: nextAnimations },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toEqual(nextAnimations);
   });
 });
 
