@@ -4695,6 +4695,7 @@ const AssistantChatInner = forwardRef<
           setReconnectFrozen(false);
           setReconnectContent([]);
           reconnectCanMaterializeRef.current = false;
+          reconnectTurnIdRef.current = null;
         }
         reconnectTailOnlyRef.current = false;
       }
