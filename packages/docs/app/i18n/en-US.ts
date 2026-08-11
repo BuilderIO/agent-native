@@ -1127,9 +1127,9 @@ const enUS = {
     },
     slides: {
       s001: "Slides app screenshot",
-      s002: "Describe",
-      s003: "Generate",
-      s004: "Refine",
+      s002: "Prompt it.",
+      s003: "Brand it.",
+      s004: "Re-use it.",
       s005: "All Apps",
       s006: "Decks from your AI agent. On brand, editable, yours.",
       s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
