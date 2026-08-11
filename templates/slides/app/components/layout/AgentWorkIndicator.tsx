@@ -87,7 +87,7 @@ export function AgentWorkIndicator() {
 
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-50 w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 md:bottom-5">
-      <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-lg border border-border bg-popover/95 px-3 py-2 text-popover-foreground shadow-xl shadow-black/20 backdrop-blur">
+      <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-lg border border-border bg-popover/95 px-3 py-2 text-popover-foreground shadow-xl shadow-black/20">
         <div className="flex min-w-0 items-center gap-2">
           <IconLoader2 className="h-4 w-4 shrink-0 animate-spin text-[#609FF8]" />
           <span className="truncate text-sm font-medium">

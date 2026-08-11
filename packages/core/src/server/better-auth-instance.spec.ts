@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
+  buildDatabaseConfig,
   configureLocalSqlite,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
@@ -18,6 +19,27 @@ describe("configureLocalSqlite", () => {
       ["busy_timeout = 10000"],
       ["journal_mode = WAL"],
     ]);
+  });
+});
+
+describe("buildDatabaseConfig", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the Cloudflare D1 binding for Better Auth", async () => {
+    const d1 = { prepare: vi.fn() };
+    vi.stubGlobal("__env__", { DB: d1 });
+
+    const database = await buildDatabaseConfig("d1");
+
+    expect(database).toEqual(expect.any(Function));
+  });
+
+  it("fails clearly when the D1 binding is unavailable", async () => {
+    await expect(buildDatabaseConfig("d1")).rejects.toThrow(
+      "Cloudflare D1 database binding is unavailable",
+    );
   });
 });
 

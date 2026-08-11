@@ -112,16 +112,16 @@ describe("useChatModels", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("defaults reasoning to medium", async () => {
+  it("defaults effort to high", async () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled={false} />);
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain(":medium:");
+    expect(container.textContent).toContain(":high:");
   });
 
-  it("migrates a persisted legacy auto selection to medium", async () => {
+  it("migrates a persisted legacy auto selection to high", async () => {
     window.localStorage.setItem(
       "legacy-reasoning-selection",
       JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
@@ -137,7 +137,7 @@ describe("useChatModels", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("claude-sonnet-5:medium:");
+    expect(container.textContent).toContain("claude-sonnet-5:high:");
   });
 
   // DEFAULT_MODEL is a builder-gateway id, and the builder engine is hidden
@@ -225,6 +225,63 @@ describe("useChatModels", () => {
     });
 
     expect(catalog?.textContent).toBe("anthropic:true");
+  });
+
+  it("retries model discovery after a transient readiness failure", async () => {
+    vi.useFakeTimers();
+    try {
+      actionMocks.callAction.mockResolvedValue({
+        engines: [
+          {
+            name: "anthropic",
+            label: "Claude",
+            supportedModels: ["claude-sonnet-5"],
+            requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          },
+        ],
+      });
+      let environmentAttempts = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: unknown) => {
+          const url = String(input);
+          if (url.includes("env-status")) {
+            environmentAttempts += 1;
+            if (environmentAttempts === 1) {
+              return new Response("temporarily unavailable", { status: 503 });
+            }
+            return Response.json([
+              { key: "ANTHROPIC_API_KEY", configured: true },
+            ]);
+          }
+          if (url.includes("builder/status")) {
+            return Response.json({ configured: false });
+          }
+          return new Response("{}");
+        }),
+      );
+
+      await act(async () => {
+        root.render(<ChatModelsProbe enabled storageKey="retry-selection" />);
+        await Promise.resolve();
+      });
+      expect(
+        container.querySelector('[data-testid="probe-catalog-state"]')
+          ?.textContent,
+      ).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+
+      expect(environmentAttempts).toBe(2);
+      expect(
+        container.querySelector('[data-testid="probe-catalog-state"]')
+          ?.textContent,
+      ).toBe("anthropic:true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("syncs same-page model changes between hooks sharing a storage key", async () => {

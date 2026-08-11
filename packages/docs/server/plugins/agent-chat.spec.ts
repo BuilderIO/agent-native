@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../.generated/actions-registry.js", () => ({
-  default: {},
-}));
-
 import { DOCS_AGENT_SYSTEM_PROMPT } from "./agent-chat";
+
+// Codegen output that only exists after a dev/build run, so a clean checkout
+// cannot resolve it. Every other app's plugin spec stubs it the same way.
+vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
 
 describe("Docs agent system prompt", () => {
   it("keeps response language tied to the user's message, not the browser or page locale", () => {

@@ -30,6 +30,7 @@ import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
   getDialect,
+  getCloudflareD1Binding,
   getDatabaseUrl,
   getDatabaseAuthToken,
   closePgliteClients,
@@ -1523,7 +1524,7 @@ export function configureLocalSqlite(sqlite: {
   sqlite.pragma("journal_mode = WAL");
 }
 
-async function buildDatabaseConfig(
+export async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
@@ -1590,6 +1591,24 @@ async function buildDatabaseConfig(
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+    });
+  }
+
+  if (dialect === "d1") {
+    const d1 = getCloudflareD1Binding();
+    if (!d1) {
+      throw new Error(
+        "Cloudflare D1 database binding is unavailable; configure the DB binding before initializing Better Auth.",
+      );
+    }
+    const { drizzle } = await import("drizzle-orm/d1");
+    const db = drizzle(d1 as Parameters<typeof drizzle>[0], {
+      schema: sqliteAuthSchema,
+    });
+    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+    return drizzleAdapter(db, {
+      provider: "sqlite",
+      schema: sqliteAuthSchema,
     });
   }
 

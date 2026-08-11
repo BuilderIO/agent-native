@@ -659,6 +659,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
+    noDecksMatchSearch: "No decks match your search.",
     deleteDeckTitle: "Delete Deck?",
     deleteDeckDescription:
       "This will permanently delete this deck and all its slides. This action cannot be undone.",
@@ -689,6 +690,7 @@ const messages = {
       "Keep the default design system and reference deck unless you remove them. Search for another deck, import a file, or continue when you're ready.",
     chooseAnotherDeck: "Choose another deck",
     noMatchingDecks: "No matching decks found.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google Slides",
     googleSlidesReferenceConnect:
       "Connect Google Drive to import a Slides deck.",

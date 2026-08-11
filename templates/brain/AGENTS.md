@@ -6,11 +6,6 @@ actions and shared state.
 
 ## Skills
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
-
 Read the matching skill before deeper work:
 
 - `brain` — ingestion, distillation, retrieval, and review flows, the
@@ -24,13 +19,6 @@ Read the matching skill before deeper work:
   worker, scheduled sync, Slack rollout, demo/eval, ingest payloads); read it
   only when operating or debugging internals. It is a file inside the `brain`
   skill, not its own skill slug.
-- `agent-native-toolkit` — check existing kits and package seams before
-  building workspace or agent UI.
-- `customizing-agent-native` — the configure → compose → eject → propose seam
-  ladder.
-- `adding-a-feature` — Brain feature changes.
-- `actions`, `real-time-sync`, `security`, `frontend-design`, and `shadcn-ui`
-  for framework work; `actions` covers the shared provider API pattern.
 
 ## Core Rules
 
@@ -101,3 +89,8 @@ Read the matching skill before deeper work:
 | `test-slack-connection` / `run-slack-pilot` | Slack validation and first-sync report. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw provider HTTP. |
 | `run-demo-eval` / `run-retrieval-eval` / `seed-demo-data` | Demo corpus and eval checks. |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

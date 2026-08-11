@@ -1,6 +1,7 @@
 ---
 name: stay-within-limits
 description: Use when long-running or parallel agent work must respect 5-hour and weekly usage limits by checking usage between waves, pausing near the cap, and resuming only when the window is clear.
+scope: dev
 ---
 
 # Stay Within Limits

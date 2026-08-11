@@ -188,6 +188,149 @@ describe("server/auth", () => {
       });
     });
 
+    it("bridges a verified magic-link callback to a native desktop exchange", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      const signInMagicLink = vi.fn(async () => ({ status: true }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "owner@example.com" },
+              session: { token: "magic-session-token" },
+            })),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => ({
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "owner@example.com" },
+              session: { token: "magic-session-token" },
+            })),
+          },
+        })),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) =>
+          call[0] === "/_agent-native/auth/magic-link/desktop-callback",
+      )?.[1];
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      expect(callbackHandler).toBeTypeOf("function");
+      expect(exchangeHandler).toBeTypeOf("function");
+
+      const magicLinkHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+      const flowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      expect(flowResponse).toMatchObject({
+        ok: true,
+        flowId: expect.any(String),
+        verifier: expect.any(String),
+      });
+
+      const wrongVerifier = `${flowResponse.verifier.slice(0, -1)}x`;
+      const wrongVerifierResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: flowResponse.flowId,
+            verifier: wrongVerifier,
+          },
+        }),
+      );
+      await expect(
+        (wrongVerifierResponse as Response).text(),
+      ).resolves.toContain("Connection failed");
+
+      const callbackResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: flowResponse.flowId,
+            verifier: flowResponse.verifier,
+          },
+        }),
+      );
+      expect(callbackResponse).toBeInstanceOf(Response);
+      await expect((callbackResponse as Response).text()).resolves.toContain(
+        "Sign-in complete. You can return to the app.",
+      );
+
+      const replayResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: flowResponse.flowId,
+            verifier: flowResponse.verifier,
+          },
+        }),
+      );
+      await expect((replayResponse as Response).text()).resolves.toContain(
+        "Connection failed",
+      );
+
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: {
+              flow_id: flowResponse.flowId,
+              verifier: flowResponse.verifier,
+            },
+          }),
+        ),
+      ).resolves.toEqual({
+        token: "magic-session-token",
+        email: "owner@example.com",
+      });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: [
+            "magic-session-token",
+            "owner@example.com",
+            expect.any(Number),
+          ],
+        }),
+      );
+      expect(signInMagicLink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            callbackURL: expect.stringMatching(
+              /desktop-callback\?flow_id=[^&]+&verifier=[^&]+/,
+            ),
+          }),
+        }),
+      );
+    });
+
     it("sets first-run onboarding only for an authenticated callback", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");

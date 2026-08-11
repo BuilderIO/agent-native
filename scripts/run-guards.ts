@@ -47,6 +47,7 @@ const guards = [
   "guard:additive-migrations",
   "guard:no-silent-coercion",
   "guard:no-raw-colors",
+  "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-boot-data-work",
   "guard:no-heavy-dashboard-list-reads",

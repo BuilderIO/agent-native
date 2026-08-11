@@ -5,6 +5,7 @@ import {
   IconBrandGoogleDrive,
   IconLoader2,
   IconPlugConnected,
+  IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -65,6 +66,7 @@ export function GoogleDriveConnectionCta({
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
   const refreshStatus =
     useCallback(async (): Promise<GoogleDocsStatus | null> => {
@@ -165,7 +167,9 @@ export function GoogleDriveConnectionCta({
     }
   }, [connecting, onConnected, refreshStatus, requiresUrlImportAccess]);
 
-  if (loading || (status?.connected && !needsReconnect)) return null;
+  if (dismissed || loading || (status?.connected && !needsReconnect)) {
+    return null;
+  }
 
   const displayStatus = status ?? { configured: false, connected: false };
 
@@ -208,6 +212,14 @@ export function GoogleDriveConnectionCta({
             : t("editorExport.connectGoogle")}
         </Button>
       )}
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={t("comments.close")}
+      >
+        <IconX className="size-3.5" />
+      </button>
     </div>
   );
 }

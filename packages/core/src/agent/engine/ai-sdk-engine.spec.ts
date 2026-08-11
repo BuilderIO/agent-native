@@ -84,7 +84,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
   });
 
-  it("defaults to adaptive thinking at medium effort for a reasoning-capable Claude model", async () => {
+  it("defaults to adaptive thinking at high effort for an effort-capable Claude model", async () => {
     const { streamText } = mockAiSdk();
     mockAnthropicProvider();
 
@@ -100,7 +100,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
       type: "adaptive",
     });
     expect(call.providerOptions.anthropic.outputConfig).toEqual({
-      effort: "medium",
+      effort: "high",
     });
   });
 
@@ -122,7 +122,7 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions.anthropic.thinking).toEqual({
       type: "enabled",
-      budgetTokens: 4_096,
+      budgetTokens: 8_000,
     });
     expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
   });
@@ -285,7 +285,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
   });
 
-  it("defaults to medium reasoning when no reasoningEffort is set for Google", async () => {
+  it("defaults to high effort when no reasoningEffort is set for Google", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -301,7 +301,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
 
     const call = streamText.mock.calls[0][0];
     expect(call.providerOptions?.google?.thinkingConfig).toEqual({
-      thinkingLevel: "medium",
+      thinkingLevel: "high",
     });
   });
 });

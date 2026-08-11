@@ -36,6 +36,11 @@ export function ChatFirstBrowserPane({
     setNavigationError(null);
   }, [url]);
 
+  const currentTarget = resolveChatFirstBrowserTarget({ url: currentUrl });
+  const isExternalOnly =
+    currentTarget.status === "ready" &&
+    currentTarget.target.openExternally === true;
+
   function navigate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const target = resolveChatFirstBrowserTarget({ url: draftUrl });
@@ -184,6 +189,23 @@ export function ChatFirstBrowserPane({
               {statusMessage ? (
                 <p className="text-xs text-muted-foreground">{statusMessage}</p>
               ) : null}
+            </div>
+          </div>
+        ) : isExternalOnly ? (
+          <div className="flex h-full items-center justify-center p-6 text-center">
+            <div className="max-w-sm space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {copy("browserPreviewError")}
+              </p>
+              <a
+                href={currentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+              >
+                <IconExternalLink size={14} aria-hidden="true" />
+                {copy("browserOpenExternal")}
+              </a>
             </div>
           </div>
         ) : (

@@ -28,6 +28,7 @@ import {
   lazy,
   Suspense,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { installDesktopDesignPreviewRelay } from "./desktop-design-preview";
 
@@ -512,6 +513,24 @@ export function App() {
     document.body.style.userSelect = "none";
   }
 
+  // Carry `view-transition-name` only while the drawer morph is capturing. Left
+  // on permanently it makes this sidebar a stacking context and the containing
+  // block for every fixed/absolute descendant, and enlists it as a captured
+  // group in unrelated route view transitions. `startViewTransition` snapshots
+  // the old state before invoking its callback, so the name has to be in the
+  // DOM first — hence `flushSync`.
+  const [sidebarMorphing, setSidebarMorphing] = useState(false);
+  function runSidebarMorph(apply: () => void) {
+    flushSync(() => setSidebarMorphing(true));
+    const settle = () => setSidebarMorphing(false);
+    const transition = startAgentChatViewTransition(apply);
+    if (!transition) {
+      settle();
+      return;
+    }
+    transition.finished.then(settle, settle);
+  }
+
   function snapSidebarTo75Percent() {
     if (sidebarDrawerExitTimerRef.current !== null) {
       clearTimeout(sidebarDrawerExitTimerRef.current);
@@ -521,7 +540,7 @@ export function App() {
     const placeholderWidth = sidebarWideDrawer
       ? sidebarDrawerPlaceholderWidth
       : sidebarWidth;
-    startAgentChatViewTransition(() => {
+    runSidebarMorph(() => {
       setSidebarDrawerPlaceholderWidth(placeholderWidth);
       setSidebarWideDrawer(true);
       setSidebarWidth(next);
@@ -541,7 +560,7 @@ export function App() {
     if (!sidebarWideDrawer || sidebarDrawerExitTimerRef.current !== null)
       return;
     const next = sidebarDrawerPlaceholderWidth;
-    startAgentChatViewTransition(() => {
+    runSidebarMorph(() => {
       setSidebarWidth(next);
       try {
         localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
@@ -627,7 +646,9 @@ export function App() {
                 maxHeight: "100vh",
                 minWidth: 0,
                 pointerEvents: showFrameSidebar ? undefined : "none",
-                viewTransitionName: "agent-native-frame-sidebar",
+                ...(sidebarMorphing
+                  ? { viewTransitionName: "agent-native-frame-sidebar" }
+                  : null),
               } as CSSProperties & { "--agent-frame-sidebar-width": string }
             }
             inert={showFrameSidebar ? undefined : true}

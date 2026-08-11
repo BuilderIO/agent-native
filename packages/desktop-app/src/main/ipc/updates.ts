@@ -7,9 +7,8 @@
 // quitAndInstall from a sidebar pill / restart prompt. The app also
 // installs queued updates automatically on quit.
 //
-// In development and local packaged builds, autoUpdater is unsupported (there
-// is no release channel to update from), so we report an "unsupported" status
-// and skip all autoUpdater calls.
+// In development and local packaged builds, autoUpdater cannot install a
+// release, so update checks remain explicitly unsupported.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
@@ -274,22 +273,22 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
         message: err?.message ?? String(err),
       });
     });
-
-    app.whenReady().then(() => {
-      void checkForAppUpdates();
-      let checkRunning = false;
-      setInterval(() => {
-        if (checkRunning) return;
-        checkRunning = true;
-        void checkForAppUpdates().finally(() => {
-          checkRunning = false;
-        });
-      }, UPDATE_CHECK_INTERVAL_MS);
-    });
-
-    app.on("browser-window-focus", maybeCheckForAppUpdates);
-    app.on("activate", maybeCheckForAppUpdates);
   }
+
+  app.whenReady().then(() => {
+    void checkForAppUpdates();
+    let checkRunning = false;
+    setInterval(() => {
+      if (checkRunning) return;
+      checkRunning = true;
+      void checkForAppUpdates().finally(() => {
+        checkRunning = false;
+      });
+    }, UPDATE_CHECK_INTERVAL_MS);
+  });
+
+  app.on("browser-window-focus", maybeCheckForAppUpdates);
+  app.on("activate", maybeCheckForAppUpdates);
 
   ipcMain.handle(
     IPC.UPDATE_GET_STATUS,
