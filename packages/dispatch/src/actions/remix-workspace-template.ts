@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
+import {
+  getWorkspaceAppIdValidationError,
+  normalizeWorkspaceAppId,
+} from "@agent-native/core/shared";
 import { z } from "zod";
 
 import {
@@ -42,14 +45,18 @@ export default defineAction({
     appId: z
       .string()
       .max(64)
+      .transform(normalizeWorkspaceAppId)
       .optional()
       .nullable()
-      .refine((appId) => !appId || !getWorkspaceAppIdValidationError(appId), {
-        message:
-          "Use a non-reserved app id with lowercase letters, numbers, and hyphens.",
-      })
+      .refine(
+        (appId) => appId == null || !getWorkspaceAppIdValidationError(appId),
+        {
+          message:
+            "Use a non-reserved app id with lowercase letters, numbers, and hyphens.",
+        },
+      )
       .describe(
-        "Optional target workspace app id. Defaults to <template>-remix so the source app remains independent.",
+        "Optional target workspace app id or human-friendly name. Names are converted to lowercase, hyphenated ids. Defaults to <template>-remix so the source app remains independent.",
       ),
     description: z
       .string()

@@ -34,7 +34,8 @@ export function parseWorkspaceUrl(raw: string): ParsedWorkspaceUrl {
   let parsed: URL;
   try {
     parsed = new URL(withScheme);
-  } catch {
+  } catch (error) {
+    void error;
     return { ok: false, reason: "Not a valid URL" };
   }
 
@@ -46,6 +47,31 @@ export function parseWorkspaceUrl(raw: string): ParsedWorkspaceUrl {
   }
 
   return { ok: true, url: parsed.origin };
+}
+
+/**
+ * Whether a URL points at a browser-local development origin.
+ *
+ * Local development may use a loopback hostname or a subdomain of the
+ * reserved `.localhost` domain. Hosted previews must remain eligible for
+ * workspace guidance.
+ */
+export function isLocalDevelopmentOrigin(currentUrl: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(currentUrl).hostname.toLowerCase();
+  } catch (error) {
+    void error;
+    return false;
+  }
+
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
 }
 
 /**
@@ -66,7 +92,8 @@ export function shouldOfferWorkspace(
   let currentOrigin: string;
   try {
     currentOrigin = new URL(currentUrl).origin;
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   }
 

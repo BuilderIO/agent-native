@@ -297,6 +297,8 @@ export interface CodeAgentsAppProps {
   chatFirstMode?: boolean;
   /** Selected primary chat kind in the opt-in chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
+  /** Keep the chat-first navigation rail in its compact icon-only state. */
+  railCollapsed?: boolean;
   /** Hide host transport-unavailable copy while the chat-first shell is booting. */
   suppressChatFirstUnavailableNotice?: boolean;
   /** Select the primary chat kind in the opt-in chat-first shell. */
@@ -588,6 +590,7 @@ export default function CodeAgentsApp({
   activeChatFirstSurfaceKind,
   chatFirstMode = false,
   chatFirstMainKind = "code",
+  railCollapsed = false,
   suppressChatFirstUnavailableNotice = false,
   onChatFirstMainKindChange,
   renderChatFirstMainSurface,
@@ -2122,9 +2125,18 @@ export default function CodeAgentsApp({
     Boolean(selectedRun);
 
   return (
-    <section className="code-agents-surface" aria-label="Agent workspace">
+    <section
+      className={`code-agents-surface${
+        chatFirstMode && railCollapsed
+          ? " code-agents-surface--rail-collapsed"
+          : ""
+      }`}
+      aria-label="Agent workspace"
+    >
       <aside
-        className="code-agents-rail"
+        className={`code-agents-rail${
+          chatFirstMode && railCollapsed ? " code-agents-rail--collapsed" : ""
+        }`}
         aria-label="Agent chats and navigation"
       >
         {chatFirstMode ? (

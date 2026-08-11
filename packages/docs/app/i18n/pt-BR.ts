@@ -61,6 +61,8 @@ const ptBR = {
     dialogLabel: "Pesquisar documentação",
     placeholder: "Pesquisar documentação...",
     empty: "Digite para pesquisar em toda a documentação",
+    loadError: "A busca não pôde ser carregada. Tente novamente.",
+    retry: "Tentar novamente",
     noResults: 'Nenhum resultado para "{{query}}"',
     browseAllDocs: "Ver todos os docs",
     navigate: "navegar",

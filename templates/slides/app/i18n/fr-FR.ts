@@ -213,6 +213,8 @@ const messages = {
     usingDesignSystem: "Utilisation de {{title}}",
     usingLinkedDesignSystem: "Utilisation d’un système de design lié",
     viewOnly: "Lecture seule",
+    commenterRoleLabel: "Commentateur",
+    commenterRoleDescription: "Peut consulter et ajouter des commentaires",
     slideSettings: "Paramètres de la diapositive",
     layout: "Disposition",
     background: "Arrière-plan",

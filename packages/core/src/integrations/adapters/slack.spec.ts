@@ -1538,6 +1538,35 @@ describe("slackAdapter", () => {
     );
   });
 
+  it("fails proactive delivery when no Slack bot token is configured", async () => {
+    await expect(
+      slackAdapter().sendMessageToTarget?.(
+        { text: "hello", platformContext: {} },
+        { platform: "slack", destination: "C123" },
+      ),
+    ).rejects.toThrow("no bot token for outbound target");
+  });
+
+  it("fails proactive delivery when Slack omits its message timestamp", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    await expect(
+      slackAdapter().sendMessageToTarget?.(
+        { text: "hello", platformContext: {} },
+        { platform: "slack", destination: "C123" },
+      ),
+    ).rejects.toThrow("delivery was not confirmed");
+  });
+
   it("keeps block-rich Slack replies when fallback text is blank", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const deliveryBodies: any[] = [];

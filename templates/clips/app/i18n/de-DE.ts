@@ -526,6 +526,10 @@ const messages = {
       editor: "Editor",
       admin: "Admin",
     },
+    recordingViewer: {
+      label: "Kommentator",
+      description: "Kann ansehen, kommentieren und reagieren",
+    },
   },
   quickAsk: {
     title: "Fragen Sie nach diesem Treffen",
@@ -1577,10 +1581,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
     connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
-    googleMayShowWarning: "Google-Zugriff prüfen",
-    googleNotVerifiedTitle: "App vor dem Verbinden überprüfen",
-    googleWarningBeforeAdvanced:
-      "Prüfe, ob App-Name und angeforderter Kalenderzugriff zu der vertrauenswürdigen Clips-Bereitstellung passen. Wenn Google vor einer nicht verifizierten App warnt oder die Identität unbekannt aussieht, brich ab und wende dich an die Workspace-Administration.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Lokalisiert)",
     getDesktopApp: "Get desktop app (Lokalisiert)",

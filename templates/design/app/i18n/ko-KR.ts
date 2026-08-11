@@ -4,6 +4,8 @@ const messages = {
   ...messagesByLocale["ko-KR"],
   designEditor: {
     ...messagesByLocale["ko-KR"].designEditor,
+    commenterRoleLabel: "댓글 작성자",
+    commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",
     nodeRewrite: {
       composerTitle: "선택 영역 질문 또는 변경",
       send: "보내기",

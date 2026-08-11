@@ -1,49 +1,66 @@
 /**
- * Identity-authority logic for "Sign in with Agent-Native".
+ * Identity-authority primitives for "Sign in with Agent-Native".
  *
- * Dispatch is the canonical identity authority. A first-party client app
- * (mail, calendar, analytics, …) bounces an unauthenticated visitor to
- * Dispatch's `/_agent-native/identity/authorize`. Dispatch reuses its EXISTING
- * Better Auth session + login flow, then mints a short-lived signed identity
- * JWT (the existing A2A signer) and 302s back to the client's `redirect_uri`
- * with the token + the caller's untouched `state`.
+ * Dispatch is the identity authority. The browser receives only a short-lived
+ * one-time authorization code. The client redeems it server-to-server with a
+ * PKCE verifier; only that server-to-server response may contain the signed
+ * identity assertion used to create the app-local session.
  *
- * This module holds the pure, side-effect-free pieces so they can be unit
- * tested in isolation:
- *   - `isAllowedRedirectUri`  — the single most important security control.
- *   - `buildIdentityClaims`   — the exact JWT claim set + TTL.
- *   - `buildRedirectLocation` — where the token + state land on the redirect.
- *
- * The HTTP wiring (session resolution, login bounce, signing) lives in
- * `server/plugins/identity-sso.ts` so this file stays trivially testable with
- * no Nitro / crypto / DB dependencies.
+ * This module also owns the exact app registry and the additive code store.
+ * Canonical apps are compiled into the registry. Custom workspace apps must be
+ * explicitly registered with `IDENTITY_SSO_APP_REGISTRY_JSON`; host suffixes
+ * and wildcard domains are never accepted.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-// Control-char guard (NUL..US + DEL). Defined via codepoints so this source
-// file stays plain ASCII (mirrors packages/core/src/server/open-route.ts).
-const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
+import { getDbExec, intType } from "@agent-native/core/db";
 
-/**
- * Identity tokens are auth codes, NOT API tokens. They are exchanged
- * immediately by the client for its own session, so a tight TTL is correct.
- * 5 minutes is the documented upper bound from the build spec; we use 2.
- *
- * NOTE on the type: `signA2AToken` forwards `expiresIn` to
- * `jose.SignJWT.setExpirationTime`. In jose, a NUMBER is interpreted as an
- * ABSOLUTE Unix timestamp (seconds), while a STRING like `"2m"` is parsed
- * as a duration from now. We MUST pass the duration string form, so the
- * canonical constant is the jose duration string; the seconds value is
- * exported alongside it for tests/assertions only.
- */
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+const APP_ID = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const CLIENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const CODE = /^[A-Za-z0-9_-]{43}$/;
+const CODE_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
+const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+export const IDENTITY_SCOPE = "identity";
 export const IDENTITY_TOKEN_TTL_SECONDS = 120;
 export const IDENTITY_TOKEN_TTL = "2m";
+export const IDENTITY_AUTHORIZATION_CODE_TTL_MS =
+  IDENTITY_TOKEN_TTL_SECONDS * 1_000;
+export const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
+export const IDENTITY_SSO_TOKEN_PATH = "/_agent-native/identity/token";
 
-/** JWT `scope` claim marking this as an identity (login) token, not A2A/MCP. */
-export const IDENTITY_SCOPE = "identity";
+export function isValidSsoState(value: unknown): value is string {
+  return typeof value === "string" && STATE_PATTERN.test(value);
+}
 
-/** Exact first-party clients trusted to receive identity tokens. */
+export function normalizeIdentityAuthority(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim() || CONTROL_CHARS.test(raw)) {
+    return null;
+  }
+  try {
+    const url = new URL(raw.trim());
+    if (
+      (url.protocol !== "https:" &&
+        !(url.protocol === "http:" && LOCALHOST_HOSTS.has(url.hostname))) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
+/** Exact first-party app origins. Never replace this with a suffix check. */
 export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
   analytics: "https://analytics.agent-native.com",
   assets: "https://assets.agent-native.com",
@@ -66,143 +83,226 @@ export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
 export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = Object.values(
   CANONICAL_IDENTITY_SSO_APP_ORIGINS,
 );
-const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
 
-/** Loopback hosts allowed for local development of the client side. */
-const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+export interface IdentitySsoAppRegistration {
+  appId: string;
+  clientId: string;
+  origin: string;
+  callbackPath: typeof IDENTITY_SSO_CALLBACK_PATH;
+}
+
+function canonicalRegistrations(): IdentitySsoAppRegistration[] {
+  return Object.entries(CANONICAL_IDENTITY_SSO_APP_ORIGINS).map(
+    ([appId, origin]) => ({
+      appId,
+      clientId: appId,
+      origin,
+      callbackPath: IDENTITY_SSO_CALLBACK_PATH,
+    }),
+  );
+}
+
+function exactOrigin(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw || CONTROL_CHARS.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol !== "https:" &&
+      !(url.protocol === "http:" && LOCALHOST_HOSTS.has(url.hostname))
+    ) {
+      return null;
+    }
+    if (
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
+function parseCustomRegistrations(
+  env: NodeJS.ProcessEnv,
+): IdentitySsoAppRegistration[] {
+  const raw = env.IDENTITY_SSO_APP_REGISTRY_JSON?.trim();
+  if (!raw) return [];
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error) {
+    void error;
+    return [];
+  }
+  if (!Array.isArray(value)) return [];
+
+  const registrations: IdentitySsoAppRegistration[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as Record<string, unknown>;
+    const appId = candidate.appId;
+    const clientId = candidate.clientId;
+    const origin = exactOrigin(candidate.origin);
+    const callbackPath = candidate.callbackPath;
+    const capabilities = candidate.capabilities;
+    if (
+      typeof appId !== "string" ||
+      !APP_ID.test(appId) ||
+      typeof clientId !== "string" ||
+      !CLIENT_ID.test(clientId) ||
+      !origin ||
+      callbackPath !== IDENTITY_SSO_CALLBACK_PATH ||
+      !Array.isArray(capabilities) ||
+      !capabilities.includes("identity-sso") ||
+      seen.has(appId) ||
+      Object.prototype.hasOwnProperty.call(
+        CANONICAL_IDENTITY_SSO_APP_ORIGINS,
+        appId,
+      )
+    ) {
+      continue;
+    }
+    seen.add(appId);
+    registrations.push({
+      appId,
+      clientId,
+      origin,
+      callbackPath: IDENTITY_SSO_CALLBACK_PATH,
+    });
+  }
+  return registrations;
+}
 
 /**
- * Read an optional comma-separated extra-host-suffix allowlist from the
- * environment. Used for staging/preview client hosts that are not on
- * `*.agent-native.com`. Each entry is normalised to a lower-case,
- * dot-prefixed suffix so it can only ever broaden by whole-host suffix,
- * never by substring.
- *
- * Deploy-level configuration (not a user credential), so reading it from
- * the environment here is correct and outside the credentials-guard paths.
+ * Return the exact configured registry. Invalid custom entries are ignored;
+ * they never broaden the canonical registry. A deployment can therefore roll
+ * back custom registration by removing the env without changing code or data.
  */
-export function getConfiguredHostSuffixes(
+export function getIdentitySsoAppRegistry(
   env: NodeJS.ProcessEnv = process.env,
-): string[] {
-  const raw = env.IDENTITY_SSO_ALLOWED_HOST_SUFFIXES;
-  if (!raw || typeof raw !== "string") return [];
+): IdentitySsoAppRegistration[] {
+  return [...canonicalRegistrations(), ...parseCustomRegistrations(env)];
+}
+
+function parseAbsoluteUrl(raw: string): URL | null {
+  if (!raw || CONTROL_CHARS.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (url.username || url.password) return null;
+    return url;
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
+
+/**
+ * General redirect-origin validation. The authorize route additionally calls
+ * `resolveIdentitySsoApp`, which enforces the exact registered callback.
+ * Localhost remains available for development, but only with exact callback
+ * path and client binding in the app resolver below.
+ */
+export function isAllowedRedirectUri(rawRedirectUri: unknown): boolean {
+  if (typeof rawRedirectUri !== "string") return false;
+  const url = parseAbsoluteUrl(rawRedirectUri);
+  if (!url) return false;
+  if (url.protocol === "http:" && LOCALHOST_HOSTS.has(url.hostname)) {
+    return true;
+  }
   return (
-    raw
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-      .map((s) => (s.startsWith(".") ? s : `.${s}`))
-      // Guard against a misconfigured "" / "." that would match everything.
-      .filter((s) => s.length > 1 && s !== ".")
+    url.protocol === "https:" && DEFAULT_ALLOWED_ORIGINS.includes(url.origin)
+  );
+}
+
+function exactCallbackMatches(
+  registration: IdentitySsoAppRegistration,
+  rawRedirectUri: string,
+): boolean {
+  const url = parseAbsoluteUrl(rawRedirectUri);
+  if (!url) return false;
+  return (
+    url.origin === registration.origin &&
+    url.pathname === registration.callbackPath &&
+    !url.search &&
+    !url.hash
   );
 }
 
 /**
- * The redirect-URI allowlist. THE critical control on this endpoint.
- *
- * A `redirect_uri` is accepted ONLY when ALL of the following hold:
- *   1. It parses as an absolute URL.
- *   2. Its scheme is exactly `https:`  — EXCEPT loopback dev hosts, where
- *      `http:` is also allowed (TLS is not available on localhost).
- *   3. It has no embedded credentials (`user:pass@host`) — those are an
- *      open-redirect obfuscation vector.
- *   4. Its origin is an exact registered first-party app, a loopback host,
- *      or an operator-configured extra host suffix.
- *
- * Everything else is rejected. The authorize endpoint adds a second check
- * that binds the app id to the exact origin and callback path.
+ * Resolve an app only when app id, client id, exact origin, and callback path
+ * all agree. Loopback is the narrowly-scoped development exception and still
+ * requires a valid app/client id pair plus the fixed callback path.
  */
-export function isAllowedRedirectUri(
+export function resolveIdentitySsoApp(
+  appId: unknown,
+  clientId: unknown,
   rawRedirectUri: unknown,
-  options: { allowedHostSuffixes?: readonly string[] } = {},
-): boolean {
-  if (typeof rawRedirectUri !== "string" || rawRedirectUri.length === 0) {
-    return false;
+  env: NodeJS.ProcessEnv = process.env,
+): IdentitySsoAppRegistration | null {
+  if (
+    typeof appId !== "string" ||
+    !APP_ID.test(appId) ||
+    typeof clientId !== "string" ||
+    !CLIENT_ID.test(clientId) ||
+    typeof rawRedirectUri !== "string"
+  ) {
+    return null;
   }
-  // Reject control chars up front (CR/LF header-injection, NUL, etc.).
-  if (CONTROL_CHARS.test(rawRedirectUri)) return false;
+  const redirectUri = rawRedirectUri as string;
+  const parsedRedirect = parseAbsoluteUrl(redirectUri);
+  if (!parsedRedirect) return null;
+  const registered = getIdentitySsoAppRegistry(env).find(
+    (candidate) =>
+      candidate.appId === appId &&
+      candidate.clientId === clientId &&
+      exactCallbackMatches(candidate, redirectUri),
+  );
+  if (registered) return registered;
 
-  let url: URL;
-  try {
-    url = new URL(rawRedirectUri);
-  } catch {
-    return false;
+  const url = parseAbsoluteUrl(redirectUri);
+  if (
+    url &&
+    LOCALHOST_HOSTS.has(url.hostname) &&
+    clientId === appId &&
+    url.pathname === IDENTITY_SSO_CALLBACK_PATH &&
+    !url.search &&
+    !url.hash
+  ) {
+    return {
+      appId,
+      clientId,
+      origin: url.origin,
+      callbackPath: IDENTITY_SSO_CALLBACK_PATH,
+    };
   }
-
-  // No embedded credentials — `https://evil@good.agent-native.com` style.
-  if (url.username || url.password) return false;
-
-  const hostname = url.hostname.toLowerCase();
-  const isLoopback = LOCALHOST_HOSTS.has(hostname);
-
-  // Scheme: https everywhere, http only for loopback dev.
-  if (url.protocol === "https:") {
-    // ok
-  } else if (url.protocol === "http:" && isLoopback) {
-    // ok — local dev
-  } else {
-    return false;
-  }
-
-  if (isLoopback) return true;
-
-  if (DEFAULT_ALLOWED_ORIGINS.includes(url.origin)) return true;
-
-  const suffixes = options.allowedHostSuffixes ?? getConfiguredHostSuffixes();
-
-  // Suffix match against the full hostname, leading-dot anchored so a
-  // sibling/parent host can never satisfy a child's suffix:
-  //   "mail.agent-native.com".endsWith(".agent-native.com")        -> true
-  //   "agent-native.com.evil.com".endsWith(".agent-native.com")    -> false
-  //   "evil-agent-native.com".endsWith(".agent-native.com")        -> false
-  return suffixes.some((suffix) => hostname.endsWith(suffix));
+  return null;
 }
-
-const APP_ID = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
 export function isAllowedIdentityRedirect(
   appId: unknown,
   rawRedirectUri: unknown,
-  options: { allowedHostSuffixes?: readonly string[] } = {},
+  options: { clientId?: unknown; env?: NodeJS.ProcessEnv } = {},
 ): boolean {
-  if (typeof appId !== "string" || !APP_ID.test(appId)) return false;
-  if (!isAllowedRedirectUri(rawRedirectUri, options)) return false;
-
-  const url = new URL(rawRedirectUri as string);
-  if (url.pathname !== IDENTITY_SSO_CALLBACK_PATH || url.search || url.hash) {
-    return false;
-  }
-
-  if (DEFAULT_ALLOWED_ORIGINS.includes(url.origin)) {
-    return (
-      CANONICAL_IDENTITY_SSO_APP_ORIGINS[
-        appId as keyof typeof CANONICAL_IDENTITY_SSO_APP_ORIGINS
-      ] === url.origin
-    );
-  }
-
-  return true;
+  const clientId = options.clientId ?? appId;
+  return !!resolveIdentitySsoApp(appId, clientId, rawRedirectUri, options.env);
 }
 
 export interface IdentityClaims {
-  /** Stable user identifier — the Dispatch account email. */
   sub: string;
   email: string;
-  /** Display name when the auth provider supplied one. */
   name?: string;
-  /** Resolved org domain when the user has an active org; omitted otherwise. */
   org_domain?: string;
-  /** Marks this token as an identity (login) token. */
   scope: typeof IDENTITY_SCOPE;
-  /** Random per-token id for replay/debugging. */
   jti: string;
 }
 
-/**
- * Build the EXACT claim set for the identity token. No secrets/passwords
- * ever go in here. `sub` and `email` are the same value (the account email)
- * so a verifier can key on either. `org_domain` is included only when known.
- */
 export function buildIdentityClaims(input: {
   email: string;
   name?: string | null;
@@ -212,37 +312,211 @@ export function buildIdentityClaims(input: {
     sub: input.email,
     email: input.email,
     scope: IDENTITY_SCOPE,
-    jti: randomUUID(),
+    jti: randomBytes(16).toString("base64url"),
   };
-  if (input.name && input.name.trim()) claims.name = input.name.trim();
-  if (input.orgDomain && input.orgDomain.trim()) {
-    claims.org_domain = input.orgDomain.trim();
-  }
+  if (input.name?.trim()) claims.name = input.name.trim();
+  if (input.orgDomain?.trim()) claims.org_domain = input.orgDomain.trim();
   return claims;
 }
 
-/**
- * Construct the final redirect `Location`: the validated `redirect_uri`
- * with `token` and the caller's untouched `state` appended as QUERY
- * parameters (not the fragment) so a server-side client callback can read
- * them. Preserves any pre-existing query the client put on its
- * `redirect_uri`.
- *
- * The token is placed in `?token=<jwt>` and the opaque caller value in
- * `?state=<state>` — the client MUST echo-check `state` against what it
- * generated before trusting the token.
- *
- * `rawRedirectUri` MUST already have passed `isAllowedRedirectUri`.
- */
+function sha256Base64Url(value: string): string {
+  return createHash("sha256").update(value).digest("base64url");
+}
+
+export function createCodeChallenge(verifier: string): string | null {
+  if (!CODE_VERIFIER.test(verifier)) return null;
+  return sha256Base64Url(verifier);
+}
+
+function safeEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export function buildRedirectLocation(
   rawRedirectUri: string,
-  token: string,
+  code: string,
   state: string | null | undefined,
 ): string {
   const url = new URL(rawRedirectUri);
-  url.searchParams.set("token", token);
+  url.searchParams.set("code", code);
   if (typeof state === "string" && state.length > 0) {
     url.searchParams.set("state", state);
   }
   return url.toString();
+}
+
+export interface CreateIdentityAuthorizationCodeInput {
+  state: string;
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+  codeChallenge: string;
+  email: string;
+  name?: string | null;
+  orgDomain?: string | null;
+}
+
+export interface ConsumedIdentityAuthorizationCode {
+  email: string;
+  name?: string;
+  orgDomain?: string;
+  jti: string;
+}
+
+let codeTableInitPromise: Promise<void> | undefined;
+
+function buildCodeTableSql(): string {
+  return `
+    CREATE TABLE IF NOT EXISTS identity_sso_authorization_code (
+      code_hash TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      app_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      redirect_uri TEXT NOT NULL,
+      authority TEXT NOT NULL,
+      code_challenge TEXT NOT NULL,
+      email TEXT NOT NULL,
+      name TEXT,
+      org_domain TEXT,
+      jti TEXT NOT NULL,
+      created_at ${intType()} NOT NULL,
+      expires_at ${intType()} NOT NULL,
+      consumed_at ${intType()}
+    )
+  `;
+}
+
+async function ensureCodeTable(): Promise<void> {
+  if (!codeTableInitPromise) {
+    codeTableInitPromise = getDbExec()
+      .execute(buildCodeTableSql())
+      .then(() => undefined)
+      .catch((error) => {
+        codeTableInitPromise = undefined;
+        throw error;
+      });
+  }
+  return codeTableInitPromise;
+}
+
+function affectedRows(result: any): number {
+  return Number(result?.rowsAffected ?? result?.rowCount ?? result?.count ?? 0);
+}
+
+function identityCodeHash(code: string): string {
+  return sha256Base64Url(code);
+}
+
+export async function createIdentityAuthorizationCode(
+  input: CreateIdentityAuthorizationCodeInput,
+): Promise<string> {
+  if (
+    !STATE_PATTERN.test(input.state) ||
+    !APP_ID.test(input.appId) ||
+    !CLIENT_ID.test(input.clientId) ||
+    !CODE_CHALLENGE.test(input.codeChallenge) ||
+    !input.email ||
+    !resolveIdentitySsoApp(input.appId, input.clientId, input.redirectUri)
+  ) {
+    throw new Error("INVALID_IDENTITY_AUTHORIZATION_CODE");
+  }
+  await ensureCodeTable();
+  const code = randomBytes(32).toString("base64url");
+  const now = Date.now();
+  const claims = buildIdentityClaims(input);
+  await getDbExec().execute({
+    sql:
+      "INSERT INTO identity_sso_authorization_code " +
+      "(code_hash, state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, created_at, expires_at, consumed_at) " +
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    args: [
+      identityCodeHash(code),
+      input.state,
+      input.appId,
+      input.clientId,
+      input.redirectUri,
+      input.authority,
+      input.codeChallenge,
+      claims.email,
+      claims.name ?? null,
+      claims.org_domain ?? null,
+      claims.jti,
+      now,
+      now + IDENTITY_AUTHORIZATION_CODE_TTL_MS,
+      null,
+    ],
+  });
+  void getDbExec()
+    .execute({
+      sql: "DELETE FROM identity_sso_authorization_code WHERE expires_at < ?",
+      args: [now],
+    })
+    .catch(() => {});
+  return code;
+}
+
+export async function consumeIdentityAuthorizationCode(input: {
+  code: string;
+  state: string;
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+  codeVerifier: string;
+}): Promise<ConsumedIdentityAuthorizationCode | null> {
+  if (
+    !CODE.test(input.code) ||
+    !isValidSsoState(input.state) ||
+    !APP_ID.test(input.appId) ||
+    !CLIENT_ID.test(input.clientId) ||
+    !CODE_VERIFIER.test(input.codeVerifier)
+  ) {
+    return null;
+  }
+  const challenge = createCodeChallenge(input.codeVerifier);
+  if (!challenge) return null;
+  await ensureCodeTable();
+  const codeHash = identityCodeHash(input.code);
+  const { rows } = await getDbExec().execute({
+    sql:
+      "SELECT state, app_id, client_id, redirect_uri, authority, code_challenge, email, name, org_domain, jti, expires_at, consumed_at " +
+      "FROM identity_sso_authorization_code WHERE code_hash = ?",
+    args: [codeHash],
+  });
+  if (rows.length !== 1) return null;
+  const row: any = rows[0];
+  const expiresAt = Number(row.expires_at ?? row.expiresAt);
+  if (
+    row.consumed_at != null ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt < Date.now() ||
+    row.state !== input.state ||
+    row.app_id !== input.appId ||
+    row.client_id !== input.clientId ||
+    row.redirect_uri !== input.redirectUri ||
+    row.authority !== input.authority ||
+    !safeEqual(String(row.code_challenge ?? ""), challenge)
+  ) {
+    return null;
+  }
+  const result = await getDbExec().execute({
+    sql:
+      "UPDATE identity_sso_authorization_code SET consumed_at = ? " +
+      "WHERE code_hash = ? AND consumed_at IS NULL",
+    args: [Date.now(), codeHash],
+  });
+  if (affectedRows(result) !== 1) return null;
+  if (typeof row.email !== "string" || !row.email.includes("@")) return null;
+  if (typeof row.jti !== "string" || !row.jti) return null;
+  return {
+    email: row.email,
+    ...(typeof row.name === "string" && row.name ? { name: row.name } : {}),
+    ...(typeof row.org_domain === "string" && row.org_domain
+      ? { orgDomain: row.org_domain }
+      : {}),
+    jti: row.jti,
+  };
 }

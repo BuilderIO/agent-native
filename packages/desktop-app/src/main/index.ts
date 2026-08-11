@@ -191,7 +191,8 @@ import {
   DesktopIdentityBroker,
   desktopWorkspaceLogoutPath,
   fetchDesktopIdentityAvailability,
-  isDesktopIdentityConfiguredAppEligible,
+  isDesktopIdentityAppConfigEligible,
+  isDesktopIdentityOriginEligible,
   type DesktopIdentityApp,
 } from "./desktop-identity";
 import {
@@ -614,36 +615,56 @@ function getInjectionTargetForAppId(
 
 function resolveDesktopIdentityApp(
   appId: string,
-  options?: { forCleanup?: boolean },
+  options?: { forCleanup?: boolean; appConfigs?: AppConfig[] },
 ): DesktopIdentityApp | null {
   if (!app.isPackaged) return null;
+
+  const appConfigs = options?.appConfigs ?? loadAppsForAuthContext();
   const canonical = DESKTOP_DEFAULT_APPS.find(
     (candidate) => candidate.id === appId,
   );
-  if (!canonical) return null;
-  const canonicalOrigin = getAppOrigin({ ...canonical, mode: "prod" });
-  if (!canonicalOrigin?.startsWith("https://")) return null;
-
-  const configured = loadAppsForAuthContext().find(
-    (candidate) => candidate.id === appId,
+  const configured = appConfigs.find((candidate) => candidate.id === appId);
+  const canonicalOrigin = canonical
+    ? getAppOrigin({ ...canonical, mode: "prod" })
+    : null;
+  const configuredOrigin = configured ? getAppOrigin(configured) : null;
+  const isCanonical = Boolean(
+    canonical &&
+    configured?.isBuiltIn === true &&
+    canonicalOrigin &&
+    configuredOrigin === canonicalOrigin,
   );
-  if (
-    !options?.forCleanup &&
-    !isDesktopIdentityConfiguredAppEligible(configured)
-  ) {
-    return null;
+
+  let origin: string | null = null;
+  if (options?.forCleanup) {
+    if (canonical) {
+      origin = canonicalOrigin;
+    } else if (
+      isDesktopIdentityAppConfigEligible(configured, { forCleanup: true })
+    ) {
+      origin = configuredOrigin;
+    }
+  } else {
+    // A known canonical id with a changed origin is never treated as a custom
+    // app. This prevents an edited first-party entry from inheriting trust.
+    if (canonical && !isCanonical) return null;
+    if (
+      !isDesktopIdentityAppConfigEligible(configured, {
+        canonical: isCanonical,
+      })
+    ) {
+      return null;
+    }
+    origin = isCanonical ? canonicalOrigin : configuredOrigin;
   }
-  if (!options?.forCleanup) {
-    const configuredOrigin = getAppOrigin(configured!);
-    if (canonicalOrigin !== configuredOrigin) return null;
-  }
+  if (!isDesktopIdentityOriginEligible(origin)) return null;
 
   const primaryCookieName = getCookieNameForApp(appId);
   const appSlug = primaryCookieName.replace(/^an_session_/, "");
   const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
   return {
     id: appId,
-    origin: canonicalOrigin,
+    origin,
     session: session.fromPartition(`persist:app-${appId}`),
     cookieNames:
       primaryCookieName === "an_session"
@@ -661,10 +682,30 @@ function resolveDesktopIdentityApp(
   };
 }
 
+function listDesktopIdentityApps(
+  options: { forCleanup?: boolean } = {},
+): DesktopIdentityApp[] {
+  const appConfigs = loadAppsForAuthContext();
+  const appIds = new Set(
+    options.forCleanup
+      ? [
+          ...DESKTOP_DEFAULT_APPS.map((candidate) => candidate.id),
+          ...appConfigs.map((candidate) => candidate.id),
+        ]
+      : appConfigs.map((candidate) => candidate.id),
+  );
+  return [...appIds]
+    .map((appId) =>
+      resolveDesktopIdentityApp(appId, {
+        ...options,
+        appConfigs,
+      }),
+    )
+    .filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
 function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
-  return DESKTOP_DEFAULT_APPS.map((candidate) =>
-    resolveDesktopIdentityApp(candidate.id, { forCleanup: true }),
-  ).filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+  return listDesktopIdentityApps({ forCleanup: true });
 }
 
 async function isDesktopIdentityAvailable(
@@ -1163,7 +1204,9 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
   const status = desktopIdentityBroker.getStatus();
   if (status !== "sign-in-required" && status !== "failed") return false;
-  const identityApp = resolveDesktopIdentityApp(activeAppId);
+  const identityApp =
+    resolveDesktopIdentityApp(activeAppId) ??
+    resolveDesktopIdentityApp("dispatch");
   if (!identityApp) return false;
   return desktopIdentityBroker.signIn(identityApp.id);
 });
@@ -4925,7 +4968,8 @@ function expandPathCandidate(value: string): string | null {
   if (trimmed.startsWith("file:")) {
     try {
       return fileURLToPath(trimmed);
-    } catch {
+    } catch (error) {
+      void error;
       return null;
     }
   }
@@ -9852,6 +9896,7 @@ app.whenReady().then(async () => {
       isAvailable: isDesktopIdentityAvailable,
       resolveLoginRedirect: resolveDesktopIdentityLoginRedirect,
       resolveApp: resolveDesktopIdentityApp,
+      listApps: () => listDesktopIdentityApps(),
       createWindow: (options) => new BrowserWindow(options),
       parentWindow: () => mainWindow,
       handleWindowOpen: (contents, url) =>
@@ -10078,17 +10123,55 @@ app.whenReady().then(async () => {
 
   // Catch any webview sessions we didn't pre-configure (e.g. custom apps
   // added at runtime) when their web contents are created. Derive the app
-  // id from the webview URL's ?app= param when possible.
+  // id from the webview URL's ?app= param or exact configured origin.
+  function resolveDesktopWebviewAppId(
+    contents: Electron.WebContents,
+  ): string | null {
+    const knownId =
+      sessionToAppId.get(contents.session) ??
+      desktopWebviewAppIds.get(contents);
+    if (knownId) return knownId;
+    try {
+      const sourceUrl = contents.getURL();
+      const parsed = new URL(sourceUrl);
+      const appId = parsed.searchParams.get("app");
+      const apps = loadAppsForAuthContext();
+      if (appId) {
+        const configured = apps.find((candidate) => candidate.id === appId);
+        if (configured && getAppOrigin(configured) === parsed.origin) {
+          return configured.id;
+        }
+        return null;
+      }
+      return (
+        apps.find((candidate) => getAppOrigin(candidate) === parsed.origin)
+          ?.id ?? null
+      );
+    } catch {
+      // coercion-ok: malformed webview URLs have no associated app identity.
+      return null;
+    }
+  }
+
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
-    let id = sessionToAppId.get(wc.session) ?? null;
-    if (!id) {
-      try {
-        id = new URL(wc.getURL()).searchParams.get("app");
-      } catch {}
-    }
+    let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
+
+    const syncLoadedApp = () => {
+      id = resolveDesktopWebviewAppId(wc);
+      if (!id) return;
+      desktopWebviewAppIds.set(wc, id);
+      // This is deliberately gated inside the broker. A signed-out or
+      // unavailable broker never turns an ordinary app load into SSO.
+      const broker = desktopIdentityBroker;
+      if (broker) {
+        void broker.ensureAppSession(id).catch(() => undefined);
+      }
+    };
+    wc.on("did-finish-load", syncLoadedApp);
+
     // Capture renderer console messages to the log file so they survive
     // across sessions without DevTools needing to be open.
     captureWebviewLogs(wc, id ?? "webview");

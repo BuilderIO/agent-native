@@ -508,6 +508,10 @@ const messages = {
       editor: "Editor",
       admin: "Admin",
     },
+    recordingViewer: {
+      label: "Commenter",
+      description: "Can view, comment, and react",
+    },
   },
   quickAsk: {
     title: "Ask about this meeting",
@@ -1532,10 +1536,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
-    googleMayShowWarning: "Review Google access",
-    googleNotVerifiedTitle: "Verify the app before connecting",
-    googleWarningBeforeAdvanced:
-      "Confirm the app name and requested Calendar access match the Clips deployment you trust. If Google shows an unverified-app warning or the identity looks unfamiliar, stop and contact your workspace administrator.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
     getDesktopApp: "Get desktop app",

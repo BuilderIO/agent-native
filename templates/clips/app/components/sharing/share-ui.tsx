@@ -41,6 +41,11 @@ import { cn } from "@/lib/utils";
 export type Visibility = "private" | "org" | "public";
 export type Role = "viewer" | "editor" | "admin";
 
+export interface RoleCopy {
+  label: string;
+  description: string;
+}
+
 export interface Share {
   id: string;
   principalType: "user" | "org";
@@ -343,6 +348,7 @@ export function SharePeopleTab({
   resourceUrl,
   sharesQuery,
   canManage,
+  roleCopy,
   onError,
 }: {
   resourceType: string;
@@ -351,6 +357,7 @@ export function SharePeopleTab({
   resourceUrl?: string;
   sharesQuery: SharesQuery;
   canManage: boolean;
+  roleCopy?: Partial<Record<Role, RoleCopy>>;
   onError?: (err: unknown, action: "invite" | "remove") => void;
 }) {
   const t = useT();
@@ -364,6 +371,9 @@ export function SharePeopleTab({
 
   const data = sharesQuery.data;
   const shares = data?.shares ?? [];
+  const getRoleCopy = (value: Role): RoleCopy | undefined => roleCopy?.[value];
+  const getRoleLabel = (value: Role) =>
+    getRoleCopy(value)?.label ?? t(`shareUi.roles.${value}`);
 
   const handleAdd = () => {
     const trimmed = email.trim().toLowerCase();
@@ -421,12 +431,19 @@ export function SharePeopleTab({
             />
             <Select value={role} onValueChange={(v) => setRole(v as Role)}>
               <SelectTrigger className="h-9 w-[110px]">
-                <SelectValue />
+                <SelectValue>{getRoleLabel(role)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {ROLE_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {t(`shareUi.roles.${opt.value}`)}
+                    <div className="flex flex-col">
+                      <span>{getRoleLabel(opt.value)}</span>
+                      {getRoleCopy(opt.value)?.description ? (
+                        <span className="text-xs text-muted-foreground">
+                          {getRoleCopy(opt.value)?.description}
+                        </span>
+                      ) : null}
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -477,7 +494,7 @@ export function SharePeopleTab({
               <Avatar label={s.principalId} org={s.principalType === "org"} />
               <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
               <span className="text-xs text-muted-foreground">
-                {t(`shareUi.roles.${s.role}`)}
+                {getRoleLabel(s.role)}
               </span>
               {canManage ? (
                 <Button

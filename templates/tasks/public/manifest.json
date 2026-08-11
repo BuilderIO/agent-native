@@ -3,7 +3,6 @@
   "short_name": "Tasks",
   "description": "Workspace app for Tasks.",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#18181B",
   "icons": [

@@ -824,6 +824,12 @@ export default function EditorToolbar({
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
+          roleCopy={{
+            viewer: {
+              label: t("editorToolbar.commenterRoleLabel"),
+              description: t("editorToolbar.commenterRoleDescription"),
+            },
+          }}
           shareUrl={primaryShareLink.url}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}

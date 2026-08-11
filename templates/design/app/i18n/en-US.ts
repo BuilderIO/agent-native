@@ -2,6 +2,11 @@ import { messagesByLocale } from "../i18n-data";
 
 const messages = {
   ...messagesByLocale["en-US"],
+  designEditor: {
+    ...messagesByLocale["en-US"].designEditor,
+    commenterRoleLabel: "Commenter",
+    commenterRoleDescription: "Can view and add review comments",
+  },
   review: {
     comments: "Comments",
     commentsTab: "Comments · {{count}}",

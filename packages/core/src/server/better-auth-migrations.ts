@@ -237,6 +237,29 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     },
     run: assertBetterAuthUserIdentityColumns,
   },
+  {
+    version: 3,
+    name: "legacy-auth-sessions-table",
+    sql: {
+      // `addSession()` is still used by the mobile/deep-link OAuth flow and
+      // the workspace callback. Provision its legacy table in the release
+      // runtime so those request paths only perform normal row writes.
+      postgres: `
+        CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          email TEXT,
+          created_at BIGINT NOT NULL
+        )
+      `,
+      sqlite: `
+        CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          email TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `,
+    },
+  },
 ];
 
 export async function runBetterAuthMigrations(

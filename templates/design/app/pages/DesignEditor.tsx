@@ -31042,6 +31042,12 @@ function DesignEditor() {
               shareUrl={editorShareUrl}
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+              roleCopy={{
+                viewer: {
+                  label: t("designEditor.commenterRoleLabel"),
+                  description: t("designEditor.commenterRoleDescription"),
+                },
+              }}
               showShareLinks={false}
               shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}

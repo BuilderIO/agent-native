@@ -302,6 +302,9 @@ describe("Dispatch NavContent", () => {
     );
     expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
     expect(container.textContent).not.toContain("Agent-Native Dispatch");
+    expect(
+      sidebarLabel?.closest('a[data-dispatch-logo][href="/overview"]'),
+    ).not.toBeNull();
 
     const settingsLink = container.querySelector('a[href="/settings"]');
     const adminLink = container.querySelector('a[href="/admin"]');

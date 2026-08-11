@@ -311,17 +311,6 @@ export interface AuthOptions {
     runLocalCommand?: string;
   };
   /**
-   * Optional host-scoped notice shown before the built-in Google sign-in
-   * redirects to Google.
-   */
-  googleSignInNotice?: {
-    host?: string;
-    title: string;
-    body: string | string[];
-    continueLabel?: string;
-    cancelLabel?: string;
-  };
-  /**
    * Optional email signup legal copy for the built-in login page.
    * Leave unset to use Agent Native links only on `*.agent-native.com` hosts,
    * pass false to suppress, or pass URLs for custom/self-hosted policies.
@@ -1442,7 +1431,6 @@ function getOnboardingHtmlOptions(
     authMode,
     googleOnly: options.googleOnly,
     marketing: options.marketing,
-    googleSignInNotice: options.googleSignInNotice,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
@@ -2618,6 +2606,14 @@ async function hasAutoDevAccountUser(
   return rows.length > 0;
 }
 
+async function hasRealUser(db: ReturnType<typeof getDbExec>): Promise<boolean> {
+  const { rows } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  return rows.length > 0;
+}
+
 type AutoDevAccountCreationResult = { password: string } | null;
 
 const autoDevAccountCreationPromises = new Map<
@@ -2746,11 +2742,7 @@ async function createOrReuseAutoDevSession(
   if (session) return { email: session.email, token: session.token };
 
   const db = getDbExec();
-  const { rows: realUsers } = await db.execute({
-    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-  });
-  if (realUsers.length > 0) return null;
+  if (await hasRealUser(db)) return null;
 
   const devPassword = await createAutoDevAccountForSession(auth, db);
   if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
@@ -2768,8 +2760,40 @@ async function createOrReuseAutoDevSession(
   return session ? { email: session.email, token: session.token } : null;
 }
 
+type LocalDevAuthAvailability =
+  | { available: true }
+  | {
+      available: false;
+      reason: "not-allowed" | "existing-user" | "unreadable";
+    };
+
+async function getLocalDevAuthAvailability(
+  event: H3Event,
+  config?: BetterAuthConfig,
+): Promise<LocalDevAuthAvailability> {
+  if (!isLocalDevAuthAllowed(event)) {
+    return { available: false, reason: "not-allowed" };
+  }
+
+  try {
+    const db = getDbExec();
+    await getBetterAuth(config);
+    if (await hasAutoDevAccountUser(db)) return { available: true };
+    if (await hasRealUser(db)) {
+      return { available: false, reason: "existing-user" };
+    }
+    return { available: true };
+  } catch {
+    return { available: false, reason: "unreadable" };
+  }
+}
+
 function createLocalDevAuthHandler(config?: BetterAuthConfig) {
   return defineEventHandler(async (event) => {
+    if (getMethod(event) === "GET") {
+      setResponseHeader(event, "Cache-Control", "no-store");
+      return getLocalDevAuthAvailability(event, config);
+    }
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -2848,11 +2872,7 @@ async function maybeAutoCreateDevSession(
     // pre-fix local DB that still holds a `dev@local` row isn't treated
     // as having a "real user" (which would permanently disable
     // auto-create on that DB).
-    const { rows: realUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-    });
-    if (realUsers.length > 0) return null;
+    if (await hasRealUser(db)) return null;
 
     // If the dev account already exists, this is not a freshly-scaffolded
     // app — the user has been through the auto-create flow at least
@@ -3958,11 +3978,7 @@ async function mountBetterAuthRoutes(
             let changed = false;
             for (const key of callbackKeys) {
               if (typeof body[key] !== "string") continue;
-              const callbackURL = betterAuthCallbackURL(
-                body[key],
-                false,
-                event,
-              );
+              const callbackURL = betterAuthCallbackURL(body[key], true, event);
               if (callbackURL !== body[key]) {
                 sanitizedBody[key] = callbackURL;
                 changed = true;
@@ -4228,7 +4244,7 @@ async function mountBetterAuthRoutes(
           desktopFlow = await issueDesktopMagicLinkFlow();
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
-        const callbackURL = betterAuthCallbackURL(callbackPath, false, event);
+        const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
         const newUserCallbackPath = `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`;
         await auth.api.signInMagicLink({
           body: {
@@ -4236,7 +4252,7 @@ async function mountBetterAuthRoutes(
             callbackURL,
             newUserCallbackURL: betterAuthCallbackURL(
               newUserCallbackPath,
-              callbackURL !== callbackPath,
+              true,
               event,
             ),
           },
@@ -4272,8 +4288,8 @@ async function mountBetterAuthRoutes(
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
-          ? betterAuthCallbackURL(body.callbackURL, false, event)
-          : "/";
+          ? betterAuthCallbackURL(body.callbackURL, true, event)
+          : betterAuthCallbackURL("/", true, event);
 
       if (!email) {
         setResponseStatus(event, 400);
@@ -4690,12 +4706,7 @@ export async function autoMountAuth(
       customGetSession = options.getSession;
     }
     if (_authGuardConfig) {
-      if (
-        options.googleOnly ||
-        options.loginHtml ||
-        options.marketing ||
-        options.googleSignInNotice
-      ) {
+      if (options.googleOnly || options.loginHtml || options.marketing) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
           options,
           _authGuardConfig.authMode,

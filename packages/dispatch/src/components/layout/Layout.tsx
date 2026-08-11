@@ -102,6 +102,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { isEmbedSessionExpiredMessage } from "../../lib/embed-session-recovery";
 import { cn } from "../../lib/utils";
 import {
   isDispatchWorkspaceAppId,
@@ -1193,7 +1194,7 @@ export function NavContent({
     <div
       className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
     >
-      <OrgSwitcher compact={collapsed} reserveSpace />
+      <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
     </div>
   );
   const sidebarFooterActions = (
@@ -1213,9 +1214,12 @@ export function NavContent({
           collapsed ? "justify-center px-0" : "px-4",
         )}
       >
-        <div
+        <Link
+          to={dispatchNavLinkTarget("/overview")}
+          aria-label={`${DISPATCH_SIDEBAR_LABEL} overview`}
+          data-dispatch-logo
           className={cn(
-            "flex items-center",
+            "flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
             collapsed ? "justify-center" : "gap-2",
           )}
         >
@@ -1251,7 +1255,7 @@ export function NavContent({
               </div>
             </div>
           )}
-        </div>
+        </Link>
       </div>
 
       {chatFirstMode ? (
@@ -1586,11 +1590,9 @@ export function Layout({
 
     const handleEmbedSessionExpired = (event: MessageEvent) => {
       if (
-        event.data?.type !== "agentNative.embedSessionExpired" ||
-        event.source !== chatFirstAppFrameRef.current?.contentWindow
-      ) {
+        !isEmbedSessionExpiredMessage(event, chatFirstAppFrameRef.current, null)
+      )
         return;
-      }
       setChatFirstEmbedAttempt((attempt) => attempt + 1);
     };
 
@@ -2109,13 +2111,14 @@ export function Layout({
         chatOnly
         dynamicSuggestions={false}
         suggestions={[]}
+        suppressInlineOpenApp={chatFirstMode}
         emptyStateDisplay="hidden"
         composerPlaceholder={t(
           "dispatch.pages.chatFirstSessionMessagePlaceholder",
         )}
       />
     ),
-    [t],
+    [chatFirstMode, t],
   );
 
   const renderChatFirstSurfaceTab = useCallback(
@@ -2152,6 +2155,7 @@ export function Layout({
             onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
             renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
               <iframe
+                key={`${url}:${chatFirstEmbedAttempt}`}
                 data-dispatch-chat-first-app-frame
                 src={url}
                 title={title ?? chatFirstCopy("appUnavailable")}

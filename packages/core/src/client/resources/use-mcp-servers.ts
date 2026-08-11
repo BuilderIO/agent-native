@@ -306,6 +306,21 @@ export function formatMcpServerError(error: unknown): string {
   return text.length > 240 ? `${text.slice(0, 237).trimEnd()}...` : text;
 }
 
+export function formatMcpServersLoadError(error: unknown): string {
+  const raw =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error ?? "");
+  const text = raw.trim();
+  if (!text) return "Could not load agent integrations.";
+  if (/401|unauthorized|signed-in workspace app|workspace app/i.test(text)) {
+    return "Sign in to a workspace app, then retry loading agent integrations.";
+  }
+  return text.length > 240 ? `${text.slice(0, 237).trimEnd()}...` : text;
+}
+
 export async function testMcpServerUrl(
   url: string,
   headers?: Record<string, string>,

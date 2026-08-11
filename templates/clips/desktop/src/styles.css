@@ -108,8 +108,7 @@ button {
 
 body[data-clips-route="popover"] #root {
   min-height: 100vh;
-  padding: var(--popover-shadow-gutter-top) var(--popover-shadow-gutter)
-    var(--popover-shadow-gutter);
+  padding: 0;
 }
 
 body[data-clips-route]:not([data-clips-route="popover"]) #root {
@@ -150,6 +149,355 @@ body[data-clips-route="recording-pill"] #root {
   gap: 0;
   padding: 0;
   overflow-y: auto;
+}
+
+/* Settings uses the same calm rail + grouped rows as the hosted workspace
+   settings pages. The native popover keeps its own light/dark tokens, but the
+   hierarchy is intentionally shared: navigate on the left, edit one setting
+   at a time on the right. */
+.settings-page {
+  min-height: 560px;
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.settings-page-header {
+  flex: 0 0 auto;
+  min-height: 68px;
+  padding: 16px 24px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-page-title {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-page-title h2 {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.settings-page-title p {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.settings-page-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.settings-nav {
+  min-width: 0;
+  padding: 18px 12px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.settings-nav-group--start:not(:first-child) {
+  margin-top: 18px;
+}
+
+.settings-nav-group-label {
+  padding: 0 10px 7px;
+  color: var(--fg-subtle);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-nav-button {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.settings-nav-button:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.settings-nav-button.is-active {
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-nav-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.settings-page-content {
+  min-width: 0;
+  min-height: 0;
+  padding: 24px 28px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-tab-heading {
+  display: grid;
+  gap: 4px;
+  margin: 0 auto 22px;
+  max-width: 760px;
+}
+
+.settings-tab-heading h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.settings-tab-heading p {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.settings-tab-content {
+  display: grid;
+  gap: 22px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.settings-group {
+  min-width: 0;
+}
+
+.settings-group-header {
+  display: grid;
+  gap: 3px;
+  padding: 0 2px 9px;
+}
+
+.settings-group-header h4 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-group-header p {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-group-body {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 360px);
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row--stacked {
+  align-items: start;
+}
+
+.settings-row-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-row-copy strong {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-row-copy span {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-row-control {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.settings-row-control > .setup-select,
+.settings-row-control > .setup-shortcut-recorder {
+  width: min(100%, 300px);
+}
+
+.settings-row-control > .setup-textarea {
+  width: 100%;
+}
+
+.settings-control-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.settings-control-group--wide {
+  flex-wrap: nowrap;
+}
+
+.settings-control-group .setup-select {
+  width: min(100%, 300px);
+}
+
+.settings-control-group .settings-url-input {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+
+.settings-page .secondary,
+.settings-page .link-button {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.settings-url-input {
+  width: 100%;
+}
+
+.settings-row-extra {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 2px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-row-extra--inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-row-extra--inline > span:first-child {
+  flex: 1 1 260px;
+}
+
+.settings-text-button {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.settings-text-button:hover {
+  color: var(--fg);
+}
+
+.settings-text-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.settings-group-inset {
+  padding: 12px 14px;
+}
+
+@media (max-width: 760px) {
+  .settings-page {
+    min-height: 480px;
+  }
+
+  .settings-page-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    display: flex;
+    gap: 4px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .settings-nav-group,
+  .settings-nav-group + .settings-nav-group,
+  .settings-nav-group--start:not(:first-child) {
+    display: contents;
+    margin: 0;
+  }
+
+  .settings-nav-group-label {
+    display: none;
+  }
+
+  .settings-nav-button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .settings-page-content {
+    padding: 20px 16px 24px;
+  }
+
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .settings-row-control {
+    justify-content: flex-start;
+  }
+
+  .settings-control-group,
+  .settings-control-group--wide {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 /* Recorder Home keeps its navigation present even when active-recording
@@ -665,13 +1013,24 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 4px;
 }
 
-.system-audio-option {
-  margin-top: 8px;
+.row-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
 }
 
-.system-audio-option-label {
+.row-menu-setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   color: var(--fg);
   font-size: 13px;
+}
+
+.row-menu-setting-label {
+  flex: 1;
+  min-width: 0;
   font-weight: 500;
 }
 
