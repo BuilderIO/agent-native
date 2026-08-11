@@ -155,9 +155,21 @@ export default defineAction({
     }
     if (navigation?.view === "metrics") {
       try {
-        const metrics = await listDispatchUsageMetrics({ sinceDays: 30 });
+        const usageScope =
+          navigation.usageScope === "workspace" ? "workspace" : "me";
+        const usageUserEmail =
+          typeof navigation.usageUserEmail === "string"
+            ? navigation.usageUserEmail
+            : undefined;
+        const metrics = await listDispatchUsageMetrics({
+          sinceDays: 30,
+          scope: usageScope,
+          userEmail: usageUserEmail,
+        });
         screen.usageMetrics = {
           billing: metrics.billing,
+          viewScope: metrics.viewScope,
+          selectedUserEmail: metrics.selectedUserEmail,
           totals: metrics.totals,
           byApp: metrics.byApp.slice(0, 8),
           byUser: metrics.byUser.slice(0, 8),

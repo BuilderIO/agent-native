@@ -55,8 +55,18 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@agent-native/toolkit/ui/select";
-import { toAppDefinition, type AppConfig } from "@shared/app-registry";
-import { IconPlus, IconSettings } from "@tabler/icons-react";
+import {
+  getDesktopVisibleApps,
+  isDesktopAppVisible,
+  toAppDefinition,
+  type AppConfig,
+} from "@shared/app-registry";
+import {
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconPlus,
+  IconSettings,
+} from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   useCallback,
@@ -100,6 +110,8 @@ const agentNativeIconUrl = new URL(
   import.meta.url,
 ).href;
 const codeAgentsQueryClient = createAgentNativeQueryClient();
+const CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY =
+  "agent-native:desktop-chat-first-rail-collapsed";
 const MULTI_FRONTIER_PROVIDERS: readonly MultiFrontierProviderId[] = [
   "codex",
   "claude",
@@ -195,6 +207,35 @@ export function isDispatchControlPlanePath(path?: string): boolean {
   );
 }
 
+export function dispatchControlPlaneTitle(path?: string): string | null {
+  if (!isDispatchControlPlanePath(path)) return null;
+  const pathname = new URL(path!, "http://agent-native.invalid").pathname;
+  if (
+    pathname === "/integrations" ||
+    pathname.startsWith("/integrations/") ||
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "Integrations";
+  }
+  return "Automations";
+}
+
+function isVisibleChatFirstSurfaceTab(
+  tab: ChatFirstSurfaceTab,
+  apps: AppConfig[],
+): boolean {
+  if (tab.kind !== "app" || !tab.appId) return true;
+  const app = apps.find(
+    (candidate) => candidate.id === tab.appId && candidate.enabled,
+  );
+  return Boolean(
+    app &&
+    (isDesktopAppVisible(app) ||
+      (app.id === "dispatch" && isDispatchControlPlanePath(tab.path))),
+  );
+}
+
 export function dispatchControlPlaneUrlParams(
   path?: string,
 ): Record<string, string | null> {
@@ -206,15 +247,15 @@ export function dispatchControlPlaneUrlParams(
 function DesktopAppsGrid({
   apps,
   onCreateApp,
-  onOpenAllApps,
   onOpenApp,
 }: {
   apps: AppConfig[];
   onCreateApp?: () => void;
-  onOpenAllApps: () => void;
   onOpenApp: (app: AppConfig) => void;
 }) {
-  const visibleApps = apps.filter((app) => app.enabled && app.id !== "agent");
+  const visibleApps = getDesktopVisibleApps(apps).filter(
+    (app) => app.enabled && app.id !== "agent",
+  );
   if (visibleApps.length === 0) return null;
 
   return (
@@ -222,13 +263,6 @@ function DesktopAppsGrid({
       <div className="desktop-apps-grid__header">
         <h3 className="desktop-apps-grid__title">Apps</h3>
         <div className="desktop-apps-grid__actions">
-          <button
-            type="button"
-            className="desktop-apps-grid__action"
-            onClick={onOpenAllApps}
-          >
-            <span>View all</span>
-          </button>
           {onCreateApp ? (
             <button
               type="button"
@@ -340,12 +374,24 @@ export default function CodeAgentsHub({
     ChatFirstAgentActivity[]
   >([]);
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
+  const visibleChatFirstSurfaceTabs = useMemo(
+    () =>
+      chatFirstSurfaceTabs.tabs.filter((tab) =>
+        isVisibleChatFirstSurfaceTab(tab, apps),
+      ),
+    [apps, chatFirstSurfaceTabs.tabs],
+  );
+  const visibleActiveChatFirstSurfaceTabId = visibleChatFirstSurfaceTabs.some(
+    (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
+  )
+    ? chatFirstSurfaceTabs.activeTabId
+    : visibleChatFirstSurfaceTabs[0]?.id;
   const activeChatFirstSurfaceTab = useMemo(
     () =>
-      chatFirstSurfaceTabs.tabs.find(
-        (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
+      visibleChatFirstSurfaceTabs.find(
+        (tab) => tab.id === visibleActiveChatFirstSurfaceTabId,
       ) ?? null,
-    [chatFirstSurfaceTabs],
+    [visibleActiveChatFirstSurfaceTabId, visibleChatFirstSurfaceTabs],
   );
   const chatFirstDefaultInitializedRef = useRef(false);
   useEffect(() => {
@@ -392,6 +438,12 @@ export default function CodeAgentsHub({
   const [hasChatFirstChats, setHasChatFirstChats] = useState(false);
   const [hasChatFirstActiveChat, setHasChatFirstActiveChat] = useState(false);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
+  const [chatFirstRailCollapsed, setChatFirstRailCollapsed] = useState(() =>
+    typeof window === "undefined"
+      ? false
+      : window.localStorage.getItem(CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY) ===
+        "1",
+  );
   const handledChatFirstAppOpenNonceRef = useRef<number | null>(null);
   const handledChatFirstPreviewNonceRef = useRef<number | null>(null);
   const [multiFrontierMode, setMultiFrontierMode] = useState(false);
@@ -437,12 +489,26 @@ export default function CodeAgentsHub({
         setChatFirstNotice("That app is not enabled in the desktop workspace.");
         return;
       }
+      const dispatchControlPlane =
+        app.id === "dispatch" && isDispatchControlPlanePath(path);
+      if (!isDesktopAppVisible(app) && !dispatchControlPlane) {
+        setChatFirstNotice(
+          "That app is not available in the desktop workspace.",
+        );
+        return;
+      }
       window.electronAPI?.setActiveApp?.(app.id);
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
       closeChatFirstSessionWatch();
+      const surfaceTab = chatFirstAppSurfaceTab(app, path, view, placement);
       chatFirstSurfaceTabsStore.open(
-        chatFirstAppSurfaceTab(app, path, view, placement),
+        dispatchControlPlane
+          ? {
+              ...surfaceTab,
+              title: dispatchControlPlaneTitle(path) ?? surfaceTab.title,
+            }
+          : surfaceTab,
       );
       setChatFirstSurfacePanelOpen(true);
     },
@@ -500,7 +566,7 @@ export default function CodeAgentsHub({
   );
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
-      apps
+      getDesktopVisibleApps(apps)
         .filter((app) => app.enabled && app.id !== "agent")
         .map((app) => ({
           id: app.id,
@@ -543,10 +609,6 @@ export default function CodeAgentsHub({
     (app: AppConfig) => openChatFirstApp(app.id),
     [openChatFirstApp],
   );
-  const openAllChatFirstApps = useCallback(
-    () => openChatFirstApp("dispatch", "/apps"),
-    [openChatFirstApp],
-  );
   const renderChatFirstAppIcon = useCallback(
     (app: ChatFirstAppItem) => (
       <CodeAgentsAppIcon
@@ -586,6 +648,7 @@ export default function CodeAgentsHub({
               ? activeChatFirstSurfaceTab.appId
               : undefined
           }
+          collapsed={chatFirstRailCollapsed}
           createAppTrigger={
             onChatFirstAppCreated ? (
               <CreateAppPromptPopover onCreated={onChatFirstAppCreated} />
@@ -594,7 +657,6 @@ export default function CodeAgentsHub({
           onCreateApp={onCreateApp}
           onRemoveApp={onChatFirstAppRemove}
           onOpenApp={openChatFirstAppFromRail}
-          onOpenAllApps={openAllChatFirstApps}
           renderIcon={renderChatFirstAppIcon}
           copy={defaultChatFirstCopy}
         />
@@ -605,11 +667,11 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind,
     chatFirstAppItems,
     chatFirstMode,
+    chatFirstRailCollapsed,
     chatFirstNotice,
     onChatFirstAppCreated,
     onChatFirstAppRemove,
     onCreateApp,
-    openAllChatFirstApps,
     openChatFirstAppFromRail,
     renderChatFirstAppIcon,
   ]);
@@ -688,6 +750,13 @@ export default function CodeAgentsHub({
   ]);
 
   useEffect(() => {
+    window.localStorage.setItem(
+      CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY,
+      chatFirstRailCollapsed ? "1" : "0",
+    );
+  }, [chatFirstRailCollapsed]);
+
+  useEffect(() => {
     if (!chatFirstMode) {
       setChatFirstBrowserSelection(null);
       setChatFirstNotice(null);
@@ -722,7 +791,7 @@ export default function CodeAgentsHub({
   }, [chatFirstMode, chatFirstSessionWatch.target, chatFirstSurfaceTabsStore]);
 
   useEffect(() => {
-    const tabCount = chatFirstSurfaceTabs.tabs.length;
+    const tabCount = visibleChatFirstSurfaceTabs.length;
     const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
     if (!chatFirstMode || !hasChatFirstActiveChat) {
       setChatFirstSurfacePanelOpen(false);
@@ -743,7 +812,7 @@ export default function CodeAgentsHub({
     chatFirstMode,
     hasChatFirstActiveChat,
     setChatFirstSurfacePanelOpen,
-    chatFirstSurfaceTabs.tabs.length,
+    visibleChatFirstSurfaceTabs.length,
   ]);
 
   useEffect(() => {
@@ -799,11 +868,14 @@ export default function CodeAgentsHub({
   }, [chatFirstSurfaceTabsStore]);
 
   useEffect(() => {
-    const enabledAppIds = new Set(
-      apps.filter((app) => app.enabled).map((app) => app.id),
-    );
     for (const tab of chatFirstSurfaceTabs.tabs) {
-      if (tab.kind === "app" && tab.appId && !enabledAppIds.has(tab.appId)) {
+      if (tab.kind !== "app" || !tab.appId) continue;
+      const app = apps.find(
+        (candidate) => candidate.id === tab.appId && candidate.enabled,
+      );
+      const dispatchControlPlane =
+        app?.id === "dispatch" && isDispatchControlPlanePath(tab.path);
+      if (!app || (!isDesktopAppVisible(app) && !dispatchControlPlane)) {
         chatFirstSurfaceTabsStore.close(tab.id);
       }
     }
@@ -1665,7 +1737,7 @@ export default function CodeAgentsHub({
   );
 
   const chatFirstPreviewApp = chatFirstPreviewRequest
-    ? apps.find(
+    ? getDesktopVisibleApps(apps).find(
         (app) => app.id === chatFirstPreviewRequest.appId && app.enabled,
       )
     : undefined;
@@ -1760,6 +1832,9 @@ export default function CodeAgentsHub({
         if (!app) return null;
         const dispatchControlPlane =
           tab.appId === "dispatch" && isDispatchControlPlanePath(tab.path);
+        const surfaceApp = dispatchControlPlane
+          ? { ...app, name: dispatchControlPlaneTitle(tab.path) ?? app.name }
+          : app;
         const isTabActive = isChatFirstSurfaceTabActive({
           surfaceActive: isActive,
           tabId: tab.id,
@@ -1767,13 +1842,13 @@ export default function CodeAgentsHub({
         });
         return (
           <ChatFirstAppPane
-            app={app}
+            app={surfaceApp}
             status="ready"
             embedUrl={tab.path ?? "/"}
             renderEmbed={() => (
               <AppWebview
-                app={toAppDefinition(app)}
-                appConfig={app}
+                app={toAppDefinition(surfaceApp)}
+                appConfig={surfaceApp}
                 isActive={isTabActive}
                 urlPath={tab.path}
                 urlParams={
@@ -1857,6 +1932,7 @@ export default function CodeAgentsHub({
             chatFirstMode ? activeChatFirstSurfaceTab?.kind : undefined
           }
           chatFirstMode={chatFirstMode}
+          railCollapsed={chatFirstRailCollapsed}
           chatFirstMainKind={chatFirstAppTakesMain ? "agent" : "code"}
           renderChatFirstMainSurface={
             chatFirstAppTakesMain && activeChatFirstSurfaceTab
@@ -1879,7 +1955,6 @@ export default function CodeAgentsHub({
               <DesktopAppsGrid
                 apps={apps}
                 onCreateApp={onCreateApp}
-                onOpenAllApps={openAllChatFirstApps}
                 onOpenApp={openChatFirstAppFromGrid}
               />
             ) : undefined
@@ -1888,20 +1963,58 @@ export default function CodeAgentsHub({
             chatFirstMode ? (
               <>
                 <UpdateIndicator variant="rail" />
-                {onOpenSettings ? (
+                <div className="desktop-chat-first-rail-footer-actions">
+                  {onOpenSettings ? (
+                    <button
+                      type="button"
+                      className="code-agents-nav-link"
+                      onClick={onOpenSettings}
+                      aria-label="Settings"
+                      title="Settings"
+                    >
+                      <IconSettings
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Settings</span>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    className="code-agents-nav-link"
-                    onClick={onOpenSettings}
+                    className="code-agents-nav-link desktop-chat-first-rail-collapse"
+                    onClick={() =>
+                      setChatFirstRailCollapsed((collapsed) => !collapsed)
+                    }
+                    aria-label={
+                      chatFirstRailCollapsed
+                        ? "Expand sidebar"
+                        : "Collapse sidebar"
+                    }
+                    title={
+                      chatFirstRailCollapsed
+                        ? "Expand sidebar"
+                        : "Collapse sidebar"
+                    }
                   >
-                    <IconSettings
-                      size={15}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                    <span>Settings</span>
+                    {chatFirstRailCollapsed ? (
+                      <IconLayoutSidebarLeftExpand
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <IconLayoutSidebarLeftCollapse
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span>
+                      {chatFirstRailCollapsed ? "Expand" : "Collapse"}
+                    </span>
                   </button>
-                ) : null}
+                </div>
               </>
             ) : undefined
           }
@@ -1930,8 +2043,8 @@ export default function CodeAgentsHub({
           >
             {activeChatFirstSurfaceTab?.kind !== "app" ? (
               <ChatFirstSurfaceTabs
-                tabs={chatFirstSurfaceTabs.tabs}
-                activeTabId={chatFirstSurfaceTabs.activeTabId}
+                tabs={visibleChatFirstSurfaceTabs}
+                activeTabId={visibleActiveChatFirstSurfaceTabId}
                 onActivate={activateChatFirstSurfaceTab}
                 onClose={closeChatFirstSurfaceTab}
                 onCloseOthers={(tab) => {
@@ -1939,12 +2052,12 @@ export default function CodeAgentsHub({
                   chatFirstSurfaceTabsStore.closeOthers(tab.id);
                 }}
                 onCloseToRight={(tab) => {
-                  const targetIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                  const targetIndex = visibleChatFirstSurfaceTabs.findIndex(
                     (candidate) => candidate.id === tab.id,
                   );
-                  const activeIndex = chatFirstSurfaceTabs.tabs.findIndex(
+                  const activeIndex = visibleChatFirstSurfaceTabs.findIndex(
                     (candidate) =>
-                      candidate.id === chatFirstSurfaceTabs.activeTabId,
+                      candidate.id === visibleActiveChatFirstSurfaceTabId,
                   );
                   if (activeIndex > targetIndex) {
                     activateChatFirstSurfaceTab(tab);
@@ -1961,10 +2074,10 @@ export default function CodeAgentsHub({
                 copy={defaultChatFirstCopy}
               />
             ) : null}
-            {chatFirstSurfaceTabs.tabs.length > 0 ? (
+            {visibleChatFirstSurfaceTabs.length > 0 ? (
               <ChatFirstSurfaceContent
-                tabs={chatFirstSurfaceTabs.tabs}
-                activeTabId={chatFirstSurfaceTabs.activeTabId}
+                tabs={visibleChatFirstSurfaceTabs}
+                activeTabId={visibleActiveChatFirstSurfaceTabId}
                 renderTab={renderChatFirstSurfaceTab}
               />
             ) : null}

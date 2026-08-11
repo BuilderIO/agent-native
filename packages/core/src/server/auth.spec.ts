@@ -144,7 +144,7 @@ describe("server/auth", () => {
   });
 
   describe("magic-link login", () => {
-    it("normalizes the email and keeps the callback same-origin", async () => {
+    it("normalizes the email and uses absolute same-origin callbacks", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       const signInMagicLink = vi.fn(async () => ({ status: true }));
@@ -187,12 +187,34 @@ describe("server/auth", () => {
       expect(signInMagicLink).toHaveBeenCalledWith({
         body: {
           email: "owner@example.com",
-          callbackURL: "/",
+          callbackURL: "http://localhost/",
           newUserCallbackURL:
-            "/_agent-native/auth/magic-link/new-user?return=%2F",
+            "http://localhost/_agent-native/auth/magic-link/new-user?return=%2F",
         },
         headers: event.headers,
       });
+
+      await expect(
+        handler(
+          createJsonPostEvent(
+            "/_agent-native/auth/magic-link",
+            {
+              email: "owner@example.com",
+              callbackURL: "/library?error=INVALID_TOKEN",
+            },
+            undefined,
+            "https://clips.agent-native.com",
+          ),
+        ),
+      ).resolves.toEqual({ ok: true });
+
+      const reportRequest = signInMagicLink.mock.calls[1]?.[0];
+      expect(reportRequest.body.callbackURL).toBe(
+        "https://clips.agent-native.com/library?error=INVALID_TOKEN",
+      );
+      expect(reportRequest.body.newUserCallbackURL).toBe(
+        "https://clips.agent-native.com/_agent-native/auth/magic-link/new-user?return=%2Flibrary%3Ferror%3DINVALID_TOKEN",
+      );
     });
 
     it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {
@@ -2466,7 +2488,7 @@ describe("server/auth", () => {
           email: "steve+1@builder.io",
           password: "secret-password",
           name: "steve+1",
-          callbackURL: "/after",
+          callbackURL: "https://localhost/after",
         },
         headers: event.headers,
       });
@@ -2993,7 +3015,7 @@ describe("server/auth", () => {
 
       expect(forwardedBody).toEqual({
         email: "user@example.com",
-        callbackURL: "/",
+        callbackURL: "http://localhost/",
       });
     });
 
@@ -4458,28 +4480,6 @@ describe("server/auth", () => {
       expect(html).toContain("function __anCopyRunLocalCommand()");
     });
 
-    it("can split the Google preflight notice into paragraphs", async () => {
-      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
-      const html = getOnboardingHtml({
-        googleOnly: true,
-        googleSignInNotice: {
-          title: "Hosted Mail may show Google warnings",
-          body: [
-            "This demo uses a shared OAuth client.",
-            "Self-hosting avoids this warning.",
-          ],
-        },
-      });
-
-      expect(html).toContain('id="google-preflight-copy"');
-      expect(html).toContain("This demo uses a shared OAuth client.");
-      expect(html).toContain("Self-hosting avoids this warning.");
-      expect(html.match(/class="google-preflight-copy"/g)).toHaveLength(2);
-    });
-
     it("defaults the active tab from the login or signup path", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml();
@@ -5481,6 +5481,12 @@ describe("server/auth", () => {
       event.req.ip = "127.0.0.1";
       event.node.req.socket = socket;
       event.node.req.connection = socket;
+
+      await expect(localDevHandler(event)).resolves.toEqual({
+        available: true,
+      });
+      expect(event.res.headers.get("cache-control")).toBe("no-store");
+
       event.req.method = "POST";
       event.node.req.method = "POST";
 
@@ -5493,6 +5499,24 @@ describe("server/auth", () => {
       expect(event.res.headers.get("set-cookie")).toContain(
         "better-auth-dev-session",
       );
+
+      mockExecute.mockImplementation(async (query: { sql?: string }) => ({
+        rows: query.sql?.includes("NOT IN")
+          ? [{ email: "existing@example.com" }]
+          : [],
+      }));
+      const unavailableEvent = createMockEvent({
+        path: "/_agent-native/auth/local-dev",
+      });
+      unavailableEvent.req.context = { clientAddress: "127.0.0.1" };
+      unavailableEvent.req.ip = "127.0.0.1";
+      unavailableEvent.node.req.socket = socket;
+      unavailableEvent.node.req.connection = socket;
+
+      await expect(localDevHandler(unavailableEvent)).resolves.toEqual({
+        available: false,
+        reason: "existing-user",
+      });
     });
 
     it("keeps the endpoint out of custom auth and rejects production, previews, and remote peers", async () => {

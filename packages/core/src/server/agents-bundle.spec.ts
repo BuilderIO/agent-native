@@ -563,6 +563,10 @@ describe("readAgentsBundleFromFs", () => {
     expect(turnIntoApp!.content).toContain(
       "MCP connector does not read hidden",
     );
+    expect(turnIntoApp!.content).toContain("Spreadsheet sources");
+    expect(turnIntoApp!.content).toContain(
+      "A Google Sheets URL is a live provider source",
+    );
     expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
 
     const promptBlock = generateSkillsPromptBlock(bundle);

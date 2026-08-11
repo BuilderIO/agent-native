@@ -204,6 +204,8 @@ const messages = {
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",
     viewOnly: "केवल देखें",
+    commenterRoleLabel: "टिप्पणीकार",
+    commenterRoleDescription: "देख सकते हैं और टिप्पणियां जोड़ सकते हैं",
     slideSettings: "स्लाइड सेटिंग्स",
     layout: "लेआउट",
     background: "बैकग्राउंड",

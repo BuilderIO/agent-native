@@ -40,6 +40,7 @@ import {
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
+  resolveAssistantChatComposerPlaceholder,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
@@ -1732,6 +1733,20 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
   });
 });
 
+describe("resolveAssistantChatComposerPlaceholder", () => {
+  it("provides a clear default for shared chat composers", () => {
+    expect(resolveAssistantChatComposerPlaceholder(undefined)).toBe(
+      "Write a message...",
+    );
+  });
+
+  it("preserves host-provided composer copy", () => {
+    expect(
+      resolveAssistantChatComposerPlaceholder("Ask about your data..."),
+    ).toBe("Ask about your data...");
+  });
+});
+
 describe("shouldShowGlobalRunningStatus", () => {
   it("hides the duplicate generic status while reasoning is visibly streaming", () => {
     expect(
@@ -1812,7 +1827,7 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(false);
   });
 
-  it("lets a resolved final tool carry the active state without duplicate Thinking", () => {
+  it("keeps active status visible after a completed tool call", () => {
     expect(
       shouldShowGlobalRunningStatus({
         showRunningInUI: true,
@@ -1828,6 +1843,28 @@ describe("shouldShowGlobalRunningStatus", () => {
               argsText: "{}",
               args: {},
               result: "done",
+            },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("hides generic status while a pending tool card is visible", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "db-query",
+              argsText: "{}",
+              args: {},
             },
           ],
         },

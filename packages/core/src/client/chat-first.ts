@@ -565,14 +565,20 @@ export function orderChatFirstAppIds(
     ...preferredDefaults,
     ...appIds.filter((id) => !preferredDefaultSet.has(id)),
   ];
+  const manualOrderedIds = layout.orderedIds.filter((id) => available.has(id));
+  const hasManualOrder = manualOrderedIds.length > 0;
   const ordered = [
-    ...layout.orderedIds.filter((id) => available.has(id)),
+    ...manualOrderedIds,
     ...fallbackOrder.filter((id) => !layout.orderedIds.includes(id)),
   ];
-  const pinned = new Set(layout.pinnedIds.filter((id) => available.has(id)));
-  // `orderedIds` is the single source of positional truth. Pinning changes
-  // presentation only; it must not rewrite the user's drag order or make an
-  // unpinned app jump to the fallback order.
+  const pinnedIds = layout.pinnedIds.filter((id) => available.has(id));
+  const pinned = new Set(pinnedIds);
+  // A live `orderedIds` value is the single source of positional truth. Pinning
+  // changes presentation only; it must not rewrite the user's drag order or
+  // make an unpinned app jump to the fallback order.
+  if (!hasManualOrder) {
+    return [...pinnedIds, ...fallbackOrder.filter((id) => !pinned.has(id))];
+  }
   return [
     ...ordered.filter((id) => pinned.has(id)),
     ...ordered.filter((id) => !pinned.has(id)),

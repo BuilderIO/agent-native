@@ -4,6 +4,8 @@ const messages = {
   ...messagesByLocale["ar-SA"],
   designEditor: {
     ...messagesByLocale["ar-SA"].designEditor,
+    commenterRoleLabel: "معلّق",
+    commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",
     nodeRewrite: {
       composerTitle: "اسأل عن التحديد أو غيّره",
       send: "إرسال",

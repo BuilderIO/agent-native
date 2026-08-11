@@ -196,6 +196,8 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已關聯的設計系統",
     viewOnly: "僅檢視",
+    commenterRoleLabel: "評論者",
+    commenterRoleDescription: "可以檢視並新增評論",
     slideSettings: "幻燈片設定",
     layout: "布局",
     background: "背景",

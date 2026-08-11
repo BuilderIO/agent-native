@@ -55,4 +55,26 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("html: markup.html");
     expect(shareDialogSource).toContain('t("shareDialog.copyEmailPreview")');
   });
+
+  it("labels recording viewers as commenters without changing the stored role", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
+    const meetingDialogSource = readSource(
+      "../meetings/share-meeting-dialog.tsx",
+    );
+
+    expect(shareDialogSource).toContain("roleCopy={{");
+    expect(shareDialogSource).toContain(
+      'label: t("shareUi.recordingViewer.label")',
+    );
+    expect(shareDialogSource).toContain(
+      'description: t("shareUi.recordingViewer.description")',
+    );
+    expect(shareUiSource).toContain(
+      "roleCopy?: Partial<Record<Role, RoleCopy>>",
+    );
+    expect(shareUiSource).toContain("getRoleLabel(s.role)");
+    expect(shareUiSource).toContain('useState<Role>("viewer")');
+    expect(meetingDialogSource).not.toContain("roleCopy");
+  });
 });

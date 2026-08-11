@@ -1342,7 +1342,7 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
             })
             .unwrap_or(820.0);
         let clamped = height.clamp(200.0, max_logical_height);
-        let width = width.unwrap_or(360.0).clamp(320.0, 480.0);
+        let width = width.unwrap_or(360.0).clamp(320.0, 960.0);
         let (window_width, window_height) = popover_window_size_logical(width, clamped);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
             window_width,

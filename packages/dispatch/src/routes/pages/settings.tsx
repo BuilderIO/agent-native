@@ -10,6 +10,7 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
 } from "@agent-native/core/client/settings";
+import { IconShield } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -33,6 +34,17 @@ export function meta() {
 export default function SettingsRoute() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
+  const settingsTabs = [
+    ...agentSettingsTabs.filter((tab) => tab.id !== "integrations"),
+    {
+      id: "admin",
+      label: t("dispatch.nav.admin", { defaultValue: "Admin" }),
+      icon: IconShield,
+      group: "Admin",
+      href: "/admin",
+      content: null,
+    },
+  ];
   const [chatFirstModeState] = useState(() => readChatFirstModeState());
   const [chatFirstMode, setChatFirstMode] = useState(
     () => chatFirstModeState.enabled,
@@ -68,7 +80,7 @@ export default function SettingsRoute() {
       description={t("settings.description")}
     >
       <SettingsTabsPage
-        extraTabs={agentSettingsTabs.filter((tab) => tab.id !== "integrations")}
+        extraTabs={settingsTabs}
         general={
           <div className="mx-auto w-full max-w-3xl space-y-6">
             <Card>

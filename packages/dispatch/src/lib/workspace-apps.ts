@@ -70,6 +70,16 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   return app.path || app.url || null;
 }
 
+export function workspaceAppEmbedTarget(
+  app: Pick<WorkspaceAppSummary, "path" | "url">,
+): { path?: string; url?: string } {
+  const url = app.url?.trim();
+  if (url) return { url };
+
+  const path = app.path.trim();
+  return path.startsWith("/") ? { path } : path ? { url: path } : {};
+}
+
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
   return app.status === "pending" && !!app.builderUrl;
 }

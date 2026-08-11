@@ -58,6 +58,7 @@ import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
@@ -79,6 +80,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("<data-source-guidance>");
     expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
     expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
     expect(guidance).toContain("run one bounded query");
@@ -213,6 +215,20 @@ describe("Analytics agent Plan mode policy", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
   });
 
+  it("keeps Brain handoff tools on the initial tool surface", async () => {
+    expect(INITIAL_TOOL_NAMES).toEqual(
+      expect.arrayContaining(["describe-workspace-apps", "call-agent"]),
+    );
+
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | (() => Promise<string>)
+      | undefined;
+    const context = await extraContext?.();
+    expect(context).toContain("Brain is the sibling app");
+    expect(context).toContain("Do not use `list-extensions` to find Brain");
+    expect(context).toContain("use `call-agent` with agent `brain`");
+  });
+
   it("keeps the complete dashboard build path on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
@@ -241,6 +257,15 @@ describe("Analytics agent Plan mode policy", () => {
   it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
     expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
       "native dashboard panels and Data Programs first",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "only actions that are HTTP-mounted",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "never call `query-agent-native-analytics`",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "canonical `bigquery` action",
     );
     expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
       "only when the user explicitly asks",

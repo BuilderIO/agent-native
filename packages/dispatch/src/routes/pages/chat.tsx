@@ -1,6 +1,7 @@
 import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
+  readChatFirstMode,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
@@ -93,6 +94,9 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const routeThreadId = threadIdFromPath(location.pathname);
   const handledStateIds = useRef(new Set<string>());
+  const suppressInlineOpenApp =
+    readChatFirstMode() ||
+    new URLSearchParams(location.search).get("chatFirst") === "1";
 
   const navigateThreadUrl = useCallback(
     (path: string, options?: { replace?: boolean }) =>
@@ -181,6 +185,7 @@ export default function ChatRoute() {
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}
+        suppressInlineOpenApp={suppressInlineOpenApp}
         suggestions={[]}
         emptyStateText={t("dispatch.pages.chatAcrossAppsDescription", {
           defaultValue:

@@ -205,6 +205,8 @@ const messages = {
     usingDesignSystem: "{{title}} 사용 중",
     usingLinkedDesignSystem: "연결된 디자인 시스템 사용 중",
     viewOnly: "보기 전용",
+    commenterRoleLabel: "댓글 작성자",
+    commenterRoleDescription: "보고 댓글을 추가할 수 있습니다",
     slideSettings: "슬라이드 설정",
     layout: "레이아웃",
     background: "배경",

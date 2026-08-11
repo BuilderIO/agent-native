@@ -31,6 +31,7 @@ export {
   useDeleteMcpServer,
   useReconnectMcpServer,
   testMcpServerUrl,
+  formatMcpServersLoadError,
   type CreateMcpServerArgs,
   type McpServer,
   type McpServerScope,

@@ -396,14 +396,6 @@ const enUS = {
     hideSetup: "Hide setup",
     followSteps:
       "Follow these steps to connect your Google account. Takes about 3 minutes.",
-    googleMayShowWarning: "Google may show a warning",
-    googleNotVerifiedTitle: "“Google hasn’t verified this app”",
-    googleWarningBeforeAdvanced:
-      "You’ll see this screen because the calendar connects through your own Google Cloud project, not a Google-reviewed public app. It’s safe to continue: click",
-    googleWarningAdvanced: "Advanced",
-    googleWarningBetweenActions: ", then",
-    googleWarningUnsafe: "“Go to … (unsafe)”",
-    googleWarningAfterUnsafe: "to finish connecting.",
     accountConnectedElsewhere: "This account is connected to another login",
     googleConnectionFailed: "Google connection failed",
     managedCredentialsUnavailable: "Google Calendar is unavailable",
@@ -4995,14 +4987,6 @@ const translatedCalendarDebtTranslations = {
       connectToSync: "连接 Google 同步您的日历",
       hideSetup: "隐藏设置",
       followSteps: "请按照以下步骤连接您的 Google 帐户。大约需要3分钟。",
-      googleMayShowWarning: "Google 可能会显示警告",
-      googleNotVerifiedTitle: "“Google尚未验证此应用程序”",
-      googleWarningBeforeAdvanced:
-        "您将看到此屏幕，因为日历是通过您自己的 Google Cloud 项目而不是经过 Google 审核的公共应用程序连接的。可以安全地继续：单击",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: "， 然后",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "完成连接。",
       accountConnectedElsewhere: "该帐户已连接到另一个登录帐户",
       googleConnectionFailed: "Google 连接失败",
       thatGoogleAccount: "那个Google账户",
@@ -5134,14 +5118,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Ocultar configuración",
       followSteps:
         "Siga estos pasos para conectar su cuenta Google. Tarda unos 3 minutos.",
-      googleMayShowWarning: "Google puede mostrar una advertencia",
-      googleNotVerifiedTitle: '"Google no ha verificado esta aplicación"',
-      googleWarningBeforeAdvanced:
-        "Verá esta pantalla porque el calendario se conecta a través de su propio proyecto Google Cloud, no a través de una aplicación pública revisada por Google. Es seguro continuar: haga clic",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", entonces",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "para terminar de conectar.",
       accountConnectedElsewhere:
         "Esta cuenta está conectada a otro inicio de sesión.",
       googleConnectionFailed: "La conexión Google falló",
@@ -5278,14 +5254,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Masquer la configuration",
       followSteps:
         "Suivez ces étapes pour connecter votre compte Google. Cela prend environ 3 minutes.",
-      googleMayShowWarning: "Le Google peut afficher un avertissement",
-      googleNotVerifiedTitle: '"Google n\'a pas vérifié cette application"',
-      googleWarningBeforeAdvanced:
-        "Vous verrez cet écran car le calendrier se connecte via votre propre projet Google Cloud, et non via une application publique révisée par Google. Vous pouvez continuer en toute sécurité : cliquez sur",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", alors",
-      googleWarningUnsafe: '"Go to … (unsafe)"',
-      googleWarningAfterUnsafe: "pour terminer la connexion.",
       accountConnectedElsewhere: "Ce compte est connecté à un autre login",
       googleConnectionFailed: "La connexion du Google a échoué",
       thatGoogleAccount: "ce compte Google",
@@ -5424,14 +5392,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Setup ausblenden",
       followSteps:
         "Befolgen Sie diese Schritte, um Ihr Google-Konto zu verbinden. Dauert etwa 3 Minuten.",
-      googleMayShowWarning: "Google zeigt möglicherweise eine Warnung an",
-      googleNotVerifiedTitle: "„Google hat diese App nicht überprüft“",
-      googleWarningBeforeAdvanced:
-        "Sie sehen diesen Bildschirm, weil die Verbindung zum Kalender über Ihr eigenes Google Cloud-Projekt und nicht über eine von Google geprüfte öffentliche App hergestellt wird. Es ist sicher, fortzufahren: klicken",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", Dann",
-      googleWarningUnsafe: "„Go to … (unsafe)“",
-      googleWarningAfterUnsafe: "um die Verbindung abzuschließen.",
       accountConnectedElsewhere:
         "Dieses Konto ist mit einem anderen Login verbunden",
       googleConnectionFailed: "Google-Verbindung fehlgeschlagen",
@@ -5568,14 +5528,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "設定を隠す",
       followSteps:
         "次の手順に従って、Google アカウントを接続します。所要時間は約 3 分です。",
-      googleMayShowWarning: "Googleでは警告が表示される場合があります",
-      googleNotVerifiedTitle: "「Googleはこのアプリを検証していません」",
-      googleWarningBeforeAdvanced:
-        "この画面が表示されるのは、カレンダーが Google でレビューされた公開アプリではなく、独自の Google Cloud プロジェクトを介して接続しているためです。安全に続行できます: をクリックしてください",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: "、 それから",
-      googleWarningUnsafe: "「Go to … (unsafe)」",
-      googleWarningAfterUnsafe: "接続を終了します。",
       accountConnectedElsewhere:
         "このアカウントは別のログインに接続されています",
       googleConnectionFailed: "Google接続に失敗しました",
@@ -5709,14 +5661,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "설정 숨기기",
       followSteps:
         "Google 계정을 연결하려면 다음 단계를 따르세요. 약 3분 정도 소요됩니다.",
-      googleMayShowWarning: "Google에 경고가 표시될 수 있음",
-      googleNotVerifiedTitle: "“Google는 이 앱을 인증하지 않았습니다”",
-      googleWarningBeforeAdvanced:
-        "캘린더가 Google가 검토한 공개 앱이 아닌 자신의 Google Cloud 프로젝트를 통해 연결되기 때문에 이 화면이 표시됩니다. 계속해도 안전합니다. 클릭하세요",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", 그 다음에",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "연결을 완료합니다.",
       accountConnectedElsewhere: "이 계정은 다른 로그인에 연결되어 있습니다",
       googleConnectionFailed: "Google 연결 실패",
       thatGoogleAccount: "그 Google 계정",
@@ -5849,14 +5793,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Ocultar configuração",
       followSteps:
         "Siga estas etapas para conectar sua conta Google. Demora cerca de 3 minutos.",
-      googleMayShowWarning: "Google pode mostrar um aviso",
-      googleNotVerifiedTitle: "“Google não verificou este aplicativo”",
-      googleWarningBeforeAdvanced:
-        "Você verá esta tela porque o calendário se conecta por meio de seu próprio projeto Google Cloud, não de um aplicativo público revisado pelo Google. É seguro continuar: clique",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", então",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "para terminar a conexão.",
       accountConnectedElsewhere: "Esta conta está conectada a outro login",
       googleConnectionFailed: "Falha na conexão Google",
       thatGoogleAccount: "aquela conta Google",
@@ -5987,14 +5923,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "सेटअप छिपाएँ",
       followSteps:
         "अपने Google खाते को कनेक्ट करने के लिए इन चरणों का पालन करें। लगभग 3 मिनट का समय लगता है.",
-      googleMayShowWarning: "Google एक चेतावनी दिखा सकता है",
-      googleNotVerifiedTitle: '"Google ने इस ऐप को सत्यापित नहीं किया है"',
-      googleWarningBeforeAdvanced:
-        "आपको यह स्क्रीन दिखाई देगी क्योंकि कैलेंडर आपके स्वयं के Google Cloud प्रोजेक्ट से जुड़ता है, Google-समीक्षित सार्वजनिक ऐप से नहीं। जारी रखना सुरक्षित है: क्लिक करें",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", तब",
-      googleWarningUnsafe: '"Go to … (unsafe)"',
-      googleWarningAfterUnsafe: "कनेक्ट करना समाप्त करने के लिए.",
       accountConnectedElsewhere: "यह खाता दूसरे लॉगिन से जुड़ा है",
       googleConnectionFailed: "Google कनेक्शन विफल",
       thatGoogleAccount: "वह Google खाता",
@@ -6127,14 +6055,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "إخفاء الإعداد",
       followSteps:
         "اتبع هذه الخطوات لتوصيل حساب Google الخاص بك. يستغرق حوالي 3 دقائق.",
-      googleMayShowWarning: "قد يظهر Google تحذيرًا",
-      googleNotVerifiedTitle: '"لم يتحقق Google من هذا التطبيق"',
-      googleWarningBeforeAdvanced:
-        "ستشاهد هذه الشاشة لأن التقويم يتصل من خلال مشروع Google Cloud الخاص بك، وليس من خلال تطبيق عام تمت مراجعته بواسطة Google. من الآمن المتابعة: انقر",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: "، ثم",
-      googleWarningUnsafe: '"Go to … (unsafe)"',
-      googleWarningAfterUnsafe: "لإنهاء الاتصال.",
       accountConnectedElsewhere: "هذا الحساب متصل بتسجيل دخول آخر",
       googleConnectionFailed: "فشل اتصال Google",
       thatGoogleAccount: "حساب Google هذا",

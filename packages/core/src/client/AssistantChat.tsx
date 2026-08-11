@@ -145,6 +145,7 @@ import {
   ChatRunningRunIdContext,
   ChatRunningTurnIdContext,
   ChatRunDurationContext,
+  SuppressInlineOpenAppContext,
   ApprovalContext,
   type ApprovalResolution,
   type ApprovalContextValue,
@@ -358,6 +359,7 @@ const RECONNECT_EMPTY_RETRY_MESSAGE =
 // through transient labels ("Contacting model", "Preparing X action"); past it
 // the live label appears so a genuinely slow step reads as working, not hung.
 const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
+const DEFAULT_ASSISTANT_CHAT_COMPOSER_PLACEHOLDER = "Write a message...";
 type ActiveRunLookup = {
   active?: boolean;
   runId?: string;
@@ -1606,6 +1608,12 @@ export function resolveAssistantChatRunningStatusLabel({
   return "Thinking";
 }
 
+export function resolveAssistantChatComposerPlaceholder(
+  composerPlaceholder: string | null | undefined,
+): string {
+  return composerPlaceholder ?? DEFAULT_ASSISTANT_CHAT_COMPOSER_PLACEHOLDER;
+}
+
 function contentHasVisibleTailReasoning(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   for (let index = content.length - 1; index >= 0; index -= 1) {
@@ -1623,7 +1631,7 @@ function contentHasVisibleTailReasoning(content: unknown): boolean {
   return false;
 }
 
-function contentHasToolCall(
+function contentHasActiveToolCall(
   content: unknown,
   toolName?: string | null,
 ): boolean {
@@ -1637,6 +1645,7 @@ function contentHasToolCall(
     };
     return (
       candidate.type === "tool-call" &&
+      candidate.result === undefined &&
       (!toolName || candidate.toolName === toolName)
     );
   });
@@ -1664,16 +1673,16 @@ export function shouldShowGlobalRunningStatus({
   const latestMessageHasTailReasoning =
     message?.role === "assistant" &&
     contentHasVisibleTailReasoning(message.content);
-  const latestMessageHasTool =
-    message?.role === "assistant" && contentHasToolCall(message.content);
-  const reconnectHasTool = contentHasToolCall(reconnectContent);
+  const latestMessageHasActiveTool =
+    message?.role === "assistant" && contentHasActiveToolCall(message.content);
+  const reconnectHasActiveTool = contentHasActiveToolCall(reconnectContent);
   const reconnectHasTailReasoning =
     contentHasVisibleTailReasoning(reconnectContent);
   const matchingActivityToolIsVisible = Boolean(
     runningActivityTool &&
     ((message?.role === "assistant" &&
-      contentHasToolCall(message.content, runningActivityTool)) ||
-      contentHasToolCall(reconnectContent, runningActivityTool)),
+      contentHasActiveToolCall(message.content, runningActivityTool)) ||
+      contentHasActiveToolCall(reconnectContent, runningActivityTool)),
   );
 
   // A pending card for the same tool is already the running indicator.
@@ -1682,7 +1691,10 @@ export function shouldShowGlobalRunningStatus({
   if (runningActivityLabel && matchingActivityToolIsVisible) {
     return false;
   }
-  if (!runningActivityLabel && (latestMessageHasTool || reconnectHasTool)) {
+  if (
+    !runningActivityLabel &&
+    (latestMessageHasActiveTool || reconnectHasActiveTool)
+  ) {
     return false;
   }
   // The reasoning cell already owns the generic Thinking state. Activity
@@ -1690,8 +1702,8 @@ export function shouldShowGlobalRunningStatus({
   // rendering both makes a second Thinking row flash beneath the thought.
   if (
     runningActivityLabel === "Thinking" &&
-    (latestMessageHasTool ||
-      reconnectHasTool ||
+    (latestMessageHasActiveTool ||
+      reconnectHasActiveTool ||
       latestMessageHasTailReasoning ||
       reconnectHasTailReasoning)
   ) {
@@ -1700,8 +1712,8 @@ export function shouldShowGlobalRunningStatus({
   if (runningActivityLabel) return true;
 
   return (
-    !latestMessageHasTool &&
-    !reconnectHasTool &&
+    !latestMessageHasActiveTool &&
+    !reconnectHasActiveTool &&
     !latestMessageHasTailReasoning &&
     !reconnectHasTailReasoning
   );
@@ -1881,6 +1893,8 @@ export interface AssistantChatProps {
    * dev filesystem/bash code-editing tools out of in-product sidebars.
    */
   agentChatSurface?: AgentChatSurfaceKind;
+  /** Route completed first-party open_app calls through the host app pane. */
+  suppressInlineOpenApp?: boolean;
   /** Placeholder text for empty state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -2366,6 +2380,7 @@ const AssistantChatInner = forwardRef<
     historyReloadKey,
     externalStreaming = false,
     agentChatSurface = "app",
+    suppressInlineOpenApp = false,
   },
   ref,
 ) {
@@ -5608,7 +5623,8 @@ const AssistantChatInner = forwardRef<
   );
 
   return (
-    <CheckpointContext.Provider value={checkpointCtx}>
+    <SuppressInlineOpenAppContext.Provider value={suppressInlineOpenApp}>
+      <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ApprovalContext.Provider value={approvalCtx}>
           <ChatRunDurationContext.Provider value={lastChatRunDurationMs}>
@@ -6194,7 +6210,9 @@ const AssistantChatInner = forwardRef<
                                               ? queuedMessages.length > 0
                                                 ? `${queuedMessages.length} queued — send a follow-up...`
                                                 : "Send a follow-up..."
-                                              : composerPlaceholder
+                                              : resolveAssistantChatComposerPlaceholder(
+                                                  composerPlaceholder,
+                                                )
                                     }
                                     onSubmit={
                                       isRunning ||
@@ -6320,7 +6338,8 @@ const AssistantChatInner = forwardRef<
           </ChatRunDurationContext.Provider>
         </ApprovalContext.Provider>
       </MessageActionsContext.Provider>
-    </CheckpointContext.Provider>
+      </CheckpointContext.Provider>
+    </SuppressInlineOpenAppContext.Provider>
   );
 });
 

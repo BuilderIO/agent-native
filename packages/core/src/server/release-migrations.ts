@@ -3,6 +3,10 @@ import { OBSERVATIONAL_MEMORY_MIGRATIONS } from "../agent/observational-memory/m
 import { runMigrations } from "../db/migrations.js";
 import { runAutomationRunMigrations } from "../jobs/run-history.js";
 import { runAutomationSchedulerHealthMigrations } from "../jobs/scheduler-health.js";
+import {
+  OAUTH_TOKEN_MIGRATIONS,
+  OAUTH_TOKEN_MIGRATIONS_TABLE,
+} from "../oauth-tokens/migrations.js";
 import { ORG_MIGRATIONS } from "../org/migrations.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 
@@ -17,6 +21,9 @@ export async function runFrameworkReleaseMigrations(
   nitroApp: unknown,
 ): Promise<void> {
   await runBetterAuthMigrations(nitroApp);
+  await runMigrations(OAUTH_TOKEN_MIGRATIONS, {
+    table: OAUTH_TOKEN_MIGRATIONS_TABLE,
+  })(nitroApp);
   await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
   await runMigrations(CONTEXT_XRAY_MIGRATIONS, {
     table: "_context_xray_migrations",

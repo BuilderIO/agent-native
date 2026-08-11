@@ -4,6 +4,8 @@ const messages = {
   ...messagesByLocale["ja-JP"],
   designEditor: {
     ...messagesByLocale["ja-JP"].designEditor,
+    commenterRoleLabel: "コメント投稿者",
+    commenterRoleDescription: "閲覧してレビューコメントを追加できます",
     nodeRewrite: {
       composerTitle: "選択範囲について質問または変更",
       send: "送信",

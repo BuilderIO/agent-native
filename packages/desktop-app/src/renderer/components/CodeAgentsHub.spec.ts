@@ -2,6 +2,10 @@
 
 import { readFileSync } from "node:fs";
 
+import {
+  getDesktopVisibleApps,
+  isDesktopAppVisible,
+} from "@shared/app-registry";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +15,7 @@ import {
   chatFirstAppSurfaceTab,
   chatFirstPreviewPartitionKey,
   dispatchControlPlaneUrlParams,
+  dispatchControlPlaneTitle,
   isDispatchControlPlanePath,
   isChatFirstSurfaceTabActive,
   MultiFrontierModeControl,
@@ -216,6 +221,26 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
+  it("keeps the chat-first rail collapse control beside settings", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+    const appSource = readFileSync(
+      "../code-agents-ui/src/CodeAgentsApp.tsx",
+      "utf8",
+    );
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
+    expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
+    expect(appSource).toContain("code-agents-surface--rail-collapsed");
+    expect(shellCss).toContain("grid-template-columns: 56px minmax(0, 1fr);");
+    expect(shellCss).toContain(
+      ".desktop-chat-first-rail-footer-actions > .code-agents-nav-link",
+    );
+  });
+
   it("keeps full-page settings on the shared query and theme contracts", () => {
     const settingsSource = readFileSync(
       "src/renderer/components/AppSettings.tsx",
@@ -313,6 +338,27 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       embedded: "1",
       chatFirst: "1",
     });
+    expect(dispatchControlPlaneTitle("/integrations/slack")).toBe(
+      "Integrations",
+    );
+    expect(dispatchControlPlaneTitle("/admin/automations?view=all")).toBe(
+      "Automations",
+    );
+  });
+
+  it("keeps Dispatch internal while excluding it from Electron app discovery", () => {
+    const apps = [
+      { id: "dispatch" },
+      { id: "calendar" },
+      { id: "agent" },
+    ] as const;
+
+    expect(isDesktopAppVisible({ id: "dispatch" })).toBe(false);
+    expect(isDesktopAppVisible({ id: "calendar" })).toBe(true);
+    expect(getDesktopVisibleApps(apps).map((app) => app.id)).toEqual([
+      "calendar",
+      "agent",
+    ]);
   });
 
   it("records whether an app was opened from the rail or the agent", () => {

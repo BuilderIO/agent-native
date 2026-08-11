@@ -94,6 +94,10 @@ import {
   type WalkthroughStep,
 } from "@/lib/data-sources";
 
+import {
+  ConnectionTestStatus,
+  type ConnectionTestResult,
+} from "../components/ConnectionTestStatus";
 import { CustomApiCard } from "../components/CustomApiCard";
 
 interface AnalyticsPublicKeyRow {
@@ -151,9 +155,7 @@ async function saveEnvVars(
   await callAction("update-data-source-credentials", { vars });
 }
 
-async function testConnection(
-  source: string,
-): Promise<{ ok: boolean; error?: string }> {
+async function testConnection(source: string): Promise<ConnectionTestResult> {
   const token = await getIdToken();
   const res = await fetch(appApiPath("/api/test-connection"), {
     method: "POST",
@@ -718,23 +720,11 @@ function WorkspaceReadyView({
           </a>
         )}
       </div>
-      {testResult && (
-        <div
-          className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
-        >
-          {testResult.ok ? (
-            <>
-              <IconCheck className="h-3.5 w-3.5" />
-              {t("dataSources.connectionSuccessful")}
-            </>
-          ) : (
-            <>
-              <IconAlertCircle className="h-3.5 w-3.5" />
-              {testResult.error || t("dataSources.connectionFailed")}
-            </>
-          )}
-        </div>
-      )}
+      <ConnectionTestStatus
+        result={testResult}
+        pending={testMutation.isPending}
+        error={testMutation.error}
+      />
     </div>
   );
 }
@@ -1114,23 +1104,11 @@ function ConnectedView({
           </DropdownMenu>
         </div>
 
-        {testResult && (
-          <div
-            className={`flex items-center gap-2 text-xs ${testResult.ok ? "text-emerald-500" : "text-rose-400"}`}
-          >
-            {testResult.ok ? (
-              <>
-                <IconCheck className="h-3.5 w-3.5" />
-                {t("dataSources.connectionSuccessful")}
-              </>
-            ) : (
-              <>
-                <IconAlertCircle className="h-3.5 w-3.5" />
-                {testResult.error || t("dataSources.connectionFailed")}
-              </>
-            )}
-          </div>
-        )}
+        <ConnectionTestStatus
+          result={testResult}
+          pending={testMutation.isPending}
+          error={testMutation.error}
+        />
       </div>
       <AlertDialog
         open={disconnectConfirmOpen}
