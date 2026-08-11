@@ -126,11 +126,13 @@ export function ExportMenu({
         });
         return;
       }
-      console.warn("Google Slides upload unavailable:", result.reason);
       if (target) target.location.href = GOOGLE_SLIDES_IMPORT_URL;
       setGoogleSlidesImportOpen(true);
-      toast.success(t("editorExport.googleSlidesDownloaded"), {
-        description: t("editorExport.googleSlidesImportHint"),
+      // The deck did not reach Drive. Saying "success" here is why users read
+      // the .pptx download as the intended result and never learn that their
+      // Google account is unconnected or that Drive rejected the upload.
+      toast.warning(t("editorExport.googleSlidesDownloaded"), {
+        description: `${result.reason} ${t("editorExport.googleSlidesImportHint")}`,
       });
     } catch (err) {
       googleSlidesImportTarget.current = null;

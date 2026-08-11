@@ -8,10 +8,13 @@ import {
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({
-  toastSuccessMock: vi.fn(),
-  toastErrorMock: vi.fn(),
-}));
+const { toastSuccessMock, toastErrorMock, toastWarningMock } = vi.hoisted(
+  () => ({
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    toastWarningMock: vi.fn(),
+  }),
+);
 
 vi.mock("@agent-native/core", () => ({
   cn: (...args: unknown[]) =>
@@ -59,6 +62,7 @@ vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), {
     success: toastSuccessMock,
     error: toastErrorMock,
+    warning: toastWarningMock,
   }),
 }));
 
@@ -247,10 +251,11 @@ describe("<ExportMenu>", () => {
     expect((await screen.findByRole("dialog")).textContent).toContain(
       "Import the downloaded PPTX into Google Slides.",
     );
-    expect(toastSuccessMock).toHaveBeenCalledWith(
+    expect(toastWarningMock).toHaveBeenCalledWith(
       "Downloaded for Google Slides",
       expect.objectContaining({
-        description: "Import the downloaded PPTX into Google Slides.",
+        description:
+          "No connected Google account. Import the downloaded PPTX into Google Slides.",
       }),
     );
   });

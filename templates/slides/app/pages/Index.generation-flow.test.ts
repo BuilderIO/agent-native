@@ -110,7 +110,9 @@ describe("new deck generation flow", () => {
       source.indexOf("const handleReferenceSkip"),
     );
 
-    expect(referenceImportFlow).toContain('callAction("import-pptx"');
+    // Whitespace-tolerant: passing the extended import timeout wraps the call
+    // across lines, and this asserts the call exists, not how it is formatted.
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
     expect(referenceImportFlow).toContain("importedReference = {");
     expect(referenceImportFlow).toContain('source: "pptx"');
     expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
@@ -124,7 +126,7 @@ describe("new deck generation flow", () => {
       source.indexOf("const handleReferenceSkip"),
     );
 
-    expect(referenceImportFlow).toContain('callAction("import-file"');
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-file"/);
     expect(referenceImportFlow).toContain('format: "pdf"');
     expect(referenceImportFlow).toContain("importIntoDeck: true");
     expect(referenceImportFlow).toContain(

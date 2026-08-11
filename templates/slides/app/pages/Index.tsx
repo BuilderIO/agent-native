@@ -60,6 +60,7 @@ import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import {
+  IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
@@ -954,9 +955,11 @@ export default function Index() {
         let importedReference: ImportedReference | null = null;
         let generationFiles = uploaded;
         if (pptxReference) {
-          const imported = (await callAction("import-pptx", {
-            filePath: pptxReference.path,
-          })) as {
+          const imported = (await callAction(
+            "import-pptx",
+            { filePath: pptxReference.path },
+            { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+          )) as {
             id?: unknown;
             imported?: unknown;
             slideCount?: unknown;
@@ -995,12 +998,16 @@ export default function Index() {
             );
           }
           try {
-            const imported = (await callAction("import-file", {
-              filePath: pdfReference.path,
-              format: "pdf",
-              deckId: referenceDeck.id,
-              importIntoDeck: true,
-            })) as {
+            const imported = (await callAction(
+              "import-file",
+              {
+                filePath: pdfReference.path,
+                format: "pdf",
+                deckId: referenceDeck.id,
+                importIntoDeck: true,
+              },
+              { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+            )) as {
               imported?: unknown;
               deckId?: unknown;
               pageCount?: unknown;

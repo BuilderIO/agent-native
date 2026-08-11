@@ -521,6 +521,51 @@ export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
   element.remove();
 }
 
+/**
+ * Whether Delete should remove `element` even though it is not a freeform
+ * canvas object.
+ *
+ * Flow-layout nodes are deliberately excluded from object operations, because
+ * deleting an arbitrary one collapses the layout around it. An image is the
+ * exception: it is a leaf, users select it directly, and removing it leaves
+ * the surrounding grid or card intact. Without this, selecting a picture in a
+ * card grid and pressing Delete silently did nothing.
+ */
+export function isDeletableFlowImage(element: HTMLElement): boolean {
+  return (
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder")
+  );
+}
+
+/**
+ * The persisted image object that owns `element`, if any.
+ *
+ * PPTX/PDF import wraps each picture in an absolutely positioned
+ * `.fmd-pptx-image` div carrying the durable `data-slide-object-id`, with the
+ * `<img>` (or an empty placeholder) inside it. Deleting the inner node alone
+ * leaves that wrapper behind as an invisible object that still occupies its
+ * slot and still round-trips through save. Matching on the image wrapper
+ * specifically — rather than any positioned ancestor — keeps this from
+ * swallowing a whole card or column that merely contains a picture.
+ */
+export function findPersistedImageObject(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  let current: HTMLElement | null = element;
+  while (current && current !== root && root.contains(current)) {
+    const isImageWrapper =
+      current.classList.contains("fmd-pptx-image") ||
+      current.getAttribute("data-pptx-element-kind") === "image";
+    if (isImageWrapper && current.getAttribute("data-slide-object-id")) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,

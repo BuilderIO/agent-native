@@ -30,6 +30,15 @@ import { cn } from "../utils.js";
 type AgentRunDto = AgentRun;
 type RunsTrayTriggerVariant = "icon" | "pill";
 const RUN_CHANGE_SETTLE_MS = 250;
+/**
+ * Cadence used while a run still reads as active, even for hosts that opted
+ * out of idle polling with `pollMs={0}`. Those hosts only refresh on mount and
+ * on a `runs` change event, and a run abandoned mid-flight (budget exhausted,
+ * dead worker) emits neither — so the spinner has no path back to a terminal
+ * status. Polling only while something looks active keeps the idle cost at
+ * zero and still lets the server's stale sweep terminalize the row.
+ */
+const ACTIVE_RUN_POLL_MS = 5000;
 
 interface RunsTrayProps {
   /** Poll interval in ms. 0 disables. Default 3000. */
@@ -108,7 +117,11 @@ function useRunsTrayState({
     return () => window.clearTimeout(timeout);
   }, [refresh, runsVersion]);
 
-  usePollLoop(refresh, { intervalMs: pollMs, enabled: pollMs > 0 });
+  const hasActiveRun = runs.some((run) => run.status === "running");
+  usePollLoop(refresh, {
+    intervalMs: pollMs > 0 ? pollMs : ACTIVE_RUN_POLL_MS,
+    enabled: pollMs > 0 || hasActiveRun,
+  });
 
   const dismissRun = useCallback(
     async (runId: string) => {
