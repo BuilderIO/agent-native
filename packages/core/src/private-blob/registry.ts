@@ -44,6 +44,7 @@ interface PublicUploadDescriptor {
 }
 
 const PUBLIC_UPLOAD_HANDLE_PREFIX = "public-upload:v1:";
+const PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS = [100, 250, 500] as const;
 const globals = globalThis as typeof globalThis & PrivateBlobGlobals;
 const providers: Map<string, PrivateBlobProvider> =
   (globals.__agentNativePrivateBlobProviders ??= new Map());
@@ -115,6 +116,20 @@ function isPublicUploadFallbackHandle(handle: PrivateBlobHandle): boolean {
   return handle.id.startsWith(PUBLIC_UPLOAD_HANDLE_PREFIX);
 }
 
+function isRetryablePublicUploadStatus(status: number): boolean {
+  return (
+    status === 404 ||
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    (status >= 500 && status <= 599)
+  );
+}
+
+function waitForPublicUploadRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 async function putViaEncryptedPublicUpload(
   input: PrivateBlobPutInput,
 ): Promise<PrivateBlobHandle | null> {
@@ -158,10 +173,47 @@ async function readViaEncryptedPublicUpload(
   handle: PrivateBlobHandle,
 ): Promise<PrivateBlobReadResult> {
   const descriptor = decodePublicUploadDescriptor(handle.id);
-  const response = await fetch(descriptor.url);
-  if (!response.ok) {
+
+  let response: Response | undefined;
+  for (
+    let attempt = 0;
+    attempt <= PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length;
+    attempt++
+  ) {
+    try {
+      response = await fetch(descriptor.url);
+    } catch (error) {
+      if (attempt === PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length) {
+        throw new Error(
+          `Private blob public-upload read failed: ${
+            error instanceof Error ? error.message : "network error"
+          }`,
+          { cause: error },
+        );
+      }
+      await waitForPublicUploadRetry(
+        PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS[attempt],
+      );
+      continue;
+    }
+
+    if (response.ok) break;
+
+    if (
+      !isRetryablePublicUploadStatus(response.status) ||
+      attempt === PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length
+    ) {
+      throw new Error(
+        `Private blob public-upload read failed (${response.status}): ${response.statusText}`,
+      );
+    }
+
+    await waitForPublicUploadRetry(PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS[attempt]);
+  }
+
+  if (!response?.ok) {
     throw new Error(
-      `Private blob public-upload read failed (${response.status}): ${response.statusText}`,
+      "Private blob public-upload read failed without a response",
     );
   }
   // The uploaded ciphertext is intentionally opaque; the descriptor carries
