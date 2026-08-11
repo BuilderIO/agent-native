@@ -720,7 +720,11 @@ body {
   border: 0;
 }
 
-.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-run-list,
+.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-run-list {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .desktop-chat-first-hub .code-agents-rail--collapsed [data-chat-first-notice] {
   display: none;
 }
@@ -921,6 +925,11 @@ body {
   padding: 8px;
 }
 
+.desktop-chat-first-hub .code-agents-rail-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
 .desktop-chat-first-rail-footer-actions {
   display: flex;
   min-width: 0;
@@ -929,7 +938,18 @@ body {
 
 .desktop-chat-first-rail-footer-actions > .code-agents-nav-link {
   min-width: 0;
-  flex: 1 1 0;
+  height: 32px;
+}
+
+.desktop-chat-first-rail-footer-actions > .desktop-chat-first-rail-settings {
+  flex: 1 1 auto;
+}
+
+.desktop-chat-first-rail-footer-actions > .desktop-chat-first-rail-collapse {
+  flex: 0 0 32px;
+  width: 32px;
+  justify-content: center;
+  padding-inline: 0;
 }
 
 .desktop-chat-first-hub
@@ -950,6 +970,14 @@ body {
   width: 40px;
   justify-content: center;
   padding-inline: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .desktop-chat-first-rail-footer-actions
+  > .code-agents-nav-link {
+  flex: 0 0 auto;
+  width: 40px;
 }
 
 @media (prefers-reduced-motion: reduce) {

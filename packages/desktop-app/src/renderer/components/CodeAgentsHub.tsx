@@ -1967,7 +1967,7 @@ export default function CodeAgentsHub({
                   {onOpenSettings ? (
                     <button
                       type="button"
-                      className="code-agents-nav-link"
+                      className="code-agents-nav-link desktop-chat-first-rail-settings"
                       onClick={onOpenSettings}
                       aria-label="Settings"
                       title="Settings"
@@ -2010,9 +2010,6 @@ export default function CodeAgentsHub({
                         aria-hidden="true"
                       />
                     )}
-                    <span>
-                      {chatFirstRailCollapsed ? "Expand" : "Collapse"}
-                    </span>
                   </button>
                 </div>
               </>

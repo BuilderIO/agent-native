@@ -163,7 +163,9 @@ function expiredEmbedSessionResponse(event: H3Event): Response {
             embedStartUrl: window.location.href
           }, "*");
         }
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     }
     document.getElementById("retry")?.addEventListener("click", notifyParent);
     notifyParent();

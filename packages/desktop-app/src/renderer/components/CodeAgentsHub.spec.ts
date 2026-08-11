@@ -233,12 +233,24 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
+    expect(hubSource).toContain(
+      'desktop-chat-first-rail-settings"\n                      onClick',
+    );
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
+    expect(hubSource).toContain("desktop-chat-first-rail-collapse");
+    expect(hubSource).not.toContain(
+      '{chatFirstRailCollapsed ? "Expand" : "Collapse"}',
+    );
     expect(appSource).toContain("code-agents-surface--rail-collapsed");
     expect(shellCss).toContain("grid-template-columns: 56px minmax(0, 1fr);");
     expect(shellCss).toContain(
       ".desktop-chat-first-rail-footer-actions > .code-agents-nav-link",
     );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-settings\s*\{[\s\S]*?flex: 1 1 auto;/,
+    );
+    expect(shellCss).toContain("visibility: hidden;");
+    expect(shellCss).toContain("margin-top: auto;");
   });
 
   it("keeps full-page settings on the shared query and theme contracts", () => {
