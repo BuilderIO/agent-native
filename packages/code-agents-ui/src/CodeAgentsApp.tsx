@@ -18,6 +18,7 @@ import {
   ChatFirstChatHistory,
   ChatFirstPrimaryNavigation,
   type ChatFirstOpenAppDetail,
+  type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
@@ -304,6 +305,8 @@ export interface CodeAgentsAppProps {
   renderChatFirstMainSurface?: ReactNode;
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
+    activeTab?: ChatFirstPrimaryTab;
+    onNewChat?: () => void;
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
@@ -2129,12 +2132,16 @@ export default function CodeAgentsApp({
         <div className="code-agents-nav-list" aria-label="Agent navigation">
           {chatFirstMode ? (
             <ChatFirstPrimaryNavigation
-              onNewChat={openSelectedGoal}
+              onNewChat={() => {
+                chatFirstNavigation?.onNewChat?.();
+                openSelectedGoal();
+              }}
               onOpenIntegrations={() =>
                 chatFirstNavigation?.onOpenIntegrations()
               }
               onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
               onSearch={openSearchPanel}
+              activeTab={chatFirstNavigation?.activeTab}
             />
           ) : (
             <>
