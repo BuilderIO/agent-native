@@ -173,6 +173,11 @@ import {
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
+  consumeAgentToolApproval,
+  createAgentToolApproval,
+} from "./tool-approval-store.js";
+import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
+import {
   findCompletedJournalEntry,
   type ToolCallJournal,
 } from "./tool-call-journal.js";
@@ -2980,7 +2985,16 @@ export interface ExecuteAgentToolCallOptions {
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
+  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
+}
+
+export interface AgentApprovalBinding {
+  toolName: string;
+  input: unknown;
+  callId: string;
+  approvalKey: string;
 }
 
 /**
@@ -3080,6 +3094,8 @@ export async function executeAgentToolCall(
       threadId: options.threadId,
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
+      onApprovalRequired: options.onApprovalRequired,
+      consumeApproval: options.consumeApproval,
     });
   } catch (error) {
     return {
@@ -4206,6 +4222,13 @@ export async function runAgentLoop(opts: {
    * `approval_required`. See `AgentChatRequest.approvedToolCalls`.
    */
   approvedToolCalls?: string[];
+  /**
+   * Server-side approval persistence hooks. The HTTP transport supplies these
+   * so client-supplied history is never the authorization source; direct loop
+   * callers may omit them when they own the surrounding approval boundary.
+   */
+  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
    * streamed chunks, observe model responses around tool execution, and
@@ -5430,7 +5453,17 @@ export async function runAgentLoop(opts: {
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
       // Consume a grant on its first exact match. A second identical call in
       // the same continuation must request its own human approval.
-      const wasApproved = approvedToolCallKeys.delete(approvalKey);
+      const approvalBinding: AgentApprovalBinding = {
+        toolName: toolCall.name,
+        input: toolCall.input,
+        callId: toolCall.id,
+        approvalKey,
+      };
+      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
+      const wasApproved =
+        requestedApproval && opts.consumeApproval
+          ? await opts.consumeApproval(approvalBinding)
+          : requestedApproval;
       if (actionEntry.needsApproval && !wasApproved) {
         let mustApprove = false;
         try {
@@ -5455,6 +5488,7 @@ export async function runAgentLoop(opts: {
           mustApprove = true;
         }
         if (mustApprove) {
+          await opts.onApprovalRequired?.(approvalBinding);
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -8563,7 +8597,7 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
-    const approvedToolCalls =
+    const requestedApprovedToolCalls =
       Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
         ? body.approvedToolCalls
             .filter((key: unknown): key is string => typeof key === "string")
@@ -8571,7 +8605,7 @@ export function createProductionAgentHandler(
         : undefined;
     const exactApprovedToolCall = findApprovedStructuredToolCall(
       structuredHistory,
-      approvedToolCalls,
+      requestedApprovedToolCalls,
     );
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
       isFirstRequest: history.length === 0,
@@ -8632,6 +8666,45 @@ export function createProductionAgentHandler(
         : typeof requestTurnId === "string" && requestTurnId.trim()
           ? requestTurnId.trim()
           : runId;
+    const approvalStoreBinding = (
+      binding: AgentApprovalBinding,
+    ): AgentToolApprovalBinding => {
+      if (!ownerEmail) {
+        throw new Error(
+          "Cannot create or consume an approval without an authenticated owner",
+        );
+      }
+      return {
+        ownerEmail,
+        orgId: getRequestOrgId() ?? null,
+        threadId: effectiveThreadId,
+        turnId: effectiveTurnId,
+        toolName: binding.toolName,
+        callId: binding.callId,
+        approvalKey: binding.approvalKey,
+      };
+    };
+    const approvalHooks = {
+      onApprovalRequired: async (binding: AgentApprovalBinding) => {
+        await createAgentToolApproval(approvalStoreBinding(binding));
+      },
+      consumeApproval: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return consumeAgentToolApproval(approvalStoreBinding(binding));
+      },
+    };
+    const exactApprovedToolEntry = exactApprovedToolCall
+      ? requestActions[exactApprovedToolCall.name]
+      : undefined;
+    const approvedToolCallsForExecution =
+      exactApprovedToolCall && exactApprovedToolEntry?.needsApproval
+        ? [
+            toolCallCacheKey(
+              exactApprovedToolCall.name,
+              exactApprovedToolCall.input,
+            ),
+          ]
+        : undefined;
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId))
@@ -9517,8 +9590,13 @@ export function createProductionAgentHandler(
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
             : {}),
           // Human-in-the-loop approval grants for this turn (sanitized — the
-          // request is untrusted; accept only a bounded list of string keys).
-          ...(approvedToolCalls ? { approvedToolCalls } : {}),
+          // request is untrusted; only the exact structured call is passed to
+          // the loop, where the durable grant is consumed atomically.
+          ...(approvedToolCallsForExecution
+            ? { approvedToolCalls: approvedToolCallsForExecution }
+            : {}),
+          onApprovalRequired: approvalHooks.onApprovalRequired,
+          consumeApproval: approvalHooks.consumeApproval,
           // A worker PROVEN to be running inside the real 15-min Netlify
           // `-background` function (`runsInBackgroundFunction`) has minutes of
           // budget left on THIS invocation. Let it catch a recoverable
@@ -9547,6 +9625,7 @@ export function createProductionAgentHandler(
         try {
           if (
             exactApprovedToolCall &&
+            approvedToolCallsForExecution &&
             requestActions[exactApprovedToolCall.name]
           ) {
             send({
@@ -9564,7 +9643,9 @@ export function createProductionAgentHandler(
               orgId: getRequestOrgId() ?? null,
               threadId: effectiveThreadId,
               turnId: effectiveTurnId,
-              approvedToolCalls,
+              approvedToolCalls: approvedToolCallsForExecution,
+              onApprovalRequired: approvalHooks.onApprovalRequired,
+              consumeApproval: approvalHooks.consumeApproval,
               send,
             });
             return;

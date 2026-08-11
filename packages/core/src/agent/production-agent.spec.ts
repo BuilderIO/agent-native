@@ -9494,6 +9494,58 @@ describe("runAgentLoop", () => {
     expect(events2.at(-1)).toEqual({ type: "done" });
   });
 
+  it("requires the server approval consumer before executing an approved call", async () => {
+    const phase1 = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const events1: any[] = [];
+
+    await runAgentLoop({
+      engine: phase1.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events1.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = events1.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    const consumeApproval = vi.fn(async () => false);
+    const onApprovalRequired = vi.fn(async () => undefined);
+    const events2: any[] = [];
+
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      consumeApproval,
+      onApprovalRequired,
+      send: (event) => events2.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(consumeApproval).toHaveBeenCalledOnce();
+    expect(onApprovalRequired).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+    expect(events2).toContainEqual(
+      expect.objectContaining({ type: "approval_required" }),
+    );
+  });
+
   it("consumes an approval grant after the first exact tool-call match", async () => {
     const first = approvalEngine();
     const run = vi.fn(async () => "delivered");
