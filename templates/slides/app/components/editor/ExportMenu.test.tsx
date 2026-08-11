@@ -62,6 +62,11 @@ vi.mock("sonner", () => ({
   }),
 }));
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
+
 import { ExportMenu } from "./ExportMenu";
 
 function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
@@ -117,6 +122,29 @@ describe("<ExportMenu>", () => {
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
     expect(fetch).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("renders export actions inline inside a parent menu", async () => {
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    render(
+      <DropdownMenu open>
+        <DropdownMenuContent>
+          <ExportMenu
+            inline
+            deckId="deck-1"
+            deckTitle="Quarterly Review"
+            onDuplicate={vi.fn()}
+            onExportPdf={vi.fn()}
+            onExportPptx={onExportPptx}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+
+    expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
+    fireEvent.click(screen.getByText("Export as PPTX"));
+
+    await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
   });
 
   it("opens the converted deck in Google Slides", async () => {
