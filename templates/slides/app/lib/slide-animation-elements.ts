@@ -17,6 +17,27 @@ export interface ResolvedAnimationTarget<
   key: string;
 }
 
+export type AnimationTargetResolutionIssueCode =
+  | "missing-target"
+  | "duplicate-target";
+
+export interface AnimationTargetResolutionIssue<
+  T extends AnimationTarget = AnimationTarget,
+> {
+  animationIndex: number;
+  code: AnimationTargetResolutionIssueCode;
+  target: T;
+  key?: string;
+  preview?: string;
+}
+
+export interface AnimationTargetResolution<
+  T extends AnimationTarget = AnimationTarget,
+> {
+  resolved: ResolvedAnimationTarget<T>[] | null;
+  issue: AnimationTargetResolutionIssue<T> | null;
+}
+
 const INLINE_TAGS = new Set([
   "a",
   "abbr",
@@ -222,21 +243,66 @@ export function resolveSlideAnimationTargets<T extends AnimationTarget>(
   root: Element,
   targets: readonly T[],
 ): ResolvedAnimationTarget<T>[] | null {
+  return resolveSlideAnimationTargetsWithDiagnostics(root, targets).resolved;
+}
+
+export function resolveSlideAnimationTargetsWithDiagnostics<
+  T extends AnimationTarget,
+>(
+  root: Element,
+  targets: readonly T[],
+): AnimationTargetResolution<T> {
   const seen = new Set<string>();
   const resolved: ResolvedAnimationTarget<T>[] = [];
 
-  for (const target of targets) {
+  for (const [animationIndex, target] of targets.entries()) {
     const element = resolveSlideAnimationElement(root, target);
-    if (!element) return null;
+    if (!element) {
+      return {
+        resolved: null,
+        issue: {
+          animationIndex,
+          code: "missing-target",
+          target,
+        },
+      };
+    }
     const path = getElementPath(root, element);
-    if (!path) return null;
+    if (!path) {
+      return {
+        resolved: null,
+        issue: {
+          animationIndex,
+          code: "missing-target",
+          target,
+          preview: getElementPreview(
+            element,
+            `Element ${target.elementIndex + 1}`,
+          ),
+        },
+      };
+    }
     const key = animationElementKey(path);
-    if (seen.has(key)) return null;
+    if (seen.has(key)) {
+      return {
+        resolved: null,
+        issue: {
+          animationIndex,
+          code: "duplicate-target",
+          target,
+          key,
+          preview: getElementPreview(
+            element,
+            `Element ${target.elementIndex + 1}`,
+          ),
+        },
+      };
+    }
     seen.add(key);
     resolved.push({ target, element, key });
   }
 
-  return resolved;
+  return { resolved, issue: null };
 }
 
 export function getSlideAnimationTargetKey(

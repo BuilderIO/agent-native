@@ -26,6 +26,7 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
@@ -432,6 +433,41 @@ export function applyOperation(deck: any, op: Operation): void {
 }
 
 /**
+ * Content and animation metadata are one contract. Validate only slides whose
+ * content or animation list changed so unrelated note/title writes do not
+ * resurrect old metadata failures, while any edit that can stale a path is
+ * rejected before persistence.
+ */
+export function assertPatchedSlideAnimationsResolve(
+  deck: any,
+  operations: readonly Operation[],
+): void {
+  const slideIdsToValidate = new Set(
+    operations.flatMap((operation) =>
+      operation.op === "patch-slide" &&
+      (operation.fields.content !== undefined ||
+        operation.fields.animations !== undefined)
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+  if (slideIdsToValidate.size === 0) return;
+
+  const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
+  for (const slideId of slideIdsToValidate) {
+    const slide = slides.find((candidate) => candidate?.id === slideId);
+    if (!slide || !Array.isArray(slide.animations) || !slide.animations.length)
+      continue;
+
+    assertSlideAnimationsResolve({
+      slideId,
+      content: typeof slide.content === "string" ? slide.content : "",
+      animations: slide.animations,
+    });
+  }
+}
+
+/**
  * Resolve the last operation in a sequence. For example, when typing a new name
  * this will be the latest name of the deck in a sequence of keystrokes.
  */
@@ -580,6 +616,7 @@ export default defineAction({
       for (const op of operations) {
         applyOperation(deck, op);
       }
+      assertPatchedSlideAnimationsResolve(deck, operations);
 
       const now = new Date().toISOString();
       deck.updatedAt = now;

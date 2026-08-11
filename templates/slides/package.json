@@ -46,6 +46,7 @@
     "fast-xml-parser": "5.7.2",
     "h3": "catalog:",
     "isbot": "^5",
+    "linkedom": "0.18.13",
     "jspdf": "4.2.1",
     "jszip": "3.10.1",
     "mammoth": "1.12.0",
