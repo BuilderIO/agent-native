@@ -681,7 +681,6 @@ h4 {
   font-size: 14px;
 }
 
-
 /* Signature: function/hook signature reference — call line + parameter/return
    breakdown, collapsed to the call line until clicked.
    Usage in MDX: <Signature name params={[...]} returns={{...}} /> */
@@ -1303,8 +1302,6 @@ h4 {
 
 .docs-badge[data-disabled="true"] {
   opacity: 0.45;
-}
-
 }
 
 /* Sidebar nav */
