@@ -4,6 +4,7 @@ import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   applyOperation,
   assertSourceImportOperationsPreserved,
+  assertSourceImportSlidesCovered,
   isAgentPatchCaller,
   OperationSchema,
   resolveDeckColumnUpdates,
@@ -255,6 +256,37 @@ describe("applyOperation — patch-deck-fields", () => {
     });
     expect(deck.designSystemId).toBeNull();
   });
+
+  it("recovers an opaque title from the first slide", () => {
+    const deck = {
+      title: "Untitled Deck",
+      slides: [
+        {
+          content:
+            '<div class="fmd-slide"><div style="font-size: 54px;">Agent-Native Strategy</div></div>',
+        },
+      ],
+    };
+
+    applyOperation(deck, {
+      op: "patch-deck-fields",
+      fields: { title: "H3sVsnns-TEVUOpz9w" },
+    });
+
+    expect(deck.title).toBe("Agent-Native Strategy");
+  });
+
+  it("rejects an opaque title when no slide title is available", () => {
+    expect(() =>
+      applyOperation(
+        { title: "Untitled Deck", slides: [] },
+        {
+          op: "patch-deck-fields",
+          fields: { title: "H3sVsnns-TEVUOpz9w" },
+        },
+      ),
+    ).toThrow(/human-readable title/);
+  });
 });
 
 describe("source-imported deck structure", () => {
@@ -276,6 +308,52 @@ describe("source-imported deck structure", () => {
       assertSourceImportOperationsPreserved(null, [
         { op: "delete-slide", slideId: "s1" },
       ]),
+    ).not.toThrow();
+  });
+
+  it("rejects a partial deck-wide source restyle before writing", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+        {
+          id: "s3",
+          text: "three",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [{ op: "patch-slide", slideId: "s1", fields: { content: "styled" } }],
+        true,
+      ),
+    ).toThrow("Missing 2 slide(s): s2, s3");
+  });
+
+  it("accepts complete content coverage for a deck-wide source restyle", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [
+          { op: "patch-slide", slideId: "s1", fields: { content: "one" } },
+          { op: "patch-slide", slideId: "s2", fields: { content: "two" } },
+        ],
+        true,
+      ),
     ).not.toThrow();
   });
 });
@@ -320,6 +398,9 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
     });
+    expect(parameters.properties.requireAllSourceSlides).toMatchObject({
+      type: "boolean",
+    });
   });
 
   // An untyped `animations` array sends callers probing a live deck to learn
@@ -331,7 +412,7 @@ describe("patch-deck agent schema", () => {
     );
     const animations = slidePatch.properties.fields.properties.animations;
 
-    expect(animations.description).toMatch(/replaces the stored one/i);
+    expect(animations.description).toMatch(/complete ordered/i);
     expect(animations.items.properties.type.enum).toEqual([
       "appear",
       "fade",
@@ -343,23 +424,29 @@ describe("patch-deck agent schema", () => {
     expect(animations.items.properties).toHaveProperty("elementPath");
   });
 
-  // The editor re-sends a slide's whole stored animation array on every edit,
-  // so anything `normalizeSlideAnimation` tolerates has to survive validation
-  // here or the user's save fails on a deck they could previously edit.
-  it("still accepts animation entries stored before the shape was pinned down", () => {
-    const legacyEntries = [
-      { elementPath: [0, 2], type: "fade" as const },
-      { id: "a2", elementIndex: 1 },
-      { id: "a3", elementIndex: 2, elementPath: [2], type: "zoom" as const },
-    ];
-
-    const parsed = OperationSchema.safeParse({
+  // Pins the compatibility boundary rather than endorsing it. The editor
+  // re-sends a slide's whole stored array on every animation edit, and
+  // `normalizeSlideAnimation` in shared/api.ts still reads entries that this
+  // schema rejects, so a deck holding one can no longer be saved from the
+  // panel. If that gap is ever closed, this expectation is what changes.
+  it("rejects stored entries that predate the required id/elementIndex/type", () => {
+    const pathOnlyEntry = OperationSchema.safeParse({
       op: "patch-slide",
       slideId: "s1",
-      fields: { animations: legacyEntries },
+      fields: { animations: [{ elementPath: [0, 2], type: "fade" }] },
+    });
+    const fullyFormedEntry = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: {
+        animations: [
+          { id: "a1", elementIndex: 2, elementPath: [0, 2], type: "fade" },
+        ],
+      },
     });
 
-    expect(parsed.success).toBe(true);
+    expect(pathOnlyEntry.success).toBe(false);
+    expect(fullyFormedEntry.success).toBe(true);
   });
 });
 
@@ -438,6 +525,18 @@ describe("resolveDeckColumnUpdates", () => {
     // deck list shows a truncated name once the JSON and column disagree.
     const burst = ["N", "Ne", "New", "New ", "New Name"].map(renameOp);
     expect(resolveDeckColumnUpdates(current, burst).title).toBe("New Name");
+  });
+
+  it("uses the title recovered while applying the operations", () => {
+    const operations: Operation[] = [
+      {
+        op: "patch-deck-fields",
+        fields: { title: "H3sVsnns-TEVUOpz9w" },
+      },
+    ];
+    expect(
+      resolveDeckColumnUpdates(current, operations, "Recovered").title,
+    ).toBe("Recovered");
   });
 
   it("takes the last designSystemId in a batch", () => {

@@ -40,6 +40,10 @@ beforeEach(() => {
 });
 
 describe("get-deck", () => {
+  it("bounds a full-deck read so a stalled lookup can return a tool error", () => {
+    expect(action.timeoutMs).toBe(60_000);
+  });
+
   it("returns 1-based slideNumber fields before internal zero-based indexes", async () => {
     const result = (await action.run({ id: "deck-1" })) as any;
 

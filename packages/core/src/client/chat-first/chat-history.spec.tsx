@@ -39,4 +39,28 @@ describe("ChatFirstChatHistory", () => {
     ).toBeNull();
     expect(container.textContent).toBe("");
   });
+
+  it("renders contextual actions beside the Chats label", () => {
+    act(() => {
+      root.render(
+        <ChatFirstChatHistory
+          items={[{ id: "chat-1", title: "First chat" }]}
+          onSelect={() => {}}
+          headerAction={
+            <button type="button" aria-label="Chat list options">
+              Options
+            </button>
+          }
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-chat-history-header]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[aria-label="Chat list options"]'),
+    ).not.toBe(null);
+    expect(container.textContent).toContain("Chats");
+  });
 });

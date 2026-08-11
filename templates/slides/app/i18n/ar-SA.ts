@@ -708,6 +708,7 @@ const messages = {
       "احتفظ بنظام التصميم والمرجع الافتراضيين ما لم تزل أحدهما. ابحث عن عرض آخر أو استورد ملفًا أو تابع عندما تكون جاهزًا.",
     chooseAnotherDeck: "اختيار عرض آخر",
     noMatchingDecks: "لم يتم العثور على عروض مطابقة.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "عروض Google Slides",
     googleSlidesReferenceConnect: "صِل Google Drive لاستيراد عرض من Slides.",
     googleSlidesReferenceChoose: "اختيار عرض من Google Slides",

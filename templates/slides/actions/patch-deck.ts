@@ -32,6 +32,10 @@ import {
   type SourceImportMetadata,
 } from "../server/lib/source-import.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import {
+  assertHumanReadableDeckTitle,
+  repairGeneratedDeckTitle,
+} from "../shared/deck-title.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -66,36 +70,25 @@ export function withDeckLock<T>(
 // Operation schemas
 // ---------------------------------------------------------------------------
 
-// Spelled out rather than left as `unknown` so a caller can build a reveal
-// without first probing the shape against a live deck. Every field stays
-// optional to match what `normalizeSlideAnimation` in shared/api.ts already
-// tolerates: decks predating this shape hold path-only entries and entries
-// without an id, and the editor re-sends the whole stored array on every
-// animation edit. Rejecting those here would fail the user's save, so the
-// requirements for new entries live in the descriptions instead.
 const SlideAnimationSchema = z.object({
-  id: z
-    .string()
-    .optional()
-    .describe("Stable unique id for this reveal step. Set one on new entries."),
+  id: z.string().min(1).describe("Stable ID for this ordered reveal step"),
   elementIndex: z
     .number()
     .int()
     .min(0)
-    .optional()
     .describe(
-      "Legacy fallback target: child index within the slide's content container, used only when elementPath does not resolve.",
+      "0-based legacy child index. Keep it paired with elementPath for compatibility.",
     ),
   elementPath: z
     .array(z.number().int().min(0))
+    .min(1)
     .optional()
     .describe(
-      "Preferred target: child-index path from the outer .fmd-slide wrapper. Resolved first, and survives sibling edits that shift elementIndex.",
+      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Re-read final HTML after content edits.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
-    .optional()
-    .describe("Reveal style. Treated as slide-up when absent."),
+    .describe("Animation used when this step is revealed"),
 });
 
 const SlideFieldsSchema = z.object({
@@ -107,14 +100,15 @@ const SlideFieldsSchema = z.object({
   imageLoading: z.boolean().optional(),
   imagePrompt: z.string().optional(),
   excalidrawData: z.string().optional(),
-  transition: z.string().optional(),
+  transition: z
+    .enum(["instant", "none", "fade", "slide", "zoom"])
+    .optional()
+    .describe("Transition used when entering this slide"),
   animations: z
     .array(SlideAnimationSchema)
     .optional()
     .describe(
-      "The slide's complete ordered reveal list, which replaces the stored one. " +
-        "Send every animation the slide should end with — sending them one per " +
-        "call leaves only the last one.",
+      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes.",
     ),
 });
 
@@ -210,11 +204,51 @@ export function assertSourceImportOperationsPreserved(
   );
 }
 
-// The browser uses the full operation union above. Agents get a narrowed union:
-// patch-slide plus a deck title change, applied in a single SQL transaction and
-// followed by a fresh read for verification.
+/**
+ * A deck-wide source restyle must be atomic from the agent's point of view:
+ * accepting a partial batch makes an apparently successful run indistinguishable
+ * from a run that quietly left the tail of the imported deck untouched.
+ */
+export function assertSourceImportSlidesCovered(
+  metadata: SourceImportMetadata | null,
+  operations: Operation[],
+  requireAllSourceSlides: boolean,
+): void {
+  if (!metadata || !requireAllSourceSlides) return;
+
+  const sourceSlideIds =
+    Array.isArray(metadata.slideIds) && metadata.slideIds.length > 0
+      ? metadata.slideIds
+      : metadata.slides.map((slide) => slide.id);
+  const patchedContentSlideIds = new Set(
+    operations.flatMap((operation) =>
+      operation.op === "patch-slide" && operation.fields.content !== undefined
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+  const missingSlideIds = sourceSlideIds.filter(
+    (slideId) => !patchedContentSlideIds.has(slideId),
+  );
+  if (missingSlideIds.length === 0) return;
+
+  throw new Error(
+    `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying with get-deck compact=true.`,
+  );
+}
+
+// The browser uses the full operation union above. Agents additionally use
+// this action for one bounded, deck-wide layout repair: one patch-slide per
+// source slide in a single SQL transaction, followed by compact verification.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
+  requireAllSourceSlides: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "For a deck-wide source-import restyle, require one content patch for every imported slide before any write is committed.",
+    ),
   operations: z
     .array(
       z.union([
@@ -231,7 +265,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "Every change for this turn, in one call: one patch-slide operation per affected slide, carrying all of that slide's changed fields together. A later call re-sending a field overwrites the value an earlier one wrote. Use patch-deck-fields only for a deck title change.",
+      "For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide. Use patch-deck-fields only for a deck title change.",
     ),
 });
 
@@ -371,7 +405,19 @@ export function applyOperation(deck: any, op: Operation): void {
 
     case "patch-deck-fields": {
       const { fields } = op;
-      if (fields.title !== undefined) deck.title = fields.title;
+      if (fields.title !== undefined) {
+        const repairedTitle = repairGeneratedDeckTitle(
+          fields.title,
+          slides[0]?.content,
+          deck.title,
+        );
+        if (repairedTitle) {
+          deck.title = repairedTitle;
+        } else {
+          assertHumanReadableDeckTitle(fields.title);
+          deck.title = fields.title;
+        }
+      }
       if ("designSystemId" in fields)
         deck.designSystemId = fields.designSystemId;
       if (fields.tweaks !== undefined) deck.tweaks = fields.tweaks;
@@ -392,6 +438,7 @@ export function applyOperation(deck: any, op: Operation): void {
 export function resolveDeckColumnUpdates(
   current: { title: string; designSystemId: string | null },
   operations: Operation[],
+  resolvedTitle?: string,
 ): { title: string; designSystemId: string | null } {
   const fieldOps = operations
     .filter(
@@ -402,7 +449,7 @@ export function resolveDeckColumnUpdates(
   const titleOp = fieldOps.find((op) => typeof op.fields.title === "string");
   const dsOp = fieldOps.find((op) => "designSystemId" in op.fields);
   return {
-    title: titleOp?.fields.title ?? current.title,
+    title: resolvedTitle ?? titleOp?.fields.title ?? current.title,
     designSystemId: dsOp
       ? (dsOp.fields.designSystemId ?? null)
       : current.designSystemId,
@@ -429,12 +476,23 @@ export default defineAction({
   description:
     "Granular deck patch used by the browser editor for concurrent-safe writes. " +
     "Each operation touches only the target slide or field — concurrent writers " +
-    "on different slides never overwrite each other's work. Send every change for " +
-    "the current turn as a single call: one patch-slide operation per affected " +
-    "slide, with all of that slide's changed fields in it. Then call get-deck to " +
-    "verify the persisted state before reporting success.",
+    "on different slides never overwrite each other's work. For a deck-wide " +
+    "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
+    "operation with content for every imported slide in one call; the action " +
+    "rejects partial coverage. For animations, inspect the final slide HTML, " +
+    "then patch content and the complete ordered animations list together; " +
+    "validate every 0-based elementPath and do not invent one-based indexes. " +
+    "Then call get-deck with compact=true to verify the persisted slide IDs, " +
+    "count, and animation metadata before reporting success.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
+    requireAllSourceSlides: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "For a deck-wide source-import restyle, require one content patch for every imported slide before any write is committed.",
+      ),
     operations: z
       .array(OperationSchema)
       .min(1)
@@ -454,7 +512,10 @@ export default defineAction({
       ),
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
-  run: async ({ deckId, operations, creativeContext }, ctx) => {
+  run: async (
+    { deckId, operations, requireAllSourceSlides, creativeContext },
+    ctx,
+  ) => {
     await assertAccess("deck", deckId, "editor");
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 
@@ -490,6 +551,11 @@ export default defineAction({
       const sourceImport = sourceImportForDeck(deck.sourceImport);
       if (isAgentCaller) {
         assertSourceImportOperationsPreserved(sourceImport, operations);
+        assertSourceImportSlidesCovered(
+          sourceImport,
+          operations,
+          requireAllSourceSlides,
+        );
       }
       for (const op of operations) {
         if (
@@ -522,6 +588,13 @@ export default defineAction({
         resolveDeckColumnUpdates(
           { title: row.title, designSystemId: row.designSystemId },
           operations,
+          operations.some(
+            (operation) =>
+              operation.op === "patch-deck-fields" &&
+              operation.fields.title !== undefined,
+          ) && typeof deck.title === "string"
+            ? deck.title
+            : undefined,
         );
 
       let generationRecord:

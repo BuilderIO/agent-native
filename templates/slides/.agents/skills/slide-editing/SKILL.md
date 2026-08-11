@@ -100,17 +100,17 @@ The field is a full replacement, so send the complete list the slide should end
 with. Three reveals is one operation carrying three entries — patching them in
 one at a time leaves the slide with only the last.
 
-`elementPath` — the child-index path from the outer `.fmd-slide` wrapper — is
-the target the runtime resolves first, and it survives sibling edits that shift
-a flat index. `elementIndex` is the legacy fallback, used only when the path
-does not resolve. Give a new entry a unique `id` and both targets when you can
-derive both from the current HTML; never invent a path you did not read off the
-element, since a wrong path silently redirects the reveal.
+Every entry needs a unique `id`, a 0-based `elementIndex`, and a `type`; the
+schema rejects the operation otherwise. `elementPath`, the 0-based child-index
+path from the outer `.fmd-slide` wrapper, is the target the runtime resolves
+first and survives sibling edits that shift a flat index, so include it too.
+Read both off the final HTML — never invent a path or fall back to 1-based
+numbering, since a wrong path silently redirects the reveal to another element.
 
-Read the current list with `get-deck` before changing it and carry existing
-entries through untouched, including older ones that carry only a path or no
-id. Rewriting them to look uniform is how a reveal ends up on the wrong
-element.
+When one request changes content and reveals, patch the new HTML and the
+complete animations list in the same operation; targets read off the old HTML
+can point at elements the edit moved. Verify with `get-deck --compact`, which
+returns each step's order, id, target, and type.
 
 ## Freeform Canvas Objects
 

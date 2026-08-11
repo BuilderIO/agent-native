@@ -592,7 +592,12 @@ function usesPrometheusPresentation(panel: SqlPanel): boolean {
   return panel.source === "prometheus" || panel.source === "demo";
 }
 
-function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {
+export function formatSeriesLabelForPanel(
+  panel: SqlPanel,
+  value: string,
+): string {
+  const alias = panel.config?.seriesLabels?.[value]?.trim();
+  if (alias) return alias;
   return usesPrometheusPresentation(panel) ? formatSeriesLabel(value) : value;
 }
 
@@ -1241,6 +1246,7 @@ interface SqlChartProps {
   loadData?: boolean;
   reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
   /** Dashboard/panel state sent to slot-backed extension boxes. */
   extensionContext?: Record<string, unknown> | null;
 }
@@ -1251,6 +1257,7 @@ export function SqlChart({
   loadData = true,
   reportScreenshot = false,
   onExportCsvChange,
+  onCopyTableChange,
   extensionContext,
 }: SqlChartProps) {
   const t = useT();
@@ -1426,6 +1433,7 @@ export function SqlChart({
         rows={rows}
         panel={panel}
         onExportCsvChange={onExportCsvChange}
+        onCopyTableChange={onCopyTableChange}
       />,
     );
   }
@@ -1605,21 +1613,68 @@ function MetricRenderer({
   );
 }
 
-function formatCell(value: unknown, format: ColumnFormat | undefined): string {
+function numericTableValue(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+export type TableSort = {
+  key: string;
+  direction: "asc" | "desc";
+};
+
+export function sortTableRows(
+  rows: Record<string, unknown>[],
+  sorts: TableSort[],
+): Record<string, unknown>[] {
+  if (sorts.length === 0) return rows;
+
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      for (const sort of sorts) {
+        const av = a.row[sort.key];
+        const bv = b.row[sort.key];
+        if (av == null && bv == null) continue;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+
+        const an = numericTableValue(av);
+        const bn = numericTableValue(bv);
+        const comparison =
+          an !== null && bn !== null
+            ? an - bn
+            : String(av).localeCompare(String(bv));
+        if (comparison !== 0) {
+          return sort.direction === "asc" ? comparison : -comparison;
+        }
+      }
+      return a.index - b.index;
+    })
+    .map(({ row }) => row);
+}
+
+export function formatCell(
+  value: unknown,
+  format: ColumnFormat | undefined,
+): string {
   if (value == null) return "";
-  if (format === "number" && typeof value === "number") {
-    return value.toLocaleString();
+  const numeric = numericTableValue(value);
+  if (format === "number" && numeric !== null) {
+    return numeric.toLocaleString();
   }
-  if (format === "currency" && typeof value === "number") {
-    return `$${value.toLocaleString()}`;
+  if (format === "currency" && numeric !== null) {
+    return `$${numeric.toLocaleString()}`;
   }
-  if (format === "percent" && typeof value === "number") {
-    const pct = value <= 1 && value >= -1 ? value * 100 : value;
+  if (format === "percent" && numeric !== null) {
+    const pct = numeric <= 1 && numeric >= -1 ? numeric * 100 : numeric;
     return `${pct.toFixed(2)}%`;
   }
-  if (format === "delta" && typeof value === "number") {
-    const sign = value > 0 ? "+" : "";
-    return `${sign}${value.toFixed(1)}%`;
+  if (format === "delta" && numeric !== null) {
+    const sign = numeric > 0 ? "+" : "";
+    return `${sign}${numeric.toFixed(1)}%`;
   }
   if (format === "date") {
     const d = new Date(String(value));
@@ -1632,6 +1687,23 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
     }
   }
   return String(value);
+}
+
+function clipboardCell(value: string): string {
+  return value.replace(/[\t\r\n]+/g, " ");
+}
+
+export function buildTableClipboardText(
+  columns: TableColumnConfig[],
+  rows: Record<string, unknown>[],
+): string {
+  const tableRows = [
+    columns.map((col) => col.label ?? col.key),
+    ...rows.map((row) =>
+      columns.map((col) => formatCell(row[col.key], col.format)),
+    ),
+  ];
+  return tableRows.map((row) => row.map(clipboardCell).join("\t")).join("\n");
 }
 
 export function safeDashboardLinkHref(value: unknown): string | null {
@@ -1653,13 +1725,14 @@ export function safeDashboardLinkHref(value: unknown): string | null {
 }
 
 function renderDeltaCell(value: unknown): ReactNode {
-  if (value == null || typeof value !== "number" || Number.isNaN(value)) {
+  const numeric = numericTableValue(value);
+  if (numeric === null) {
     return <span className="text-muted-foreground">-</span>;
   }
-  const sign = value > 0 ? "+" : "";
-  const text = `${sign}${value.toFixed(1)}%`;
-  const isPositive = value > 0;
-  const isNegative = value < 0;
+  const sign = numeric > 0 ? "+" : "";
+  const text = `${sign}${numeric.toFixed(1)}%`;
+  const isPositive = numeric > 0;
+  const isNegative = numeric < 0;
   const colorClass = isPositive
     ? "text-emerald-500"
     : isNegative
@@ -1670,7 +1743,7 @@ function renderDeltaCell(value: unknown): ReactNode {
     : isNegative
       ? IconTrendingDown
       : null;
-  const critical = Math.abs(value) > 30;
+  const critical = Math.abs(numeric) > 30;
   return (
     <span
       className={`inline-flex items-center justify-end gap-1 ${colorClass}`}
@@ -1715,10 +1788,12 @@ function TableRenderer({
   rows,
   panel,
   onExportCsvChange,
+  onCopyTableChange,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  onCopyTableChange?: (handler: (() => Promise<void>) | null) => void;
 }) {
   const t = useT();
   const config = panel.config;
@@ -1744,39 +1819,40 @@ function TableRenderer({
     return limit != null && rows.length > limit ? rows.slice(0, limit) : rows;
   }, [rows, config?.limit]);
 
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sortColumns, setSortColumns] = useState<TableSort[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
 
   const sortedRows = useMemo(() => {
-    if (!sortable || !sortKey) return limitedRows;
-    const sorted = [...limitedRows].sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      if (typeof av === "number" && typeof bv === "number") {
-        return av - bv;
-      }
-      return String(av).localeCompare(String(bv));
-    });
-    if (sortDir === "desc") sorted.reverse();
-    return sorted;
-  }, [limitedRows, sortKey, sortDir, sortable]);
+    return sortable ? sortTableRows(limitedRows, sortColumns) : limitedRows;
+  }, [limitedRows, sortColumns, sortable]);
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
 
-  const handleHeaderClick = (key: string) => {
+  const handleHeaderClick = (key: string, shiftKey: boolean) => {
     if (!sortable) return;
-    if (sortKey === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
+    setSortColumns((current) => {
+      const index = current.findIndex((sort) => sort.key === key);
+      if (!shiftKey) {
+        const existing = index >= 0 ? current[index] : undefined;
+        return [
+          {
+            key,
+            direction: existing?.direction === "desc" ? "asc" : "desc",
+          },
+        ];
+      }
+      if (index < 0) return [...current, { key, direction: "desc" }];
+      return current.map((sort, sortIndex) =>
+        sortIndex === index
+          ? {
+              ...sort,
+              direction: sort.direction === "desc" ? "asc" : "desc",
+            }
+          : sort,
+      );
+    });
     setPage(0);
   };
 
@@ -1801,10 +1877,23 @@ function TableRenderer({
     URL.revokeObjectURL(url);
   }, [columns, panel.id, sortedRows]);
 
+  const handleCopyTable = useCallback(async () => {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard unavailable");
+    }
+    await navigator.clipboard.writeText(
+      buildTableClipboardText(columns, sortedRows),
+    );
+  }, [columns, sortedRows]);
+
   useEffect(() => {
     onExportCsvChange?.(handleExportCsv);
-    return () => onExportCsvChange?.(null);
-  }, [handleExportCsv, onExportCsvChange]);
+    onCopyTableChange?.(handleCopyTable);
+    return () => {
+      onExportCsvChange?.(null);
+      onCopyTableChange?.(null);
+    };
+  }, [handleCopyTable, handleExportCsv, onCopyTableChange, onExportCsvChange]);
 
   return (
     <div className={`space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}>
@@ -1814,22 +1903,37 @@ function TableRenderer({
             <tr className="border-b border-border">
               {columns.map((col) => {
                 const label = col.label ?? col.key;
-                const isSorted = sortKey === col.key;
+                const sort = sortColumns.find((item) => item.key === col.key);
+                const isSorted = sort !== undefined;
                 return (
                   <th
                     key={col.key}
+                    aria-sort={
+                      sort
+                        ? sort.direction === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
                     className={`text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap ${
                       sortable
                         ? "cursor-pointer select-none hover:text-foreground"
                         : ""
                     }`}
-                    onClick={() => handleHeaderClick(col.key)}
+                    onClick={(event) =>
+                      handleHeaderClick(col.key, event.shiftKey)
+                    }
+                    title={
+                      sortable
+                        ? t("sqlDashboard.multiColumnSortHelp")
+                        : undefined
+                    }
                   >
                     <span className="inline-flex items-center gap-1">
                       {label}
                       {sortable &&
                         (isSorted ? (
-                          sortDir === "asc" ? (
+                          sort?.direction === "asc" ? (
                             <IconSortAscending className="h-3 w-3" />
                           ) : (
                             <IconSortDescending className="h-3 w-3" />

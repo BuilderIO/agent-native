@@ -16,6 +16,31 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+function compactAnimationSummary(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  return {
+    count: value.length,
+    steps: value.map((entry, index) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return { order: index + 1, valid: false };
+      }
+      const animation = entry as Record<string, unknown>;
+      return {
+        order: index + 1,
+        id: typeof animation.id === "string" ? animation.id : null,
+        elementIndex:
+          typeof animation.elementIndex === "number"
+            ? animation.elementIndex
+            : null,
+        elementPath: Array.isArray(animation.elementPath)
+          ? animation.elementPath
+          : null,
+        type: typeof animation.type === "string" ? animation.type : null,
+      };
+    }),
+  };
+}
+
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
     app: "slides",
@@ -26,7 +51,8 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Get a specific deck with all slides. Returns full deck JSON including slide content. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
+    "Get a specific deck with all slides. Returns full deck JSON including slide content. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits. After a mutation or for a large deck when only IDs, count, previews, and animation targets are needed, pass compact=true to avoid retransmitting all slide HTML.",
+  timeoutMs: 60_000,
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
     compact: z
@@ -89,6 +115,8 @@ export default defineAction({
           zeroBasedIndex: i,
           id: s.id,
           layout: s.layout ?? null,
+          transition: s.transition ?? null,
+          animations: compactAnimationSummary(s.animations),
           textPreview: stripHtml(s.content || "").slice(0, 120),
         })),
       };

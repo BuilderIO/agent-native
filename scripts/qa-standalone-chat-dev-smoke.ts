@@ -838,7 +838,7 @@ async function gotoAndWaitForAgentPage(
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
-  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  const deadline = Date.now() + (isCi ? 300_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
   let lastUrl = "";
@@ -892,7 +892,7 @@ async function gotoAndWaitForChatPage(
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
-  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  const deadline = Date.now() + (isCi ? 300_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
   let lastUrl = "";

@@ -188,7 +188,7 @@ function googleThinkingBudget(effort: string) {
 }
 
 /**
- * Map a reasoning effort level to Gemini 3.x thinkingLevel string.
+ * Map an effort level to Gemini 3.x thinkingLevel string.
  * Gemini 3 models (gemini-3.*) reject thinkingBudget and require thinkingLevel
  * with values 'low' | 'medium' | 'high'. Gemini 3.0 only supports 'low'/'high';
  * Gemini 3.1+ adds 'medium'. We always emit 'medium' for medium effort since it
