@@ -122,7 +122,8 @@ export function desktopWorkspaceLogoutPath(
       return parsed.pathname;
     }
     return null;
-  } catch {
+  } catch (error) {
+    void error;
     return null;
   }
 }
@@ -243,11 +244,15 @@ export async function fetchDesktopIdentityAvailability(
       },
     );
     if (!response.ok) return false;
-    const body = (await response.json().catch(() => null)) as {
+    const body = (await response.json().catch((error) => {
+      void error;
+      return null;
+    })) as {
       available?: unknown;
     } | null;
     return body?.available === true;
-  } catch {
+  } catch (error) {
+    void error;
     return false;
   } finally {
     clearTimeout(timer);
@@ -821,7 +826,8 @@ export class DesktopIdentityBroker {
           authorityApp,
           this.options.identitySession,
         );
-      } catch {
+      } catch (error) {
+        void error;
         available = false;
       }
       if (!this.isCeremonyCurrent(generation)) return false;
@@ -852,7 +858,8 @@ export class DesktopIdentityBroker {
           initialUrl,
           this.options.identitySession,
         );
-      } catch {
+      } catch (error) {
+        void error;
         if (!this.isCeremonyCurrent(generation)) return false;
         console.warn("[desktop-identity] identity preflight failed");
         this.unsupportedAppIds.add(app.id);
@@ -929,7 +936,8 @@ export class DesktopIdentityBroker {
         let origin: string;
         try {
           origin = new URL(url).origin;
-        } catch {
+        } catch (error) {
+          void error;
           event.preventDefault();
           finish(false, "failed");
           return;

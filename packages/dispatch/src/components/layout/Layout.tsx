@@ -2111,13 +2111,14 @@ export function Layout({
         chatOnly
         dynamicSuggestions={false}
         suggestions={[]}
+        suppressInlineOpenApp={chatFirstMode}
         emptyStateDisplay="hidden"
         composerPlaceholder={t(
           "dispatch.pages.chatFirstSessionMessagePlaceholder",
         )}
       />
     ),
-    [t],
+    [chatFirstMode, t],
   );
 
   const renderChatFirstSurfaceTab = useCallback(

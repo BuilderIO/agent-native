@@ -14,6 +14,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useDispatchExtensions } from "../../components/layout/Layout";
 import { submitOverviewPrompt } from "../../lib/overview-chat";
 
 function chatThreadPath(threadId: string | null): string {
@@ -94,7 +95,9 @@ export default function ChatRoute() {
   const navigate = useNavigate();
   const routeThreadId = threadIdFromPath(location.pathname);
   const handledStateIds = useRef(new Set<string>());
+  const extensions = useDispatchExtensions();
   const suppressInlineOpenApp =
+    extensions?.chatFirst === true ||
     readChatFirstMode() ||
     new URLSearchParams(location.search).get("chatFirst") === "1";
 

@@ -96,7 +96,8 @@ async function resolveOrgDomain(
   if (!orgId) return undefined;
   try {
     return (await getOrgDomain(orgId)) ?? undefined;
-  } catch {
+  } catch (error) {
+    void error;
     return undefined;
   }
 }
@@ -159,7 +160,8 @@ export const authorizeHandler = defineEventHandler(
     let search: URLSearchParams;
     try {
       search = new URL(rawUrl, "http://an.invalid").searchParams;
-    } catch {
+    } catch (error) {
+      void error;
       search = new URLSearchParams();
     }
 
@@ -258,7 +260,8 @@ export const authorizeHandler = defineEventHandler(
         name: session.name,
         orgDomain: await resolveOrgDomain(session.orgId),
       });
-    } catch {
+    } catch (error) {
+      void error;
       return jsonResponse(
         {
           error: "identity_unavailable",
@@ -351,7 +354,8 @@ export const tokenHandler = defineEventHandler(
           },
         },
       );
-    } catch {
+    } catch (error) {
+      void error;
       return jsonResponse({ error: "sign_failed" }, 500);
     }
 

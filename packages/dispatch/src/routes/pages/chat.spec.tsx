@@ -24,6 +24,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat: vi.fn(),
 }));
 
+vi.mock("../../components/layout/Layout", () => ({
+  useDispatchExtensions: () => undefined,
+}));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appApiPath: (path: string) => path,
