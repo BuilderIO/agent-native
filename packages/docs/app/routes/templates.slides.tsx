@@ -40,14 +40,13 @@ const COMPARISON_ROWS = [
     feature: "Where you start",
     google: "Blank deck UI",
     gamma: "In-app prompt",
-    slides: "In-app or your own AI agent (Claude, ChatGPT, etc)",
+    slides: "In-app prompt.\nOr your own AI agent (Claude, GPT, etc)",
   },
   {
     feature: "Does it know your brand?",
     google: "No",
     gamma: "If you pay.",
-    slides:
-      "Yes. Import design systems.\nOr ask the agent to riff an old deck.",
+    slides: "Yes. Import design systems.\nOr ask the agent to riff an old deck.",
   },
   {
     feature: "AI control",
