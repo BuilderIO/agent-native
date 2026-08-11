@@ -108,11 +108,19 @@ export function isSourceImprovementRequest(
     /\bmake\b[\s\S]{0,40}\b(better|modern|professional|polished|prett\w*)\b/.test(
       normalized,
     );
+  const asksToPreserveSource =
+    /\b(turn|convert|transform)\b[\s\S]{0,50}\b(into|to)\b[\s\S]{0,30}\b(deck|presentation|slides?)\b/.test(
+      normalized,
+    ) &&
+    /\b(copy|slide[- ]for[- ]slide|preserv\w*|same order|before\s*\/?\s*after|placeholder\w*|out of order)\b/.test(
+      normalized,
+    );
   // A source deck attachment is the object being improved even when the
-  // prompt uses an implicit phrase such as "make this prettier". Requiring a
-  // source noun here silently falls back to reference-only generation and can
-  // discard the uploaded deck's slide IDs and content.
-  return asksToImprove;
+  // prompt uses an implicit phrase such as "make this prettier" or asks to
+  // copy and restyle it. Requiring a source noun here silently falls back to
+  // reference-only generation and can discard the uploaded deck's slide IDs
+  // and content.
+  return asksToImprove || asksToPreserveSource;
 }
 
 function describeUploadedFilesForAgent(

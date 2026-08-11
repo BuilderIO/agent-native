@@ -31,6 +31,23 @@ describe("startDeckGeneration", () => {
     ).toBe(true);
   });
 
+  it("treats slide-for-slide restyling requests as source-preserving", () => {
+    expect(
+      isSourceImprovementRequest(
+        'Please turn this into a deck with our styling. Copy it slide for slide (though note I realized a couple slides are out of order) - a couple of the "after" slides are not right after their "before" slides.',
+        [
+          {
+            path: "/uploads/source.pdf",
+            originalName: "source.pdf",
+            filename: "source.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+      ),
+    ).toBe(true);
+  });
+
   it("keeps an ordinary attached PDF as agent reference material", async () => {
     const deck = {
       id: "deck-1",
@@ -81,7 +98,7 @@ describe("startDeckGeneration", () => {
     );
   });
 
-  it("imports an attached source PDF for an explicit improvement request", async () => {
+  it("imports an attached source PDF for a slide-for-slide restyling request", async () => {
     const deck = {
       id: "deck-1",
       title: "Untitled Deck",
@@ -99,7 +116,8 @@ describe("startDeckGeneration", () => {
     await expect(
       startDeckGeneration({
         session: { user: "owner@example.com" },
-        prompt: "Restyle this uploaded deck with our design system",
+        prompt:
+          'Please turn this into a deck with our styling. Copy it slide for slide (though note I realized a couple slides are out of order) - a couple of the "after" slides are not right after their "before" slides.',
         files: [
           {
             path: "/uploads/source.pdf",
