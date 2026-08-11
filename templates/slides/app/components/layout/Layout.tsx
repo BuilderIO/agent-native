@@ -18,6 +18,7 @@ import {
   getDeckChatScopeLabel,
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
 
@@ -83,6 +84,7 @@ export function Layout({ children }: LayoutProps) {
   }, []);
 
   const ownToolbar = pageHasOwnToolbar(location.pathname);
+  const showAppSidebar = shouldShowSlidesAppSidebar(location.pathname);
   const editorSidebarOverrideForLocation =
     editorSidebarOverride?.locationKey === location.key
       ? editorSidebarOverride.collapsed
@@ -121,32 +123,34 @@ export function Layout({ children }: LayoutProps) {
         composerSlot={<CreativeContextComposerChip />}
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          {sidebarOpen && (
-            <div
-              className="fixed inset-0 z-40 bg-black/50 md:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-          {!isEmptyDecksState && (
-            <div
-              className={cn(
-                "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
-                sidebarOpen
-                  ? "translate-x-0"
-                  : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
+          {!isEmptyDecksState && showAppSidebar && (
+            <>
+              {sidebarOpen && (
+                <div
+                  className="fixed inset-0 z-40 bg-black/50 md:hidden"
+                  onClick={() => setSidebarOpen(false)}
+                />
               )}
-            >
-              <Sidebar
-                collapsed={effectiveSidebarCollapsed && !sidebarOpen}
-                // In the mobile drawer the sidebar is forced expanded, so the
-                // desktop collapse toggle would be a silent no-op (worse: it'd
-                // mutate the desktop preference). Hide it while the drawer is
-                // open.
-                onToggleCollapsed={
-                  sidebarOpen ? undefined : toggleSidebarCollapsed
-                }
-              />
-            </div>
+              <div
+                className={cn(
+                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
+                  sidebarOpen
+                    ? "translate-x-0"
+                    : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
+                )}
+              >
+                <Sidebar
+                  collapsed={effectiveSidebarCollapsed && !sidebarOpen}
+                  // In the mobile drawer the sidebar is forced expanded, so the
+                  // desktop collapse toggle would be a silent no-op (worse: it'd
+                  // mutate the desktop preference). Hide it while the drawer is
+                  // open.
+                  onToggleCollapsed={
+                    sidebarOpen ? undefined : toggleSidebarCollapsed
+                  }
+                />
+              </div>
+            </>
           )}
           <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}

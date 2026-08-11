@@ -4,6 +4,7 @@ import {
   getDeckChatScopeLabel,
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 
 describe("Slides layout sidebar route policy", () => {
@@ -22,6 +23,11 @@ describe("Slides layout sidebar route policy", () => {
     expect(isSlidesEditorRoute("/deck/deck-1/")).toBe(true);
     expect(isSlidesEditorRoute("/")).toBe(false);
     expect(isSlidesEditorRoute("/deck/deck-1/present")).toBe(false);
+  });
+
+  it("hides the app sidebar on deck editor routes", () => {
+    expect(shouldShowSlidesAppSidebar("/deck/deck-1")).toBe(false);
+    expect(shouldShowSlidesAppSidebar("/")).toBe(true);
   });
 
   it("collapses app navigation by default in the deck editor", () => {

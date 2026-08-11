@@ -2,6 +2,10 @@ export function isSlidesEditorRoute(pathname: string): boolean {
   return /^\/deck\/[^/]+\/?$/.test(pathname);
 }
 
+export function shouldShowSlidesAppSidebar(pathname: string): boolean {
+  return !isSlidesEditorRoute(pathname);
+}
+
 export function getDeckChatScopeLabel(
   deckTitle: string | undefined,
   untitledDeckLabel: string,
