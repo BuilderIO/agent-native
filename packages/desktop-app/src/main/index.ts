@@ -38,6 +38,7 @@ import {
 } from "@shared/code-agents";
 import {
   formatDesktopShortcutAccelerator,
+  isMacAppHideShortcut,
   normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
@@ -9320,6 +9321,12 @@ app.on("web-contents-created", (_event, contents) => {
   contents.on("before-input-event", (event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
+    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
+      event.preventDefault();
+      app.hide();
+      return;
+    }
+
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — toggle devtools for the active app webview
@@ -9483,7 +9490,9 @@ function installApplicationMenu() {
       { type: "separator" as const },
       { role: "services" as const },
       { type: "separator" as const },
-      { role: "hide" as const },
+      // Keep Cmd+H explicit because the custom menu replaces Electron's
+      // default app menu, whose implicit hide accelerator is easy to lose.
+      { role: "hide" as const, accelerator: "Command+H" },
       { role: "hideOthers" as const },
       { role: "unhide" as const },
       { type: "separator" as const },
@@ -9790,6 +9799,13 @@ app.whenReady().then(async () => {
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
+
+    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
+      _event.preventDefault();
+      app.hide();
+      return;
+    }
+
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell
