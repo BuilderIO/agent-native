@@ -679,9 +679,11 @@ body {
   box-sizing: border-box;
 }
 
-.desktop-chat-first-hub .code-agents-start > .code-agents-standard-composer {
+.desktop-chat-first-hub .code-agents-start .code-agents-standard-composer {
   align-self: center;
   width: min(100%, 750px) !important;
+  inline-size: min(100%, 750px) !important;
+  max-width: 750px !important;
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {

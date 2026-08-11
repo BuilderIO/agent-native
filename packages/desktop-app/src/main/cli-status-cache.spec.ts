@@ -26,9 +26,9 @@ describe("cachedCliStatus", () => {
     // The 5s host-metadata poll must not spawn a process again inside the TTL.
     for (let i = 0; i < 20; i += 1) {
       clock += 10;
-      expect(cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000)).toBe(
-        "codex",
-      );
+      expect(
+        cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000),
+      ).toBe("codex");
     }
     expect(syncProbes).toBe(1);
   });
@@ -47,14 +47,14 @@ describe("cachedCliStatus", () => {
     clock = 5000;
 
     // The stale read still returns immediately with the last known value.
-    expect(cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000)).toBe(
-      "stale",
-    );
+    expect(
+      cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000),
+    ).toBe("stale");
     await new Promise((resolve) => setImmediate(resolve));
     expect(asyncProbes).toBe(1);
-    expect(cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000)).toBe(
-      "fresh",
-    );
+    expect(
+      cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000),
+    ).toBe("fresh");
   });
 
   it("does not stack concurrent refreshes while one is in flight", async () => {
@@ -70,17 +70,35 @@ describe("cachedCliStatus", () => {
       return "fresh";
     };
 
-    cachedCliStatus(cache, () => "stale", probeAsync, () => clock, 1000);
+    cachedCliStatus(
+      cache,
+      () => "stale",
+      probeAsync,
+      () => clock,
+      1000,
+    );
     clock = 5000;
     for (let i = 0; i < 5; i += 1) {
-      cachedCliStatus(cache, () => "stale", probeAsync, () => clock, 1000);
+      cachedCliStatus(
+        cache,
+        () => "stale",
+        probeAsync,
+        () => clock,
+        1000,
+      );
     }
     expect(asyncProbes).toBe(1);
 
     gate.release?.();
     await new Promise((resolve) => setImmediate(resolve));
-    expect(cachedCliStatus(cache, () => "stale", probeAsync, () => clock, 1000)).toBe(
-      "fresh",
-    );
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "stale",
+        probeAsync,
+        () => clock,
+        1000,
+      ),
+    ).toBe("fresh");
   });
 });

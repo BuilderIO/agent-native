@@ -250,7 +250,10 @@ async function createContext(
   const localDevButton = page.getByRole("button", {
     name: /continue as local dev/i,
   });
-  if (await localDevButton.isVisible().catch(() => false)) {
+  if (
+    (await localDevButton.count()) > 0 &&
+    (await localDevButton.isVisible())
+  ) {
     await localDevButton.waitFor({ state: "visible", timeout: 15_000 });
     await localDevButton.click();
     await page.waitForURL((url) => url.pathname.endsWith(pathname), {
@@ -1136,6 +1139,8 @@ async function runElectronSmoke(): Promise<void> {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForTimeout(5_000);
     await openElectronAgentSurface(page);
+    await activeChatRow.waitFor({ state: "visible", timeout: 15_000 });
+    await activeChatRow.locator(".an-chat-history-row__button").click();
     const closePreview = page.getByRole("button", { name: "Close browser" });
     if (await closePreview.count()) await closePreview.click();
     const electronToggle = page.locator("[data-chat-first-surface-toggle]");

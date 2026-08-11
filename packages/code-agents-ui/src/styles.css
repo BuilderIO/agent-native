@@ -205,6 +205,38 @@
   letter-spacing: 0;
 }
 
+.code-agents-chat-history__menu-trigger {
+  display: inline-flex;
+  width: 24px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: calc(var(--radius) - 3px);
+  background: transparent;
+  color: hsl(var(--sidebar-foreground) / 0.58);
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.code-agents-chat-history__menu-trigger:hover,
+.code-agents-chat-history__menu-trigger:focus-visible,
+.code-agents-chat-history__menu-trigger[data-state="open"] {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+}
+
+.code-agents-chat-history__menu-trigger:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.65);
+  outline-offset: 1px;
+}
+
+.code-agents-chat-history__menu-content {
+  min-width: 176px;
+}
+
 .code-agents-project-picker {
   display: grid;
   gap: 6px;

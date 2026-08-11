@@ -1,12 +1,5 @@
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
-import {
-  getAppUrl,
-  FRAME_PORT,
-  getTemplate,
-  getDesktopTemplateGatewayAppUrl,
-  getTemplateGatewayUrl,
-  isDefaultDesktopTemplateDevTarget,
-} from "@shared/app-registry";
+import { getTemplate } from "@shared/app-registry";
 import {
   IconRefresh,
   IconCopy,
@@ -81,30 +74,20 @@ export interface AppWebviewHandle {
  * Determine the URL to load for this app.
  *
  * Production mode (default): load the production URL (e.g. https://mail.agent-native.com).
- * Dev mode: honor an explicit lazy gateway override or devUrl/port override;
- * otherwise first-party templates fall back to the local dev frame.
+ * Dev mode: load the app's local dev URL directly. The Electron shell owns
+ * chat now, so installed apps no longer need the local dev frame as a wrapper.
  */
-function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
+export function resolveAppWebviewUrl(
+  app: AppDefinition,
+  appConfig?: AppConfig,
+): string {
   if (appConfig?.mode === "dev") {
-    const template = getTemplate(appConfig.id);
-    if (template) {
-      const customTemplateDevUrl = !isDefaultDesktopTemplateDevTarget(appConfig)
-        ? (appConfig.devUrl?.trim() ??
-          (appConfig.devPort ? `http://localhost:${appConfig.devPort}` : ""))
-        : "";
-
-      // First-party templates must load through the frame so the Chat | CLI |
-      // Workspace panel lives outside the hot-reloaded app iframe. Custom
-      // template targets still use the frame as the top-level page; the frame
-      // loads the custom URL inside its app iframe.
-      return getFramedAppUrl(app, customTemplateDevUrl);
-    }
-
-    // Non-template dev URLs can still load directly.
     if (appConfig.devUrl?.trim()) return appConfig.devUrl.trim();
-    if (appConfig.devPort) return `http://localhost:${appConfig.devPort}`;
+    if (appConfig.devPort || app.devPort) {
+      return `http://localhost:${appConfig.devPort || app.devPort}`;
+    }
     if (appConfig.url) return appConfig.url;
-    return getAppUrl(app);
+    return "about:blank";
   }
 
   // Production mode (default): use the production URL
@@ -117,41 +100,9 @@ function resolveUrl(app: AppDefinition, appConfig?: AppConfig): string {
     return template.prodUrl;
   }
 
-  // Fallback for custom apps with no production URL.
-  return getAppUrl(app);
-}
-
-function getFramedAppUrl(app: AppDefinition, devUrl?: string): string {
-  const frameUrl = new URL(getAppUrl(app));
-  const trimmedDevUrl = devUrl?.trim();
-  if (trimmedDevUrl) frameUrl.searchParams.set("devUrl", trimmedDevUrl);
-  return frameUrl.toString();
-}
-
-function rendererEnvValue(name: string): string | undefined {
-  const viteEnv = (
-    typeof import.meta !== "undefined"
-      ? (
-          import.meta as unknown as {
-            env?: Record<string, string | undefined>;
-          }
-        ).env
-      : undefined
-  )?.[name];
-  if (viteEnv) return viteEnv;
-  const globalProcess = (
-    globalThis as unknown as {
-      process?: { env?: Record<string, string | undefined> };
-    }
-  ).process;
-  return globalProcess?.env?.[name];
-}
-
-function templateGatewayOverridesDevUrls(): boolean {
-  const value =
-    rendererEnvValue("VITE_AGENT_NATIVE_USE_TEMPLATE_GATEWAY") ||
-    rendererEnvValue("AGENT_NATIVE_USE_TEMPLATE_GATEWAY");
-  return value === "1" || value === "true";
+  // Keep incomplete custom entries on a stable blank document instead of
+  // silently routing them through the retired local dev frame.
+  return "about:blank";
 }
 
 function withUrlParams(
@@ -272,14 +223,18 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const loadFailureRef = useRef(false);
     const url = sourceUrl?.trim()
       ? withUrlParams(sourceUrl.trim(), urlParams)
-      : withUrlParams(withUrlPath(resolveUrl(app, appConfig), urlPath), {
-          ...(appConfig?.mode === "dev" && appConfig.localPath
-            ? { _agentNativeDesktopCode: "1" }
-            : {}),
-          ...urlParams,
-        });
+      : withUrlParams(
+          withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
+          {
+            ...(appConfig?.mode === "dev" && appConfig.localPath
+              ? { _agentNativeDesktopCode: "1" }
+              : {}),
+            ...urlParams,
+          },
+        );
     const isDevMode = !sourceUrl && appConfig?.mode === "dev";
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
@@ -391,6 +346,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const recoverOutdatedOptimizeDep = () => {
         if (!IS_DEV || optimizeDepRecoveryRef.current) return;
         optimizeDepRecoveryRef.current = true;
+        loadFailureRef.current = false;
         setError(false);
         setTimeout(() => {
           try {
@@ -427,6 +383,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
 
       const onReady = () => {
+        // Chromium can emit dom-ready for its internal error document after
+        // did-fail-load. That event is not a successful app load.
+        if (loadFailureRef.current) return;
         if (app.id === "content") {
           void wv
             .executeJavaScript(buildContentDirectoryPickerBridgeScript(), false)
@@ -461,6 +420,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           recoverOutdatedOptimizeDep();
           return;
         }
+        loadFailureRef.current = true;
         setError(true);
         setIsLoading(false);
       };
@@ -529,6 +489,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
       optimizeDepRecoveryRef.current = false;
+      loadFailureRef.current = false;
       setError(false);
 
       if (
@@ -566,6 +527,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const slowT = setTimeout(() => setSlowLoad(true), 2500);
       const failT = setTimeout(() => {
         if (isLoading) {
+          loadFailureRef.current = true;
           setError(true);
           setIsLoading(false);
         }
@@ -636,6 +598,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [app.id, app.placeholder, isActive, url]);
 
     function handleRetry() {
+      loadFailureRef.current = false;
       setError(false);
       setIsLoading(true);
       setSlowLoad(false);
@@ -733,9 +696,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             }}
             style={{
               flex: "1 1 auto",
-              display: "flex",
+              display: error ? "none" : "flex",
               flexDirection: "column",
-              ...(error ? { visibility: "hidden" as const } : {}),
             }}
           />
         )}
@@ -769,11 +731,6 @@ function LoadingScreen({
 }
 
 type PortStatus = "checking" | "up" | "down";
-
-function usePortCheck(port: number | undefined, enabled: boolean): PortStatus {
-  const url = port ? `http://localhost:${port}` : undefined;
-  return useUrlCheck(url, enabled);
-}
 
 function useUrlCheck(url: string | undefined, enabled: boolean): PortStatus {
   const [status, setStatus] = useState<PortStatus>("checking");
@@ -848,18 +805,7 @@ function ErrorScreen({
   const [copied, setCopied] = useState(false);
   const devCommand = appConfig?.devCommand?.trim();
   const devPort = appConfig?.devPort ?? app.devPort;
-  const gatewayUrl = getTemplateGatewayUrl();
-  const gatewayAppUrl =
-    isDev &&
-    (gatewayUrl ||
-      templateGatewayOverridesDevUrls() ||
-      (appConfig && isDefaultDesktopTemplateDevTarget(appConfig)))
-      ? getDesktopTemplateGatewayAppUrl(app.id)
-      : null;
-  const devStatusUrl =
-    gatewayAppUrl ?? (devPort ? `http://localhost:${devPort}` : undefined);
-  const devServerStatus = useUrlCheck(devStatusUrl, isDev);
-  const frameStatus = usePortCheck(FRAME_PORT, isDev);
+  const devServerStatus = useUrlCheck(isDev ? url : undefined, isDev);
 
   async function copyCommand(cmd: string) {
     try {
@@ -895,13 +841,7 @@ function ErrorScreen({
           <ul className="error-checklist">
             <li className={`error-checklist-item--${devServerStatus}`}>
               <StatusIcon status={devServerStatus} />
-              {gatewayAppUrl
-                ? `${app.name} via template gateway`
-                : `${app.name} dev server${devPort ? ` (port ${devPort})` : ""}`}
-            </li>
-            <li className={`error-checklist-item--${frameStatus}`}>
-              <StatusIcon status={frameStatus} />
-              Frame (port {FRAME_PORT})
+              {`${app.name} dev server${devPort ? ` (port ${devPort})` : ""}`}
             </li>
           </ul>
           {devCommand && (

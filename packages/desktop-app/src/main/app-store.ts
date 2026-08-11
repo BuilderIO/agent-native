@@ -35,6 +35,7 @@ const SHORTCUT_STORE_FILE = "shortcut-config.json";
 const QUICK_PROMPT_STORE_FILE = "quick-prompt-config.json";
 const DESKTOP_APP_PREFERENCES_STORE_FILE = "desktop-app-preferences.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
+const DESKTOP_APP_MODE_DEFAULTS_VERSION = 1;
 
 type StoredSecret =
   | { encoding: "local-file-v1"; value: string; updatedAt?: string }
@@ -99,6 +100,7 @@ export interface DesktopAppPreferences {
   appsRoot: string;
   managedAppIds: string[];
   appOrder: string[];
+  appModeDefaultsVersion?: number;
 }
 
 interface ShortcutStore {
@@ -115,7 +117,7 @@ function defaultFrameSettings(): FrameSettings {
     enabled: true,
     showCodeTab: true,
     chatFirstMode: true,
-    mode: app.isPackaged ? "prod" : "dev",
+    mode: "prod",
   };
 }
 
@@ -128,8 +130,7 @@ function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
 function defaultApps(): AppConfig[] {
   return DESKTOP_DEFAULT_APPS.map((def) => ({
     ...def,
-    mode:
-      app.isPackaged || def.id === "dispatch" ? (def.mode ?? "prod") : "dev",
+    mode: def.mode ?? "prod",
   }));
 }
 
@@ -483,7 +484,7 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
 export function loadFrameSettings(): FrameSettings {
   try {
     const raw = fs.readFileSync(getFrameStorePath(), "utf-8");
-    return { ...defaultFrameSettings(), ...JSON.parse(raw) };
+    return { ...defaultFrameSettings(), ...JSON.parse(raw), mode: "prod" };
   } catch {
     return defaultFrameSettings();
   }
@@ -493,7 +494,7 @@ export function saveFrameSettings(
   settings: Partial<FrameSettings>,
 ): FrameSettings {
   const current = loadFrameSettings();
-  const updated = { ...current, ...settings };
+  const updated = { ...current, ...settings, mode: "prod" as const };
   writeJsonFileAtomic(getFrameStorePath(), updated);
   return updated;
 }
@@ -548,6 +549,9 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
       appsRoot,
       managedAppIds: [...new Set(managedAppIds)],
       appOrder: [...new Set(appOrder)],
+      ...(typeof raw.appModeDefaultsVersion === "number"
+        ? { appModeDefaultsVersion: raw.appModeDefaultsVersion }
+        : {}),
     };
   } catch {
     return defaults;
@@ -567,6 +571,11 @@ export function saveDesktopAppPreferences(
       ...new Set(settings.managedAppIds ?? current.managedAppIds),
     ],
     appOrder: [...new Set(settings.appOrder ?? current.appOrder)],
+    ...(settings.appModeDefaultsVersion !== undefined
+      ? { appModeDefaultsVersion: settings.appModeDefaultsVersion }
+      : current.appModeDefaultsVersion !== undefined
+        ? { appModeDefaultsVersion: current.appModeDefaultsVersion }
+        : {}),
   };
   writeJsonFileAtomic(getDesktopAppPreferencesStorePath(), updated);
   return updated;
@@ -683,6 +692,7 @@ export function loadApps(): AppConfig[] {
     const defaults = defaultApps();
     const defaultsById = new Map(defaults.map((d) => [d.id, d]));
     const templateAppsById = new Map(TEMPLATE_APPS.map((d) => [d.id, d]));
+    const preferences = loadDesktopAppPreferences();
     const persistedIds = new Set(apps.map((a) => a.id));
 
     // Remove stale desktop apps that should no longer appear, then preserve
@@ -695,6 +705,22 @@ export function loadApps(): AppConfig[] {
         (!a.isBuiltIn || defaultsById.has(a.id) || templateAppsById.has(a.id)),
     );
     if (apps.length !== before) migrated = true;
+
+    if (
+      preferences.appModeDefaultsVersion !== DESKTOP_APP_MODE_DEFAULTS_VERSION
+    ) {
+      // Older unpackaged builds seeded built-in apps as dev without a user
+      // choice. Convert that implicit default once, then preserve later edits.
+      for (const app of apps) {
+        if (app.isBuiltIn && app.mode === "dev" && defaultsById.has(app.id)) {
+          app.mode = "prod";
+          migrated = true;
+        }
+      }
+      saveDesktopAppPreferences({
+        appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+      });
+    }
 
     // Add new built-in apps that aren't in the persisted config
     for (const def of defaults) {
@@ -733,8 +759,8 @@ export function loadApps(): AppConfig[] {
       // User-added or legacy entries that match a first-party template should
       // still get canonical URL backfills. This covers old desktop configs
       // where hidden-but-known templates existed with an empty production URL,
-      // which otherwise falls through to the local dev frame in packaged builds
-      // and renders a blank tab.
+      // which otherwise falls through to an invalid local target and renders a
+      // blank tab.
       const templateDef = templateAppsById.get(app.id);
       if (templateDef) {
         const canonical = canonicalizeTemplateApp(app, templateDef);
@@ -757,6 +783,9 @@ export function loadApps(): AppConfig[] {
     // First launch or corrupted — seed with defaults
     const apps = defaultApps();
     saveApps(apps);
+    saveDesktopAppPreferences({
+      appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+    });
     return apps;
   }
 }
@@ -821,6 +850,10 @@ export function updateApp(
 export function resetToDefaults(): AppConfig[] {
   const apps = defaultApps();
   saveApps(apps);
-  saveDesktopAppPreferences({ managedAppIds: [], appOrder: [] });
+  saveDesktopAppPreferences({
+    managedAppIds: [],
+    appOrder: [],
+    appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+  });
   return apps;
 }

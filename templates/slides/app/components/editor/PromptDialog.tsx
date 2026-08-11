@@ -457,7 +457,9 @@ export default function PromptPopover({
                   onClick={returnToPrompt}
                   disabled={importingSource !== null}
                   className="-ms-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-                  aria-label="Back to prompt"
+                  aria-label={
+                    "Back to prompt" /* i18n-ignore -- local import-flow control label */
+                  }
                 >
                   <IconArrowLeft className="size-4" />
                 </button>

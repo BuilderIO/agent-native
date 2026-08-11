@@ -1054,8 +1054,8 @@ export default function AppSettings({
                   Installed apps
                 </h2>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Apps open in production by default. Change every installed
-                  app at once when you need local development.
+                  Apps open in production by default. Change every installed app
+                  at once when you need local development.
                 </p>
               </div>
               <div
@@ -1081,97 +1081,97 @@ export default function AppSettings({
               </div>
             </div>
             <SettingsGroup>
-            {apps.map((app) => (
-              <SettingsRow
-                key={app.id}
-                label={app.name}
-                description={
-                  app.mode === "dev" && app.devUrl
-                    ? effectiveDevUrlForDisplay(app)
-                    : app.url || app.devUrl || "Local app"
-                }
-                control={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
-                      {(["prod", "dev"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          className={
-                            (app.mode ?? "prod") === mode
-                              ? "px-2.5 py-1.5 text-xs font-medium transition-colors bg-accent text-foreground"
-                              : "px-2.5 py-1.5 text-xs font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                          }
-                          aria-pressed={(app.mode ?? "prod") === mode}
-                          onClick={() => void handleModeToggle(app.id, mode)}
-                        >
-                          {mode === "prod" ? "Prod" : "Dev"}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      className="settings-icon-btn"
-                      onClick={() => setEditingId(app.id)}
-                      title="Edit app"
-                      aria-label={"Edit " + app.name}
-                    >
-                      <IconEdit size={14} />
-                    </button>
-                    {!app.isBuiltIn ? (
+              {apps.map((app) => (
+                <SettingsRow
+                  key={app.id}
+                  label={app.name}
+                  description={
+                    app.mode === "dev" && app.devUrl
+                      ? effectiveDevUrlForDisplay(app)
+                      : app.url || app.devUrl || "Local app"
+                  }
+                  control={
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
+                        {(["prod", "dev"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            className={
+                              (app.mode ?? "prod") === mode
+                                ? "px-2.5 py-1.5 text-xs font-medium transition-colors bg-accent text-foreground"
+                                : "px-2.5 py-1.5 text-xs font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                            }
+                            aria-pressed={(app.mode ?? "prod") === mode}
+                            onClick={() => void handleModeToggle(app.id, mode)}
+                          >
+                            {mode === "prod" ? "Prod" : "Dev"}
+                          </button>
+                        ))}
+                      </div>
                       <button
                         type="button"
-                        className="settings-icon-btn settings-icon-btn--danger"
-                        onClick={() => handleRemove(app.id)}
-                        title="Remove app"
-                        aria-label={"Remove " + app.name}
+                        className="settings-icon-btn"
+                        onClick={() => setEditingId(app.id)}
+                        title="Edit app"
+                        aria-label={"Edit " + app.name}
                       >
-                        <IconTrash size={14} />
+                        <IconEdit size={14} />
                       </button>
-                    ) : null}
-                    <Switch
-                      checked={app.enabled}
-                      onCheckedChange={(enabled) =>
-                        void handleToggle(app.id, enabled)
-                      }
-                      aria-label={
-                        (app.enabled ? "Disable " : "Enable ") + app.name
-                      }
-                    />
-                  </div>
+                      {!app.isBuiltIn ? (
+                        <button
+                          type="button"
+                          className="settings-icon-btn settings-icon-btn--danger"
+                          onClick={() => handleRemove(app.id)}
+                          title="Remove app"
+                          aria-label={"Remove " + app.name}
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      ) : null}
+                      <Switch
+                        checked={app.enabled}
+                        onCheckedChange={(enabled) =>
+                          void handleToggle(app.id, enabled)
+                        }
+                        aria-label={
+                          (app.enabled ? "Disable " : "Enable ") + app.name
+                        }
+                      />
+                    </div>
+                  }
+                />
+              ))}
+              <SettingsRow
+                label="Add an app"
+                description="Create a local agent-native app in your workspace."
+                control={
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--primary"
+                    onClick={() => {
+                      if (onAddAppClick) requestClose(onAddAppClick);
+                    }}
+                  >
+                    <IconPlus size={15} />
+                    Add app
+                  </button>
                 }
               />
-            ))}
-            <SettingsRow
-              label="Add an app"
-              description="Create a local agent-native app in your workspace."
-              control={
-                <button
-                  type="button"
-                  className="settings-btn settings-btn--primary"
-                  onClick={() => {
-                    if (onAddAppClick) requestClose(onAddAppClick);
-                  }}
-                >
-                  <IconPlus size={15} />
-                  Add app
-                </button>
-              }
-            />
-            <SettingsRow
-              label="Reset apps"
-              description="Restore the default app registry."
-              control={
-                <button
-                  type="button"
-                  className="settings-btn settings-btn--danger"
-                  onClick={handleReset}
-                >
-                  <IconRotate size={14} />
-                  Reset
-                </button>
-              }
-            />
+              <SettingsRow
+                label="Reset apps"
+                description="Restore the default app registry."
+                control={
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--danger"
+                    onClick={handleReset}
+                  >
+                    <IconRotate size={14} />
+                    Reset
+                  </button>
+                }
+              />
             </SettingsGroup>
           </div>
         </div>
@@ -1400,43 +1400,6 @@ export default function AppSettings({
               <SettingsTabsPage
                 general={
                   <div className="w-full max-w-3xl space-y-8">
-                    <SettingsGroup
-                      title="General"
-                      description="Control how Agent Native runs on this computer."
-                    >
-                      {frameSettings ? (
-                        <SettingsRow
-                          label="App mode"
-                          description={
-                            allMode === "dev"
-                              ? "All apps run in development mode."
-                              : allMode === "prod"
-                                ? "All apps run in production mode."
-                                : "Some apps use a custom mode."
-                          }
-                          control={
-                            <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
-                              {(["prod", "dev"] as const).map((mode) => (
-                                <button
-                                  key={mode}
-                                  type="button"
-                                  className={
-                                    allMode === mode
-                                      ? "px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-foreground"
-                                      : "px-3 py-1.5 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                                  }
-                                  onClick={() => handleAllToMode(mode)}
-                                >
-                                  {mode === "prod"
-                                    ? "Production"
-                                    : "Development"}
-                                </button>
-                              ))}
-                            </div>
-                          }
-                        />
-                      ) : null}
-                    </SettingsGroup>
                     <SettingsGroup
                       title="Software updates"
                       description="Keep Agent Native current."
