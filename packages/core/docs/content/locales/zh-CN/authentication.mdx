@@ -459,3 +459,4 @@ const state = encodeOAuthState({
 Dispatch 的 `desktop.workspace-sso` 标志默认关闭且只控制可用性；身份验证、签名、nonce、来源、回调、会话和撤销检查始终强制执行。标志关闭或无法读取时，Desktop 不会更改逐应用登录、退出或设置。
 User-Agent 中的 Canary 标记仅是可用性提示，不是远程证明；身份验证和授权均不信任该标记。
 规范托管应用无需为每个应用配置身份中心环境变量，即可识别打包版 Desktop SSO Canary 的请求。普通浏览器和自托管应用仍需设置 `AGENT_NATIVE_IDENTITY_HUB_URL`。稳定版 Desktop 在后续版本获得单独批准之前不会初始化代理。
+Canary 不会拦截匿名用户进入应用登录页的导航。用户必须在 Desktop 设置中为当前活动的已注册应用明确选择工作区登录；普通应用登录仍是默认路径。

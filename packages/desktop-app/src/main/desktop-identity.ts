@@ -12,7 +12,6 @@ export const DESKTOP_IDENTITY_PARTITION = "persist:agent-native-identity";
 export const DESKTOP_IDENTITY_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
 
-const DESKTOP_SIGN_IN_PATH = "/_agent-native/sign-in";
 const DESKTOP_IDENTITY_LOGIN_PATH = "/_agent-native/identity/login";
 const DESKTOP_IDENTITY_AUTHORIZE_PATH = "/_agent-native/identity/authorize";
 const DESKTOP_IDENTITY_CALLBACK_PATH = "/_agent-native/identity/callback";
@@ -129,20 +128,6 @@ interface DesktopRevocationTarget {
   cookieHeader: string;
 }
 
-export function isDesktopSignInNavigation(
-  navigationUrl: string,
-  app: Pick<DesktopIdentityApp, "origin">,
-): boolean {
-  try {
-    const parsed = new URL(navigationUrl);
-    return (
-      parsed.origin === app.origin && parsed.pathname === DESKTOP_SIGN_IN_PATH
-    );
-  } catch {
-    return false;
-  }
-}
-
 function completionUrl(origin: string, nonce: string): string {
   const result = new URL(DESKTOP_IDENTITY_COMPLETE_PATH, origin);
   result.searchParams.set("nonce", nonce);
@@ -237,7 +222,6 @@ export class DesktopIdentityBroker {
     randomBytes(16).toString("base64url");
   private status: DesktopIdentityStatus = "idle";
   private ceremonyGeneration = 0;
-  private automaticSignInSuppressed = false;
   private availability: "unknown" | "available" | "unavailable";
 
   constructor(private readonly options: DesktopIdentityBrokerOptions) {
@@ -304,22 +288,6 @@ export class DesktopIdentityBroker {
     );
   }
 
-  handleSignedOutNavigation(appId: string, navigationUrl: string): boolean {
-    const app = this.options.resolveApp(appId);
-    if (
-      !app ||
-      (this.options.isAvailable && !this.options.resolveApp("dispatch")) ||
-      (this.options.isAvailable && this.availability !== "available") ||
-      this.automaticSignInSuppressed ||
-      this.unsupportedAppIds.has(appId) ||
-      !isDesktopSignInNavigation(navigationUrl, app)
-    ) {
-      return false;
-    }
-    void this.ensureAppSession(appId);
-    return true;
-  }
-
   ensureAppSession(appId: string): Promise<boolean> {
     const existing = this.pendingByApp.get(appId);
     if (existing) return existing;
@@ -344,7 +312,13 @@ export class DesktopIdentityBroker {
   }
 
   signIn(appId: string): Promise<boolean> {
-    this.automaticSignInSuppressed = false;
+    if (
+      !this.options.resolveApp(appId) ||
+      (this.options.isAvailable && !this.options.resolveApp("dispatch")) ||
+      (this.options.isAvailable && this.availability !== "available")
+    ) {
+      return Promise.resolve(false);
+    }
     this.unsupportedAppIds.delete(appId);
     return this.ensureAppSession(appId);
   }
@@ -406,7 +380,6 @@ export class DesktopIdentityBroker {
       alreadyRevokedAppId?: string;
     },
   ): Promise<void> {
-    this.automaticSignInSuppressed = true;
     this.ceremonyGeneration += 1;
     this.pendingByApp.clear();
     this.closeActiveWindow();

@@ -8,7 +8,6 @@ import {
   isDesktopIdentityAuthorizeNavigation,
   isDesktopIdentityCompletion,
   isDesktopIdentityConfiguredAppEligible,
-  isDesktopSignInNavigation,
   isDesktopWorkspaceLogoutRequest,
   type DesktopIdentityApp,
 } from "./desktop-identity";
@@ -117,27 +116,6 @@ function sessionCookie(
 describe("Desktop identity navigation boundaries", () => {
   const app = appFixture();
 
-  it("intercepts only the exact canonical app sign-in path", () => {
-    expect(
-      isDesktopSignInNavigation(
-        "https://mail.agent-native.com/_agent-native/sign-in?return=%2Finbox",
-        app,
-      ),
-    ).toBe(true);
-    expect(
-      isDesktopSignInNavigation(
-        "https://evil.example/_agent-native/sign-in",
-        app,
-      ),
-    ).toBe(false);
-    expect(
-      isDesktopSignInNavigation(
-        "https://mail.agent-native.com/_agent-native/identity/login",
-        app,
-      ),
-    ).toBe(false);
-  });
-
   it("accepts completion only for the exact origin, path, and nonce", () => {
     const nonce = "nonce_12345678901234567890123456789012";
     expect(
@@ -231,7 +209,7 @@ describe("Desktop identity navigation boundaries", () => {
 });
 
 describe("DesktopIdentityBroker", () => {
-  it("leaves ordinary sign-in alone when the Dispatch authority is unavailable", () => {
+  it("refuses explicit workspace sign-in when the Dispatch authority is unavailable", async () => {
     const app = appFixture();
     const createWindow = vi.fn();
     const broker = new DesktopIdentityBroker({
@@ -246,16 +224,11 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    expect(
-      broker.handleSignedOutNavigation(
-        app.id,
-        `${app.origin}/_agent-native/sign-in`,
-      ),
-    ).toBe(false);
+    await expect(broker.signIn(app.id)).resolves.toBe(false);
     expect(createWindow).not.toHaveBeenCalled();
   });
 
-  it("does not cancel ordinary sign-in before rollout availability is known", () => {
+  it("refuses explicit workspace sign-in before rollout availability is known", async () => {
     const app = appFixture();
     const authority = authorityFixture();
     const broker = new DesktopIdentityBroker({
@@ -271,15 +244,10 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    expect(
-      broker.handleSignedOutNavigation(
-        app.id,
-        `${app.origin}/_agent-native/sign-in`,
-      ),
-    ).toBe(false);
+    await expect(broker.signIn(app.id)).resolves.toBe(false);
   });
 
-  it("restores ordinary sign-in if Dispatch disappears before the ceremony", async () => {
+  it("fails explicit sign-in if Dispatch disappears before the ceremony", async () => {
     const app = appFixture();
     const authority = authorityFixture();
     const reloadApp = vi.fn();
@@ -303,12 +271,7 @@ describe("DesktopIdentityBroker", () => {
 
     await broker.refreshStatus(authority);
 
-    expect(
-      broker.handleSignedOutNavigation(
-        app.id,
-        `${app.origin}/_agent-native/sign-in`,
-      ),
-    ).toBe(true);
+    await expect(broker.signIn(app.id)).resolves.toBe(false);
     await vi.waitFor(() => expect(reloadApp).toHaveBeenCalledWith(app));
     expect(broker.getStatus()).toBe("idle");
   });
@@ -338,12 +301,7 @@ describe("DesktopIdentityBroker", () => {
     expect(resolveLoginRedirect).not.toHaveBeenCalled();
     expect(reloadApp).not.toHaveBeenCalled();
     expect(broker.getStatus()).toBe("idle");
-    expect(
-      broker.handleSignedOutNavigation(
-        app.id,
-        `${app.origin}/_agent-native/sign-in`,
-      ),
-    ).toBe(false);
+    await expect(broker.signIn(app.id)).resolves.toBe(false);
   });
 
   it("leaves ordinary per-app sign-out alone after rollout availability turns off", async () => {
@@ -1404,7 +1362,7 @@ describe("DesktopIdentityBroker", () => {
     ).toBe(true);
   });
 
-  it("keeps automatic sign-in suppressed until an explicit sign-in", async () => {
+  it("opens a ceremony only after explicit sign-in", async () => {
     const app = appFixture();
     let closedListener: (() => void) | undefined;
     const identityWindow = {
@@ -1429,14 +1387,11 @@ describe("DesktopIdentityBroker", () => {
       reloadApp: vi.fn(),
       clearLocalBroker: vi.fn(),
     });
-    const signInUrl = `${app.origin}/_agent-native/sign-in`;
-
-    await broker.signOut([app]);
-    expect(broker.handleSignedOutNavigation(app.id, signInUrl)).toBe(false);
+    expect(identityWindow.loadURL).not.toHaveBeenCalled();
 
     const explicitSignIn = broker.signIn(app.id);
-    expect(broker.handleSignedOutNavigation(app.id, signInUrl)).toBe(true);
     await vi.waitFor(() => expect(closedListener).toBeDefined());
+    expect(identityWindow.loadURL).toHaveBeenCalledTimes(1);
     closedListener?.();
     await expect(explicitSignIn).resolves.toBe(false);
   });

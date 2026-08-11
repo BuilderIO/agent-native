@@ -621,10 +621,30 @@ describe("identity SSO — JIT link semantics", () => {
         name: "Brand New",
       }),
     });
+    const firstPassword = signUpEmailMock.mock.calls[0]?.[0]?.body?.password;
+    expect(firstPassword).toMatch(/^an-sso_[A-Za-z0-9_-]{43}$/);
+    expect(firstPassword).not.toContain("brand-new@corp.com");
+    expect(firstPassword).not.toContain(SECRET);
     expect(createOAuthSessionMock).toHaveBeenCalledWith(
       expect.anything(),
       "brand-new@corp.com",
       expect.objectContaining({ hasProductionSession: false }),
     );
+
+    const secondState = await store.createSsoState(null);
+    const secondToken = await signIdentity({
+      email: "another-new@corp.com",
+      scope: "identity",
+      jti: "n2",
+      name: "Another New",
+    });
+    const secondResponse = await handleIdentitySso(
+      ev({ path: `/callback?token=${secondToken}&state=${secondState}` }),
+      "/callback",
+    );
+    expect(secondResponse.status).toBe(302);
+    const secondPassword = signUpEmailMock.mock.calls[1]?.[0]?.body?.password;
+    expect(secondPassword).toMatch(/^an-sso_[A-Za-z0-9_-]{43}$/);
+    expect(secondPassword).not.toBe(firstPassword);
   });
 });

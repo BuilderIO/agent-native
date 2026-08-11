@@ -45,7 +45,7 @@
  * its prior auth with no residue.
  */
 
-import { createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import type { H3Event } from "h3";
 import { getHeader, getMethod } from "h3";
@@ -203,23 +203,12 @@ function errorPage(message: string, loginPath: string): Response {
 }
 
 /**
- * Derive a strong, deterministic, NEVER-exposed credential for a JIT-created
- * SSO user. Bound to the shared A2A secret + email so it is stable across
- * function executions but unguessable without the deployment secret. Only
- * ever used as the `password` argument to Better Auth's own
- * `signUpEmail` / `signInEmail` — never returned, logged, or sent anywhere.
+ * Create a strong, random, NEVER-exposed credential for a JIT-created SSO
+ * user. It is used once by Better Auth's signup path and is intentionally
+ * unavailable to every login surface, including later SSO retries.
  */
-function deriveSsoCredential(email: string): string {
-  const secret = process.env.A2A_SECRET || "";
-  // A salted SHA-256 over secret + email: stable across function executions
-  // (so the same SSO user always derives the same stand-in password) but
-  // unguessable without the deployment secret. This account's only sign-in
-  // path is the signature-verified hub token, so the value is never used by
-  // anyone but Better Auth's own signUpEmail.
-  const digest = createHash("sha256")
-    .update(`${secret}:agent-native-sso:${email}`)
-    .digest("base64url");
-  return `an-sso_${digest}`;
+function createUnusableSsoCredential(): string {
+  return `an-sso_${randomBytes(32).toString("base64url")}`;
 }
 
 /**
@@ -262,7 +251,7 @@ async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
       await auth.api.signUpEmail({
         body: {
           email: identity.email,
-          password: deriveSsoCredential(identity.email),
+          password: createUnusableSsoCredential(),
           name: identity.name || identity.email.split("@")[0] || "User",
         },
       });

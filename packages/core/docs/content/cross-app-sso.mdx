@@ -35,6 +35,11 @@ cookie**. Each separately hosted app still creates and owns its own local
 session. Dispatch proves the user's identity at the app's front door, and the
 app then continues with its normal local auth and access checks.
 
+The packaged Desktop Canary is deliberately more explicit: it never intercepts
+anonymous app sign-in navigation. The user chooses workspace sign-in in Desktop
+Settings for the active registered app; ordinary app sign-in remains the
+default path when that action is not chosen or the flag is unavailable.
+
 For a product walkthrough, record this exact sequence: sign in once in
 Dispatch, open two other hosted apps, show that neither asks for credentials,
 then sign out of one app and show that the other app's session is independent.

@@ -33,6 +33,7 @@ export const IPC = {
   /** Desktop workspace identity (renderer intent/status only; no secrets) */
   IDENTITY_STATUS_GET: "identity:status:get",
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  IDENTITY_SIGN_IN: "identity:sign-in",
   IDENTITY_SIGN_OUT: "identity:sign-out",
 
   /** App config management (renderer ↔ main) */

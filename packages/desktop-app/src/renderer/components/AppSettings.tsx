@@ -596,6 +596,10 @@ export default function AppSettings({
     if (signedOut) setIdentityStatus("sign-in-required");
   }, []);
 
+  const handleWorkspaceSignIn = useCallback(async () => {
+    await window.electronAPI?.identity?.signIn();
+  }, []);
+
   const refreshProviderSettings = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
     if (!api?.getProviderSettings) return;
@@ -1437,7 +1441,7 @@ export default function AppSettings({
                                 ? "Finishing workspace sign-in…"
                                 : identityStatus === "failed"
                                   ? "Workspace sign-in needs attention in an app."
-                                  : "Sign in from any eligible app to connect this desktop."
+                                  : "Choose workspace sign-in for the active app. Ordinary app sign-in remains separate."
                           }
                           control={
                             identityStatus === "signed-in" ? (
@@ -1448,7 +1452,15 @@ export default function AppSettings({
                               >
                                 Sign out
                               </button>
-                            ) : undefined
+                            ) : identityStatus === "signing-in" ? undefined : (
+                              <button
+                                type="button"
+                                className="settings-btn settings-btn--ghost"
+                                onClick={() => void handleWorkspaceSignIn()}
+                              >
+                                Sign in
+                              </button>
+                            )
                           }
                         />
                       </SettingsGroup>

@@ -1158,6 +1158,15 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   return desktopIdentityBroker?.getStatus() ?? "idle";
 });
 
+ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
+  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
+  const status = desktopIdentityBroker.getStatus();
+  if (status !== "sign-in-required" && status !== "failed") return false;
+  const identityApp = resolveDesktopIdentityApp(activeAppId);
+  if (!identityApp) return false;
+  return desktopIdentityBroker.signIn(identityApp.id);
+});
+
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
   if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
   if (desktopIdentityBroker.getStatus() === "idle") return false;
@@ -9397,15 +9406,6 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     url: string,
     options: { isMainFrame: boolean },
   ) => {
-    const desktopAppId = desktopWebviewAppIds.get(contents);
-    if (
-      options.isMainFrame &&
-      desktopAppId &&
-      desktopIdentityBroker?.handleSignedOutNavigation(desktopAppId, url)
-    ) {
-      event.preventDefault();
-      return;
-    }
     if (handleDesktopProtocolUrl(url)) {
       event.preventDefault();
       return;
