@@ -63,6 +63,7 @@ import {
 import {
   activeRunLooksAlive,
   createAgentChatAdapter,
+  hasInFlightToolCall,
   type AgentChatSurfaceKind,
 } from "./agent-chat-adapter.js";
 import {
@@ -141,6 +142,7 @@ import {
 import {
   ChatRunningContext,
   ChatRunningRunIdContext,
+  ChatRunningTurnIdContext,
   ChatRunDurationContext,
   ApprovalContext,
   type ApprovalResolution,
@@ -272,6 +274,7 @@ export function createUserMessageRunConfig(
     engine?: string;
     effort?: ReasoningEffort;
   },
+  turnId?: string,
 ) {
   const custom: {
     references?: Reference[];
@@ -282,6 +285,7 @@ export function createUserMessageRunConfig(
     model?: string;
     engine?: string;
     effort?: ReasoningEffort;
+    turnId?: string;
   } = {};
   if (modelSnapshot?.model) custom.model = modelSnapshot.model;
   if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
@@ -300,6 +304,9 @@ export function createUserMessageRunConfig(
   }
   if (approvedToolCalls && approvedToolCalls.length > 0) {
     custom.approvedToolCalls = approvedToolCalls;
+  }
+  if (turnId) {
+    custom.turnId = turnId;
   }
   const options: {
     runConfig?: { custom: typeof custom };
@@ -353,6 +360,7 @@ const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
 type ActiveRunLookup = {
   active?: boolean;
   runId?: string;
+  turnId?: string;
   threadId?: string;
   status?: string;
   heartbeatAt?: number | null;
@@ -366,6 +374,7 @@ type ActiveRunLookup = {
 type PendingReconnectRecovery = {
   id: number;
   message: string;
+  turnId?: string;
 };
 
 function isReplayableTerminalRun(runInfo: ActiveRunLookup): boolean {
@@ -618,6 +627,7 @@ export async function waitForThreadRunToClear(
     setActiveRun({
       threadId,
       runId: info.runId,
+      ...(info.turnId ? { turnId: info.turnId } : {}),
       lastSeq: sameStoredRun ? stored.lastSeq : -1,
       ...(sameStoredRun && stored.activityTool
         ? { activityTool: stored.activityTool }
@@ -1717,6 +1727,8 @@ type QueuedMessage = {
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
   approvedToolCalls?: string[];
+  /** Preserve the logical turn when a hidden reconnect recovery is re-issued. */
+  turnId?: string;
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -2686,6 +2698,7 @@ const AssistantChatInner = forwardRef<
   // overlay until the adapter message catches up so we don't flash an empty gap.
   const [adapterHandoffPending, setAdapterHandoffPending] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
+  const reconnectTurnIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
   const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
@@ -2700,6 +2713,7 @@ const AssistantChatInner = forwardRef<
     reconnectAbortRef.current?.abort();
     reconnectAbortRef.current = null;
     reconnectRunIdRef.current = null;
+    reconnectTurnIdRef.current = null;
     reconnectTailOnlyRef.current = false;
     reconnectCanMaterializeRef.current = false;
     setIsReconnecting(false);
@@ -2763,6 +2777,10 @@ const AssistantChatInner = forwardRef<
     (activeRunMatchesThread(storedActiveRun, threadId)
       ? (storedActiveRun?.runId ?? null)
       : null);
+  const activeChatTurnId =
+    (activeRunMatchesThread(storedActiveRun, threadId)
+      ? (storedActiveRun?.turnId ?? null)
+      : null) ?? (showRunningInUI ? reconnectTurnIdRef.current : null);
   const chatRunStartedAtRef = useRef<number | null>(null);
   const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
     number | null
@@ -3173,6 +3191,10 @@ const AssistantChatInner = forwardRef<
       }
 
       reconnectRunIdRef.current = runId;
+      reconnectTurnIdRef.current =
+        typeof runInfo.turnId === "string" && runInfo.turnId.length > 0
+          ? runInfo.turnId
+          : (getActiveRun()?.turnId ?? null);
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
       reconnectTailOnlyRef.current = afterSeq > 0;
       reconnectCanMaterializeRef.current = afterSeq === 0;
@@ -3181,6 +3203,9 @@ const AssistantChatInner = forwardRef<
       setActiveRun({
         threadId,
         runId,
+        ...(reconnectTurnIdRef.current
+          ? { turnId: reconnectTurnIdRef.current }
+          : {}),
         lastSeq: afterSeq > 0 ? afterSeq - 1 : -1,
         ...(storedActivityTool ? { activityTool: storedActivityTool } : {}),
       });
@@ -3493,6 +3518,7 @@ const AssistantChatInner = forwardRef<
             MAX_RECONNECT_AUTO_RECOVERIES;
           if (canAutoRecoverReconnect) {
             reconnectAutoRecoveryCountRef.current += 1;
+            const reconnectTurnId = reconnectTurnIdRef.current ?? undefined;
             setRunErrorInfo(null);
             setDismissedRunErrorKey(null);
             clearActiveRunIfMatches(threadId, runId);
@@ -3510,6 +3536,7 @@ const AssistantChatInner = forwardRef<
             );
             setPendingReconnectRecovery({
               id: Date.now(),
+              ...(reconnectTurnId ? { turnId: reconnectTurnId } : {}),
               // With no partial work on screen there is nothing to "continue
               // from"; the long recovery brief only wastes context.
               message:
@@ -3534,6 +3561,9 @@ const AssistantChatInner = forwardRef<
             errorCode: reconnectErrorCode,
             recoverable: true,
             runId,
+            ...(reconnectTurnIdRef.current
+              ? { turnId: reconnectTurnIdRef.current }
+              : {}),
           });
           setDismissedRunErrorKey(null);
           clearActiveRunIfMatches(threadId, runId);
@@ -4199,6 +4229,7 @@ const AssistantChatInner = forwardRef<
         ...(detail.details ? { details: detail.details } : {}),
         ...(detail.errorCode ? { errorCode: detail.errorCode } : {}),
         ...(detail.runId ? { runId: detail.runId } : {}),
+        ...(detail.turnId ? { turnId: detail.turnId } : {}),
         ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
       });
       setDismissedRunErrorKey(null);
@@ -4360,6 +4391,7 @@ const AssistantChatInner = forwardRef<
                 engine: next.engine,
                 effort: next.effort,
               },
+              next.turnId,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
           appended = true;
@@ -4521,6 +4553,10 @@ const AssistantChatInner = forwardRef<
             ? lastMessage.id
             : null;
       const runId = runErrorInfo?.runId ?? reconnectRunIdRef.current;
+      const turnId =
+        runErrorInfo?.turnId ??
+        reconnectTurnIdRef.current ??
+        getActiveRun()?.turnId;
       const id = `reconnect-${runId ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       repo.messages = [
@@ -4537,6 +4573,7 @@ const AssistantChatInner = forwardRef<
               custom: {
                 reconnectFrozen: true,
                 ...(runId ? { runId } : {}),
+                ...(turnId ? { turnId } : {}),
               },
             },
           },
@@ -4549,6 +4586,7 @@ const AssistantChatInner = forwardRef<
       setReconnectContent([]);
       setAdapterHandoffPending(false);
       reconnectCanMaterializeRef.current = false;
+      reconnectTurnIdRef.current = null;
     } catch (err) {
       captureError(err, {
         tags: {
@@ -4566,6 +4604,7 @@ const AssistantChatInner = forwardRef<
     reconnectFrozen,
     reconnectContent,
     runErrorInfo?.runId,
+    runErrorInfo?.turnId,
     tabId,
     threadId,
     threadRuntime,
@@ -4721,6 +4760,7 @@ const AssistantChatInner = forwardRef<
       hideUserMessage = false,
       submitMessageId?: string,
       approvedToolCalls?: string[],
+      continuationTurnId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       if (engineSetupRequired) {
@@ -4902,6 +4942,7 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
+            ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -4924,6 +4965,7 @@ const AssistantChatInner = forwardRef<
             trackInRunsTray,
             hideUserMessage,
             approvedToolCalls,
+            ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -4944,6 +4986,8 @@ const AssistantChatInner = forwardRef<
               approvedToolCalls,
               undefined,
               hideUserMessage,
+              undefined,
+              continuationTurnId,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
@@ -5036,6 +5080,9 @@ const AssistantChatInner = forwardRef<
         false,
         true,
         true,
+        undefined,
+        undefined,
+        recovery.turnId,
       );
     }, 0);
     return () => window.clearTimeout(timer);
@@ -5120,13 +5167,7 @@ const AssistantChatInner = forwardRef<
         ) {
           return false;
         }
-        return last.content.some(
-          (part) =>
-            part &&
-            typeof part === "object" &&
-            (part as { type?: unknown }).type === "tool-call" &&
-            !toolCallPartHasResult(part),
-        );
+        return hasInFlightToolCall(last.content as ContentPart[]);
       },
       focusComposer() {
         tiptapRef.current?.focus();
@@ -5524,14 +5565,16 @@ const AssistantChatInner = forwardRef<
           <ChatRunDurationContext.Provider value={lastChatRunDurationMs}>
             <ServerRunActiveContext.Provider value={serverRunActive}>
               <ChatRunningRunIdContext.Provider value={activeChatRunId}>
-                <ChatRunningContext.Provider
-                  // Keep the current message in a non-complete state while the
-                  // terminal error card is visible, even if the server still
-                  // reports the prior run for a short time while its claim is
-                  // released. Historical messages use run ownership below.
-                  value={showRunningInUI || runErrorInfo !== null}
-                >
-                  <TextStreamingContext.Provider value={textStreaming}>
+                <ChatRunningTurnIdContext.Provider value={activeChatTurnId}>
+                  <ChatRunningContext.Provider
+                    // Keep the current message in a non-complete state while
+                    // the terminal error card is visible, even if the server
+                    // still reports the prior run for a short time while its
+                    // claim is released. Historical messages use turn
+                    // ownership below.
+                    value={showRunningInUI || runErrorInfo !== null}
+                  >
+                    <TextStreamingContext.Provider value={textStreaming}>
                     <div
                       data-agent-empty-state={
                         centeredEmptyState
@@ -6195,8 +6238,9 @@ const AssistantChatInner = forwardRef<
                         </Popover>
                       </div>
                     </div>
-                  </TextStreamingContext.Provider>
-                </ChatRunningContext.Provider>
+                    </TextStreamingContext.Provider>
+                  </ChatRunningContext.Provider>
+                </ChatRunningTurnIdContext.Provider>
               </ChatRunningRunIdContext.Provider>
             </ServerRunActiveContext.Provider>
           </ChatRunDurationContext.Provider>

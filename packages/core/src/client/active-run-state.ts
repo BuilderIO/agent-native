@@ -5,6 +5,8 @@ export const ACTIVE_RUN_STATE_EVENT = "agent-chat:active-run-state-change";
 export interface ActiveRunState {
   threadId: string;
   runId: string;
+  /** Stable logical-turn identity shared by continuation run IDs. */
+  turnId?: string;
   lastSeq: number;
   /** Last SSE sequence classified as real work progress, not keepalive. */
   lastProgressSeq?: number;
@@ -44,6 +46,7 @@ export function setActiveRun(state: ActiveRunState): void {
   const nextState = sameRun
     ? {
         ...state,
+        turnId: state.turnId ?? previous.turnId,
         // Reconnect/continuation writers replace the cursor object. Preserve
         // the browser's real-progress proof across those writes so a healthy
         // stream cannot be reclassified as stale by its own reconnect path.

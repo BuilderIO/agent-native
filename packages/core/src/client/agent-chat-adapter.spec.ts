@@ -8231,11 +8231,30 @@ describe("activeRunLooksAlive", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("trusts the server's running status and fails safe on lookup errors", async () => {
+  it("requires server in-flight work and fails safe on lookup errors", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         jsonResponse({ active: true, runId: "run-1", status: "running" }),
+      ),
+    );
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+      }),
+    ).resolves.toBe(false);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          active: true,
+          runId: "run-1",
+          status: "running",
+          hasInFlightWork: true,
+        }),
       ),
     );
     await expect(

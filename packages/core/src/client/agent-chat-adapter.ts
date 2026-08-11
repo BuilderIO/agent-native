@@ -995,7 +995,7 @@ function continuationRepeatSignature(content: ContentPart[]): string {
  * actively working and `foldAssistantTurn` persisted the in-flight call. We
  * must not count this against the stalled/empty continuation budgets.
  */
-function hasInFlightToolCall(content: ContentPart[]): boolean {
+export function hasInFlightToolCall(content: ContentPart[]): boolean {
   return content.some(
     (part) =>
       part.type === "tool-call" &&
@@ -1035,7 +1035,10 @@ export async function activeRunLooksAlive(args: {
     if (data?.active !== true || String(data.runId ?? "") !== args.runId) {
       return false;
     }
-    return data.hasInFlightWork === true || data.status === "running";
+    // `running` only says the server row has not terminalized. It is not proof
+    // that a tool is executing, and treating it as proof skips the client
+    // rescue precisely when a stalled run has no in-flight work.
+    return data.hasInFlightWork === true;
   } catch {
     return true;
   }
@@ -1779,11 +1782,18 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const requestedTurnId = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { turnId?: unknown }).turnId
+            : undefined;
+        return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+      })();
+      const turnId = requestedTurnId ?? generateTurnId();
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
       ): ChatModelRunResult => {
-        if (!requestMode) return result;
         const metadata = (result.metadata ?? {}) as Record<string, unknown>;
         const custom =
           metadata.custom && typeof metadata.custom === "object"
@@ -1793,7 +1803,11 @@ export function createAgentChatAdapter(
           ...result,
           metadata: {
             ...metadata,
-            custom: { ...custom, requestMode },
+            custom: {
+              ...custom,
+              turnId,
+              ...(requestMode ? { requestMode } : {}),
+            },
           },
         };
       };
@@ -1836,7 +1850,6 @@ export function createAgentChatAdapter(
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
-      const turnId = generateTurnId();
       if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
@@ -2372,7 +2385,12 @@ export function createAgentChatAdapter(
                   attemptedRunIds.push(activeRunId);
                 }
                 reconnectCursorForRun(activeRunId, previousRunId);
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               }
@@ -2452,7 +2470,12 @@ export function createAgentChatAdapter(
                   attemptedRunIds.push(activeRunId);
                 }
                 reconnectCursorForRun(activeRunId, previousRunId);
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               } catch (activeErr: unknown) {
@@ -3030,7 +3053,12 @@ export function createAgentChatAdapter(
               }
               reconnectCursorForRun(activeRunId, previousRunId);
               if (threadId) {
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
               }
               const seqBeforeAttach = lastSeq;
               const attach = yield* followAttachOnce();
@@ -3819,7 +3847,7 @@ export function createAgentChatAdapter(
             }
             if (runId && threadId) {
               clearPendingTurnIfMatches(threadId, turnId);
-              setActiveRun({ threadId, runId, lastSeq: -1 });
+              setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
             }
 
             for await (const result of readSSEStream(

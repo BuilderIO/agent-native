@@ -72,6 +72,9 @@ import {
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
 export const ChatRunningRunIdContext = React.createContext<string | null>(null);
+export const ChatRunningTurnIdContext = React.createContext<string | null>(
+  null,
+);
 export const ChatRunDurationContext = React.createContext<number | null>(null);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
 /**
