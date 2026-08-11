@@ -72,56 +72,52 @@ To edit a slide's content:
 3. **Modify the content** HTML string for the intended slide. Preserve an
    approved native template or component when it already fits; generate
    net-new structure only when the relevant corpus is empty.
-4. **Update the slide** with the `update-slide` action using `deckId`,
-   `slideId`, and `fullContent`. Do not write deck rows directly or add raw
-   full-deck writes for normal slide edits; use `patch-deck` for browser/editor
-   changes.
-5. **Land the whole request in one write.** Several changes to one slide are one
-   call carrying the finished state, not one call per change. Compose the final
-   HTML and the final field values first, then send them together. A later call
-   re-sending a field overwrites the value the earlier one wrote, so splitting
-   one request across calls loses everything but the last.
-6. For browser/editor code, enqueue granular deck operations through
+4. **Update the slide** with `update-slide` using `deckId`, `slideId`, and
+   ordered `edits`. For code-style work, first read with `get-deck` using the
+   target `slideId`, `compact=false`, and `format=true`, then send the returned
+   `contentHash` as `baseContentHash`. Use exact replace, insert before/after,
+   replace between markers, or regex replace. Set `expectedMatches` whenever a
+   marker could be ambiguous. All edits are applied in memory under the deck
+   lock; if one required edit fails, nothing is written. Set `format=true` on
+   `update-slide` to persist readable Prettier line breaks. Use `fullContent`
+   only for an intentional full rewrite - do not regenerate a slide to make a
+   small change. Do not write deck rows directly or add raw full-deck writes;
+   use `patch-deck` for browser/editor changes.
+5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
-7. For factual edits, compare changed text against the retrieved source and
+6. For factual edits, compare changed text against the retrieved source and
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
+
+## Click-to-reveal animations
+
+Animations are metadata over the final slide HTML, not alternate slide markup.
+Read the full target slide, keep its existing visual structure, and patch the
+complete ordered `animations` list with `elementPath` values from that exact
+HTML. Elements omitted from the list remain visible immediately, so labels and
+headings need no duplicate markup. Do not add hidden duplicates, layout
+spacers, absolute-positioned copies, transforms, or placeholder content to
+simulate reveals. When content and reveals change together, send both fields in
+one `patch-deck` operation. To remove reveals, send `animations: []` with the
+existing content and verify the persisted slide afterward.
+
+Array order is reveal order, and each entry needs a non-empty `id`, a 0-based
+`elementIndex`, and a `type` of `appear`, `fade`, `slide-up`, or `zoom`; the
+schema rejects the operation otherwise. Nothing checks that ids are unique, but
+the editor keys its reveal list by id, so a duplicate makes "remove" and
+"change type" hit every entry sharing it.
+
+`elementPath` has to come from the exact final HTML because it is positional:
+every segment is a child index, so inserting or removing a sibling anywhere
+along the path retargets it. The runtime resolves the path first and falls back
+to `elementIndex` only when it fails to resolve, which is why a stale path
+silently reveals the wrong element instead of erroring. `get-deck` with
+`compact=true` reports each step's order, id, target, and type for verification.
 
 If retrieval produces a new immutable context pack, keep its `contextPackId`
 and reuse labels with the deck provenance. Existing slide HTML is not proof of
 which source version influenced it.
-
-## Element Animations
-
-A slide's click-through reveals live in its `animations` field, not in its HTML,
-so they are a `patch-deck` `patch-slide` write rather than an `update-slide`
-content edit. Each entry targets one element and takes a `type` of `appear`,
-`fade`, `slide-up`, or `zoom`; array order is reveal order.
-
-The field is a full replacement, so send the complete list the slide should end
-with. Three reveals is one operation carrying three entries — patching them in
-one at a time leaves the slide with only the last.
-
-The schema rejects an entry without a non-empty `id`, a 0-based `elementIndex`,
-and a `type`. Uniqueness of `id` is on you: nothing validates it, and the
-editor keys its reveal list by id, so a duplicate makes "remove" and "change
-type" hit every entry sharing it.
-
-Include `elementPath` too, the 0-based child-index path from the outer
-`.fmd-slide` wrapper. It is the target the runtime resolves first, and it
-addresses nesting directly instead of relying on `elementIndex`, which is a flat
-index into a heuristically chosen container. It is not stable across edits:
-every segment is a positional child index, so inserting or removing a sibling
-anywhere along the path retargets it just as it would a flat index. Read both
-off the final HTML after the content edit — never carry a path over from earlier
-HTML, invent one, or fall back to 1-based numbering, since a wrong path silently
-redirects the reveal to another element.
-
-When one request changes content and reveals, patch the new HTML and the
-complete animations list in the same operation; targets read off the old HTML
-can point at elements the edit moved. Verify with `get-deck --compact`, which
-returns each step's order, id, target, and type.
 
 ## Freeform Canvas Objects
 

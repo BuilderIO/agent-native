@@ -5,6 +5,7 @@ import { Link, useLocation } from "react-router";
 
 import { cn } from "../../lib/utils";
 import {
+  workspaceAppIdFromRoute,
   workspaceAppRoute,
   workspaceAppHref,
   type WorkspaceAppSummary,
@@ -12,32 +13,8 @@ import {
 import { AppIcon } from "../app-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
-function pathFromValue(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-
-  try {
-    const pathname = new URL(trimmed, "https://dispatch.local").pathname;
-    return pathname.replace(/\/+$/, "") || "/";
-  } catch {
-    // coercion-ok: malformed app URLs cannot match a workspace route.
-    return null;
-  }
-}
-
 function appMatchesPath(app: WorkspaceAppSummary, pathname: string): boolean {
-  const appRoute = workspaceAppRoute(app.id);
-  if (pathname === appRoute || pathname.startsWith(`${appRoute}/`)) {
-    return true;
-  }
-
-  const candidatePaths = [app.path, app.url]
-    .map(pathFromValue)
-    .filter((path): path is string => !!path);
-
-  return candidatePaths.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`),
-  );
+  return workspaceAppIdFromRoute(pathname) === app.id;
 }
 
 function appLabel(app: WorkspaceAppSummary): string {
