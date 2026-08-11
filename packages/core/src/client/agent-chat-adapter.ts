@@ -2299,7 +2299,9 @@ export function createAgentChatAdapter(
                 }
                 yield nextResult;
               }
-              clearActiveRun();
+              if (ownsActiveRunState()) {
+                clearActiveRun();
+              }
               return true;
             } catch (reconnectErr: unknown) {
               if (
