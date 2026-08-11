@@ -1,6 +1,9 @@
 ---
 name: ship
-description: Commit and push all local current-branch work, open a ready PR, babysit it, merge when clean, then create a fresh branch
+description: >-
+  Commit and push all local current-branch work, open a ready PR, babysit it,
+  merge when clean, then create a fresh branch. Use when the user asks to ship,
+  publish, or hand off the current branch's local changes.
 user-invocable: true
 scope: dev
 metadata:
@@ -27,15 +30,34 @@ clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
 When concurrent work is active, `/ship` is incremental. Once the ready PR
-exists, do not wait for full prep or the final merge soak before publishing the
-next complete safe slice. Batch changes for at most five minutes, then inspect
-the worktree and immediately commit and push every branch-owned file that has
-stayed unchanged and is not held by a live lease. Open or update the same PR so
-CI and review agents see each slice in parallel. Never stage a file that is
-actively being edited, a partial hunk, or private/generated `bridge/**` or
-local `data/**` artifacts. If no complete safe slice exists at a tick, explain
-why and push the next safe slice as soon as it becomes available. This cadence
-does not relax the final `pnpm run prep`, review, or clean merge-soak gates.
+exists, do not wait for full prep, every peer to finish, or the final merge
+soak before publishing the next complete safe slice. Review availability is a
+first-class shipping goal: a complete remote checkpoint is more useful than a
+locally complete branch that no reviewer or review agent can see. Batch changes
+for at most two minutes or one focused slice, then inspect the worktree and
+immediately commit and push every branch-owned file that has stayed unchanged
+and is not held by a live lease. Open or update the same PR so CI and review
+agents see each slice in parallel. Never stage a file that is actively being
+edited, a partial hunk, or private/generated `bridge/**` or local `data/**`
+artifacts. A live lease blocks only that file; it never blocks unrelated stable
+paths. A dirty worktree is expected during this phase and is not a reason to
+hold a push - clean working tree is a merge gate, not a push gate. If no
+complete safe slice exists at a tick, state the exact leased or incomplete
+paths and retry at the next tick; do not wait for the whole branch to settle.
+This cadence does not relax the final `pnpm run prep`, review, or clean
+merge-soak gates.
+
+## Review-First Push Bias
+
+Push the first complete safe slice before starting any validation that may take
+more than a minute. Then keep pushing stable slices while long tests, CI, and
+AI review run in parallel. Do not hold unrelated local work for a peer's active
+file, a generated mirror whose source is still in flight, a failing local prep,
+or a desire to make one large polished commit. If a non-leased file looks
+uncertain, inspect its diff and run a focused check; if it is coherent, commit
+it separately and push it. The default response to "there are local changes"
+is to find the next reviewable slice and publish it, not to wait for a clean
+worktree.
 
 If the branch updates templates or publishable packages, shipping does not stop
 at merge. Treat the work as shipped only after the affected templates are live in
@@ -56,17 +78,20 @@ code/config fix and ship that follow-up until production is live.
    skipping, or reverting them.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
-   changed area. Run `pnpm run prep` when it is practical. If prep is slow,
+   changed area. Push the first safe slice before running `pnpm run prep` or
+   another long validation. Run prep when it is practical, but if prep is slow,
    flaky, or contaminated by concurrent in-flight edits, do not stall shipment:
-   push and let GitHub Actions be the validation gate that `/babysit-pr`
-   monitors.
+   record the exact failure, keep pushing stable slices, and let GitHub Actions
+   be the validation gate that `/babysit-pr` monitors.
 
 4. **Stage and commit a complete safe slice**: stage all stable,
    branch-owned changed/untracked files except `learnings.md`, gitignored
    personal files, private/generated `bridge/**`, and local `data/**` database
-   or asset artifacts. Leave actively edited files for the next slice. Write a
-   concise, descriptive commit message based on the actual diff. Never add
-   `Co-Authored-By` or other agent attribution.
+   or asset artifacts. Leave actively edited files for the next slice, but do
+   not let them hold unrelated files. If a file contains staged and new
+   unstaged concurrent edits, unstage the whole file and continue with every
+   other safe path. Write a concise, descriptive commit message based on the
+   actual diff. Never add `Co-Authored-By` or other agent attribution.
 
 5. **Push**: push the current branch. If the branch has no upstream, set it with
    `git push -u origin <branch>`.
@@ -74,7 +99,9 @@ code/config fix and ship that follow-up until production is live.
    The first successful push is the review handoff point: open or update the
    ready PR immediately, before waiting on `pnpm prep`, a stability window, or
    additional concurrent work. Later commits update that same PR and let CI
-   and review run in parallel with the rest of the ship workflow.
+   and review run in parallel with the rest of the ship workflow. Push every
+   later safe slice as soon as it is coherent; do not wait for all local files
+   to become commit-ready at once.
 
 6. **Open or update a ready PR immediately after the first push**: use the
    current branch. PRs are ready for review by default, not drafts. Do not put
