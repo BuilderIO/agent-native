@@ -32,6 +32,8 @@ export interface ScreenFile {
   updatedAt?: string;
   width?: number;
   height?: number;
+  /** A height the user dragged; auto-fit must not grow past it. */
+  heightPinned?: boolean;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -105,6 +107,7 @@ export interface ScreenMetadata {
   title?: string;
   width?: number;
   height?: number;
+  heightPinned?: boolean;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -195,7 +198,13 @@ export interface MultiScreenCanvasProps {
     placement: "before" | "after" | "inside";
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
+  /** Whether the frame tool commits a top-level screen or a plain frame. */
+  frameToolDraws?: "screen" | "frame";
   onDeleteSelection?: (ids: string[]) => boolean | void;
+  /** Return false to keep the arrow key: the host's real selection is an
+   * element inside a screen, and this canvas still lists that screen in
+   * `selectedIds`. Same veto `onDeleteSelection` uses. */
+  onNudgeSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,
@@ -967,11 +976,16 @@ export interface ResolvedScreenMetadata {
   title?: string;
   width: number;
   height: number;
+  /** A height the user dragged; auto-fit must not grow past it. */
+  heightPinned?: boolean;
   previewUrl?: string;
 }
 
 export interface DuplicatePreview {
   display: string;
+  /** How many frames the drop will copy — the whole frame selection when the
+   *  alt-drag started on a selected frame, otherwise just the pressed one. */
+  count: number;
   x: number;
   y: number;
   width: number;

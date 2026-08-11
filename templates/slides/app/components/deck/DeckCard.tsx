@@ -7,7 +7,6 @@ import {
   IconTrash,
   IconCopy,
   IconPencil,
-  IconPalette,
   IconPlus,
   IconStar,
   IconStarFilled,
@@ -23,7 +22,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import type { Deck } from "@/context/DeckContext";
-import { getAspectRatioDims } from "@/lib/aspect-ratios";
+import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 
 import SlideRenderer from "./SlideRenderer";
 
@@ -33,7 +32,6 @@ interface DeckCardProps {
   onRename: (id: string, newTitle: string) => void;
   onDuplicate: (id: string) => void;
   onToggleStar: (id: string, starred: boolean) => void;
-  designSystemTitle?: string | null;
   isWorkspaceDefault?: boolean;
   canSetWorkspaceDefault?: boolean;
   onSetWorkspaceDefault?: (id: string, isDefault: boolean) => void;
@@ -45,20 +43,20 @@ export default function DeckCard({
   onRename,
   onDuplicate,
   onToggleStar,
-  designSystemTitle,
   isWorkspaceDefault = false,
   canSetWorkspaceDefault = false,
   onSetWorkspaceDefault,
 }: DeckCardProps) {
   const t = useT();
   const firstSlide = deck.slides?.[0];
-  const previewDims = getAspectRatioDims(deck.aspectRatio);
+  const previewFrameStyle = getDeckListingPreviewFrameStyle(deck.aspectRatio);
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
   const [contextOpen, setContextOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
+  const pendingDeleteRef = useRef(false);
   const pendingWorkspaceDefaultRef = useRef(false);
 
   useEffect(() => {
@@ -100,24 +98,21 @@ export default function DeckCard({
     <div className="group relative">
       <Link
         to={`/deck/${deck.id}`}
-        className="block rounded-xl border border-border bg-card hover:border-border transition-all duration-200 overflow-hidden hover:shadow-lg hover:shadow-[#609FF8]/5"
+        className="block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
         onClick={(e) => {
           if (isRenaming) e.preventDefault();
         }}
       >
         {/* Slide Preview */}
-        <div
-          className="relative overflow-hidden bg-muted/30"
-          style={{
-            aspectRatio: `${previewDims.width} / ${previewDims.height}`,
-          }}
-        >
+        <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-muted/30">
           {firstSlide && (
-            <SlideRenderer
-              slide={firstSlide}
-              className="rounded-none"
-              aspectRatio={deck.aspectRatio}
-            />
+            <div className="relative overflow-hidden" style={previewFrameStyle}>
+              <SlideRenderer
+                slide={firstSlide}
+                className="rounded-none"
+                aspectRatio={deck.aspectRatio}
+              />
+            </div>
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
         </div>
@@ -146,25 +141,6 @@ export default function DeckCard({
             )}
             <VisibilityBadge visibility={deck.visibility} />
           </div>
-          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-            <span className="shrink-0 whitespace-nowrap">
-              {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
-            </span>
-            {isWorkspaceDefault && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-[#609FF8]/40 px-1.5 py-0.5 text-[10px] text-[#609FF8]">
-                <IconBuildingCommunity className="h-3 w-3 shrink-0" />
-                {t("home.workspaceDefaultBadge")}
-              </span>
-            )}
-            {deck.designSystemId && (
-              <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
-                <IconPalette className="h-3 w-3 shrink-0 text-[#609FF8]" />
-                <span className="max-w-28 truncate">
-                  {designSystemTitle || "Design system"}
-                </span>
-              </span>
-            )}
-          </div>
         </div>
       </Link>
 
@@ -190,7 +166,7 @@ export default function DeckCard({
             {deck.starred ? (
               <IconStarFilled className="h-3.5 w-3.5 text-[#F5C451]" />
             ) : (
-              <IconStar className="h-3.5 w-3.5 text-foreground/70" />
+              <IconStar className="h-3.5 w-3.5 text-white/70" />
             )}
           </button>
         )}
@@ -208,7 +184,7 @@ export default function DeckCard({
               }`}
               aria-label={t("raw.deckOptions")}
             >
-              <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+              <IconDots className="w-3.5 h-3.5 text-white/70" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -229,6 +205,11 @@ export default function DeckCard({
                 e.preventDefault();
                 pendingWorkspaceDefaultRef.current = false;
                 onSetWorkspaceDefault?.(deck.id, !isWorkspaceDefault);
+              }
+              if (pendingDeleteRef.current) {
+                e.preventDefault();
+                pendingDeleteRef.current = false;
+                setTimeout(() => onDelete(deck.id), 0);
               }
             }}
           >
@@ -271,8 +252,10 @@ export default function DeckCard({
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onSelect={() => {
-                onDelete(deck.id);
+              onSelect={(event) => {
+                event.preventDefault();
+                pendingDeleteRef.current = true;
+                setMenuOpen(false);
               }}
               className="text-red-400 focus:text-red-400"
             >

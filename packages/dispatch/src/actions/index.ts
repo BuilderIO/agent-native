@@ -67,6 +67,7 @@ import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
 import queryStagedDataset from "./query-staged-dataset.js";
+import readSlackThreadContext from "./read-slack-thread-context.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
 import remixWorkspaceTemplate from "./remix-workspace-template.js";
@@ -169,6 +170,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "provider-api-register": providerApiRegister,
   "provider-api-request": providerApiRequest,
   "query-staged-dataset": queryStagedDataset,
+  "read-slack-thread-context": readSlackThreadContext,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,

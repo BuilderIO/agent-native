@@ -160,9 +160,11 @@ export interface A2ASourceContextReference {
 }
 
 /**
- * Telemetry-only cross-app correlation. Receivers must never use these
- * caller-supplied values for identity, ownership, org scoping, access, or
- * approval decisions.
+ * Telemetry-only cross-app correlation, plus `callerModel` — a preference
+ * hint. Receivers must never use any caller-supplied value here for identity,
+ * ownership, org scoping, access, or approval decisions. `callerModel` widens
+ * this channel to a preference, never to an authorization: it may at most pick
+ * a model the receiver's already-resolved engine advertises.
  */
 export interface A2ACorrelationMetadata {
   callerApp?: string;
@@ -174,6 +176,12 @@ export interface A2ACorrelationMetadata {
   delegationDepth?: number;
   /** Bounded app ids already visited, used only for cycle prevention. */
   visitedApps?: string[];
+  /**
+   * Model the caller resolved for its own turn. A hint only: the receiver
+   * honours it just when it has no model of its own, and only after bounding
+   * it to its own engine's catalog.
+   */
+  callerModel?: string;
 }
 
 // --- Framework config ---

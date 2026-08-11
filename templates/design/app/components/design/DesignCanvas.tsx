@@ -106,6 +106,7 @@ import {
   forwardEmbeddedCanvasPanMessage,
   type EmbeddedCanvasPanSession,
 } from "./design-canvas/iframe-pan";
+import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import type { MotionTrackWire } from "./design-canvas/motion-types";
 import {
   PENDING_TEXT_EDIT_TIMEOUT_MS,
@@ -1018,7 +1019,14 @@ function runtimeDocumentNeedsReload(
     Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
       "\n",
     );
-  return scriptSignature(previousContent) !== scriptSignature(nextContent);
+  // A changed <head> is replaced wholesale, which drops whatever the page's own
+  // runtime injected there and cannot re-run the scripts that produced it.
+  const headSignature = (html: string) =>
+    /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
+  return (
+    scriptSignature(previousContent) !== scriptSignature(nextContent) ||
+    headSignature(previousContent) !== headSignature(nextContent)
+  );
 }
 
 /**
@@ -1285,6 +1293,10 @@ export function DesignCanvas({
     [probeBridgeReadinessUntilDrained],
   );
   const [renderedContent, setRenderedContent] = useState(content);
+  // What a freshly loaded document already contains, since srcdoc is built from
+  // it. The load handler below needs this to skip redundant pushes.
+  const renderedContentRef = useRef(renderedContent);
+  renderedContentRef.current = renderedContent;
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -2261,7 +2273,7 @@ export function DesignCanvas({
       editorChromeBridge +
       imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
-      content: iframeRenderContent,
+      content: withLocalRuntimes(iframeRenderContent),
       embeddedFrameBackground,
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
@@ -2282,7 +2294,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${withLocalRuntimes(iframeRenderContent)}${bridgeToInject}</body></html>`;
     }
     // Overview frames report their own content height so the canvas can
     // content-fit them (Framer-style). Embedded (overview) frames only — a
@@ -4035,6 +4047,9 @@ export function DesignCanvas({
     const replaceLatestRuntimeContent = () => {
       const nextContent = runtimeReplacementContentRef.current;
       if (nextContent === undefined) return;
+      // The document that just loaded was built from these bytes; swapping it
+      // for itself only costs a blank frame.
+      if (renderedContentRef.current === nextContent) return;
       if (replaceRuntimeContentInPlace(nextContent)) {
         lastRuntimeReplacementKeyRef.current = runtimeReplacementKeyRef.current;
         lastRuntimeReplacementContentRef.current = nextContent;
@@ -4429,6 +4444,18 @@ export function DesignCanvas({
             readOnly,
           })}
           data-design-preview-iframe
+          onLoad={(event) => {
+            // The bridge logs into the IFRAME console and cannot read
+            // import.meta.env, so dev has to switch it on from out here.
+            if (!import.meta.env?.DEV) return;
+            try {
+              const win = event.currentTarget.contentWindow as
+                | (Window & { __DND_DEBUG?: boolean })
+                | null;
+              if (win) win.__DND_DEBUG = true;
+              // coercion-ok: a cross-origin preview exposes no contentWindow
+            } catch {}
+          }}
           {...{
             [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
               ? ""

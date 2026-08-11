@@ -1,0 +1,421 @@
+/**
+ * Public, non-secret configuration for an Agent-Native app.
+ *
+ * This module is intentionally free of Node and framework imports so it can be
+ * used from a typed `agent-native.config.ts` file and from browser code after Vite
+ * serializes the resolved config into the client bundle.
+ */
+
+export const AGENT_NATIVE_CONFIG_VERSION = 1 as const;
+
+export type AgentNativeFirstRunOnboardingMode =
+  | "off"
+  | "connect"
+  | "connect-and-integrations";
+
+export type AgentNativeFirstRunOnboardingSetting =
+  | AgentNativeFirstRunOnboardingMode
+  | (Partial<Record<string, AgentNativeFirstRunOnboardingMode>> & {
+      default?: AgentNativeFirstRunOnboardingMode;
+    });
+
+export interface AgentNativeOnboardingConfig {
+  /**
+   * First-run setup shown by the shared Agent Sidebar.
+   *
+   * `connect` shows Builder/BYOK setup and skips the generic integrations
+   * catalog. `connect-and-integrations` includes that catalog. A per-Vite-mode
+   * object is useful when local development and hosted builds need different
+   * defaults.
+   */
+  firstRun?: AgentNativeFirstRunOnboardingSetting;
+}
+
+export interface AgentNativeRuntimeAuthConfig {
+  /** Whether the app expects the framework or a custom auth layer to run. */
+  enabled?: boolean;
+}
+
+export interface AgentNativeRuntimeDatabaseConfig {
+  /** Whether production needs a persistent remote database. */
+  required?: boolean;
+}
+
+export interface AgentNativeRuntimeEnvironmentConfig {
+  /** Additional non-secret environment keys required by this app. */
+  required?: string[];
+}
+
+export interface AgentNativeRuntimeConfig {
+  auth?: AgentNativeRuntimeAuthConfig;
+  database?: AgentNativeRuntimeDatabaseConfig;
+  environment?: AgentNativeRuntimeEnvironmentConfig;
+}
+
+export interface AgentNativeDiagnosticsConfig {
+  /** Fail a production Vite build when runtime configuration has issues. */
+  failOnBuild?: boolean;
+}
+
+export interface AgentNativeInstructionsConfig {
+  /** Relative Markdown file loaded by the in-app runtime agent. */
+  runtime?: string;
+  /** Relative Markdown file loaded by development/coding agents. */
+  development?: string;
+}
+
+export interface AgentNativeConfig {
+  version?: typeof AGENT_NATIVE_CONFIG_VERSION;
+  onboarding?: AgentNativeOnboardingConfig;
+  runtime?: AgentNativeRuntimeConfig;
+  diagnostics?: AgentNativeDiagnosticsConfig;
+  instructions?: AgentNativeInstructionsConfig;
+}
+
+export interface AgentNativeConfigContext {
+  command: "serve" | "build";
+  mode: string;
+  isDev: boolean;
+  isBuild: boolean;
+}
+
+export type AgentNativeConfigFactory = (
+  context: AgentNativeConfigContext,
+) => AgentNativeConfig;
+
+export type AgentNativeConfigInput =
+  | AgentNativeConfig
+  | AgentNativeConfigFactory;
+
+/**
+ * Type-safe authoring helper for `agent-native.config.ts`.
+ *
+ * Like Next's typed config file, this is deliberately identity-like: the
+ * framework evaluates the exported object or factory in the Vite config
+ * phase, while the browser only receives the resolved serializable result.
+ */
+export function defineAgentNativeConfig(
+  config: AgentNativeConfigInput,
+): AgentNativeConfigInput {
+  return config;
+}
+
+export function normalizeAgentNativeConfig(
+  input: unknown,
+  source = "agent-native config",
+): AgentNativeConfig {
+  if (!isRecord(input)) {
+    throw new Error(`${source} must export an object`);
+  }
+
+  if (
+    input.version !== undefined &&
+    input.version !== AGENT_NATIVE_CONFIG_VERSION
+  ) {
+    throw new Error(
+      `${source}.version must be ${AGENT_NATIVE_CONFIG_VERSION} when provided`,
+    );
+  }
+
+  const onboardingValue = input.onboarding;
+  const runtimeValue = input.runtime;
+  const diagnosticsValue = input.diagnostics;
+  const instructionsValue = input.instructions;
+
+  const normalized: AgentNativeConfig = {
+    ...(input.version === undefined
+      ? {}
+      : { version: AGENT_NATIVE_CONFIG_VERSION }),
+  };
+
+  if (onboardingValue !== undefined) {
+    if (!isRecord(onboardingValue)) {
+      throw new Error(`${source}.onboarding must be an object`);
+    }
+    const firstRun = normalizeFirstRunSetting(
+      onboardingValue.firstRun,
+      `${source}.onboarding.firstRun`,
+    );
+    normalized.onboarding = firstRun === undefined ? {} : { firstRun };
+  }
+
+  if (runtimeValue !== undefined) {
+    normalized.runtime = normalizeRuntimeConfig(
+      runtimeValue,
+      `${source}.runtime`,
+    );
+  }
+
+  if (diagnosticsValue !== undefined) {
+    normalized.diagnostics = normalizeDiagnosticsConfig(
+      diagnosticsValue,
+      `${source}.diagnostics`,
+    );
+  }
+
+  if (instructionsValue !== undefined) {
+    normalized.instructions = normalizeInstructionsConfig(
+      instructionsValue,
+      `${source}.instructions`,
+    );
+  }
+
+  return normalized;
+}
+
+export function mergeAgentNativeConfigs(
+  base: AgentNativeConfig,
+  override: AgentNativeConfig,
+): AgentNativeConfig {
+  return {
+    ...(base.version === undefined && override.version === undefined
+      ? {}
+      : {
+          version:
+            override.version ?? base.version ?? AGENT_NATIVE_CONFIG_VERSION,
+        }),
+    onboarding:
+      base.onboarding || override.onboarding
+        ? {
+            ...base.onboarding,
+            ...override.onboarding,
+          }
+        : undefined,
+    runtime:
+      base.runtime || override.runtime
+        ? {
+            ...base.runtime,
+            ...override.runtime,
+            auth:
+              base.runtime?.auth || override.runtime?.auth
+                ? {
+                    ...base.runtime?.auth,
+                    ...override.runtime?.auth,
+                  }
+                : undefined,
+            database:
+              base.runtime?.database || override.runtime?.database
+                ? {
+                    ...base.runtime?.database,
+                    ...override.runtime?.database,
+                  }
+                : undefined,
+            environment:
+              base.runtime?.environment || override.runtime?.environment
+                ? {
+                    ...base.runtime?.environment,
+                    ...override.runtime?.environment,
+                    required: mergeStringLists(
+                      base.runtime?.environment?.required,
+                      override.runtime?.environment?.required,
+                    ),
+                  }
+                : undefined,
+          }
+        : undefined,
+    diagnostics:
+      base.diagnostics || override.diagnostics
+        ? {
+            ...base.diagnostics,
+            ...override.diagnostics,
+          }
+        : undefined,
+    instructions:
+      base.instructions || override.instructions
+        ? {
+            ...base.instructions,
+            ...override.instructions,
+          }
+        : undefined,
+  };
+}
+
+export function resolveAgentNativeConfig(
+  input: AgentNativeConfigInput | undefined,
+  context: AgentNativeConfigContext,
+): AgentNativeConfig {
+  const value = typeof input === "function" ? input(context) : (input ?? {});
+  const normalized = normalizeAgentNativeConfig(value);
+  const firstRun = normalized.onboarding?.firstRun;
+
+  if (firstRun === undefined) return normalized;
+
+  return {
+    ...normalized,
+    onboarding: {
+      ...normalized.onboarding,
+      firstRun: resolveFirstRunOnboardingMode(firstRun, context),
+    },
+  };
+}
+
+export function resolveFirstRunOnboardingMode(
+  setting: AgentNativeFirstRunOnboardingSetting,
+  context: AgentNativeConfigContext,
+): AgentNativeFirstRunOnboardingMode {
+  if (typeof setting === "string") return setting;
+
+  const modeValue = setting[context.mode];
+  if (modeValue !== undefined) return modeValue;
+
+  const environmentValue =
+    setting[context.command === "serve" ? "development" : "production"];
+  return environmentValue ?? setting.default ?? "off";
+}
+
+function normalizeFirstRunSetting(
+  value: unknown,
+  source: string,
+): AgentNativeFirstRunOnboardingSetting | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") {
+    if (!isFirstRunMode(value)) {
+      throw new Error(
+        `${source} must be "off", "connect", or "connect-and-integrations"`,
+      );
+    }
+    return value;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be a mode string or a mode map`);
+  }
+
+  const result: Record<string, AgentNativeFirstRunOnboardingMode> = {};
+  for (const [key, mode] of Object.entries(value)) {
+    if (!isFirstRunMode(mode)) {
+      throw new Error(
+        `${source}.${key} must be "off", "connect", or "connect-and-integrations"`,
+      );
+    }
+    result[key] = mode;
+  }
+  return result;
+}
+
+function normalizeRuntimeConfig(
+  value: unknown,
+  source: string,
+): AgentNativeRuntimeConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+
+  const result: AgentNativeRuntimeConfig = {};
+  for (const section of ["auth", "database", "environment"] as const) {
+    const sectionValue = value[section];
+    if (sectionValue === undefined) continue;
+    if (!isRecord(sectionValue)) {
+      throw new Error(`${source}.${section} must be an object`);
+    }
+
+    if (section === "environment") {
+      const required = normalizeRequiredEnvKeys(
+        sectionValue.required,
+        `${source}.environment.required`,
+      );
+      result.environment = required === undefined ? {} : { required };
+      continue;
+    }
+
+    const field = section === "auth" ? "enabled" : "required";
+    const fieldValue = sectionValue[field];
+    if (fieldValue !== undefined && typeof fieldValue !== "boolean") {
+      throw new Error(`${source}.${section}.${field} must be a boolean`);
+    }
+    result[section] = fieldValue === undefined ? {} : { [field]: fieldValue };
+  }
+  return result;
+}
+
+function normalizeDiagnosticsConfig(
+  value: unknown,
+  source: string,
+): AgentNativeDiagnosticsConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  if (
+    value.failOnBuild !== undefined &&
+    typeof value.failOnBuild !== "boolean"
+  ) {
+    throw new Error(`${source}.failOnBuild must be a boolean`);
+  }
+  return value.failOnBuild === undefined
+    ? {}
+    : { failOnBuild: value.failOnBuild };
+}
+
+function normalizeInstructionsConfig(
+  value: unknown,
+  source: string,
+): AgentNativeInstructionsConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+
+  const result: AgentNativeInstructionsConfig = {};
+  for (const audience of ["runtime", "development"] as const) {
+    const pathValue = value[audience];
+    if (pathValue === undefined) continue;
+    if (typeof pathValue !== "string") {
+      throw new Error(`${source}.${audience} must be a relative file path`);
+    }
+    result[audience] = normalizeRelativeFilePath(
+      pathValue,
+      `${source}.${audience}`,
+    );
+  }
+  return result;
+}
+
+function normalizeRelativeFilePath(value: string, source: string): string {
+  const normalized = value.trim().replaceAll("\\", "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.split("/").some((segment) => segment === "..")
+  ) {
+    throw new Error(
+      `${source} must be a non-empty relative file path inside the app root`,
+    );
+  }
+  return normalized;
+}
+
+function normalizeRequiredEnvKeys(
+  value: unknown,
+  source: string,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((key) => typeof key !== "string")) {
+    throw new Error(`${source} must be an array of environment variable names`);
+  }
+  const keys = value.map((key) => key.trim());
+  if (keys.some((key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))) {
+    throw new Error(`${source} must contain valid environment variable names`);
+  }
+  return [...new Set(keys)];
+}
+
+function mergeStringLists(
+  base: string[] | undefined,
+  override: string[] | undefined,
+): string[] | undefined {
+  if (base === undefined && override === undefined) return undefined;
+  return [...new Set([...(base ?? []), ...(override ?? [])])];
+}
+
+function isFirstRunMode(
+  value: unknown,
+): value is AgentNativeFirstRunOnboardingMode {
+  return (
+    value === "off" ||
+    value === "connect" ||
+    value === "connect-and-integrations"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}

@@ -11,6 +11,7 @@ import {
 import {
   IconApps,
   IconCheck,
+  IconComponents,
   IconChevronDown,
   IconPalette,
   IconPhoto,
@@ -52,6 +53,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 export interface UploadedFile {
@@ -513,6 +515,12 @@ export default function PromptPopover({
   const uploadFiles = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
       if (files.length === 0) return [];
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      if (totalBytes > MAX_UPLOAD_BYTES) {
+        throw new Error(
+          t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
+        );
+      }
       setUploading(true);
       try {
         const formData = new FormData();
@@ -552,7 +560,7 @@ export default function PromptPopover({
         setUploading(false);
       }
     },
-    [],
+    [t],
   );
 
   const handleSubmit = useCallback(
@@ -815,7 +823,7 @@ export default function PromptPopover({
                     }}
                   >
                     <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
-                      <IconPalette className="size-4 shrink-0 text-muted-foreground" />
+                      <IconComponents className="size-4 shrink-0 text-muted-foreground" />
                       <span
                         className="min-w-0 flex-1 truncate text-start"
                         title={
@@ -844,7 +852,7 @@ export default function PromptPopover({
                   </Select>
                 ) : (
                   <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
-                    <IconPalette className="size-4 shrink-0" />
+                    <IconComponents className="size-4 shrink-0" />
                     <span className="truncate">
                       {t("promptDialog.noDesignSystem")}
                     </span>

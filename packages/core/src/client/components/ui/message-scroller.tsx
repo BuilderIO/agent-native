@@ -57,6 +57,9 @@ function MessageScrollerViewport({
     <ShadcnMessageScroller.Viewport
       className={cn(
         "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
+        // The base class carries the mask itself so it is never added or
+        // removed; the modifier only widens the fade. See agent-native.css.
+        "message-scroller-viewport",
         hasContentAbove && "message-scroller-viewport--top-fade",
         className,
       )}

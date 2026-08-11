@@ -5,9 +5,21 @@ const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
+  intType: () => "INTEGER",
+  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn(),
+  ensureIndexExists: vi.fn(),
+}));
+
+vi.mock("../settings/user-settings.js", () => ({
+  getUserSetting: getUserSettingMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -31,7 +43,7 @@ import {
   updateAutomation,
 } from "./service.js";
 
-const actor = { userEmail: "Alice@Example.com", orgId: "org-1" };
+const actor = { userEmail: "Alice@Example.com", orgId: "org-1", appId: "mail" };
 const orgOwner = "__organization__:org-1";
 
 function resource(content: string, owner = orgOwner) {
@@ -61,6 +73,7 @@ event: mail.received
 mode: agentic
 createdBy: alice@example.com
 orgId: "org-1"
+appId: mail
 runAs: creator
 model: "claude-sonnet"
 mcpTools: ["mcp__mail__read"]
@@ -78,6 +91,31 @@ describe("automation domain service", () => {
     resourceGetByPathMock.mockResolvedValue(null);
     resourceListMock.mockResolvedValue([]);
     resourcePutMock.mockResolvedValue(undefined);
+    getUserSettingMock.mockResolvedValue(null);
+  });
+
+  it("schedules a new automation in the timezone the creator saved", async () => {
+    getUserSettingMock.mockResolvedValue({ timezone: "America/New_York" });
+    resourceGetByPathMock
+      .mockResolvedValueOnce(null)
+      .mockImplementation(async (owner: string) =>
+        resource(resourcePutMock.mock.calls.at(-1)?.[2] as string, owner),
+      );
+
+    const definition = await defineAutomation(actor, {
+      name: "digest",
+      scope: "organization",
+      triggerType: "schedule",
+      schedule: "0 8 * * *",
+      body: "Send the digest.",
+    });
+
+    expect(definition.meta.timezone).toBe("America/New_York");
+    // 8am Eastern is 12:00 or 13:00 UTC depending on DST, never 08:00 UTC.
+    expect(definition.meta.nextRun).toBeTruthy();
+    expect(new Date(definition.meta.nextRun as string).getUTCHours()).not.toBe(
+      8,
+    );
   });
 
   it("creates an organization event automation owned by the org but run as its creator", async () => {
@@ -102,13 +140,14 @@ describe("automation domain service", () => {
       orgOwner,
       "jobs/notify.md",
       expect.stringMatching(
-        /createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
+        /appId: "mail"[\s\S]*createdBy: alice@example\.com[\s\S]*orgId: "org-1"[\s\S]*runAs: creator/,
       ),
     );
     expect(definition.meta).toMatchObject({
       triggerType: "event",
       createdBy: "alice@example.com",
       orgId: "org-1",
+      appId: "mail",
       runAs: "creator",
       model: "claude-sonnet",
       mcpTools: ["mcp__mail__read"],
@@ -146,14 +185,14 @@ describe("automation domain service", () => {
 
     executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
     const adminItems = await listAutomationDefinitions(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(adminItems[0]?.canUpdate).toBe(true);
 
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
     const memberItems = await listAutomationDefinitions(
-      { userEmail: "member@example.com", orgId: "org-1" },
+      { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
       "organization",
     );
     expect(memberItems[0]?.canUpdate).toBe(false);
@@ -164,7 +203,7 @@ describe("automation domain service", () => {
     resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
 
     const updated = await updateAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       {
         name: "notify",
         scope: "organization",
@@ -188,7 +227,7 @@ describe("automation domain service", () => {
     );
 
     await deleteAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
       "organization",
       "notify",
     );
@@ -201,7 +240,7 @@ describe("automation domain service", () => {
 
     await expect(
       updateAutomation(
-        { userEmail: "member@example.com", orgId: "org-1" },
+        { userEmail: "member@example.com", orgId: "org-1", appId: "mail" },
         {
           name: "notify",
           scope: "organization",

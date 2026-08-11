@@ -132,6 +132,7 @@ describe("Builder design-system helpers", () => {
       projectName: "Acme",
       description: "Marketing system",
       surface: "slides",
+      sourceKind: "figma",
     });
 
     expect(fields.title).toBe("Acme");
@@ -141,6 +142,7 @@ describe("Builder design-system helpers", () => {
     expect(fields.customInstructions).toContain("slides");
     expect(parseBuilderDesignSystemProxyReference(fields.data)).toEqual({
       source: "builder",
+      sourceKind: "figma",
       builderDesignSystemId: "ds-1",
       builderJobId: "job-1",
       builderProjectId: "project-1",

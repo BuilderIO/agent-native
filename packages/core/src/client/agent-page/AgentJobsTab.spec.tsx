@@ -9,6 +9,7 @@ const jobMocks = vi.hoisted(() => ({
     org: vi.fn(),
     user: vi.fn(),
   },
+  useRunAutomationNow: vi.fn(),
   useAutomations: vi.fn(),
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("./use-jobs.js", () => ({
   useManageAutomation: jobMocks.useManageAutomation,
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
+  useRunAutomationNow: jobMocks.useRunAutomationNow,
 }));
 
 vi.mock("../AgentAskPopover.js", () => ({
@@ -140,6 +142,7 @@ describe("AgentJobsTab organization automations", () => {
       ),
     );
     jobMocks.useManageRecurringJob.mockReturnValue(mutationResult());
+    jobMocks.useRunAutomationNow.mockReturnValue(mutationResult());
     jobMocks.useManageAutomation.mockImplementation((scope: "user" | "org") =>
       mutationResult(jobMocks.manageAutomation[scope]),
     );

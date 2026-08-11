@@ -1,4 +1,11 @@
-import type { ParsedSlide, ParsedTextRun } from "./pptx-parser.js";
+import { ASPECT_RATIOS } from "@shared/aspect-ratios";
+
+import type {
+  ParsedElement,
+  ParsedParagraph,
+  ParsedSlide,
+  ParsedTextRun,
+} from "./pptx-parser.js";
 
 /** Escape HTML special characters. */
 function esc(text: string): string {
@@ -47,6 +54,24 @@ export function buildFullBleedImageSlideHtml(
 </div>`;
 }
 
+/** Render a rasterized source page without changing its layout or text. */
+export function buildFullPageImageSlideHtml(
+  imageUrl: string,
+  sourceWidth?: number,
+  sourceHeight?: number,
+): string {
+  const sourceDimensions =
+    Number.isFinite(sourceWidth) &&
+    Number.isFinite(sourceHeight) &&
+    sourceWidth! > 0 &&
+    sourceHeight! > 0
+      ? ` data-source-width="${sourceWidth}" data-source-height="${sourceHeight}"`
+      : "";
+  return `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true"${sourceDimensions} style="position: relative; width: 100%; height: 100%; overflow: hidden; background: hsl(var(--background));">
+    <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;" />
+</div>`;
+}
+
 /** Wrap text in formatting tags based on run properties. */
 function formatRun(run: ParsedTextRun): string {
   let text = esc(run.content);
@@ -63,7 +88,11 @@ const DEFAULT_IMPORT_FONT = "'Poppins', sans-serif";
 function cssFontFamily(themeFont: string | undefined): string {
   if (!themeFont) return DEFAULT_IMPORT_FONT;
   const safeName = themeFont.replace(/["']/g, "").trim();
-  return safeName ? `'${safeName}', sans-serif` : DEFAULT_IMPORT_FONT;
+  if (!safeName) return DEFAULT_IMPORT_FONT;
+  if (safeName.toLowerCase().startsWith("poppins")) {
+    return "'Poppins', sans-serif";
+  }
+  return `'${safeName}', sans-serif`;
 }
 
 /**
@@ -107,9 +136,13 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
  */
 export function convertToSlideHtml(
   slide: ParsedSlide,
-  imageUrl?: string,
+  imageUrls?: string | Record<string, string>,
   themeFont?: string,
 ): string {
+  if (slide.elements?.length) {
+    return buildFidelitySlide(slide, imageUrls, themeFont);
+  }
+
   const paragraphs = groupIntoParagraphs(slide.texts);
   const fontFamily = cssFontFamily(themeFont);
 
@@ -117,7 +150,12 @@ export function convertToSlideHtml(
   // has no room to show it, which is how imports used to silently drop
   // photos from otherwise short/title-shaped slides.
   if (slide.images.length > 0) {
-    return buildImageSlide(paragraphs, slide, imageUrl, fontFamily);
+    return buildImageSlide(
+      paragraphs,
+      slide,
+      typeof imageUrls === "string" ? imageUrls : undefined,
+      fontFamily,
+    );
   }
 
   if (slide.layoutHint === "title" || paragraphs.length <= 2) {
@@ -125,6 +163,294 @@ export function convertToSlideHtml(
   }
 
   return buildContentSlide(paragraphs, slide, fontFamily);
+}
+
+const DEFAULT_SLIDE_WIDTH_EMU = 9144000;
+const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
+const DEFAULT_PPTX_BACKGROUND = "#000000"; // guard:allow-raw-color - preserve PPTX black when no background is declared
+const DEFAULT_PPTX_FOREGROUND = "#ffffff"; // guard:allow-raw-color - preserve PPTX white when no run color is declared
+
+/**
+ * The absolute px box `toSlidePxX`/`toSlidePxY` scale positions and sizes
+ * against. It must match the aspect-ratio preset the deck actually renders
+ * into (`ASPECT_RATIOS`, chosen by the import actions' own
+ * `nearestAspectRatio`) rather than a fixed 16:9 box: a PDF page or a custom
+ * PPTX slide size is routinely portrait or square, and scaling its elements
+ * against a 960x540 reference while the deck itself renders in an 864x1080
+ * (or other) box stretches every element by the ratio between the two
+ * boxes, most visibly squashing everything into the top fraction of a
+ * taller-than-540 canvas.
+ */
+function referenceBoxForSlide(
+  widthEmu: number,
+  heightEmu: number,
+): { width: number; height: number } {
+  const target = widthEmu / heightEmu;
+  let best: { width: number; height: number } = ASPECT_RATIOS["16:9"];
+  let bestDiff = Infinity;
+  for (const preset of Object.values(ASPECT_RATIOS)) {
+    const diff = Math.abs(preset.width / preset.height - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = preset;
+    }
+  }
+  return { width: best.width, height: best.height };
+}
+
+function buildFidelitySlide(
+  slide: ParsedSlide,
+  imageUrls: string | Record<string, string> | undefined,
+  themeFont: string | undefined,
+): string {
+  const widthEmu = slide.widthEmu || DEFAULT_SLIDE_WIDTH_EMU;
+  const heightEmu = slide.heightEmu || DEFAULT_SLIDE_HEIGHT_EMU;
+  const refBox = referenceBoxForSlide(widthEmu, heightEmu);
+  const background = slide.backgroundColor ?? DEFAULT_PPTX_BACKGROUND;
+  const gridStyle = slide.backgroundGrid
+    ? `background-image:linear-gradient(to right, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu, refBox.width))}px, transparent ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu, refBox.width))}px),linear-gradient(to bottom, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu, refBox.height))}px, transparent ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu, refBox.height))}px);background-size:${toSlidePxX(slide.backgroundGrid.stepXEmu, widthEmu, refBox.width)}px ${toSlidePxY(slide.backgroundGrid.stepYEmu, heightEmu, refBox.height)}px;background-position:${toSlidePxX(slide.backgroundGrid.offsetXEmu, widthEmu, refBox.width)}px ${toSlidePxY(slide.backgroundGrid.offsetYEmu, heightEmu, refBox.height)}px;background-repeat:repeat;`
+    : "";
+  const elements = slide.elements ?? [];
+  const html = elements
+    .map((element, index) =>
+      buildFidelityElement(
+        element,
+        index,
+        widthEmu,
+        heightEmu,
+        refBox,
+        imageUrls,
+        themeFont,
+      ),
+    )
+    .join("\n");
+
+  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="${widthEmu}" data-slide-height-emu="${heightEmu}" style="position: relative; width: 100%; height: 100%; overflow: hidden; background: ${esc(background)};${gridStyle} font-family: ${cssFontFamily(themeFont)};">${html}
+</div>`;
+}
+
+function buildFidelityElement(
+  element: ParsedElement,
+  index: number,
+  widthEmu: number,
+  heightEmu: number,
+  refBox: { width: number; height: number },
+  imageUrls: string | Record<string, string> | undefined,
+  themeFont: string | undefined,
+): string {
+  const position = `position: absolute; left: ${toSlidePxX(element.x, widthEmu, refBox.width)}px; top: ${toSlidePxY(element.y, heightEmu, refBox.height)}px; width: ${toSlidePxX(element.width, widthEmu, refBox.width)}px; height: ${toSlidePxY(element.height, heightEmu, refBox.height)}px; z-index: ${index}; box-sizing: border-box;`;
+  const rotation = element.rotation
+    ? ` transform: rotate(${element.rotation}deg); transform-origin: center center;`
+    : "";
+  const objectId = ` data-slide-object-id="${esc(element.id)}"`;
+
+  if (element.kind === "image") {
+    const url = imageUrlForElement(element, imageUrls);
+    const imageStyle = imageRenderStyle(element);
+    return `<div class="fmd-pptx-image" data-pptx-element-kind="image" data-pptx-image-name="${esc(element.image?.name ?? "image")}"${objectId} style="${position}${rotation} overflow: hidden;">${url ? `<img src="${esc(url)}" alt="" style="${imageStyle}" />` : `<div class="fmd-img-placeholder" style="width:100%;height:100%;">Imported image: ${esc(element.image?.name ?? "image")}</div>`}</div>`;
+  }
+
+  const decoration = shapeDecoration(element, widthEmu, refBox.width);
+  if (element.kind === "shape") {
+    return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}"></div>`;
+  }
+
+  const textStyle = textBoxStyle(
+    element,
+    widthEmu,
+    heightEmu,
+    refBox,
+    themeFont,
+  );
+  const defaultFontWeight = element.placeholderType === "title" ? 700 : 400;
+  const paragraphs = (element.paragraphs ?? [])
+    .map((paragraph, paragraphIndex) =>
+      buildFidelityParagraph(
+        paragraph,
+        paragraphIndex,
+        widthEmu,
+        refBox.width,
+        themeFont,
+        defaultFontWeight,
+      ),
+    )
+    .join("\n");
+  return `<div class="fmd-pptx-text" data-pptx-element-kind="text"${objectId} style="${position}${rotation}${decoration}${textStyle}">${paragraphs}</div>`;
+}
+
+function toSlidePxX(
+  valueEmu: number,
+  slideWidthEmu: number,
+  refWidthPx: number,
+): number {
+  return Math.round((valueEmu / slideWidthEmu) * refWidthPx * 1000) / 1000;
+}
+
+function toSlidePxY(
+  valueEmu: number,
+  slideHeightEmu: number,
+  refHeightPx: number,
+): number {
+  return Math.round((valueEmu / slideHeightEmu) * refHeightPx * 1000) / 1000;
+}
+
+const EMU_PER_POINT = 12700;
+
+/**
+ * A run's font size (and paragraph spacing) is stored in points, a physical
+ * unit independent of the source slide's own canvas size — unlike
+ * position/size EMUs, a fixed `pt * 96/72` conversion doesn't know how far
+ * `toSlidePxX`/`toSlidePxY` scaled that canvas down (or up) to fit the
+ * deck's aspect-ratio box. Converting the point value to EMU first and
+ * running it through the same `toSlidePxX` scale keeps text sized
+ * proportionally to its box on every source slide size, not just the one
+ * physical size (10in wide) that happens to make the fixed conversion agree
+ * with the 16:9 preset's box.
+ */
+function ptToSlidePx(
+  valuePt: number,
+  widthEmu: number,
+  refWidthPx: number,
+): number {
+  return toSlidePxX(valuePt * EMU_PER_POINT, widthEmu, refWidthPx);
+}
+
+function imageUrlForElement(
+  element: ParsedElement,
+  imageUrls: string | Record<string, string> | undefined,
+): string | undefined {
+  if (typeof imageUrls === "string") return imageUrls;
+  return imageUrls?.[element.id];
+}
+
+function imageRenderStyle(element: ParsedElement): string {
+  const crop = element.image?.crop;
+  if (!crop) return "display:block;width:100%;height:100%;object-fit:fill;";
+  const visibleWidth = Math.max(0.001, 1 - crop.left - crop.right);
+  const visibleHeight = Math.max(0.001, 1 - crop.top - crop.bottom);
+  return `display:block;position:absolute;left:${(-crop.left / visibleWidth) * 100}%;top:${(-crop.top / visibleHeight) * 100}%;width:${(1 / visibleWidth) * 100}%;height:${(1 / visibleHeight) * 100}%;object-fit:fill;`;
+}
+
+function shapeDecoration(
+  element: ParsedElement,
+  widthEmu: number,
+  refWidthPx: number,
+): string {
+  const fill = element.fill ? `background: ${esc(element.fill)};` : "";
+  const line = element.lineColor
+    ? `border: ${Math.max(1, toSlidePxX(element.lineWidth ?? 12700, widthEmu, refWidthPx))}px solid ${esc(element.lineColor)};`
+    : "";
+  const radius = element.shapeType === "roundRect" ? "border-radius: 6px;" : "";
+  return `${fill}${line}${radius}`;
+}
+
+function textBoxStyle(
+  element: ParsedElement,
+  widthEmu: number,
+  heightEmu: number,
+  refBox: { width: number; height: number },
+  themeFont: string | undefined,
+): string {
+  const padding = element.padding;
+  const left = padding ? toSlidePxX(padding.left, widthEmu, refBox.width) : 0;
+  const right = padding ? toSlidePxX(padding.right, widthEmu, refBox.width) : 0;
+  const top = padding ? toSlidePxY(padding.top, heightEmu, refBox.height) : 0;
+  const bottom = padding
+    ? toSlidePxY(padding.bottom, heightEmu, refBox.height)
+    : 0;
+  const align = element.paragraphs?.[0]?.alignment ?? "left";
+  const vertical =
+    element.verticalAlign === "middle"
+      ? "justify-content:center;"
+      : element.verticalAlign === "bottom"
+        ? "justify-content:flex-end;"
+        : "justify-content:flex-start;";
+  return `display:flex;flex-direction:column;${vertical}padding:${top}px ${right}px ${bottom}px ${left}px;font-family:${cssFontFamily(themeFont)};text-align:${align};overflow:visible;`;
+}
+
+function buildFidelityParagraph(
+  paragraph: ParsedParagraph,
+  paragraphIndex: number,
+  widthEmu: number,
+  refWidthPx: number,
+  themeFont: string | undefined,
+  defaultFontWeight: number,
+): string {
+  const firstRun = paragraph.runs[0];
+  const fontSize = ptToSlidePx(firstRun?.fontSize ?? 18, widthEmu, refWidthPx);
+  const lineHeight = paragraph.lineSpacing ?? 1.2;
+  const bulletFontSize = ptToSlidePx(
+    paragraph.bulletSize ?? firstRun?.fontSize ?? 18,
+    widthEmu,
+    refWidthPx,
+  );
+  const bullet = paragraph.bulletChar
+    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${bulletFontSize}px;">${esc(paragraph.bulletChar)}</span>`
+    : "";
+  const marginLeft = paragraph.marginLeftEmu
+    ? toSlidePxX(paragraph.marginLeftEmu, widthEmu, refWidthPx)
+    : 0;
+  const indent = paragraph.indentEmu
+    ? toSlidePxX(paragraph.indentEmu, widthEmu, refWidthPx)
+    : 0;
+  const spacingBefore = paragraph.spaceBeforePt ?? 0;
+  const spacingAfter = paragraph.spaceAfterPt ?? 0;
+  const bulletMargin = paragraph.bulletChar ? `margin-left:${indent}px;` : "";
+  const marginBefore = ptToSlidePx(spacingBefore, widthEmu, refWidthPx);
+  const marginAfter = ptToSlidePx(spacingAfter, widthEmu, refWidthPx);
+  const text = paragraph.runs
+    .map((run) =>
+      formatFidelityRun(
+        run,
+        widthEmu,
+        refWidthPx,
+        themeFont,
+        defaultFontWeight,
+      ),
+    )
+    .join("");
+  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;flex:0 0 auto;text-align:${paragraph.alignment ?? "left"};white-space:pre-wrap;margin:${marginBefore}px 0 ${marginAfter}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
+}
+
+function formatFidelityRun(
+  run: ParsedTextRun,
+  widthEmu: number,
+  refWidthPx: number,
+  themeFont: string | undefined,
+  defaultFontWeight = 400,
+): string {
+  const styles = [
+    `font-size:${ptToSlidePx(run.fontSize ?? 18, widthEmu, refWidthPx)}px`,
+    `font-family:${cssFontFamily(run.fontFamily ?? themeFont)}`,
+    `color:${esc(run.color ?? DEFAULT_PPTX_FOREGROUND)}`,
+    `font-weight:${run.bold ? 700 : fontWeightForFamily(run.fontFamily, defaultFontWeight)}`,
+    `font-style:${run.italic ? "italic" : "normal"}`,
+    `text-decoration:${run.underline ? "underline" : "none"}`,
+  ].join(";");
+  const href = run.href && isSafeLinkHref(run.href) ? run.href : undefined;
+  if (href) {
+    return `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" style="${styles};">${esc(run.content)}</a>`;
+  }
+  return `<span style="${styles};">${esc(run.content)}</span>`;
+}
+
+/** A source PDF/PPTX link annotation is untrusted input — only render schemes a browser treats as navigation, never `javascript:`/`data:`/etc. */
+function isSafeLinkHref(href: string): boolean {
+  return /^(https?:|mailto:)/i.test(href);
+}
+
+function fontWeightForFamily(
+  fontFamily: string | undefined,
+  fallback: number,
+): number {
+  const normalized = fontFamily?.toLowerCase() ?? "";
+  if (!normalized) return fallback;
+  if (/(?:semi|demi)bold|semibold/.test(normalized)) return 600;
+  if (/extra[- ]?bold|heavy/.test(normalized)) return 800;
+  if (/bold/.test(normalized)) return 700;
+  if (/medium/.test(normalized)) return 500;
+  if (/light|thin/.test(normalized)) return 300;
+  return 400;
 }
 
 function buildTitleSlide(
@@ -166,7 +492,7 @@ function buildContentSlide(
       })
       .join("\n");
 
-    bulletsHtml = `\n    <div style="display: flex; flex-direction: column; gap: 20px;">
+    bulletsHtml = `\n    <div class="fmd-animation-container" style="display: flex; flex-direction: column; gap: 20px;">
 ${bulletItems}
     </div>`;
   }
@@ -232,15 +558,20 @@ function buildOverlayImageSlide(
   const headingHtml = headingPara.map(formatRun).join(" ") || "Slide";
 
   const captionParas = paragraphs.slice(1);
-  const captionHtml = captionParas
-    .map((para) => para.map(formatRun).join(" "))
-    .join(" ");
+  const captionHtml = captionParas.length
+    ? `<div class="fmd-animation-container" style="display: flex; flex-direction: column; gap: 8px;">${captionParas
+        .map(
+          (para) =>
+            `<p style="font-size: 18px; color: rgba(255,255,255,0.75); /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.5; margin: 0;">${para.map(formatRun).join(" ")}</p>`,
+        )
+        .join("\n")}</div>`
+    : "";
 
   return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
     <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
     <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%);"></div>
     <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 56px 70px; font-family: ${fontFamily};">
-      <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 ${captionHtml ? "12px" : "0"} 0;">${headingHtml}</h2>${captionHtml ? `\n      <p style="font-size: 18px; color: rgba(255,255,255,0.75); line-height: 1.5; margin: 0;">${captionHtml}</p>` : ""}
+      <h2 style="font-size: 40px; font-weight: 900; color: #fff; /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.15; letter-spacing: -1px; margin: 0 0 ${captionHtml ? "12px" : "0"} 0;">${headingHtml}</h2>${captionHtml ? `\n      ${captionHtml}` : ""}
     </div>
 </div>`;
 }
@@ -256,9 +587,14 @@ function buildStackedImageSlide(
   const headingText = headingPara.map(formatRun).join(" ") || "Slide";
 
   const captionParas = paragraphs.slice(1);
-  const captionText = captionParas
-    .map((para) => para.map(formatRun).join(" "))
-    .join(" ");
+  const captionText = captionParas.length
+    ? `<div class="fmd-animation-container" style="display: flex; flex-direction: column; gap: 8px;">${captionParas
+        .map(
+          (para) =>
+            `<p style="font-size: 16px; color: rgba(255,255,255,0.7); /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.5; margin: 0;">${para.map(formatRun).join(" ")}</p>`,
+        )
+        .join("\n")}</div>`
+    : "";
 
   const imageName = slide.images[0]?.name ?? "image";
   // Size the box to the image's own placed aspect ratio instead of a fixed
@@ -278,7 +614,7 @@ function buildStackedImageSlide(
 
   return `<div class="fmd-slide" style="padding: 64px 90px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
     ${imageHtml}
-    <h2 style="font-size: 32px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -0.5px; margin: 0 0 12px 0;">${headingText}</h2>${captionText ? `\n    <p style="font-size: 16px; color: rgba(255,255,255,0.7); line-height: 1.5; margin: 0;">${captionText}</p>` : ""}
+    <h2 style="font-size: 32px; font-weight: 900; color: #fff; /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.2; letter-spacing: -0.5px; margin: 0 0 12px 0;">${headingText}</h2>${captionText ? `\n    ${captionText}` : ""}
 </div>`;
 }
 

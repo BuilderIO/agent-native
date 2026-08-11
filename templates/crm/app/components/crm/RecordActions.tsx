@@ -601,7 +601,10 @@ function CallEvidenceAutomationDialog({ record }: { record: CrmRecordDetail }) {
         </div>
         <DialogFooter className="flex-row flex-wrap justify-end gap-2 sm:justify-end">
           <Button asChild variant="ghost" size="sm" className="gap-1.5">
-            <Link to="/agent#jobs" onClick={() => setOpen(false)}>
+            <Link
+              to="/settings/agent/automations"
+              onClick={() => setOpen(false)}
+            >
               <IconExternalLink className="size-4" />{" "}
               {t("recordActions.manageAutomations")}
             </Link>

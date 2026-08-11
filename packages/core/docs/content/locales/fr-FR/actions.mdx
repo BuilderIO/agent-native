@@ -91,7 +91,7 @@ side-car intégré ou sous forme d'écran d'application complet, voir [Agent Sur
 
 Si le UI et l'agent doivent tous deux faire quelque chose, optez pour une action, et non une action personnalisée
 itinéraire. Pour savoir quand un protocole en forme de route _est_ le bon appel, voir [Préférer Actions
-Pour les opérations d'application](/docs/server#actions-first).
+Pour les opérations d'application](/docs/server-overview#actions-first).
 
 ## Commencez par une seule action {#hello-action}
 
@@ -379,12 +379,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

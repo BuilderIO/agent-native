@@ -1,5 +1,9 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  formatChatErrorText,
+  normalizeChatError,
+} from "../client/error-format.js";
+import {
   isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -26,6 +30,7 @@ interface ContentPart {
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }
 
 interface BuildAssistantMessageOptions {
@@ -49,13 +54,6 @@ const INTERRUPTED_TOOL_RESULT =
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
-/**
- * When no file-upload provider is configured we fall back to storing base64
- * directly in the SQL thread_data column. Cap the raw base64 per attachment to
- * avoid unbounded row growth. Attachments larger than this get a '[truncated]'
- * marker so the transcript still renders but the column stays sane.
- */
-const MAX_STORED_BASE64_BYTES = 2 * 1024 * 1024; // 2 MB per attachment
 
 function isInternalContinuationError(event: {
   error: string;
@@ -140,12 +138,29 @@ export function buildAssistantMessage(
     }
   };
 
+  // Index of the last event that is not a `clear`. Everything after it is a
+  // trailing run of clears with no successor chunk to re-emit what they wipe.
+  let lastNonClearIndex = events.length - 1;
+  while (
+    lastNonClearIndex >= 0 &&
+    events[lastNonClearIndex]?.event.type === "clear"
+  ) {
+    lastNonClearIndex -= 1;
+  }
+
   for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
       // A live stream always follows `clear` with the chunk that re-emits the
       // wiped content. A rebuild has no successor, so applying a TRAILING
       // clear can only destroy the transcript permanently.
-      if (index === events.length - 1) continue;
+      //
+      // The whole trailing RUN has to be skipped, not just the final element:
+      // each failed engine attempt emits one `clear`, so three failed attempts
+      // in a row is the common shape, and skipping only the last still applied
+      // the other two. When the run made no tool calls that emptied `content`
+      // entirely and this builder returned null — the user's message was left
+      // with no assistant reply at all.
+      if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content);
       continue;
     }
@@ -173,6 +188,20 @@ export function buildAssistantMessage(
         argsText: JSON.stringify(args),
         args,
       });
+      continue;
+    }
+
+    if (event.type === "approval_required") {
+      const matchingIndex = findApprovalToolCallIndex(
+        content,
+        event.tool ?? "unknown",
+        event.toolCallId,
+      );
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.approval = { approvalKey: event.approvalKey };
+      }
       continue;
     }
 
@@ -248,13 +277,24 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
+      // Mirror the live client (client/sse-event-processor.ts): route the raw
+      // provider/engine string through the same friendly-copy layer before it
+      // ever becomes persisted chat text, and keep the raw text only in
+      // `details`. Without this, a rebuild (background run, reconnect, poller,
+      // webhook turn) dumps whatever the provider sent — a JSON error body, an
+      // SSL handshake failure — straight into the user-visible transcript.
+      const normalized = normalizeChatError(event.error, event.errorCode);
       runError = {
-        message: event.error,
+        message: normalized.message,
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-        ...(event.details ? { details: event.details } : {}),
+        ...((event.details ?? normalized.details)
+          ? { details: event.details ?? normalized.details }
+          : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(`${content.length > 0 ? "\n\n" : ""}Error: ${event.error}`);
+      appendText(
+        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+      );
       continue;
     }
 
@@ -406,6 +446,55 @@ function normalizeAttachmentIdentity(attachments: unknown): unknown {
     name: att?.name,
     contentType: att?.contentType,
   }));
+}
+
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (toolCallId) {
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolCallId === toolCallId &&
+        part.result === undefined
+      ) {
+        return i;
+      }
+    }
+
+    // Older tool_start events without an id use one reader-local tc_N id.
+    // Only accept that fallback when it is unambiguous, so a replayed approval
+    // cannot attach its key to another same-name call.
+    const readerLocalCandidates: number[] = [];
+    for (let i = 0; i < content.length; i += 1) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === toolName &&
+        part.result === undefined &&
+        typeof part.toolCallId === "string" &&
+        /^tc_\d+$/.test(part.toolCallId)
+      ) {
+        readerLocalCandidates.push(i);
+      }
+    }
+    return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
+  }
+
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 // Strip the render-only `toolCallId` before fingerprinting. The id is generated
@@ -1120,22 +1209,6 @@ function textAttachmentEnvelope(
   return `<attachment ${attrs.join(" ")}>\n${truncateStoredAttachment(text)}\n</attachment>`;
 }
 
-/**
- * Cap a base64 data-URL string for storage. When the encoded string is over
- * the limit we replace the base64 payload with a truncation marker so the
- * transcript still renders the attachment chip but doesn't bloat SQL.
- */
-function capBase64DataUrl(dataUrl: string): string {
-  const commaIdx = dataUrl.indexOf(",");
-  if (commaIdx === -1) return dataUrl;
-  const header = dataUrl.slice(0, commaIdx + 1);
-  const b64 = dataUrl.slice(commaIdx + 1);
-  // Each base64 char encodes 6 bits; 4 chars = 3 bytes.
-  const approxBytes = Math.floor((b64.length * 3) / 4);
-  if (approxBytes <= MAX_STORED_BASE64_BYTES) return dataUrl;
-  return `${header}[base64 truncated — ${approxBytes.toLocaleString()} bytes exceeds storage limit]`;
-}
-
 function buildStoredAttachments(
   attachments: AgentChatAttachment[] | undefined,
   runId: string | undefined,
@@ -1182,33 +1255,6 @@ function buildStoredAttachments(
         };
       }
 
-      if (att.type === "image" && att.data) {
-        return {
-          id,
-          type: "image",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [{ type: "image", image: capBase64DataUrl(att.data) }],
-        };
-      }
-      if (att.data) {
-        return {
-          id,
-          type: "file",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [
-            {
-              type: "file",
-              data: capBase64DataUrl(att.data),
-              mimeType: att.contentType,
-              filename: att.name,
-            },
-          ],
-        };
-      }
       if (typeof att.text === "string" && att.text.length > 0) {
         return {
           id,
@@ -1219,6 +1265,33 @@ function buildStoredAttachments(
           content: [
             { type: "text", text: textAttachmentEnvelope(att, att.text) },
           ],
+        };
+      }
+
+      // Binary attachment data is request-scoped input, not thread state. If
+      // the provider was unavailable or failed, retain only a visible marker
+      // so the transcript can explain why the attachment needs storage setup
+      // without putting base64 bytes in SQL.
+      if (att.storageRequired === true || typeof att.data === "string") {
+        const uploadFailed = att.storageUploadFailed === true;
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [
+            {
+              type: "text",
+              text: uploadFailed
+                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+            },
+          ],
+          metadata: {
+            storageRequired: true,
+            ...(uploadFailed ? { storageUploadFailed: true } : {}),
+          },
         };
       }
       return null;

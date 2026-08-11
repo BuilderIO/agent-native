@@ -12,7 +12,7 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // available for desktop voice dictation and other provider-specific tools.
 //
 // We support two BYOK providers:
-//   1. Gemini — recommended for fast LLM cleanup in the desktop tray.
+//   1. Gemini — BYOK fallback for fast text cleanup in the desktop tray.
 //   2. Groq — optional voice-dictation provider, not a recording transcript
 //      fallback.
 //
@@ -30,7 +30,7 @@ registerRequiredSecret({
   key: "GEMINI_API_KEY",
   label: "Gemini API Key (recommended)",
   description:
-    "Fast LLM-backed transcription cleanup via Gemini Flash Lite. Recommended for Clips voice dictation when you want to bring your own key.",
+    "Fast text-model-backed transcription cleanup via Builder/Luna or Gemini Flash Lite. Recommended for Clips voice dictation when you want to bring your own key.",
   docsUrl: "https://aistudio.google.com/apikey",
   scope: "user",
   kind: "api-key",

@@ -97,7 +97,7 @@ describe("desktop passive-access regressions", () => {
 
     expect(runDetail).toContain("<TranscriptPanel");
     expect(runDetail).toContain("Approval pending");
-    expect(runDetail).toContain('secondaryActionLabel="API keys"');
+    expect(runDetail).toContain('secondaryActionLabel="Custom keys"');
     expect(runDetail).not.toContain("Task paused");
     expect(runDetail).not.toContain("code-agents-session-details");
     expect(runDetail).not.toContain("TokenUsageMeter");
@@ -128,7 +128,7 @@ describe("desktop passive-access regressions", () => {
     const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
 
     expect(agent).toContain("isCredentialGapCodeAgentEvent,");
-    expect(agent).toContain('} from "@agent-native/core/client";');
+    expect(agent).toContain('} from "@agent-native/core/client/agent-chat";');
     const detector = between(
       agent,
       "function isCredentialTranscriptEvent(",
@@ -143,7 +143,7 @@ describe("desktop passive-access regressions", () => {
     const main = source("./index.ts");
     const runtimeCheck = between(
       main,
-      "function hasRuntimeNonCodexCodeAgentLlmProvider()",
+      "function hasRuntimeNonCodexCodeAgentLlmProvider(",
       "function normalizeCodeAgentRequestedEngine(",
     );
 
@@ -152,6 +152,42 @@ describe("desktop passive-access regressions", () => {
     );
     expect(main).toContain("applyCodeAgentProviderCredentialsToEnv()");
     expect(main).toContain("applyResult.failedKeys.length > 0");
+  });
+
+  it("checks saved provider credentials before rejecting a coding chat", () => {
+    const main = source("./index.ts");
+    const providerCheck = between(
+      main,
+      "function ensureCodeAgentLlmProvider()",
+      "function getLocalCodexCliStatus()",
+    );
+
+    expect(providerCheck).toContain(
+      "AppStore.getCodeAgentProviderProcessEnv(process.env)",
+    );
+    expect(providerCheck).toContain(
+      "hasRuntimeNonCodexCodeAgentLlmProvider(providerEnv)",
+    );
+  });
+
+  it("keeps desktop app creation visible while provider setup is incomplete", () => {
+    const main = source("./index.ts");
+    const createRun = between(
+      main,
+      "async function createCodeAgentRun(",
+      "async function rerunCodeAgentRun(",
+    );
+    const runner = between(
+      main,
+      "async function spawnCodeAgentRunner(",
+      "function spawnCodeAgentApprovalRunner(",
+    );
+
+    expect(createRun).toContain(
+      'const isDesktopAppCreation = userMetadata.kind === "desktop-create-app"',
+    );
+    expect(createRun).toContain("if (!provider.ok && !isDesktopAppCreation)");
+    expect(runner).toContain('phase: "missing-credentials"');
   });
 
   it("only marks the local Codex provider configured after authentication", () => {
@@ -172,8 +208,8 @@ describe("desktop passive-access regressions", () => {
       'source: codex.authenticated ? ("local-codex" as const) : undefined',
     );
     expect(modelList).toContain("configured: codex.authenticated");
-    expect(modelList).toContain(
-      "codex.authenticated && !apiProviderConfigured",
-    );
+    expect(modelList).toContain('statusLabel: "ChatGPT subscription"');
+    expect(modelList).toContain('statusLabel: "Claude subscription"');
+    expect(modelList).not.toContain('engine: "auto"');
   });
 });

@@ -2,10 +2,13 @@ import path from "path";
 
 import type { AgentChatAttachment } from "@agent-native/core/server";
 
-import { isSlidesReferenceFileExtension } from "../../shared/upload-types.js";
+import {
+  isSlidesReferenceFileExtension,
+  MAX_REFERENCE_FILE_BYTES,
+} from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
-const MAX_CHAT_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
 const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function decodeDataUrl(data: string | undefined): {
@@ -116,8 +119,8 @@ export async function prepareSlidesChatAttachments(args: {
           "",
           "File handling rules:",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
-          '- PPTX files: call `import-pptx --filePath "<path>" --deckId <deckId>` when updating the visible deck, or omit deckId only when the user explicitly wants a new deck.',
-          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating slides. The returned text is capped for reliability; re-run with maxChars only if more context is needed. If the user wants a direct replacement import, pass `--importIntoDeck true` as well.',
+          '- PPTX files: when the user wants the visible deck improved, call `import-pptx --filePath "<path>" --deckId <deckId>` first, then use one patch-deck call with requireAllSourceSlides=true and one content patch per imported slide for a deck-wide restyle. Use update-slide only for a targeted one-slide edit. Do not rebuild the source deck with add-slide.',
+          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating editable slides. For a visual PDF that the user wants preserved, beautified, or restyled from its original layout, pass `--importIntoDeck true` so each page is imported source-faithfully first; keep the full-page image and style around it, with source text persisted in slide notes for inspection.',
           '- Figma `.fig` files: call `import-file --filePath "<path>" --format fig` to start Builder design-system indexing. Do not create a local design system directly from the upload.',
           "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
           '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
@@ -155,11 +158,15 @@ function stripForwardedAttachmentData(
 ): AgentChatAttachment {
   const next = { ...attachment };
   // Keep visual data for the current model turn so uploaded screenshots remain
-  // available for vision analysis; non-visual files only need their path/URL.
+  // available for vision analysis. Keep non-visual bytes until core's shared
+  // pre-upload boundary has created the durable public object-storage URL;
+  // `slidesUploadPath` is a private import handle, not a chat attachment URL.
   const inlineImage = isVisualAttachment(attachment)
     ? decodeDataUrl(attachment.data)
     : null;
-  if (!inlineImage || inlineImage.bytes.length > MAX_INLINE_IMAGE_BYTES) {
+  if (!inlineImage && (saved.url || !attachment.data)) {
+    delete next.data;
+  } else if (inlineImage && inlineImage.bytes.length > MAX_INLINE_IMAGE_BYTES) {
     delete next.data;
   }
   (next as any).slidesUploadPath = saved.path;

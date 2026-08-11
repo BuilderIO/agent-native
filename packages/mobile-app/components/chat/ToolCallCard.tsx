@@ -50,7 +50,7 @@ function StatusIcon({
   status: Extract<ChatContentPart, { type: "tool-call" }>["status"];
 }) {
   if (status === "running") {
-    return <ActivityIndicator size="small" color="#c7f36b" />;
+    return <ActivityIndicator size="small" color="#d4d4d8" />;
   }
   if (status === "failed") {
     return <IconAlertTriangle color="#fb7185" size={15} strokeWidth={2} />;

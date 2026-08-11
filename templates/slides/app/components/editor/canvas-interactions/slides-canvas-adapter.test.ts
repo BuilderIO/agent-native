@@ -1,9 +1,13 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
   createSlidesCanvasGestureController,
   createSlidesCanvasInteractionCore,
   isWithinSlidesCanvasEdgeMoveBand,
+  resolveSlidesCanvasDragTarget,
+  resolveSlidesCanvasNudge,
   resolveSlidesCanvasPointerIntent,
   SLIDES_CANVAS_EDGE_MOVE_BAND,
 } from "./slides-canvas-adapter";
@@ -61,6 +65,24 @@ describe("Slides canvas interaction adapter", () => {
     ).toEqual({ x: 140, y: 50, width: 160, height: 100 });
   });
 
+  it("keeps modifier-arrow chords native while nudging plain arrows", () => {
+    expect(resolveSlidesCanvasNudge({ key: "ArrowRight" })).toMatchObject({
+      delta: { x: 1, y: 0 },
+    });
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", shiftKey: true }),
+    ).toMatchObject({ delta: { x: 10, y: 0 } });
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", metaKey: true }),
+    ).toBeNull();
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", ctrlKey: true }),
+    ).toBeNull();
+    expect(resolveSlidesCanvasNudge({ key: "ArrowRight", altKey: true })).toBe(
+      null,
+    );
+  });
+
   it("reserves only a selected object's edge band for movement", () => {
     expect(
       resolveSlidesCanvasPointerIntent({
@@ -89,6 +111,23 @@ describe("Slides canvas interaction adapter", () => {
         targetIsEditableText: false,
       }),
     ).toBe("move-object-body");
+  });
+
+  it("uses the object under the pointer when no prior selection exists", () => {
+    const image = document.createElement("img");
+    const wrapper = document.createElement("div");
+
+    expect(resolveSlidesCanvasDragTarget(null, image)).toBe(image);
+    expect(resolveSlidesCanvasDragTarget(null, wrapper)).toBe(wrapper);
+  });
+
+  it("keeps a selected parent as the drag target for nested content", () => {
+    const wrapper = document.createElement("div");
+    const image = document.createElement("img");
+    wrapper.append(image);
+
+    expect(resolveSlidesCanvasDragTarget(wrapper, image)).toBe(wrapper);
+    expect(resolveSlidesCanvasDragTarget(image, wrapper)).toBe(image);
   });
 
   it("uses the same measured outside edge band for hover and pointer intent", () => {

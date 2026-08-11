@@ -1,6 +1,6 @@
 ---
 title: "Authentication"
-description: "Better Auth integration with email/password, social providers, organizations, and MCP bearer credentials."
+description: "Magic-link-first Better Auth integration with password fallback, social providers, organizations, and MCP bearer credentials."
 ---
 
 # Authentication
@@ -11,7 +11,7 @@ Agent-native apps use [Better Auth](https://better-auth.com) for authentication 
 
 Auth is configured automatically via `autoMountAuth(app)` in the auth server plugin. There are three modes:
 
-- **Default:** Better Auth with email/password + social providers. Onboarding page shown on first visit.
+- **Default:** Magic-link-first Better Auth when outbound email is ready, with email/password fallback and social providers. Onboarding page shown on first visit.
 - **Remote MCP OAuth:** Standard OAuth 2.1 for MCP hosts such as Claude Code and ChatGPT connectors.
 - **Custom:** Bring your own auth via `getSession` callback.
 
@@ -24,7 +24,7 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
       <span class="diagram-pill accent">Default</span
       ><strong>Better Auth</strong
       ><small class="diagram-muted"
-        >email/password &middot; Google &middot; GitHub</small
+        >magic link / password &middot; Google &middot; GitHub</small
       >
     </div>
     <div class="diagram-card">
@@ -84,11 +84,11 @@ Auth is configured automatically via `autoMountAuth(app)` in the auth server plu
 
 The browser flow is the same Better Auth flow everywhere — there is **no dev auth bypass**, and `getSession()` never falls back to a `local@localhost` sentinel. What changes between environments is signup friction, not the login wall:
 
-| Environment      | First-load behavior                                                           | Email verification                              |
-| ---------------- | ----------------------------------------------------------------------------- | ----------------------------------------------- |
-| **Local dev**    | Auto-creates a throwaway dev account and signs you in (no login wall)         | Skipped by default (and when no email provider) |
-| **QA / preview** | Normal signup, but verification can be skipped so testers don't wait on email | Skip with `AUTH_SKIP_EMAIL_VERIFICATION=1`      |
-| **Production**   | Normal Better Auth signup/login                                               | Required (when an email provider is configured) |
+| Environment      | First-load behavior                                                                     | Email verification                                              |
+| ---------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Local dev**    | Auto-creates a throwaway dev account and signs you in (no login wall)                   | Skipped by default (and when no email provider)                 |
+| **QA / preview** | Normal signup, but verification can be skipped so testers don't wait on email           | Skip with `AUTH_SKIP_EMAIL_VERIFICATION=1`                      |
+| **Production**   | Magic-link signup/login when outbound email is ready; email/password fallback otherwise | Required for magic links (when an email provider is configured) |
 
 A few flags tune this; full details are in the [Environment Variables](#environment-variables) table:
 
@@ -102,11 +102,31 @@ A few flags tune this; full details are in the [Environment Variables](#environm
 
 </Callout>
 
+## Local development sign-in {#local-development-sign-in}
+
+On a loopback development server, the shared sign-in page puts **Continue as
+local dev** first. It creates or reuses the real Better Auth development
+account and session, so this is the same authenticated path used elsewhere.
+
+Choose **Show full sign in options** to reveal normal signup, password, magic
+link, and social-provider options. If the local session cannot be created, the
+page reveals those options automatically so you can continue with standard
+authentication.
+
+This convenience is available only when the browser connects through
+`localhost`, `127.0.0.0/8`, or `::1` in development or test. It is disabled for
+deploy previews and hosted production. It is not an authentication bypass.
+Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out and show the normal
+sign-in page in local development.
+
 ## Better Auth (Default) {#better-auth}
 
-By default, Better Auth powers authentication. It provides:
+By default, Better Auth powers authentication. When outbound email is ready,
+magic-link signup/login is the primary browser flow. Email/password remains
+the fallback when email is unavailable, or when `AUTH_MAGIC_LINK=0` is set. It
+provides:
 
-- Email/password registration and login
+- Magic-link registration and login, with email/password fallback
 - Social providers (Google, GitHub, and 35+ others)
 - Organizations with roles and invitations
 - JWT tokens for API and A2A access
@@ -115,7 +135,8 @@ By default, Better Auth powers authentication. It provides:
 Better Auth routes are mounted at `/_agent-native/auth/ba/*`. The framework also provides backward-compatible endpoints:
 
 - `GET /_agent-native/auth/session` — get current session
-- `POST /_agent-native/auth/login` — email/password login
+- `POST /_agent-native/auth/magic-link` — request a magic-link email
+- `POST /_agent-native/auth/login` — email/password fallback login
 - `POST /_agent-native/auth/register` — create account
 - `POST /_agent-native/auth/logout` — sign out
 
@@ -140,11 +161,39 @@ These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`,
 subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
 `COOKIE_DOMAIN`.
 
+## Packaged Desktop workspace SSO {#desktop-workspace-sso}
+
+The signed Agent Native Desktop SSO Canary composes hosted federation into one
+workspace sign-in for canonical first-party apps. Dispatch remains the identity
+authority, while every app mints and owns its normal local session. Electron
+keeps the authority session in a dedicated partition and copies only the target
+app's allowlisted session cookie into `persist:app-<id>`; provider credentials,
+identity tokens, and another app's cookies never enter renderer IPC.
+
+The Dispatch-owned `desktop.workspace-sso` feature flag is default-off and
+controls availability only. Missing, malformed, unreadable, and explicit-Off
+state preserve ordinary per-app sign-in and sign-out. Nonce binding, signed
+exchange validation, exact origin and callback allowlists, authenticated-session
+requirements, session isolation, and revocation remain unconditional in every
+flag state. Custom and third-party apps are excluded.
+Canonical hosted apps recognize packaged Desktop requests without per-app
+identity-hub environment configuration. Ordinary browsers and self-hosted apps
+still require `AGENT_NATIVE_IDENTITY_HUB_URL` to opt in.
+Stable Desktop builds do not initialize the broker until a later release is
+separately approved.
+The Canary user-agent marker is an availability hint rather than remote
+attestation. Authentication and authorization never trust it; supervised
+acceptance binds the client through exact signed-artifact provenance.
+The Canary does not intercept anonymous app sign-in navigation. The user must
+explicitly choose workspace sign-in in Desktop Settings for the active
+registered app; ordinary app sign-in remains the default path.
+
 ## QA Accounts {#qa-accounts}
 
-Local development and tests skip signup email verification by default, so you
-can create real email/password accounts without waiting on an inbox. To force
-verification locally while testing that flow, set `AUTH_SKIP_EMAIL_VERIFICATION=0`.
+Local development and tests skip password-signup email verification by default,
+so the email/password fallback can be tested without waiting on an inbox. To
+force verification locally while testing that fallback, set
+`AUTH_SKIP_EMAIL_VERIFICATION=0`.
 
 For hosted QA environments where testers need real accounts but should not wait
 on email delivery, set:
@@ -153,9 +202,9 @@ on email delivery, set:
 AUTH_SKIP_EMAIL_VERIFICATION=1
 ```
 
-When this flag is set, email/password signup does not require email
-verification and the signup verification email is not sent. Use it only for QA
-or preview environments, and name test accounts with a `+qa` address
+When this flag is set, password fallback signup does not require email
+verification and the signup verification email is not sent. It does not change
+magic-link delivery. Use it only for QA or preview environments, and name test accounts with a `+qa` address
 (`name+qa@example.com`) so they are easy to identify.
 
 ## Social Providers {#social-providers}
@@ -379,10 +428,10 @@ function MyComponent() {
 Templates with **public pages** (share links, embeds, marketing pages) often need an in-page CTA that asks anonymous viewers to sign in and brings them back to the page they were on. The framework provides a single entry point for this:
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
-When an anonymous viewer hits this URL, the framework's login page is served. After a successful sign-in (any flow — token, email/password, or Google OAuth), the browser returns to `return`.
+When an anonymous viewer hits this URL, the framework's login page is served. After a successful sign-in (magic link, email/password, token, or Google OAuth), the browser returns to `return`.
 
 The `return` parameter is validated as a **same-origin path**. Network-path references (`//evil.com/...`), absolute URLs, `data:` / `javascript:` schemes, and embedded control characters all fall back to `/`. The validated path is reconstructed from the URL parser, not echoed back from the input.
 
@@ -394,8 +443,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -403,13 +451,13 @@ function SignInCta() {
 
 ### Bookmarked private paths
 
-Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/_agent-native/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
+Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
 
 How long that shell is cached is a deployment-wide setting — see [SSR Caching](/docs/deployment#ssr-caching) for `AGENT_NATIVE_SSR_CACHE`. Shortening or disabling the cache changes duration only; SSR still renders the anonymous branch with cookies stripped.
 
 ### Behind the scenes: Google OAuth
 
-Both flows (the explicit `/_agent-native/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.
+Both flows (the explicit `/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The legacy `/_agent-native/sign-in` alias remains accepted for older links. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.
 
 If your template wraps `/_agent-native/google/auth-url` directly (e.g. mail and calendar templates do, to widen scopes), accept a `?return=<path>` query and forward it via the options-object form of `encodeOAuthState`:
 
@@ -429,7 +477,8 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 | Variable                                | Purpose                                                                                                                                      |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | Signing key for Better Auth (auto-generated if not set)                                                                                      |
-| `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` in QA/preview environments to let email/password signups proceed without verification; local dev/test skips by default            |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` in QA/preview environments to let password-fallback signups proceed without verification; local dev/test skips by default         |
+| `AUTH_MAGIC_LINK`                       | Set to `0`, `false`, or `off` to force the email/password fallback even when outbound email is ready                                         |
 | `AUTH_DISABLED`                         | Set to `true` or `1` to skip login/signup; all requests run as one shared user (local dev/preview only — not for production with real users) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost auto-sign-in on a fresh dev database                                                                         |
 | `AUTH_MODE`                             | `local` resolves CLI/agent identity only (which dev user `pnpm action` runs as); never a browser login bypass                                |

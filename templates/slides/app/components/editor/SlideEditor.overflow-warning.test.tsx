@@ -16,7 +16,7 @@ const source = readFileSync(
 describe("SlideEditor layout overflow warning", () => {
   afterEach(cleanup);
 
-  it("stays readable over arbitrary slide backgrounds", () => {
+  it("renders as plain amber text above the slide, not overlapping it", () => {
     render(
       <SlideOverflowWarning
         verticalOverflow={59}
@@ -27,18 +27,21 @@ describe("SlideEditor layout overflow warning", () => {
       />,
     );
 
-    expect(screen.getByRole("status").className).toContain(
-      "border-amber-400/70",
-    );
-    expect(screen.getByRole("status").className).toContain("bg-amber-950/95");
-    expect(screen.getByRole("status").className).toContain("text-amber-50");
+    const status = screen.getByRole("status");
+    expect(status.className).toContain("text-foreground");
+    expect(status.className).toContain("border-foreground/40");
+    expect(status.className).toContain("-top-12");
     expect(screen.getByText("Layout overflows by 59px")).toBeTruthy();
   });
 
   it("can be dismissed until the slide content changes", () => {
-    expect(source).toContain("!isOverflowWarningDismissed");
-    expect(source).toContain("setIsOverflowWarningDismissed(false)");
-    expect(source).toContain("setIsOverflowWarningDismissed(true)");
+    expect(source).toContain(
+      "dismissedOverflowWarningKey !== overflowWarningKey",
+    );
+    expect(source).toContain(
+      "setDismissedOverflowWarningKey(overflowWarningKey)",
+    );
+    expect(source).toContain("hashSlideContent(slide.content)");
   });
 
   it("keeps its controls from triggering canvas interactions", () => {

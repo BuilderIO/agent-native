@@ -19,6 +19,7 @@ import {
   docSourceSlugFromFilename,
   preferMdxDocSourceFiles,
 } from "../lib/docs-source";
+import { isRedirectedDocsPath } from "./components/docs-slug-redirects";
 import enUS from "./i18n/en-US";
 
 export const SITE_URL = "https://www.agent-native.com";
@@ -70,7 +71,41 @@ export function buildSitemapPaths(rootDir: string): string[] {
   return buildAgentWebPages(rootDir).map((page) => page.path);
 }
 
+/**
+ * Paths React Router prerenders to static HTML at build time. Narrower than the
+ * sitemap on purpose — prerendering a path whose loader does not answer 200
+ * bakes the wrong response into a static file, so drop:
+ *
+ * - renamed slugs, whose loader throws a 301 that would be frozen as a
+ *   `<meta http-equiv="refresh">` 200 page;
+ * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
+ *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
+ *
+ * Both keep falling through to the SSR function, which still answers 301/404.
+ */
+export function buildPrerenderPaths(): string[] {
+  const pages = buildDocsSitePages(path.resolve(__dirname, ".."));
+  const draftSlugs = new Set(
+    pages.filter((page) => page.draft).map((page) => page.docSlug),
+  );
+  return pages
+    .filter(
+      (page) =>
+        !draftSlugs.has(page.docSlug) && !isRedirectedDocsPath(page.path),
+    )
+    .map((page) => page.path);
+}
+
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
+  return buildDocsSitePages(rootDir).map(
+    ({ docSlug: _docSlug, draft: _draft, ...page }) => page,
+  );
+}
+
+/** An `AgentWebPage` plus the doc-source facts the prerender list filters on. */
+type DocsSitePage = AgentWebPage & { docSlug?: string; draft?: boolean };
+
+function buildDocsSitePages(rootDir: string): DocsSitePage[] {
   const docsDir = path.resolve(rootDir, "../core/docs/content");
   const templateCardPath = path.resolve(
     rootDir,
@@ -94,7 +129,9 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
       markdown: docsBodyToMarkdownMirror(body),
       markdownPath: `/docs/${slug}.md`,
       lastmod: docsLastmod,
-    } satisfies AgentWebPage;
+      docSlug: slug,
+      draft: data.draft === "true",
+    } satisfies DocsSitePage;
   });
 
   const localizedDocsRoot = path.join(docsDir, "locales");
@@ -125,7 +162,9 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
               markdown: docsBodyToMarkdownMirror(body),
               markdownPath: `/${locale}/docs/${slug}.md`,
               lastmod: docsLastmod,
-            } satisfies AgentWebPage;
+              docSlug: slug,
+              draft: data.draft === "true",
+            } satisfies DocsSitePage;
           });
         })
     : [];

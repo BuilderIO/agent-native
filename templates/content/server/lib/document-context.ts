@@ -14,6 +14,7 @@ export type DocumentContextPathEntry = {
  * assembles the live path without copying ancestor prose into descendants. */
 export async function getDocumentContextPath(
   document: Pick<typeof schema.documents.$inferSelect, "id" | "parentId">,
+  options: { databaseId?: string } = {},
 ): Promise<DocumentContextPathEntry[]> {
   const db = getDb();
   const path: DocumentContextPathEntry[] = [];
@@ -43,6 +44,15 @@ export async function getDocumentContextPath(
     parentId = parent.parentId;
   }
 
+  const membershipClauses = [
+    eq(schema.contentDatabaseItems.documentId, document.id),
+    isNull(schema.contentDatabases.deletedAt),
+  ];
+  if (options.databaseId) {
+    membershipClauses.push(
+      eq(schema.contentDatabaseItems.databaseId, options.databaseId),
+    );
+  }
   const [membership] = await db
     .select({ database: schema.contentDatabases })
     .from(schema.contentDatabaseItems)
@@ -50,12 +60,7 @@ export async function getDocumentContextPath(
       schema.contentDatabases,
       eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.documentId, document.id),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    )
+    .where(and(...membershipClauses))
     .orderBy(
       sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
       asc(schema.contentDatabases.id),

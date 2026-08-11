@@ -177,7 +177,10 @@ function buildWebRequest(event: H3Event, method: string): Request {
  * the authorize/metadata URL. Keeping the legacy `error: "Unauthorized"` field
  * means existing clients that only check that field still work.
  */
-function buildUnauthorizedBody(event: H3Event): {
+function buildUnauthorizedBody(
+  event: H3Event,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): {
   error: string;
   message: string;
   authenticate: {
@@ -189,8 +192,11 @@ function buildUnauthorizedBody(event: H3Event): {
   };
 } {
   const issuer = getMcpOAuthIssuer(event);
-  const mcpUrl = getMcpOAuthResource(event);
-  const resourceMetadataUrl = getMcpOAuthProtectedResourceMetadataUrl(event);
+  const mcpUrl = getMcpOAuthResource(event, routePath);
+  const resourceMetadataUrl = getMcpOAuthProtectedResourceMetadataUrl(
+    event,
+    routePath,
+  );
   const command = issuer
     ? `npx -y @agent-native/core@latest reconnect ${issuer}`
     : undefined;
@@ -245,6 +251,7 @@ function buildUnauthorizedBody(event: H3Event): {
 export async function handleMcpRequest(
   event: H3Event,
   config: MCPConfig,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
 ): Promise<
   Response | string | { error: string } | Record<string, unknown> | undefined
 > {
@@ -290,8 +297,12 @@ export async function handleMcpRequest(
   });
   if (!authResult.authed) {
     setResponseStatus(event, 401);
-    setResponseHeader(event, "WWW-Authenticate", buildMcpOAuthChallenge(event));
-    return buildUnauthorizedBody(event);
+    setResponseHeader(
+      event,
+      "WWW-Authenticate",
+      buildMcpOAuthChallenge(event, routePath),
+    );
+    return buildUnauthorizedBody(event, routePath);
   }
 
   // Read POST bodies through h3 exactly once. `createMcpHandler` accepts the
@@ -376,12 +387,14 @@ export function mountMCP(
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
-  const handler = defineEventHandler(async (event) => {
-    return handleMcpRequest(event as H3Event, config);
-  });
 
   for (const routePath of routePaths) {
-    getH3App(nitroApp).use(routePath, handler);
+    getH3App(nitroApp).use(
+      routePath,
+      defineEventHandler(async (event) => {
+        return handleMcpRequest(event as H3Event, config, routePath);
+      }),
+    );
   }
 
   if (process.env.DEBUG)

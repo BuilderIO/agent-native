@@ -42,9 +42,11 @@ import {
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
+import { useDemoModeStatus } from "../use-demo-mode-status.js";
 import { useSession } from "../use-session.js";
 import {
   useOrg,
@@ -83,6 +85,13 @@ export interface OrgSwitcherProps {
   settingsPath?: string | null;
   /** Path to navigate to when the user clicks "Profile". Defaults to the shared Account settings section. */
   profilePath?: string | null;
+  /**
+   * Path to the Manage agent page. Settings links here too, but the switcher
+   * is the only always-visible surface, so omitting it leaves Files,
+   * Instructions, Memory, Skills and Automations reachable only from Settings.
+   * Pass `null` for apps that do not mount the Agent page.
+   */
+  agentPath?: string | null;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -117,8 +126,9 @@ const SWITCHER_BUTTON_CLASS =
 const COMPACT_SWITCHER_BUTTON_CLASS =
   "flex items-center justify-center rounded-md border-0 bg-accent/50 p-1.5 text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
-const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
-const DEFAULT_PROFILE_PATH = "/settings#account";
+const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings/organization";
+const DEFAULT_PROFILE_PATH = "/settings/account";
+const DEFAULT_AGENT_PATH = "/settings/agent";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,
@@ -311,9 +321,11 @@ export function OrgSwitcher({
   compact,
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
   profilePath = DEFAULT_PROFILE_PATH,
+  agentPath = DEFAULT_AGENT_PATH,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const { session } = useSession();
+  const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
   const switchOrg = useSwitchOrg();
   const createOrg = useCreateOrg();
@@ -386,6 +398,9 @@ export function OrgSwitcher({
   const personalLabel = session?.name || personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
   const buttonLabel = org.orgName ?? "Personal";
+  const triggerLabel = demoModeEnabled
+    ? `${buttonLabel}, Demo mode`
+    : buttonLabel;
   const ButtonIcon = inOrg ? IconUsersGroup : IconUser;
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
@@ -397,8 +412,8 @@ export function OrgSwitcher({
         {compact ? (
           <button
             type="button"
-            title={buttonLabel}
-            aria-label={buttonLabel}
+            title={triggerLabel}
+            aria-label={triggerLabel}
             className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
           >
             <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
@@ -406,10 +421,17 @@ export function OrgSwitcher({
         ) : (
           <button
             type="button"
+            aria-label={triggerLabel}
             className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
           >
             <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate flex-1 text-start">{buttonLabel}</span>
+            {demoModeEnabled && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                <IconPresentation className="h-3 w-3" aria-hidden="true" />
+                Demo mode
+              </span>
+            )}
             <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
           </button>
         )}
@@ -447,6 +469,31 @@ export function OrgSwitcher({
                       Your workspace
                     </a>
                   )}
+                </div>
+              )}
+              {demoModeEnabled && (
+                <div
+                  role="status"
+                  className="mx-2.5 mb-1.5 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px]"
+                >
+                  <div className="flex items-center gap-1.5 font-medium text-primary">
+                    <IconPresentation
+                      className="h-3.5 w-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    Demo mode is on
+                  </div>
+                  <p className="mt-0.5 leading-snug text-muted-foreground">
+                    Displayed emails and supported charts are adjusted for
+                    presentations. Your account and permissions are unchanged.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setBrowserDemoModeEnabled(false)}
+                    className="mt-1 rounded text-[11px] font-medium text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Turn off demo mode
+                  </button>
                 </div>
               )}
               {!inOrg && (
@@ -607,6 +654,23 @@ export function OrgSwitcher({
                   </span>
                 </button>
               )}
+              {agentPath && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate(agentPath);
+                  }}
+                  className={`${ITEM_CLASS} cursor-pointer`}
+                >
+                  <IconBrain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-start">
+                    {t("settings.manageAgentMenuItem", {
+                      defaultValue: "Manage agent",
+                    })}
+                  </span>
+                </button>
+              )}
               {inOrg && (
                 <button
                   type="button"
@@ -673,7 +737,7 @@ export function OrgSwitcher({
                 )}
                 <span className="flex-1 text-start">
                   Sign out
-                  {org.email ? (
+                  {!demoModeEnabled && org.email ? (
                     <span className="ms-1 text-muted-foreground">
                       ({org.email})
                     </span>

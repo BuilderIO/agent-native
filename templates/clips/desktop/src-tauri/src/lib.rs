@@ -11,6 +11,7 @@ mod capture_graph;
 mod clips;
 mod config;
 mod debug;
+mod echo_guard;
 mod eventkit;
 mod logfile;
 mod meetings_watcher;
@@ -45,7 +46,8 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     ActiveMeetingId, DictationActive, DictationEnabled, LastTranscript, MeetingActive,
-    PopoverShownAt, RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
+    PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor, TrayMeetings,
+    VoiceTargetBundle, VoiceWakePopover,
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
@@ -97,6 +99,9 @@ pub fn run() {
             clips::hide_region_record_border,
             clips::show_region_guide_editor,
             clips::show_region_capture_selector,
+            clips::show_monitor_picker,
+            clips::close_monitor_picker,
+            clips::set_recording_display_override,
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,
@@ -269,6 +274,7 @@ pub fn run() {
         .manage(VoiceWakePopover::default())
         .manage(VoiceTargetBundle::default())
         .manage(LastTranscript::default())
+        .manage(SelectedRecordingDisplay::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
         .manage(capture_graph::CaptureGraphState::default())
@@ -547,6 +553,8 @@ pub fn run() {
             // otherwise skips Rust destructors — make sure a live
             // `screencapture` fallback child doesn't survive us.
             if let tauri::RunEvent::Exit = _event {
+                whisper_speech::shutdown(_app_handle);
+                native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);
             }

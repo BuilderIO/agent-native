@@ -22,6 +22,7 @@ import {
 } from "../../server/credential-provider.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
+  isGPTReasoningModel,
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
@@ -32,7 +33,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
-import { describeErrorWithCauses } from "./error-detail.js";
+import {
+  describeErrorWithCauses,
+  isProviderConnectionErrorMessage,
+} from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
@@ -139,6 +143,17 @@ interface GatewayErrorBody {
   };
 }
 
+/**
+ * Credentials captured by a durable caller that cannot rely on ambient
+ * request context staying attached to a later run-manager callback.
+ */
+export interface BuilderEngineCredentials {
+  privateKey: string | null;
+  publicKey: string | null;
+  userId?: string | null;
+  orgName?: string | null;
+}
+
 class BuilderEngine implements AgentEngine {
   readonly name = "builder";
   readonly label = "Builder.io Gateway";
@@ -146,8 +161,13 @@ class BuilderEngine implements AgentEngine {
   readonly supportedModels = BUILDER_SUPPORTED_MODELS;
   readonly capabilities = BUILDER_CAPABILITIES;
 
+  constructor(
+    private readonly configuredCredentials?: BuilderEngineCredentials,
+  ) {}
+
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
-    const creds = await resolveBuilderCredentials();
+    const creds =
+      this.configuredCredentials ?? (await resolveBuilderCredentials());
     const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
     const spaceId = creds.publicKey;
     const builderUserId = creds.userId;
@@ -235,6 +255,8 @@ class BuilderEngine implements AgentEngine {
       }
     }
 
+    const gptToolsRequireExplicitNoReasoning =
+      cachedTools.length > 0 && isGPTReasoningModel(opts.model);
     const body: Record<string, unknown> = {
       model: opts.model,
       messages: cachedMessages,
@@ -248,7 +270,21 @@ class BuilderEngine implements AgentEngine {
       ...(typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      // OpenAI rejects `reasoning_effort` alongside function tools on Chat
+      // Completions ("Function tools with reasoning_effort are not supported
+      // for <model> in /v1/chat/completions … or set reasoning_effort to
+      // 'none'"), and the gateway routes GPT models there. Every chat on a
+      // gpt-5.x model failed deterministically because of this. Omitting the
+      // field does NOT help — OpenAI then applies the model's own default
+      // effort and rejects identically; only the explicit "none" clears it.
+      // Same guard as the ai-sdk engine's forced-Chat-Completions path.
+      ...(reasoningEffort || gptToolsRequireExplicitNoReasoning
+        ? {
+            reasoning_effort: gptToolsRequireExplicitNoReasoning
+              ? "none"
+              : reasoningEffort,
+          }
+        : {}),
     };
 
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
@@ -323,7 +359,8 @@ class BuilderEngine implements AgentEngine {
       // self-healing path for workspace/env-managed credentials, which never
       // flow through writeBuilderCredentials.
       try {
-        const creds = await resolveBuilderCredentials();
+        const creds =
+          this.configuredCredentials ?? (await resolveBuilderCredentials());
         await clearBuilderCredentialAuthFailure({
           privateKey: creds.privateKey,
           publicKey: creds.publicKey,
@@ -413,7 +450,8 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     yield {
       type: "stop",
       reason: "error",
-      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      error:
+        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
       errorCode: "builder_auth_error",
     };
     return;
@@ -423,7 +461,8 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     yield {
       type: "stop",
       reason: "error",
-      error: "Builder authentication failed. Reconnect Builder via Settings.",
+      error:
+        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
       errorCode: "builder_auth_error",
     };
     return;
@@ -889,9 +928,13 @@ function htmlToText(html: string): string {
 }
 
 export function createBuilderEngine(
-  _config: Record<string, unknown> = {},
+  config: Record<string, unknown> = {},
 ): AgentEngine {
-  return new BuilderEngine();
+  const configuredCredentials =
+    config.credentials && typeof config.credentials === "object"
+      ? (config.credentials as BuilderEngineCredentials)
+      : undefined;
+  return new BuilderEngine(configuredCredentials);
 }
 
 function resolveMaxBuilderGatewayTimeoutMs(): number {
@@ -1134,14 +1177,6 @@ function isBuilderGatewayNetworkError(err: unknown): boolean {
     text.includes("connection closed") ||
     text.includes("stream closed") ||
     text.includes("terminated")
-  );
-}
-
-function isProviderConnectionErrorMessage(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  return (
-    normalized === "connection error." ||
-    normalized.includes("cannot connect to api:")
   );
 }
 

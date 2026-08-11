@@ -173,6 +173,40 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("uses credentials captured during engine construction instead of ambient lookup", async () => {
+    const { resolveBuilderCredentials } =
+      await import("../../server/credential-provider.js");
+    vi.mocked(resolveBuilderCredentials).mockClear();
+
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonlResponse([
+        { type: "text-delta", text: "Hi!" },
+        { type: "stop", reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine({
+      credentials: {
+        privateKey: "bpk-captured",
+        publicKey: "space-captured",
+        userId: "captured-user",
+        orgName: "Captured Space",
+      },
+    });
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.some((event) => event.type === "text-delta")).toBe(true);
+    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(
+      "https://test.example/gateway/v1/messages?apiKey=space-captured",
+    );
+    expect(init.headers.Authorization).toBe("Bearer bpk-captured");
+    expect(init.headers["x-builder-user-id"]).toBe("captured-user");
+  });
+
   it("short-circuits with missing-credentials when BUILDER_PUBLIC_KEY is unset", async () => {
     credentialState.builderPublicKey = null;
 
@@ -1484,7 +1518,7 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("xhigh");
   });
 
-  it("sends reasoning_effort medium by default for a reasoning-capable Claude model", async () => {
+  it("sends reasoning_effort high by default for an effort-capable Claude model", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1500,10 +1534,10 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
   });
 
-  it("sends reasoning_effort medium by default for Luna", async () => {
+  it("sends reasoning_effort high by default for Luna", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1517,7 +1551,98 @@ describe("createBuilderEngine", () => {
     await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
+  });
+
+  // OpenAI rejects reasoning_effort + function tools on Chat Completions,
+  // where the gateway routes GPT models — every gpt-5.x chat WITH TOOLS (i.e.
+  // every real agent turn) failed deterministically until this sent "none".
+  it("sends reasoning_effort none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.tools).toHaveLength(1);
+  });
+
+  it("preserves explicit none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        reasoningEffort: "none",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+  });
+
+  it("keeps full reasoning_effort for a Claude model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("high");
   });
 
   it("omits reasoning_effort by default for a non-reasoning model", async () => {

@@ -11,7 +11,7 @@ export const CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE =
   "credential_store_unavailable";
 
 export const LLM_MISSING_CREDENTIALS_MESSAGE =
-  "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.";
+  "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io (free tier available) or add a provider key.";
 
 const LLM_CREDENTIAL_KEYS = new Set([
   ...PROVIDER_ENV_VARS,
@@ -56,7 +56,7 @@ export function formatLlmCredentialErrorMessage(options?: {
 }): string {
   const agentName = options?.agentName?.trim();
   if (agentName) {
-    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open ${agentName}'s Manage agent > LLM, then connect Builder.io or add a provider key.`;
+    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open ${agentName}'s Manage agent > LLM, then connect Builder.io (free tier available) or add a provider key.`;
   }
   return LLM_MISSING_CREDENTIALS_MESSAGE;
 }

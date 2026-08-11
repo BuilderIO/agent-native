@@ -294,7 +294,9 @@ export async function loadPublicAgentAccess(
   // Every agent API route funnels through here, so this is the one place that
   // sees an outside agent read a clip. Owner requests are previews, not views.
   if (!viewerIsOwner) {
-    await recordAgentView(event, recording.id);
+    await recordAgentView(event, recording.id, {
+      agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
+    });
   }
 
   return {
@@ -504,7 +506,7 @@ export function transcriptStatusInstructions(
 
   if (status === "failed" && lowerReason.includes("credits exhausted")) {
     return [
-      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits. Clips uses the browser/macOS native transcript first and Builder transcription on the original recording when native capture is unavailable.",
+      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits (free tier available). Clips uses the browser/macOS native transcript first and Builder transcription on the original recording when native capture is unavailable.",
     ];
   }
 

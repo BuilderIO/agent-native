@@ -157,6 +157,10 @@ const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
 ];
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
 const CLIP_DRAFTS_DIR: &str = "Drafts";
+const NATIVE_UPLOAD_RESTART_REQUIRED: &str = "native upload requires a one-time restart";
+const NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED: &str =
+    "native upload requires an unfenced one-time restart";
+static NATIVE_RETRY_CLAIM_COUNTER: AtomicU64 = AtomicU64::new(1);
 // Minimum free space required to start recording; below this we hard-block.
 pub(crate) const DISK_SPACE_BLOCK_BYTES: u64 = 500 * 1024 * 1024;
 // Free space below this at start time is logged as a warning but not blocked.
@@ -174,6 +178,51 @@ pub(crate) enum NativeUploadMode {
     Streaming,
 }
 
+#[derive(Debug, Clone)]
+struct NativeStreamingResume {
+    bytes_received: u64,
+    next_chunk_index: usize,
+    attempt_id: Option<String>,
+    upload_generation_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum NativeRetryUploadPlan {
+    Resume(NativeStreamingResume),
+    Restart {
+        attempt_id: Option<String>,
+        upload_generation_id: Option<String>,
+    },
+    Reconcile,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeUploadResumeResponse {
+    resumable: bool,
+    #[serde(default)]
+    recovery_enabled: bool,
+    status: Option<String>,
+    upload_mode: Option<String>,
+    bytes_received: Option<u64>,
+    next_chunk_index: Option<u64>,
+    attempt_id: Option<String>,
+    upload_generation_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeUploadResetResponse {
+    upload_mode: Option<String>,
+    upload_generation_id: Option<String>,
+}
+
+impl NativeUploadResetResponse {
+    fn mode(&self) -> NativeUploadMode {
+        NativeUploadMode::from_option(self.upload_mode.clone())
+    }
+}
+
 impl NativeUploadMode {
     pub(crate) fn from_option(value: Option<String>) -> Self {
         match value.as_deref() {
@@ -189,6 +238,7 @@ impl NativeUploadMode {
         }
     }
 
+    #[cfg(test)]
     fn from_reset_response(body: &str) -> Self {
         let value = serde_json::from_str::<serde_json::Value>(body).ok();
         let upload_mode = value
@@ -220,6 +270,14 @@ mod native_upload_mode_tests {
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
+    /// Bumped by `native_fullscreen_recording_cancel`. The warm task runs on
+    /// a blocking-pool thread and can still be mid-setup when a cancel
+    /// arrives — at that point `inner` is still empty, so cancel's own
+    /// `take()` finds nothing to discard. The warm task re-checks this
+    /// generation right after it installs its session; if it moved on, a
+    /// cancel arrived while it was working and it must undo the install
+    /// instead of leaving an orphaned, still-capturing stream behind.
+    warm_generation: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -528,6 +586,8 @@ impl SharedClipSink {
                 &server_url,
                 &recording_id,
                 MP4_RECORDING_MIME_TYPE,
+                None,
+                None,
                 &auth_token,
                 &cookie,
             )
@@ -966,6 +1026,8 @@ struct SavedNativeRecording {
     last_error: Option<String>,
     retry_count: u32,
     #[serde(default)]
+    retry_attempt_id: Option<String>,
+    #[serde(default)]
     custom_pipeline: bool,
     /// True when the SCK finalization callback reported an error, meaning the
     /// MP4 is missing its moov atom and cannot be recovered by retrying.
@@ -1219,6 +1281,7 @@ fn start_native_session_locked(
     mic_device_label: Option<String>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
+    expected_generation: Option<u64>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     let safe_id = sanitize_recording_id(recording_id);
     reset_native_upload_completion_state();
@@ -1228,7 +1291,7 @@ fn start_native_session_locked(
         || mic_device_label
             .as_deref()
             .is_some_and(|v| !v.trim().is_empty());
-    let session = match start_screencapturekit_recording(
+    let mut session = match start_screencapturekit_recording(
         app,
         &safe_id,
         include_audio,
@@ -1275,15 +1338,19 @@ fn start_native_session_locked(
 
     let previous = {
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        guard.take()
+        if let Some(expected) = expected_generation {
+            if state.warm_generation.load(Ordering::SeqCst) != expected {
+                drop(guard);
+                discard_session(&mut session);
+                return Err("Recording cancelled while warming up.".to_string());
+            }
+        }
+        let previous = guard.take();
+        *guard = Some(session);
+        previous
     };
     if let Some(mut previous) = previous {
         discard_session(&mut previous);
-    }
-
-    {
-        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        *guard = Some(session);
     }
 
     Ok(NativeFullscreenStartInfo {
@@ -1304,7 +1371,6 @@ fn start_native_session_locked(
 #[tauri::command]
 pub async fn native_fullscreen_recording_warm(
     app: AppHandle,
-    state: State<'_, NativeFullscreenRecordingState>,
     recording_id: String,
     include_audio: bool,
     capture_system_audio: bool,
@@ -1316,7 +1382,6 @@ pub async fn native_fullscreen_recording_warm(
     {
         let _ = (
             app,
-            state,
             recording_id,
             include_audio,
             capture_system_audio,
@@ -1329,25 +1394,54 @@ pub async fn native_fullscreen_recording_warm(
 
     #[cfg(target_os = "macos")]
     {
-        // Only the mic introduces a warm-up gap; with mic off there's nothing
-        // to pre-warm, so `begin` just starts normally. SCK failures are
-        // swallowed too — `begin` detects the absent warm session and falls
-        // back to an immediate start, so warming is always best-effort.
-        if include_audio {
-            if let Err(err) = start_native_session_locked(
-                &app,
+        // Warm regardless of mic: the real cost here is SCShareableContent
+        // lookup + SCStream/output construction + `start_capture`, not just
+        // the microphone. Gating this on `include_audio` left every mic-off
+        // recording to do that full setup synchronously inside `begin` —
+        // i.e. after the countdown — which is exactly the multi-second gap
+        // between "countdown hits zero" and "capture actually starts" that
+        // mic-on recordings never had. SCK failures here are swallowed —
+        // `begin` detects the absent warm session and falls back to an
+        // immediate start, so warming is always best-effort.
+        //
+        // `SCShareableContent::get()` blocks its calling thread on a real
+        // condvar wait (not polling) that this file's own comments elsewhere
+        // clock at multi-second — that's the whole reason this exists instead
+        // of running at `begin`. Run it via `spawn_blocking` so that wait
+        // parks a blocking-pool thread instead of a tokio worker, which the
+        // countdown's `Promise.all` overlap is also relying on to stay
+        // responsive.
+        let app_for_warm = app.clone();
+        let recording_id_for_warm = recording_id.clone();
+        let generation_before_warm = app
+            .state::<NativeFullscreenRecordingState>()
+            .warm_generation
+            .load(Ordering::SeqCst);
+        let warm_result = tauri::async_runtime::spawn_blocking(move || {
+            let state = app_for_warm.state::<NativeFullscreenRecordingState>();
+            start_native_session_locked(
+                &app_for_warm,
                 &state,
-                &recording_id,
+                &recording_id_for_warm,
                 include_audio,
                 capture_system_audio,
                 mic_device_id,
                 mic_device_label,
                 capture_region,
                 true,
-            ) {
+                Some(generation_before_warm),
+            )
+        })
+        .await;
+        match warm_result {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => {
                 eprintln!(
-                    "[clips-tray] microphone pre-warm unavailable; will start normally at begin: {err}"
+                    "[clips-tray] recording pre-warm unavailable; will start normally at begin: {err}"
                 );
+            }
+            Err(join_err) => {
+                eprintln!("[clips-tray] recording pre-warm task panicked: {join_err}");
             }
         }
         Ok(())
@@ -1426,6 +1520,15 @@ pub async fn native_fullscreen_recording_begin(
                 .unwrap_or(false)
         };
         if !is_warmed {
+            // A warm task can still be mid-`SCShareableContent` lookup on a
+            // blocking-pool thread right now — that's exactly why nothing is
+            // installed yet. Bump the generation before building our own
+            // session below: without this, when that warm task eventually
+            // finishes, it sees no cancel occurred, assumes its generation is
+            // still current, and silently replaces the live session we're
+            // about to install with its own (never actually attached)
+            // deferred-output one.
+            state.warm_generation.fetch_add(1, Ordering::SeqCst);
             let info = start_native_session_locked(
                 &app,
                 &state,
@@ -1436,6 +1539,7 @@ pub async fn native_fullscreen_recording_begin(
                 mic_device_label,
                 capture_region,
                 false,
+                None,
             )?;
             {
                 let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -1873,6 +1977,8 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             &server_url,
             &recording_id,
             session.mime_type,
+            None,
+            None,
             &auth_token,
             &cookie,
         )
@@ -2038,14 +2144,29 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
 
 #[tauri::command]
 pub async fn native_fullscreen_recording_cancel(
+    app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
+    preserve_display_override: Option<bool>,
 ) -> Result<(), String> {
+    // Bump BEFORE taking the session: a warm task on a blocking-pool thread
+    // may still be mid-setup right now, with nothing installed yet for this
+    // `take()` to find. Bumping first guarantees that when it later checks
+    // the generation after installing its session, it sees this cancel.
+    state.warm_generation.fetch_add(1, Ordering::SeqCst);
     let session = {
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
         guard.take()
     };
     if let Some(mut session) = session {
         discard_session(&mut session);
+    }
+    // An aborted start (countdown/warm cancelled before `begin`) never reaches
+    // `hide_recording_chrome`, so the picker's monitor override must also be
+    // cleared here or it would wrongly apply to the next recording attempt.
+    // A native restart is the exception — see `hide_recording_chrome`'s
+    // matching `preserve_display_override` doc comment.
+    if !preserve_display_override.unwrap_or(false) {
+        crate::state::SelectedRecordingDisplay::set(&app, None);
     }
     Ok(())
 }
@@ -2967,6 +3088,7 @@ pub async fn native_fullscreen_recording_retry_upload(
     saved.server_url = server_url.trim_end_matches('/').to_string();
     saved.last_attempt_at = Some(now_iso());
     saved.last_error = None;
+    let claimed_attempt_id = saved_native_retry_attempt_id(&mut saved.retry_attempt_id);
     write_saved_recording_metadata(&app, &saved)?;
 
     // Preparation can normalize or transcode the saved recording. The
@@ -2974,20 +3096,127 @@ pub async fn native_fullscreen_recording_retry_upload(
     // upload, not the source file's potentially stale MIME type.
     let result = async {
         let (prepared, retry_combined_path) = prepare_saved_recording_file(&app, &saved)?;
-        let upload_mode = match reset_upload_chunks(
+        let auth_token = auth_token.unwrap_or_default();
+        let cookie = cookie.unwrap_or_default();
+        // A resume offset only applies to the exact byte stream previously
+        // uploaded. Any retry-time concat/transcode creates different bytes,
+        // so take the explicit reset path instead of skipping an unsafe prefix.
+        let can_resume_exact_stream = !prepared.temporary && retry_combined_path.is_none();
+        // This saved claim survives response loss and later user retries, so a
+        // second click cannot steal an upload session already owned by this
+        // local recording.
+        let retry_plan = match get_native_retry_upload_plan(
             &saved.server_url,
             &saved.recording_id,
-            &prepared.mime_type,
-            auth_token.as_deref().unwrap_or(""),
-            cookie.as_deref().unwrap_or(""),
+            prepared.bytes,
+            can_resume_exact_stream,
+            &claimed_attempt_id,
+            &auth_token,
+            &cookie,
         )
         .await
         {
-            Ok(upload_mode) => upload_mode,
+            Ok(plan) => plan,
             Err(err) => {
+                interrupt_native_retry_upload(
+                    &saved.server_url,
+                    &saved.recording_id,
+                    &err,
+                    Some(&claimed_attempt_id),
+                    None,
+                    &auth_token,
+                    &cookie,
+                )
+                .await;
                 cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
                 return Err(err);
             }
+        };
+
+        let active_attempt_id = match &retry_plan {
+            NativeRetryUploadPlan::Resume(resume) => resume.attempt_id.clone(),
+            NativeRetryUploadPlan::Restart { attempt_id, .. } => attempt_id.clone(),
+            NativeRetryUploadPlan::Reconcile => None,
+        };
+        let active_upload_generation_id = match &retry_plan {
+            NativeRetryUploadPlan::Resume(resume) => resume.upload_generation_id.clone(),
+            NativeRetryUploadPlan::Restart {
+                upload_generation_id,
+                ..
+            } => upload_generation_id.clone(),
+            NativeRetryUploadPlan::Reconcile => None,
+        };
+
+        if let NativeRetryUploadPlan::Reconcile = retry_plan {
+            cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
+            return Ok(NativeFullscreenUploadResult {
+                recording_id: saved.recording_id.clone(),
+                duration_ms: saved.duration_ms,
+                width: saved.width,
+                height: saved.height,
+                bytes: prepared.bytes,
+                // Keep the backup until the ordinary owner-status reconciliation
+                // proves the accepted media is ready and complete.
+                verification_pending: true,
+            });
+        }
+
+        let (upload_mode, streaming_resume, upload_generation_id) = match retry_plan {
+            NativeRetryUploadPlan::Resume(resume) => {
+                emit_native_upload_progress(
+                    &app,
+                    "uploading",
+                    "Resuming upload",
+                    None,
+                    Some(resume.bytes_received as f32 / prepared.bytes as f32),
+                );
+                let upload_generation_id = resume.upload_generation_id.clone();
+                (
+                    NativeUploadMode::Streaming,
+                    Some(resume),
+                    upload_generation_id,
+                )
+            }
+            NativeRetryUploadPlan::Restart {
+                attempt_id,
+                upload_generation_id,
+            } => {
+                emit_native_upload_progress(
+                    &app,
+                    "uploading",
+                    "Restarting upload",
+                    None,
+                    Some(0.0),
+                );
+                let reset = match reset_upload_chunks(
+                    &saved.server_url,
+                    &saved.recording_id,
+                    &prepared.mime_type,
+                    attempt_id.as_deref(),
+                    upload_generation_id.as_deref(),
+                    &auth_token,
+                    &cookie,
+                )
+                .await
+                {
+                    Ok(reset) => reset,
+                    Err(err) => {
+                        interrupt_native_retry_upload(
+                            &saved.server_url,
+                            &saved.recording_id,
+                            &err,
+                            active_attempt_id.as_deref(),
+                            active_upload_generation_id.as_deref(),
+                            &auth_token,
+                            &cookie,
+                        )
+                        .await;
+                        return Err(err);
+                    }
+                };
+                (reset.mode(), None, reset.upload_generation_id)
+            }
+            NativeRetryUploadPlan::Reconcile => unreachable!("handled above"),
         };
 
         let upload_result = upload_prepared_recording_file(
@@ -2995,16 +3224,80 @@ pub async fn native_fullscreen_recording_retry_upload(
             &prepared,
             saved.server_url.clone(),
             saved.recording_id.clone(),
-            auth_token.unwrap_or_default(),
-            cookie.unwrap_or_default(),
+            auth_token.clone(),
+            cookie.clone(),
             upload_mode,
             saved.duration_ms,
             saved.width,
             saved.height,
             saved.has_audio,
             saved.has_camera,
+            active_attempt_id.clone(),
+            upload_generation_id.clone(),
+            streaming_resume,
         )
         .await;
+        let replay_attempt_id = native_replay_attempt_id(
+            &upload_result,
+            active_attempt_id.as_deref(),
+        );
+        let replay_upload_generation_id = replay_attempt_id
+            .as_ref()
+            .and_then(|_| upload_generation_id.clone());
+        let mut interruption_upload_generation_id = upload_generation_id.clone();
+        let upload_result = if native_upload_restart_required(&upload_result) {
+            eprintln!(
+                "[clips-tray] native retry replaying from byte zero after the provider requested a restart"
+            );
+            match reset_upload_chunks(
+                &saved.server_url,
+                &saved.recording_id,
+                &prepared.mime_type,
+                replay_attempt_id.as_deref(),
+                replay_upload_generation_id.as_deref(),
+                &auth_token,
+                &cookie,
+            )
+            .await
+            {
+                Ok(reset) => {
+                    interruption_upload_generation_id = reset.upload_generation_id.clone();
+                    upload_prepared_recording_file(
+                        &app,
+                        &prepared,
+                        saved.server_url.clone(),
+                        saved.recording_id.clone(),
+                        auth_token.clone(),
+                        cookie.clone(),
+                        reset.mode(),
+                        saved.duration_ms,
+                        saved.width,
+                        saved.height,
+                        saved.has_audio,
+                        saved.has_camera,
+                        replay_attempt_id.clone(),
+                        reset.upload_generation_id,
+                        None,
+                    )
+                    .await
+                }
+                Err(err) => Err(err),
+            }
+        } else {
+            upload_result
+        };
+        if let Err(err) = &upload_result {
+            interrupt_native_retry_upload(
+                &saved.server_url,
+                &saved.recording_id,
+                err,
+                replay_attempt_id.as_deref(),
+                interruption_upload_generation_id.as_deref(),
+                &auth_token,
+                &cookie,
+            )
+            .await;
+        }
         cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
         upload_result
     }
@@ -3534,6 +3827,7 @@ fn saved_recording_from_path(
         last_attempt_at: None,
         last_error: None,
         retry_count: 0,
+        retry_attempt_id: None,
         custom_pipeline: session.custom_pipeline,
         corrupt: false,
     })
@@ -3645,6 +3939,7 @@ pub(crate) fn persist_shared_clip_recording(
         last_attempt_at: error.map(|_| now_iso()),
         last_error: error.map(ToString::to_string),
         retry_count: u32::from(error.is_some()),
+        retry_attempt_id: None,
         custom_pipeline: true,
         corrupt: false,
     };
@@ -3665,7 +3960,21 @@ pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, p
     let _ = app.emit("clips:pending-uploads-changed", ());
 }
 
+/// Convert a physical-pixel point to the logical-point coordinate space
+/// `CGDisplay::displays_with_point` requires (dividing by the monitor's own
+/// scale factor) and resolve which display owns it. Shared by every place in
+/// this file that maps a screen point to a `CGDirectDisplayID`.
 #[cfg(target_os = "macos")]
+pub(crate) fn cg_display_id_at_physical_point(
+    cx_phys: f64,
+    cy_phys: f64,
+    scale: f64,
+) -> Option<u32> {
+    let point = CGPoint::new(cx_phys / scale, cy_phys / scale);
+    let (ids, _) = CGDisplay::displays_with_point(point, 4).ok()?;
+    ids.into_iter().next()
+}
+
 /// Return the `CGDirectDisplayID` of the display containing the centre of
 /// the last-clicked tray icon. Uses the Tauri monitor list to locate the
 /// right monitor and converts from physical pixels to the logical-point
@@ -3674,6 +3983,12 @@ pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, p
 /// fails — callers fall back to the first available display.
 #[cfg(target_os = "macos")]
 pub(crate) fn tray_display_id(app: &AppHandle) -> Option<u32> {
+    // A multi-monitor picker pick always wins over the tray-anchor heuristic
+    // below — see `SelectedRecordingDisplay`'s doc comment for its lifecycle.
+    if let Some(id) = crate::state::SelectedRecordingDisplay::get(app) {
+        return Some(id);
+    }
+
     let tray_rect = app
         .try_state::<crate::state::TrayAnchor>()
         .and_then(|a| a.0.lock().ok().and_then(|g| *g))?;
@@ -3716,9 +4031,43 @@ pub(crate) fn tray_display_id(app: &AppHandle) -> Option<u32> {
         .map(|m| m.scale_factor())
         .unwrap_or(2.0);
 
-    let point = CGPoint::new(cx_phys / scale, cy_phys / scale);
-    let (ids, _) = CGDisplay::displays_with_point(point, 4).ok()?;
-    ids.into_iter().next()
+    cg_display_id_at_physical_point(cx_phys, cy_phys, scale)
+}
+
+/// Reverse of the monitor-center-to-CGDisplayID resolution above: given a
+/// CGDirectDisplayID (as picked in the multi-monitor screen picker), find the
+/// Tauri monitor whose center resolves to it and return its physical rect.
+/// Used so overlay windows (countdown, toolbar, finalizing, ...) shown during
+/// a recording that used the picker land on the same screen the user picked,
+/// not the tray icon's screen.
+#[cfg(target_os = "macos")]
+pub(crate) fn monitor_rect_for_display_id(
+    app: &AppHandle,
+    display_id: u32,
+) -> Option<(i32, i32, u32, u32)> {
+    let monitors = app
+        .get_webview_window("popover")?
+        .available_monitors()
+        .ok()?;
+    for monitor in monitors {
+        let pos = monitor.position();
+        let size = monitor.size();
+        let scale = monitor.scale_factor().max(1.0);
+        let cx_phys = pos.x as f64 + size.width as f64 / 2.0;
+        let cy_phys = pos.y as f64 + size.height as f64 / 2.0;
+        if cg_display_id_at_physical_point(cx_phys, cy_phys, scale) == Some(display_id) {
+            return Some((pos.x, pos.y, size.width, size.height));
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn monitor_rect_for_display_id(
+    _app: &AppHandle,
+    _display_id: u32,
+) -> Option<(i32, i32, u32, u32)> {
+    None
 }
 
 #[cfg(target_os = "macos")]
@@ -4236,6 +4585,9 @@ pub(crate) async fn upload_finalized_native_artifact(
         artifact.height,
         has_audio,
         has_camera,
+        None,
+        None,
+        None,
     )
     .await;
     if prepared.temporary {
@@ -4392,6 +4744,9 @@ async fn upload_prepared_recording_file(
     height: Option<u32>,
     has_audio: bool,
     has_camera: bool,
+    upload_attempt_id: Option<String>,
+    upload_generation_id: Option<String>,
+    streaming_resume: Option<NativeStreamingResume>,
 ) -> Result<NativeFullscreenUploadResult, String> {
     #[cfg(target_os = "macos")]
     let verified_local_duration_ms = {
@@ -4417,7 +4772,21 @@ async fn upload_prepared_recording_file(
     } else {
         total_chunks + 1
     };
-    emit_native_upload_progress(app, "uploading", "Uploading clip", None, Some(0.0));
+    let resumed_bytes = streaming_resume
+        .as_ref()
+        .map(|resume| resume.bytes_received)
+        .unwrap_or(0);
+    emit_native_upload_progress(
+        app,
+        "uploading",
+        if streaming_resume.is_some() {
+            "Resuming upload"
+        } else {
+            "Uploading clip"
+        },
+        None,
+        Some(resumed_bytes as f32 / total_bytes as f32),
+    );
     eprintln!(
         "[clips-tray] native upload starting recording={recording_id} mode={} bytes={total_bytes} posts={total_posts}",
         upload_mode.label()
@@ -4429,16 +4798,26 @@ async fn upload_prepared_recording_file(
     let mut file =
         File::open(&prepared.path).map_err(|e| format!("native recording open failed: {e}"))?;
     let verification_pending;
+    let upload_attempt_id = upload_attempt_id.as_deref();
+    let upload_generation_id = upload_generation_id.as_deref();
 
     if upload_mode == NativeUploadMode::Streaming {
         // Resumable providers require every non-final body to be aligned. The
         // final body may be the unaligned tail; if the file is exactly aligned,
         // an empty final request closes the session.
-        for index in 0..streaming_full_chunks {
+        let resume = streaming_resume.unwrap_or(NativeStreamingResume {
+            bytes_received: 0,
+            next_chunk_index: 0,
+            attempt_id: None,
+            upload_generation_id: None,
+        });
+        file.seek(SeekFrom::Start(resume.bytes_received))
+            .map_err(|e| format!("native recording seek failed: {e}"))?;
+        for index in resume.next_chunk_index..streaming_full_chunks {
             let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
             file.read_exact(&mut buffer)
                 .map_err(|e| format!("native recording read failed: {e}"))?;
-            send_upload_post(
+            send_upload_post_with_attempt(
                 &client,
                 &server_url,
                 &recording_id,
@@ -4456,6 +4835,8 @@ async fn upload_prepared_recording_file(
                 upload_mode,
                 false,
                 None,
+                upload_attempt_id,
+                upload_generation_id,
                 buffer,
             )
             .await?;
@@ -4481,7 +4862,7 @@ async fn upload_prepared_recording_file(
             None,
             Some(streaming_full_chunks as f32 / total_posts as f32),
         );
-        verification_pending = send_upload_post(
+        verification_pending = send_upload_post_with_attempt(
             &client,
             &server_url,
             &recording_id,
@@ -4499,6 +4880,8 @@ async fn upload_prepared_recording_file(
             upload_mode,
             prepared.locally_transcoded,
             Some(total_bytes),
+            upload_attempt_id,
+            upload_generation_id,
             final_body,
         )
         .await?;
@@ -4512,7 +4895,7 @@ async fn upload_prepared_recording_file(
                 return Err("Native recording ended before all chunks were read.".into());
             }
             buffer.truncate(read);
-            send_upload_post(
+            send_upload_post_with_attempt(
                 &client,
                 &server_url,
                 &recording_id,
@@ -4530,6 +4913,8 @@ async fn upload_prepared_recording_file(
                 upload_mode,
                 false,
                 None,
+                upload_attempt_id,
+                upload_generation_id,
                 buffer,
             )
             .await?;
@@ -4549,7 +4934,7 @@ async fn upload_prepared_recording_file(
             None,
             Some(total_chunks as f32 / total_posts as f32),
         );
-        verification_pending = send_upload_post(
+        verification_pending = send_upload_post_with_attempt(
             &client,
             &server_url,
             &recording_id,
@@ -4567,6 +4952,8 @@ async fn upload_prepared_recording_file(
             upload_mode,
             prepared.locally_transcoded,
             Some(total_bytes),
+            upload_attempt_id,
+            upload_generation_id,
             Vec::new(),
         )
         .await?;
@@ -4583,13 +4970,470 @@ async fn upload_prepared_recording_file(
     })
 }
 
+async fn get_native_retry_upload_plan(
+    server_url: &str,
+    recording_id: &str,
+    local_bytes: u64,
+    exact_local_stream: bool,
+    claimed_attempt_id: &str,
+    auth_token: &str,
+    cookie: &str,
+) -> Result<NativeRetryUploadPlan, String> {
+    let base = server_url.trim_end_matches('/');
+    let mut url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/resume"))
+        .map_err(|e| format!("invalid upload resume URL: {e}"))?;
+    url.query_pairs_mut()
+        .append_pair("attemptId", claimed_attempt_id);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("upload resume client failed: {e}"))?;
+    let mut request = client
+        .get(url)
+        .header("X-Request-Source", "clips-desktop")
+        .header("Accept", "application/json");
+    if !auth_token.trim().is_empty() {
+        request = request.bearer_auth(auth_token.trim());
+    }
+    if !cookie.trim().is_empty() {
+        request = request.header("Cookie", cookie.trim());
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("native recording resume check failed: {e}"))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!(
+            "native recording resume check returned {status}: {}",
+            body.chars().take(400).collect::<String>()
+        ));
+    }
+    let response: NativeUploadResumeResponse = serde_json::from_str(&body)
+        .map_err(|_| "native recording resume check returned an unreadable response".to_string())?;
+    if response.resumable && response.attempt_id.as_deref() != Some(claimed_attempt_id) {
+        return Err(
+            "native recording resume check did not acknowledge its attempt claim".to_string(),
+        );
+    }
+    Ok(plan_native_retry_upload(
+        response,
+        local_bytes,
+        exact_local_stream,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeUploadErrorReceipt {
+    restart_required: Option<bool>,
+    recovery_enabled: Option<bool>,
+}
+
+fn is_native_upload_restart_required(status: reqwest::StatusCode, body: &str) -> bool {
+    status == reqwest::StatusCode::CONFLICT
+        && serde_json::from_str::<NativeUploadErrorReceipt>(body)
+            .ok()
+            .and_then(|receipt| receipt.restart_required)
+            == Some(true)
+}
+
+fn is_native_upload_unfenced_restart_required(status: reqwest::StatusCode, body: &str) -> bool {
+    status == reqwest::StatusCode::CONFLICT
+        && serde_json::from_str::<NativeUploadErrorReceipt>(body)
+            .ok()
+            .is_some_and(|receipt| {
+                receipt.restart_required == Some(true) && receipt.recovery_enabled == Some(false)
+            })
+}
+
+fn native_upload_restart_required(result: &Result<NativeFullscreenUploadResult, String>) -> bool {
+    matches!(result, Err(error) if error == NATIVE_UPLOAD_RESTART_REQUIRED || error == NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED)
+}
+
+fn native_replay_attempt_id(
+    result: &Result<NativeFullscreenUploadResult, String>,
+    active_attempt_id: Option<&str>,
+) -> Option<String> {
+    if matches!(result, Err(error) if error == NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED) {
+        None
+    } else {
+        active_attempt_id.map(str::to_string)
+    }
+}
+
+fn native_retry_attempt_id() -> String {
+    let counter = NATIVE_RETRY_CLAIM_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("native-{:x}-{:x}", Utc::now().timestamp_millis(), counter)
+}
+
+fn saved_native_retry_attempt_id(attempt_id: &mut Option<String>) -> String {
+    if let Some(existing) = attempt_id
+        .as_deref()
+        .filter(|existing| !existing.trim().is_empty())
+    {
+        return existing.to_string();
+    }
+    let claimed_attempt_id = native_retry_attempt_id();
+    *attempt_id = Some(claimed_attempt_id.clone());
+    claimed_attempt_id
+}
+
+fn plan_native_retry_upload(
+    response: NativeUploadResumeResponse,
+    local_bytes: u64,
+    exact_local_stream: bool,
+) -> NativeRetryUploadPlan {
+    if !response.recovery_enabled {
+        return NativeRetryUploadPlan::Restart {
+            attempt_id: None,
+            upload_generation_id: None,
+        };
+    }
+
+    match response.status.as_deref() {
+        Some("ready") | Some("processing") => {
+            return NativeRetryUploadPlan::Reconcile;
+        }
+        _ => {}
+    }
+
+    let Some(bytes_received) = response.bytes_received else {
+        return NativeRetryUploadPlan::Restart {
+            attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
+        };
+    };
+    let Some(next_chunk_index) = response.next_chunk_index else {
+        return NativeRetryUploadPlan::Restart {
+            attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
+        };
+    };
+    let Ok(next_chunk_index) = usize::try_from(next_chunk_index) else {
+        return NativeRetryUploadPlan::Restart {
+            attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
+        };
+    };
+    let aligned = bytes_received % UPLOAD_CHUNK_BYTES as u64 == 0;
+    let consistent_index = next_chunk_index as u64 == bytes_received / UPLOAD_CHUNK_BYTES as u64;
+    if response.resumable
+        && response.upload_mode.as_deref() == Some("streaming")
+        && exact_local_stream
+        && bytes_received <= local_bytes
+        && aligned
+        && consistent_index
+    {
+        return NativeRetryUploadPlan::Resume(NativeStreamingResume {
+            bytes_received,
+            next_chunk_index,
+            attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
+        });
+    }
+
+    NativeRetryUploadPlan::Restart {
+        attempt_id: response.attempt_id,
+        upload_generation_id: response.upload_generation_id,
+    }
+}
+
+async fn interrupt_native_retry_upload(
+    server_url: &str,
+    recording_id: &str,
+    detail: &str,
+    attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
+    auth_token: &str,
+    cookie: &str,
+) {
+    let base = server_url.trim_end_matches('/');
+    let Ok(url) = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/interrupt")) else {
+        return;
+    };
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+    else {
+        return;
+    };
+    let mut request = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .header("X-Request-Source", "clips-desktop")
+        .json(&native_retry_interruption_payload(
+            detail,
+            attempt_id,
+            upload_generation_id,
+        ));
+    if !auth_token.trim().is_empty() {
+        request = request.bearer_auth(auth_token.trim());
+    }
+    if !cookie.trim().is_empty() {
+        request = request.header("Cookie", cookie.trim());
+    }
+    match request.send().await {
+        Ok(response) if response.status().is_success() => {
+            eprintln!("[clips-tray] native retry interruption recorded for {recording_id}");
+        }
+        Ok(response) => {
+            eprintln!(
+                "[clips-tray] native retry interruption rejected for {recording_id}: {}",
+                response.status()
+            );
+        }
+        Err(err) => {
+            eprintln!(
+                "[clips-tray] native retry interruption could not be recorded for {recording_id}: {err}"
+            );
+        }
+    }
+}
+
+fn native_retry_interruption_payload(
+    detail: &str,
+    attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "detail": detail.chars().take(1000).collect::<String>(),
+        "attemptId": attempt_id.filter(|value| !value.trim().is_empty()),
+        "uploadGenerationId": upload_generation_id.filter(|value| !value.trim().is_empty()),
+    })
+}
+
+#[cfg(test)]
+mod native_retry_upload_plan_tests {
+    use super::{
+        is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
+        native_replay_attempt_id, native_retry_attempt_id, native_retry_interruption_payload,
+        plan_native_retry_upload, saved_native_retry_attempt_id, upload_url,
+        NativeFullscreenUploadResult, NativeRetryUploadPlan, NativeUploadResumeResponse,
+        NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED,
+        UPLOAD_CHUNK_BYTES,
+    };
+
+    fn response(bytes_received: u64, next_chunk_index: u64) -> NativeUploadResumeResponse {
+        NativeUploadResumeResponse {
+            resumable: true,
+            recovery_enabled: true,
+            status: Some("uploading".to_string()),
+            upload_mode: Some("streaming".to_string()),
+            bytes_received: Some(bytes_received),
+            next_chunk_index: Some(next_chunk_index),
+            attempt_id: Some("attempt-1".to_string()),
+            upload_generation_id: Some("generation-1".to_string()),
+        }
+    }
+
+    #[test]
+    fn resumes_only_an_aligned_prefix_of_the_exact_local_stream() {
+        let plan = plan_native_retry_upload(
+            response((UPLOAD_CHUNK_BYTES * 2) as u64, 2),
+            (UPLOAD_CHUNK_BYTES * 3 + 1) as u64,
+            true,
+        );
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Resume(resume)
+                if resume.bytes_received == (UPLOAD_CHUNK_BYTES * 2) as u64
+                    && resume.next_chunk_index == 2
+                    && resume.attempt_id.as_deref() == Some("attempt-1")
+        ));
+    }
+
+    #[test]
+    fn restarts_for_a_transcoded_or_contradictory_resume_response() {
+        let transcoded = plan_native_retry_upload(
+            response(UPLOAD_CHUNK_BYTES as u64, 1),
+            (UPLOAD_CHUNK_BYTES * 2) as u64,
+            false,
+        );
+        assert!(matches!(transcoded, NativeRetryUploadPlan::Restart { .. }));
+
+        let contradictory = plan_native_retry_upload(
+            response(UPLOAD_CHUNK_BYTES as u64, 0),
+            (UPLOAD_CHUNK_BYTES * 2) as u64,
+            true,
+        );
+        assert!(matches!(
+            contradictory,
+            NativeRetryUploadPlan::Restart { .. }
+        ));
+    }
+
+    #[test]
+    fn restarts_without_a_claim_when_resumable_retry_is_disabled() {
+        let plan = plan_native_retry_upload(
+            NativeUploadResumeResponse {
+                resumable: false,
+                recovery_enabled: false,
+                status: None,
+                upload_mode: None,
+                bytes_received: None,
+                next_chunk_index: None,
+                attempt_id: Some("ignored-attempt".to_string()),
+                upload_generation_id: Some("ignored-generation".to_string()),
+            },
+            UPLOAD_CHUNK_BYTES as u64,
+            true,
+        );
+
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn reconciles_terminal_resume_without_an_attempt_echo() {
+        let terminal = plan_native_retry_upload(
+            NativeUploadResumeResponse {
+                resumable: false,
+                recovery_enabled: true,
+                status: Some("ready".to_string()),
+                upload_mode: None,
+                bytes_received: None,
+                next_chunk_index: None,
+                attempt_id: None,
+                upload_generation_id: None,
+            },
+            UPLOAD_CHUNK_BYTES as u64,
+            true,
+        );
+        assert!(matches!(terminal, NativeRetryUploadPlan::Reconcile));
+    }
+
+    #[test]
+    fn claimed_restart_carries_its_attempt_id_to_buffered_posts() {
+        let claimed_attempt_id = native_retry_attempt_id();
+        assert!(claimed_attempt_id.len() >= 16);
+        assert!(claimed_attempt_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')));
+
+        let restart = plan_native_retry_upload(
+            NativeUploadResumeResponse {
+                resumable: true,
+                recovery_enabled: true,
+                status: Some("uploading".to_string()),
+                upload_mode: Some("buffered".to_string()),
+                bytes_received: Some(0),
+                next_chunk_index: Some(0),
+                attempt_id: Some(claimed_attempt_id.clone()),
+                upload_generation_id: Some("generation-1".to_string()),
+            },
+            UPLOAD_CHUNK_BYTES as u64,
+            true,
+        );
+        assert!(matches!(
+            restart,
+            NativeRetryUploadPlan::Restart { ref attempt_id, .. }
+                if attempt_id.as_deref() == Some(claimed_attempt_id.as_str())
+        ));
+
+        let url = upload_url(
+            "https://clips.example",
+            "recording-1",
+            0,
+            2,
+            false,
+            None,
+            "video/mp4",
+            None,
+            None,
+            true,
+            false,
+            false,
+            Some(&claimed_attempt_id),
+            Some("generation-1"),
+        )
+        .expect("buffered upload URL");
+        let query = url::Url::parse(&url)
+            .expect("valid buffered upload URL")
+            .query_pairs()
+            .find(|(key, _)| key == "attemptId")
+            .map(|(_, value)| value.into_owned());
+        assert_eq!(query.as_deref(), Some(claimed_attempt_id.as_str()));
+    }
+
+    #[test]
+    fn persists_the_same_retry_claim_across_later_retries() {
+        let mut saved_attempt_id = None;
+        let first = saved_native_retry_attempt_id(&mut saved_attempt_id);
+        let later = saved_native_retry_attempt_id(&mut saved_attempt_id);
+        assert_eq!(first, later);
+        assert_eq!(saved_attempt_id.as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn reports_retry_interruptions_with_or_without_a_fencing_claim() {
+        let unfenced = native_retry_interruption_payload("upload failed", None, None);
+        assert_eq!(unfenced["detail"], "upload failed");
+        assert!(unfenced["attemptId"].is_null());
+
+        let fenced = native_retry_interruption_payload(
+            "upload failed",
+            Some("attempt-1"),
+            Some("generation-1"),
+        );
+        assert_eq!(fenced["attemptId"], "attempt-1");
+        assert_eq!(fenced["uploadGenerationId"], "generation-1");
+    }
+
+    #[test]
+    fn recognizes_only_the_structured_conflict_restart_signal() {
+        assert!(is_native_upload_restart_required(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"restartRequired":true}"#,
+        ));
+        assert!(!is_native_upload_restart_required(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"restartRequired":false}"#,
+        ));
+        assert!(!is_native_upload_restart_required(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"restartRequired":true}"#,
+        ));
+        assert!(is_native_upload_unfenced_restart_required(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"restartRequired":true,"recoveryEnabled":false}"#,
+        ));
+        assert!(!is_native_upload_unfenced_restart_required(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"restartRequired":true}"#,
+        ));
+    }
+
+    #[test]
+    fn drops_the_retry_claim_for_a_feature_disabled_replay() {
+        let disabled: Result<NativeFullscreenUploadResult, String> =
+            Err(NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED.to_string());
+        assert_eq!(native_replay_attempt_id(&disabled, Some("attempt-1")), None);
+
+        let expired: Result<NativeFullscreenUploadResult, String> =
+            Err(NATIVE_UPLOAD_RESTART_REQUIRED.to_string());
+        assert_eq!(
+            native_replay_attempt_id(&expired, Some("attempt-1")).as_deref(),
+            Some("attempt-1")
+        );
+    }
+}
+
 async fn reset_upload_chunks(
     server_url: &str,
     recording_id: &str,
     mime_type: &str,
+    attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
     auth_token: &str,
     cookie: &str,
-) -> Result<NativeUploadMode, String> {
+) -> Result<NativeUploadResetResponse, String> {
     let base = server_url.trim_end_matches('/');
     let url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/reset-chunks"))
         .map_err(|e| format!("invalid reset URL: {e}"))?;
@@ -4604,6 +5448,8 @@ async fn reset_upload_chunks(
         .json(&serde_json::json!({
             "requestStreaming": true,
             "mimeType": mime_type,
+            "attemptId": attempt_id,
+            "uploadGenerationId": upload_generation_id,
         }));
     let trimmed_token = auth_token.trim();
     if !trimmed_token.is_empty() {
@@ -4626,7 +5472,12 @@ async fn reset_upload_chunks(
             body.chars().take(400).collect::<String>()
         ));
     }
-    Ok(NativeUploadMode::from_reset_response(&body))
+    let reset: NativeUploadResetResponse = serde_json::from_str(&body)
+        .map_err(|_| "native recording retry setup returned an unreadable response".to_string())?;
+    if attempt_id.is_some() && reset.upload_generation_id.is_none() {
+        return Err("native recording retry setup returned no upload generation".to_string());
+    }
+    Ok(reset)
 }
 
 async fn send_upload_post(
@@ -4649,6 +5500,53 @@ async fn send_upload_post(
     expected_source_bytes: Option<u64>,
     body: Vec<u8>,
 ) -> Result<bool, String> {
+    send_upload_post_with_attempt(
+        client,
+        server_url,
+        recording_id,
+        auth_token,
+        cookie,
+        index,
+        total,
+        is_final,
+        duration_ms,
+        mime_type,
+        width,
+        height,
+        has_audio,
+        has_camera,
+        upload_mode,
+        locally_transcoded,
+        expected_source_bytes,
+        None,
+        None,
+        body,
+    )
+    .await
+}
+
+async fn send_upload_post_with_attempt(
+    client: &reqwest::Client,
+    server_url: &str,
+    recording_id: &str,
+    auth_token: &str,
+    cookie: &str,
+    index: usize,
+    total: usize,
+    is_final: bool,
+    duration_ms: Option<u128>,
+    mime_type: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+    has_audio: bool,
+    has_camera: bool,
+    upload_mode: NativeUploadMode,
+    locally_transcoded: bool,
+    expected_source_bytes: Option<u64>,
+    attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
+    body: Vec<u8>,
+) -> Result<bool, String> {
     let body_len = body.len();
     let url = upload_url(
         server_url,
@@ -4663,6 +5561,8 @@ async fn send_upload_post(
         has_audio,
         has_camera,
         locally_transcoded,
+        attempt_id,
+        upload_generation_id,
     )?;
     eprintln!(
         "[clips-tray] native upload post start recording={recording_id} mode={} index={index}/{total} final={is_final} bytes={body_len}",
@@ -4692,6 +5592,15 @@ async fn send_upload_post(
         "[live-upload] POST chunk #{index} (final={is_final}) -> {status} for {recording_id}"
     );
     if !status.is_success() {
+        if is_native_upload_restart_required(status, &body) {
+            return Err(
+                if is_native_upload_unfenced_restart_required(status, &body) {
+                    NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED.to_string()
+                } else {
+                    NATIVE_UPLOAD_RESTART_REQUIRED.to_string()
+                },
+            );
+        }
         return Err(format!(
             "native recording upload returned {status}: {}",
             body.chars().take(400).collect::<String>()
@@ -4827,6 +5736,8 @@ fn upload_url(
     has_audio: bool,
     has_camera: bool,
     locally_transcoded: bool,
+    attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
 ) -> Result<String, String> {
     let base = server_url.trim_end_matches('/');
     let mut url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/chunk"))
@@ -4851,6 +5762,14 @@ fn upload_url(
         }
         if is_final && locally_transcoded {
             query.append_pair("locallyTranscoded", "1");
+        }
+        if let Some(attempt_id) = attempt_id.filter(|value| !value.trim().is_empty()) {
+            query.append_pair("attemptId", attempt_id);
+        }
+        if let Some(upload_generation_id) =
+            upload_generation_id.filter(|value| !value.trim().is_empty())
+        {
+            query.append_pair("uploadGenerationId", upload_generation_id);
         }
     }
     Ok(url.to_string())

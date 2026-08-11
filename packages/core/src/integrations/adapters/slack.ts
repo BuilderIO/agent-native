@@ -7,15 +7,13 @@ import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
 import { getRequestContext } from "../../server/request-context.js";
 import { getIntegrationRequestContext } from "../../server/request-context.js";
-import { consumeIntegrationAwaitingInput } from "../awaiting-input-store.js";
 import { createIntegrationControl } from "../controls-store.js";
 import {
   getActiveIntegrationInstallationByKey,
-  getActiveIntegrationInstallationForTenant,
+  listActiveIntegrationInstallationsForTenant,
   listIntegrationInstallations,
   resolveIntegrationTokenBundle,
 } from "../installations-store.js";
-import { hasActivePendingTask } from "../pending-tasks-store.js";
 import { slackInstallationKey } from "../slack-oauth.js";
 import type {
   PlatformAdapter,
@@ -102,10 +100,6 @@ function claimSlackSystemNoticeSlot(
 export interface SlackAdapterOptions {
   /** Resolve the bot token for the exact Slack installation. */
   resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
-  /** Override active-thread detection for hosted adapters/tests. */
-  isThreadActive?: (incoming: IncomingMessage) => Promise<boolean>;
-  /** Override one-shot clarification-window consumption for tests. */
-  consumeAwaitingInput?: (incoming: IncomingMessage) => Promise<boolean>;
 }
 
 /**
@@ -268,10 +262,10 @@ export function slackAdapter(
         if (e.subtype === "message_changed" || e.subtype === "message_deleted")
           return null;
 
-        // Handle DMs and explicit mentions. Ordinary channel replies are only
-        // accepted while this exact workspace-qualified thread has queued or
-        // executing work; broad message subscriptions must never invoke the
-        // agent for general channel chatter.
+        // Handle DMs and explicit mentions only. A channel thread can contain
+        // many human replies after an agent mention; each new agent turn must
+        // opt in with another explicit mention instead of inheriting the
+        // parent message's invocation.
         const text = e.text?.trim();
         if (!text) return null;
 
@@ -287,8 +281,7 @@ export function slackAdapter(
             ? e.channel_type === "im"
             : typeof e.channel === "string" && e.channel.startsWith("D");
         const isMention = e.type === "app_mention";
-        const isThreadReply = !isDm && !isMention && !!e.thread_ts;
-        if (!isDm && !isMention && !isThreadReply) return null;
+        if (!isDm && !isMention) return null;
 
         // Remove bot mention from text (e.g., "<@U123> do something" → "do something")
         const cleanText = text.replace(/<@[A-Z0-9]+>/g, "").trim();
@@ -303,7 +296,7 @@ export function slackAdapter(
           text: cleanText,
           senderName: e.user,
           senderId: e.user,
-          triggerKind: isDm ? "dm" : isMention ? "mention" : "thread_reply",
+          triggerKind: isDm ? "dm" : "mention",
           conversationType: isDm ? "dm" : "unknown",
           tenantId: teamId,
           // The signed Slack envelope authenticates the workspace, not the
@@ -333,27 +326,6 @@ export function slackAdapter(
           replyRef: e.ts,
           timestamp: Math.floor(parseFloat(e.ts) * 1000),
         };
-
-        if (isThreadReply) {
-          // An ordinary thread reply is narrowly admitted when either work is
-          // still queued or the same Slack user is answering a fresh
-          // integration-originated clarification. Consuming the latter is a
-          // conditional SQL delete, so concurrent replies cannot both reopen
-          // the agent and unrelated channel messages remain ignored.
-          const answeredClarification = options.consumeAwaitingInput
-            ? await options.consumeAwaitingInput(partialIncoming)
-            : options.isThreadActive
-              ? false
-              : await consumeIntegrationAwaitingInput({
-                  platform: "slack",
-                  externalThreadId,
-                  requesterId: e.user,
-                });
-          const active = options.isThreadActive
-            ? await options.isThreadActive(partialIncoming)
-            : await hasActivePendingTask("slack", externalThreadId);
-          if (!active && !answeredClarification) return null;
-        }
 
         const token = await resolveBotToken(partialIncoming);
         const threadPermalink = await resolveSlackThreadPermalink(
@@ -666,13 +638,18 @@ export function slackAdapter(
           channelId: target.destination,
           threadTs: target.threadRef,
           teamId: target.tenantId,
+          installationKey: target.installationKey,
         },
         tenantId: target.tenantId,
         timestamp: Date.now(),
       };
       const token = await resolveBotToken(targetContext);
       if (!token) {
-        console.error("[slack] SLACK_BOT_TOKEN not configured");
+        console.error(
+          "[slack] no bot token for outbound target" +
+            (target.tenantId ? ` (tenant ${target.tenantId})` : "") +
+            "; set SLACK_BOT_TOKEN or pass installationKey to name the app",
+        );
         return;
       }
 
@@ -808,25 +785,42 @@ async function resolveManagedSlackBotToken(
     typeof incoming.platformContext.enterpriseId === "string"
       ? incoming.platformContext.enterpriseId
       : undefined;
+  const installationKeyHint =
+    typeof incoming.platformContext.installationKey === "string"
+      ? incoming.platformContext.installationKey
+      : undefined;
   if (!teamId && !enterpriseId) return undefined;
   try {
-    let installation = apiAppId
+    let installation = installationKeyHint
       ? await getActiveIntegrationInstallationByKey(
           "slack",
-          slackInstallationKey({ teamId, enterpriseId, apiAppId }),
+          installationKeyHint,
         )
       : null;
-    if (!installation && !apiAppId && teamId) {
-      installation = await getActiveIntegrationInstallationForTenant(
+    if (!installation && apiAppId) {
+      installation = await getActiveIntegrationInstallationByKey(
         "slack",
-        teamId,
+        slackInstallationKey({ teamId, enterpriseId, apiAppId }),
       );
     }
-    if (!installation && !apiAppId && enterpriseId) {
-      installation = await getActiveIntegrationInstallationForTenant(
+    if (!installation && !apiAppId) {
+      // Without an app id the tenant can match several connected Slack apps.
+      // Sending as an arbitrary one posts under the wrong bot identity, so
+      // only proceed when the tenant resolves to exactly one installation.
+      const tenant = teamId ?? enterpriseId!;
+      const candidates = await listActiveIntegrationInstallationsForTenant(
         "slack",
-        enterpriseId,
+        tenant,
       );
+      if (candidates.length > 1) {
+        console.error(
+          `[slack] ${candidates.length} connected Slack apps for tenant ${tenant}; ` +
+            `cannot choose one without an app id. Pass installationKey on the outbound target. ` +
+            `Candidates: ${candidates.map((c) => c.installationKey).join(", ")}`,
+        );
+        return undefined;
+      }
+      installation = candidates[0] ?? null;
     }
     const key =
       installation?.installationKey ??

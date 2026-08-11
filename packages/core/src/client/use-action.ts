@@ -27,6 +27,7 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
@@ -207,6 +208,12 @@ function appendActionQueryParam(
     }
     return;
   }
+  if (typeof value === "object") {
+    // defineAction restores JSON strings when the schema expects an object.
+    // Preserve nested GET params instead of collapsing them to "[object Object]".
+    qs.append(key, JSON.stringify(value));
+    return;
+  }
   qs.append(key, String(value));
 }
 
@@ -293,7 +300,16 @@ async function performActionFetch<T>(
   const buildId = clientBuildId();
   if (buildId) headers["X-Agent-Native-Build-Id"] = buildId;
   const tz = resolveUserTimezone();
-  if (tz) headers["x-user-timezone"] = tz;
+  if (tz) {
+    headers["x-user-timezone"] = tz;
+  }
+  // Same browser session the agent chat sends on an agent run, so an action
+  // called from the UI and an action the agent calls during that visit land on
+  // one `$session_id` in traces and session replay.
+  const browserSessionId = getOrCreateAnalyticsSessionId();
+  if (browserSessionId) {
+    headers["X-Agent-Native-Session-Id"] = browserSessionId;
+  }
   const init: RequestInit = {
     method,
     headers,

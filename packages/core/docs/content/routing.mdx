@@ -82,7 +82,9 @@ export default function SettingsPage() {
 }
 ```
 
-That's it — React Router picks it up automatically, no registration needed.
+That's it — React Router picks it up automatically after the route table is
+rebuilt. If `pnpm dev` is already running, restart it after adding the file. No
+registration is needed.
 
 ## Dynamic params {#dynamic-params}
 
@@ -113,5 +115,5 @@ navigate(`/inbox/${threadId}`);
 ## What's next
 
 - [**Client**](/docs/client) — the agent-native browser hooks and utilities
-- [**Server**](/docs/server) — file-based server routes and the `/_agent-native/` namespace
+- [**Server**](/docs/server-overview) — file-based server routes and the `/_agent-native/` namespace
 - [**Context Awareness**](/docs/context-awareness) — how the agent learns the current route and selection

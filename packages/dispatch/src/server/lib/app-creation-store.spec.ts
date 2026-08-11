@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => {
       source: null,
       lookupFailed: false,
     })),
+    ensureBuilderProject: vi.fn(),
     runBuilderAgent: vi.fn(),
     resolveBuilderBranchProjectId: vi.fn(async () => ""),
     getBuilderBranchProjectId: vi.fn(() => ""),
@@ -82,6 +83,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     ...actual,
     resolveBuilderCredentialsDetailed: (...args: any[]) =>
       mocks.resolveBuilderCredentialsDetailed(...args),
+    ensureBuilderProject: (...args: any[]) =>
+      mocks.ensureBuilderProject(...args),
     runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
     resolveBuilderBranchProjectId: (...args: any[]) =>
       mocks.resolveBuilderBranchProjectId(...args),
@@ -120,6 +123,7 @@ afterEach(() => {
   });
   mocks.resolveBuilderBranchProjectId.mockResolvedValue("");
   mocks.getBuilderBranchProjectId.mockReturnValue("");
+  mocks.ensureBuilderProject.mockReset();
   globalThis.fetch = originalFetch;
 });
 
@@ -172,7 +176,7 @@ describe("listWorkspaceApps", () => {
           apps: [
             {
               id: "dispatch",
-              name: "Agent-Native Dispatch",
+              name: "Dispatch",
               path: "/dispatch",
             },
             {
@@ -469,8 +473,13 @@ describe("startWorkspaceAppCreation", () => {
     };
   }
 
-  function create(appId = "onboarding") {
-    return runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+  function create(
+    appId = "onboarding",
+    ctx: { userEmail: string; orgId?: string } = {
+      userEmail: "dev@example.test",
+    },
+  ) {
+    return runWithRequestContext(ctx, () =>
       startWorkspaceAppCreation({ prompt: "Track onboarding tasks", appId }),
     );
   }
@@ -546,15 +555,85 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "builder-user-42" }),
     );
+    const builderPrompt = String(
+      mocks.runBuilderAgent.mock.calls.at(-1)?.[0]?.prompt ?? "",
+    );
+    expect(builderPrompt).toContain("Autonomous Builder handoff contract:");
+    expect(builderPrompt).toContain(
+      "do not invoke a clarification, guided-question, or choice flow",
+    );
+    expect(builderPrompt).toContain(
+      "choose the most direct, conservative default",
+    );
+    expect(builderPrompt).toContain(
+      "Treat the source brief's unknowns and follow-up items as assumptions",
+    );
   });
 
-  it("returns coming-soon when no Builder project is configured", async () => {
+  it("provisions and remembers the workspace Builder project when none is configured", async () => {
     stubHostedRuntime();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.ensureBuilderProject.mockResolvedValue({
+      projectId: "project-provisioned",
+      name: "Agent-Native Workspace",
+      repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
+      browserUrl: "https://builder.io/app/projects/project-provisioned",
+      created: true,
+    });
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "onboarding1",
+      url: "https://builder.io/app/projects/project-provisioned/onboarding1",
+      status: "processing",
+    });
 
     const result = (await create()) as any;
 
-    expect(result.mode).toBe("coming-soon");
-    expect(mocks.resolveBuilderCredentialsDetailed).not.toHaveBeenCalled();
+    expect(result.mode).toBe("builder");
+    expect(result.projectId).toBe("project-provisioned");
+    expect(mocks.ensureBuilderProject).toHaveBeenCalledWith({
+      name: "Agent-Native Workspace",
+      repoUrl: "https://github.com/BuilderIO/builder-agent-native-workspace",
+    });
+    expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "project-provisioned" }),
+    );
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "BUILDER_BRANCH_PROJECT_ID",
+        value: "project-provisioned",
+      }),
+    );
+  });
+
+  it("does not let an organization member persist an auto-provisioned project", async () => {
+    stubHostedRuntime();
+    mocks.state.orgRole = "member";
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "builder_io",
+    })) as any;
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      reason: "settings-management-required",
+    });
+    expect(mocks.ensureBuilderProject).not.toHaveBeenCalled();
+    expect(mocks.putSetting).not.toHaveBeenCalled();
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 });
 

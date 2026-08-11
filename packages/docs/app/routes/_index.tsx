@@ -420,7 +420,7 @@ function BatteriesIncludedCloud({
             {t("home.batteries.body")}
           </p>
           <Link
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             to={localizedPath("/docs/agent-native-toolkit")}
             className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
             onClick={() =>
@@ -463,20 +463,20 @@ function ActionSurfaceSection({
   const t = useT();
 
   return (
-    <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
+    <section className="border-t border-[var(--docs-border)] px-6 py-20 md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
         <div className="min-w-0 max-w-[400px]">
           <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
             {t("home.actionSurface.title")}
           </h2>
-          <p className="mt-4 max-w-xl text-base leading-relaxed text-white/58">
+          <p className="mt-4 max-w-xl text-base leading-relaxed">
             {t("home.actionSurface.body")}
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <Link
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs/getting-started")}
-              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
+              className="primary-button"
               onClick={() =>
                 trackEvent("click cta", {
                   label: "build_action",
@@ -557,7 +557,7 @@ function AppsSection({
 
       <div className="mt-10 text-center">
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={localizedPath("/apps")}
           className="primary-button"
           onClick={() =>
@@ -631,13 +631,12 @@ export default defineAction({
               </h1>
 
               <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-                <span className="block">{t("home.hero.bodyLine1")}</span>
-                <span className="block">{t("home.hero.bodyLine2")}</span>
+                {t("home.hero.body")}
               </p>
 
               <div className="flex flex-wrap items-center justify-center gap-4">
                 <Link
-                  data-an-prefetch="render"
+                  data-an-prefetch="viewport"
                   to={localizedPath("/apps")}
                   className="primary-button"
                   onClick={() =>
@@ -663,7 +662,7 @@ export default defineAction({
                   </svg>
                 </Link>
                 <Link
-                  data-an-prefetch="render"
+                  data-an-prefetch="viewport"
                   to={localizedPath("/docs")}
                   className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                   onClick={() =>
@@ -704,7 +703,7 @@ export default defineAction({
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
-                data-an-prefetch="render"
+                data-an-prefetch="viewport"
                 to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
@@ -730,7 +729,7 @@ export default defineAction({
                 </svg>
               </Link>
               <Link
-                data-an-prefetch="render"
+                data-an-prefetch="viewport"
                 to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>

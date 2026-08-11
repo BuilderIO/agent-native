@@ -10,7 +10,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { oauthRedirectUri } from "@agent-native/core/client/host";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconCheck,
@@ -94,6 +94,8 @@ import {
   type WalkthroughStep,
 } from "@/lib/data-sources";
 
+import { CustomApiCard } from "../components/CustomApiCard";
+
 interface AnalyticsPublicKeyRow {
   id: string;
   name: string;
@@ -116,6 +118,26 @@ interface GitHubOAuthStatus {
     htmlUrl?: string | null;
   };
   error?: string;
+}
+
+interface FirstPartyAnalyticsHealthResponse {
+  status: "healthy" | "monitor" | "recommend_bigquery" | "unavailable";
+  externalBackendRecommendation?: "none" | "connect" | "use" | "unknown";
+  metrics: {
+    eventCount: number;
+    slowQueryCount24h: number;
+    maxQueryDurationMs24h: number;
+  };
+  externalBackends?: Array<{
+    id: "bigquery" | "amplitude";
+    label: string;
+    role: "warehouse" | "product-analytics";
+    configured: boolean | null;
+    setupLink: string;
+  }>;
+  bigQuery: {
+    configured: boolean | null;
+  };
 }
 
 const firstPartyAnalyticsEndpoint =
@@ -144,10 +166,24 @@ async function testConnection(
   return res.json();
 }
 
+// Bounds the GitHub status fetch so a hang can't leave the connect poll's
+// `inFlight` guard stuck and stall the interval forever.
+const GITHUB_OAUTH_STATUS_ABORT_MS = 10_000;
+
 async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
-  const res = await fetch(
-    agentNativePath("/_agent-native/oauth/github/status"),
+  const controller = new AbortController();
+  const abortTimer = setTimeout(
+    () => controller.abort(),
+    GITHUB_OAUTH_STATUS_ABORT_MS,
   );
+  let res: Response;
+  try {
+    res = await fetch(agentNativePath("/_agent-native/oauth/github/status"), {
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(abortTimer);
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || "Failed to load GitHub status");
@@ -352,8 +388,18 @@ function GitHubOAuthView({
     },
     onSuccess: () => {
       const startedAt = Date.now();
-      const pollId = window.setInterval(() => {
-        refresh();
+      let inFlight = false;
+      const pollId = window.setInterval(async () => {
+        if (document.hidden || inFlight) return;
+        inFlight = true;
+        try {
+          await queryClient.invalidateQueries({
+            queryKey: ["github-oauth-status"],
+          });
+          onSaved();
+        } finally {
+          inFlight = false;
+        }
         if (Date.now() - startedAt > 120_000) {
           window.clearInterval(pollId);
         }
@@ -1577,6 +1623,7 @@ function AddDataSourceCTA() {
 
 function FirstPartyAnalyticsCard() {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
@@ -1592,6 +1639,35 @@ function FirstPartyAnalyticsCard() {
     (key) => !key.revokedAt,
   );
   const connected = keys.length > 0;
+  const {
+    data: rawHealth,
+    isLoading: isHealthLoading,
+    isError: isHealthError,
+  } = useActionQuery("get-first-party-analytics-health", undefined, {
+    staleTime: 30_000,
+    retry: false,
+  });
+  const health = rawHealth as FirstPartyAnalyticsHealthResponse | undefined;
+  const healthStatus = isHealthError ? "unavailable" : health?.status;
+  const externalBackends = health?.externalBackends ?? [];
+  const externalBackendConfigured = externalBackends.some(
+    (backend) => backend.configured === true,
+  );
+  const recommendsExternalBackend = healthStatus === "recommend_bigquery";
+  const healthTitleKey = recommendsExternalBackend
+    ? externalBackendConfigured
+      ? "analyticsBackend.connectedTitle"
+      : "analyticsBackend.recommendationTitle"
+    : null;
+  const healthDescriptionKey = recommendsExternalBackend
+    ? externalBackendConfigured
+      ? "analyticsBackend.connectedDescription"
+      : "analyticsBackend.recommendationDescription"
+    : healthStatus === "monitor"
+      ? "analyticsBackend.monitorDescription"
+      : healthStatus === "healthy"
+        ? "analyticsBackend.healthyDescription"
+        : "analyticsBackend.unavailableDescription";
 
   const createKey = useActionMutation("create-analytics-public-key", {
     onSuccess: (result: any) => {
@@ -1641,10 +1717,22 @@ function FirstPartyAnalyticsCard() {
             <div className="flex shrink-0 items-center gap-2">
               {isLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
+              ) : recommendsExternalBackend ? (
+                <span
+                  className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-500"
+                  title={healthTitleKey ? t(healthTitleKey) : undefined}
+                >
+                  <IconAlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="max-w-[12rem] truncate">
+                    {healthTitleKey
+                      ? t(healthTitleKey)
+                      : t("analyticsBackend.recommendationTitle")}
+                  </span>
+                </span>
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  {t("dataSources.configured")}
+                  {t("analyticsBackend.configured")}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
@@ -1665,6 +1753,105 @@ function FirstPartyAnalyticsCard() {
       {expanded && (
         <CardContent className="border-t border-border/50 px-5 py-4">
           <div className="space-y-4">
+            {isHealthLoading ? (
+              <Skeleton className="h-28 w-full rounded-md" />
+            ) : (
+              <div
+                className={`rounded-md border p-3 text-xs ${
+                  recommendsExternalBackend
+                    ? "border-amber-500/30 bg-amber-500/10"
+                    : "border-border/50 bg-muted/20"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <IconAlertCircle
+                      className={`mt-px h-3.5 w-3.5 shrink-0 ${
+                        recommendsExternalBackend
+                          ? "text-amber-500"
+                          : "text-muted-foreground"
+                      }`}
+                    />
+                    <div className="min-w-0 space-y-1">
+                      {healthTitleKey && (
+                        <p className="font-medium text-foreground">
+                          {t(healthTitleKey)}
+                        </p>
+                      )}
+                      <p className="text-muted-foreground">
+                        {t(healthDescriptionKey)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {externalBackends.length > 0 && (
+                  <div className="mt-3 border-t border-border/30 pt-3">
+                    <div className="mb-2 text-muted-foreground">
+                      {t("analyticsBackend.options")}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {externalBackends.map((backend) => {
+                        const statusLabel =
+                          backend.configured === true
+                            ? t("analyticsBackend.configured")
+                            : backend.configured === false
+                              ? t("analyticsBackend.setUp")
+                              : t("dataSources.statusUnknown");
+                        return (
+                          <Button
+                            asChild
+                            key={backend.id}
+                            size="sm"
+                            variant={
+                              backend.configured === true
+                                ? "outline"
+                                : "default"
+                            }
+                            className="text-xs"
+                          >
+                            <Link to={backend.setupLink}>
+                              {backend.label} · {statusLabel}
+                            </Link>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {health && healthStatus !== "unavailable" && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/30 pt-3">
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.analyticsEventCount")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(health.metrics.eventCount)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.slowQueries24h")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(health.metrics.slowQueryCount24h)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.maxQueryDuration")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(
+                          health.metrics.maxQueryDurationMs24h / 1_000,
+                          { maximumFractionDigits: 1 },
+                        )}
+                        s
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">
@@ -1937,6 +2124,8 @@ export default function DataSources() {
       </p>
 
       <GoogleSheetsExportCard statusData={statusData} />
+
+      <CustomApiCard />
 
       {unknownFocusedSourceId && (
         <div

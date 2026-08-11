@@ -5,6 +5,7 @@ description: >-
   Automations, and Access tabs. Use when mounting the Agent page in a template, adding an
   app-specific tab, surfacing context transparency, MCP servers, A2A agents,
   recurring jobs, or external-client connect flows in the UI.
+scope: dev
 metadata:
   internal: true
 ---

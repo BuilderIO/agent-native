@@ -5,7 +5,12 @@ import {
   listAutomationDefinitions,
   type AutomationScope,
 } from "../../automations/service.js";
-import { describeCron, isValidCron, nextOccurrence } from "../../jobs/cron.js";
+import {
+  describeCron,
+  effectiveTimezone,
+  isValidCron,
+  nextOccurrence,
+} from "../../jobs/cron.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -13,15 +18,23 @@ function nextRun(
   meta: Awaited<ReturnType<typeof listAutomationDefinitions>>[number]["meta"],
 ): string | null {
   if (!meta.enabled) return null;
-  if (meta.nextRun) return meta.nextRun;
-  if (
+  const scheduled = Boolean(
     meta.triggerType === "schedule" &&
     meta.schedule &&
-    isValidCron(meta.schedule)
-  ) {
-    return nextOccurrence(meta.schedule).toISOString();
+    isValidCron(meta.schedule),
+  );
+  // A stored `nextRun` in the past means the dispatcher kept declining to run
+  // this automation, not that it is overdue. Report the real next occurrence
+  // and let `lastError` carry the reason it keeps being passed over.
+  if (meta.nextRun) {
+    const stored = new Date(meta.nextRun).getTime();
+    if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
+      return meta.nextRun;
+    }
   }
-  return null;
+  return scheduled
+    ? nextOccurrence(meta.schedule!, undefined, meta.timezone).toISOString()
+    : null;
 }
 
 export interface AutomationActionItem {
@@ -32,11 +45,13 @@ export interface AutomationActionItem {
   triggerType: "event" | "schedule";
   event: string | null;
   schedule: string | null;
+  timezone: string | null;
   scheduleDescription: string | null;
   condition: string | null;
   body: string;
   enabled: boolean;
   lastRun: string | null;
+  lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
   nextRun: string | null;
@@ -65,7 +80,7 @@ export default defineAction({
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     const definitions = await listAutomationDefinitions(
-      { userEmail, orgId: ctx?.orgId },
+      { userEmail, orgId: ctx?.orgId, appId: ctx?.appId },
       scope as AutomationScope,
     );
     return definitions.map(({ resource, name, meta, body, canUpdate }) => ({
@@ -76,11 +91,15 @@ export default defineAction({
       triggerType: meta.triggerType,
       event: meta.event ?? null,
       schedule: meta.schedule || null,
-      scheduleDescription: meta.schedule ? describeCron(meta.schedule) : null,
+      timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
+      scheduleDescription: meta.schedule
+        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+        : null,
       condition: meta.condition ?? null,
       body,
       enabled: meta.enabled,
       lastRun: meta.lastRun ?? null,
+      lastCheck: meta.lastCheck ?? null,
       lastStatus: meta.lastStatus ?? null,
       lastError: meta.lastError ?? null,
       nextRun: nextRun(meta),

@@ -101,6 +101,8 @@ export interface WorkspaceAppManifestEntry {
   description: string;
   path: string;
   url?: string | null;
+  /** Local-only child port used to authorize loopback A2A calls. */
+  port?: number;
   isDispatch?: boolean;
   audience?: WorkspaceAppAudience;
   publicPaths?: string[];

@@ -18,6 +18,7 @@ import { buildExtensionHtml } from "../../extensions/html-shell.js";
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 import { getThemeVars } from "../../extensions/theme.js";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
+import { normalizeDocumentTitle } from "../../shared/document-title.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
@@ -128,7 +129,13 @@ function readExtensionTitleSuffix(): string | null {
 }
 
 function extensionDocumentTitle(name: string, suffix: string | null): string {
-  return suffix ? `${name} \u2014 ${suffix}` : `${name} \u2014 Extensions`;
+  const safeName = normalizeDocumentTitle(name, "Untitled extension");
+  const safeSuffix = suffix
+    ? normalizeDocumentTitle(suffix, "Extensions")
+    : null;
+  return safeSuffix
+    ? `${safeName} \u2014 ${safeSuffix}`
+    : `${safeName} \u2014 Extensions`;
 }
 
 function extensionRole(value: unknown): ExtensionBridgeRole {
@@ -812,7 +819,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         sendToAgentChat({
           message: text,
           context: serializeChatValue(message.context),
-          submit: message.submit !== false,
+          submit: message.submit === true,
           openSidebar: message.openSidebar !== false,
         });
         return;

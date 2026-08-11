@@ -466,6 +466,10 @@ const messages = {
     agentLinkUnavailable: "No se pudo crear el enlace para agentes.",
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
+    copyEmailPreview: "Copiar vista previa del correo electrónico",
+    emailPreviewCopied: "Vista previa del correo electrónico copiada",
+    emailPreviewCopyFailed:
+      "No se pudo copiar la vista previa del correo electrónico",
     openPlayer: "jugador abierto",
     chooseFile: "Elige el archivo",
     remove: "Eliminar",
@@ -635,6 +639,7 @@ const messages = {
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
+    preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
@@ -672,9 +677,16 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     transcriptCleanupDescription:
       "Muestra la transcripción nativa de inmediato y luego la mejora en segundo plano cuando esté disponible.",
     notifications: "Notificaciones",
+    sharing: "Compartir",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a cada grabación que crees. Puedes cambiar la visibilidad en cada grabación.",
+    visibilityPrivate: "Privado - solo tú",
+    visibilityOrg: "Organización - cualquiera de tu espacio",
+    visibilityPublic: "Público - cualquiera con el enlace",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
-      "Recibe un correo cuando alguien comenta, reacciona o comparte una grabación contigo.",
+      "Recibe un correo cuando alguien comente o reaccione a tu grabación.",
     saved: "Ajustes guardados",
     saveFailed: "No se pudo guardar",
     builderConnectedToast: "Builder.io conectado",
@@ -683,12 +695,12 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Builder.io es la ruta principal de almacenamiento para las subidas de Clips. S3 está disponible si necesitas usar tu propio bucket.",
     checkingBuilder: "Comprobando Builder.io",
     builderConnected: "Builder.io conectado",
-    connectBuilder: "Usar Builder.io (gratis)",
+    connectBuilder: "Usar Builder.io",
     builderConnectedFor: "Usando Builder.io para {{orgName}}.",
     builderConnectedGeneric:
       "Los clips nuevos usan el proveedor Builder.io conectado.",
     builderIncludes:
-      "Incluye almacenamiento de objetos, subidas y transcripción gestionada para clips nuevos.",
+      "El nivel gratuito de Builder.io incluye almacenamiento de objetos, subidas y transcripción gestionada para clips nuevos.",
     s3Title: "Almacenamiento compatible con S3",
     secondary: "Secundario",
     active: "Activo",
@@ -714,8 +726,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "El nombre del bucket debe tener 3–63 letras minúsculas, números o guiones",
     s3RegionInvalid: 'Debe ser una región válida (p. ej. us-east-1) o "auto"',
     apiSetup: "Configuración de IA",
-    apiSetupDescription:
-      "Conecta IA con créditos gratis de Builder.io o tus propias claves LLM.",
+    apiSetupDescription: "Elige cómo Clips se conecta a la IA.",
     builderEasySetup: "Créditos gratis de Builder.io",
     builderAiAvailable:
       "Los créditos de IA incluidos y la transcripción gestionada están disponibles para Clips.",
@@ -723,8 +734,13 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Usa Builder.io primero para créditos de IA incluidos, almacenamiento de objetos, subidas y transcripción gestionada.",
     providerKeyTitle: "Usar tu propia clave de proveedor",
     providerKeyDescription:
-      "Añade claves de Anthropic, OpenAI, Gemini, Groq u OpenRouter para uso facturado por proveedor.",
+      "Elige Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere u Ollama para uso facturado por proveedor.",
     providerKeysSet: "{{count}} configuradas",
+    providerActionTitle: "Proveedor de IA",
+    providerActionDescription:
+      "Builder.io incluye un nivel gratuito, o usa claves propias.",
+    providerManage: "Gestionar",
+    providerCustomKeys: "Claves propias",
     checkingProviderKeys: "Comprobando claves de proveedor…",
     keySet: "Configurada",
     keyCleared: "Credenciales de almacenamiento borradas",
@@ -834,6 +850,9 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     viewsCount_one: "{{count}} visualización",
     viewsCount_many: "{{count}} visualizaciones",
     viewsCount_other: "{{count}} visualizaciones",
+    agentViewsCount_one: "{{count}} vista de agente de IA",
+    agentViewsCount_many: "{{count}} vistas de agentes de IA",
+    agentViewsCount_other: "{{count}} vistas de agentes de IA",
     totalViewsSummary:
       "{{total}} visualizaciones totales, {{unique}} espectadores únicos",
     viewsTab: "Vistas",
@@ -841,6 +860,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     humanViews: "Vistas humanas",
     agentViews: "Vistas de agentes de IA",
     noAgentViewsYet: "Todavía no hay vistas de agentes de IA.",
+    unknownAgent: "Agente desconocido",
     totalVideoViews: "Visualizaciones totales del vídeo",
     averageCompletionRate: "Tasa media de finalización",
     moreInsights: "Más estadísticas",
@@ -1117,6 +1137,19 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     spaceCreated: "Espacio creado",
     createFailed: "No se pudo crear el espacio",
   },
+  spaceDialog: {
+    deleteSpace: "Eliminar espacio",
+    renameSpace: "Renombrar espacio",
+    deleteTitle: "¿Eliminar «{{name}}»?",
+    deleteDescription:
+      "Esto eliminará el espacio y lo quitará de todas las grabaciones. Esta acción no se puede deshacer.",
+    renamed: "Espacio renombrado",
+    deleted: "Se eliminó «{{name}}»",
+    renameFailed: "No se pudo renombrar el espacio",
+    deleteFailed: "No se pudo eliminar el espacio",
+    renaming: "Renombrando...",
+    deleting: "Eliminando...",
+  },
   signInPrompt: {
     title: "Inicia sesión para {{intent}}",
     description:
@@ -1145,7 +1178,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
-    connectBuilder: "Usar Builder.io (gratis)",
+    connectBuilder: "Usar Builder.io",
     free: "Gratis",
     configureS3: "configurar almacenamiento compatible con S3",
     whyPrompt: "¿Por qué veo esto?",
@@ -1279,6 +1312,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     cameraOff: "Camera off (Localizado)",
     includeCameraAria: "Include camera in this recording (Localizado)",
     startRecording: "Start recording (Localizado)",
+    micOffConfirmTitle: "Record without a microphone? (Localizado)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Localizado)",
+    startWithoutMic: "Start anyway (Localizado)",
     uploadVideo: "Upload video (Localizado)",
     importLoom: "Import Loom (Localizado)",
     importing: "Importing... (Localizado)",

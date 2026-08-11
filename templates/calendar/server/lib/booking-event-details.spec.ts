@@ -35,13 +35,20 @@ describe("booking event details", () => {
     ).toBe("Intro call");
   });
 
-  it("builds a Google Calendar attendee for the booker", () => {
+  it("includes the calendar account owner as the organizer", () => {
     expect(
       buildBookingEventAttendees({
+        organizerEmail: "steve@example.com",
         attendeeEmail: "rakesh.rachamalla@walmart.com",
         attendeeName: "Rakesh Rachamalla",
       }),
     ).toEqual([
+      {
+        email: "steve@example.com",
+        organizer: true,
+        self: true,
+        responseStatus: "accepted",
+      },
       {
         email: "rakesh.rachamalla@walmart.com",
         displayName: "Rakesh Rachamalla",
@@ -52,11 +59,18 @@ describe("booking event details", () => {
   it("adds co-hosts as Google Calendar attendees", () => {
     expect(
       buildBookingEventAttendees({
+        organizerEmail: "steve@example.com",
         attendeeEmail: "rakesh.rachamalla@walmart.com",
         attendeeName: "Rakesh Rachamalla",
         hostEmails: ["brent@example.com"],
       }),
     ).toEqual([
+      {
+        email: "steve@example.com",
+        organizer: true,
+        self: true,
+        responseStatus: "accepted",
+      },
       {
         email: "rakesh.rachamalla@walmart.com",
         displayName: "Rakesh Rachamalla",

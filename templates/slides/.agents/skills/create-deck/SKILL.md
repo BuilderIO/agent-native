@@ -1,11 +1,16 @@
 ---
 name: create-deck
-description: How to create a new deck with slides from scratch. Read this before creating any deck. Contains exact HTML templates for every slide layout — no codebase exploration needed.
+description: >-
+  Create a new deck with slides from scratch. Use before creating a deck or
+  standalone visual; resolve source fidelity, creative context, and the active
+  design system before using the fallback HTML patterns in this skill.
 ---
 
 # Creating a Deck
 
-**Do not explore the codebase.** Everything you need is here.
+**Do not explore the codebase for routine deck creation.** Use the app actions
+and linked skills. This does not override the active design system, Creative
+Context, reference deck, or source material that the app already provides.
 
 ## Workflow
 
@@ -33,6 +38,26 @@ then go net-new only when the relevant corpus is empty. Retrieval is a separate
 step from generation. Persist the immutable `contextPackId` and concise reuse
 labels with the deck's generation provenance; never infer provenance later from
 rendered slide HTML.
+
+## Direction and source checkpoint
+
+Before authoring slide HTML, make a compact deck brief with the audience, job,
+narrative thesis, one-sentence visual direction, active design-system tokens,
+reference-deck composition pattern, image treatment, and known fit risks. The
+linked Agent-Native design system controls tokens, typography, spacing, imagery,
+and slide chrome. Impeccable-inspired advice about hierarchy, subtraction,
+contrast, and polish is a review lens, not a competing theme. If the request is
+open-ended and no approved direction exists, ask one targeted guided question
+or present a bounded choice before writing; do not silently pick a new brand
+language.
+
+When the source is a transcript or meeting notes, extract the audience's
+terminology, goals, objections, decisions, owners, dates, metrics, and open
+questions before outlining. Preserve exact names, numbers, dates, and requested
+quotes; retain speaker/source attribution; distinguish quotation, paraphrase,
+inference, and unresolved claim. Do not invent connective claims to make the
+story smoother. Keep factual evidence separate from visual references and
+record the source/version identifiers in provenance when available.
 
 When creative context is available, pass the pre-generation search result's
 `contextPackId` to `create-deck`, pass deck-wide `reuseLabels`, and add
@@ -64,12 +89,14 @@ produces a deck with the wrong shape for its own content. Instead:
    color, and markup conventions rather than bending content to a near-miss.
 
 The block deliberately omits the reference deck's slide sequence. Call
-`get-deck --id <reference deck id>` if you need to see how that deck handled a
-case the patterns do not cover.
+`get-deck --id <reference deck id> --compact false` only if you need full slide
+HTML to see how that deck handled a case the patterns do not cover.
 
 A reference deck and a design system are independent: the design system wins on
-tokens (color, type, spacing), the reference deck wins on slide-level
-composition and markup idiom. Apply both when both are present.
+tokens (color, type, spacing, imagery, and slide defaults), the reference deck
+wins on slide-level composition and markup idiom. Apply both when both are
+present. Generic templates in this skill are fallback patterns only. Never let
+a reference screenshot or deck silently transfer its brand tokens.
 
 Decks the user has starred are their intended reference decks. `list-decks`
 reports `starred` so you can offer them when the user asks for something "like
@@ -122,12 +149,40 @@ pnpm action add-slide --deckId=<id> --layout content --content "..."
 Every slide's `content` must use this exact outer div:
 
 ```html
-<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
+<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: var(--ds-body-font, sans-serif);">
   <!-- slide content here -->
 </div>
 ```
 
+The literal values in the examples below are fallback values for a deck with no
+linked system. When a system is linked, use its hydrated values or the renderer
+variables (`--ds-accent`, `--ds-bg`, `--ds-text`, `--ds-text-muted`,
+`--ds-heading-font`, `--ds-body-font`, `--ds-radius`) instead of copying
+Poppins, cyan, white, black, or a stock radius into new markup.
+
+## Fit budget
+
+The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
+canvas (960x540) and `padding: 80px 110px`, the usable content area is only
+740x380px. Treat that as a hard budget for the main flow: use at most two title
+lines, three short bullets or cards, and two or three short items per column.
+Split dense source material across slides instead of shrinking it into a dense
+stack. Keep body text at or above 16px. Never hide overflow with zoom,
+`transform: scale()`, clipping, or scroll overflow. A later structural repair
+may reduce the slide's explicit padding, and that padding must remain intact
+when the saved HTML is rendered.
+
 Background is pure black (`bg-[#000000]`) — set by the renderer, not the slide HTML.
+
+## Bounded visual QA
+
+Before calling the deck complete, render every changed slide at its canonical
+aspect-ratio dimensions and make one batched review pass. Check hierarchy and
+source fidelity, overflow or clipping, contrast, minimum readable text,
+placeholder remnants, broken or missing images, asset fit, and preserved
+`data-slide-object-id` values. Fix the findings in one correction pass and
+recheck. Do not claim full-deck or pixel-perfect fidelity unless the whole deck
+was rendered and compared.
 
 ## Ready-to-Use Templates
 

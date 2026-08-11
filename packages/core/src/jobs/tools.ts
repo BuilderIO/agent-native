@@ -1,5 +1,6 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getDbExec } from "../db/client.js";
+import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   resourcePut,
   resourceGetByPath,
@@ -14,14 +15,22 @@ import {
   getRequestOrgId,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
-import { isValidCron, nextOccurrence, describeCron } from "./cron.js";
-import { classifyJobResource } from "./frontmatter.js";
+import {
+  isValidCron,
+  nextOccurrence,
+  describeCron,
+  effectiveTimezone,
+  isValidTimezone,
+} from "./cron.js";
+import { classifyJobResource, jobBelongsToApp } from "./frontmatter.js";
 import {
   parseJobFrontmatter,
   buildJobContent,
   normalizeJobMcpTools,
   type JobFrontmatter,
 } from "./scheduler.js";
+
+export { jobBelongsToApp } from "./frontmatter.js";
 
 function getOwner(): string {
   const email = getRequestUserEmail();
@@ -73,7 +82,11 @@ async function isCurrentUserOrgAdmin(
 export async function authorizeJobMutation(
   resourceOwner: string,
   meta: JobFrontmatter,
+  appId?: string,
 ): Promise<string | null> {
+  if (!jobBelongsToApp(meta, appId)) {
+    return "This job belongs to another app and cannot be changed here.";
+  }
   const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
   if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
     // Personal-scope job — owner is the request's user. resourceGetByPath is
@@ -93,8 +106,12 @@ export async function authorizeJobMutation(
   return "Only the job's creator (or an org admin) can update or delete it.";
 }
 
-async function runCreate(args: Record<string, any>): Promise<string> {
+async function runCreate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, schedule, instructions, scope, runAs, model } = args;
+  const requestedTimezone = args.timezone;
 
   if (!name || !schedule || !instructions) {
     return JSON.stringify({
@@ -118,16 +135,28 @@ async function runCreate(args: Record<string, any>): Promise<string> {
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
-  const next = nextOccurrence(schedule, now);
+  // A cron time with no zone silently means the host's zone, which is how an
+  // "8am" job ends up firing at 4am for the person who asked for it.
+  if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
+    return JSON.stringify({
+      error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
+    });
+  }
+  const timezone =
+    requestedTimezone ||
+    (await resolveUserSchedulingTimezone(getRequestUserEmail()));
+  const next = nextOccurrence(schedule, now, timezone);
   const integration = getIntegrationRequestContext();
   const channelId = integration?.incoming.platformContext.channelId;
   const threadRef = integration?.incoming.threadRef;
 
   const meta: JobFrontmatter = {
     schedule,
+    timezone,
     enabled: true,
     createdBy: getOwner(),
     orgId: getRequestOrgId() || undefined,
+    appId: appId?.trim() || undefined,
     runAs: runAs === "shared" ? "shared" : "creator",
     nextRun: next.toISOString(),
     ...(integration?.scopeId ? { originScopeId: integration.scopeId } : {}),
@@ -155,14 +184,18 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     name,
     path,
     schedule,
-    scheduleDescription: describeCron(schedule),
+    timezone,
+    scheduleDescription: describeCron(schedule, timezone),
     nextRun: next.toISOString(),
     scope: scope || "shared",
     ...(mcpTools?.length ? { mcpTools } : {}),
   });
 }
 
-async function runList(args: Record<string, any>): Promise<string> {
+async function runList(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const owner = getOwner();
   const sharedOwner = getSharedOwner();
   // Fetch only current user's and shared jobs (not other users')
@@ -182,12 +215,16 @@ async function runList(args: Record<string, any>): Promise<string> {
       if (!full) return null;
       if (classifyJobResource(full.content).kind === "automation") return null;
       const { meta } = parseJobFrontmatter(full.content);
+      if (!jobBelongsToApp(meta, appId)) return null;
       return {
         name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
         path: r.path,
         scope: r.owner === sharedOwner ? "shared" : "personal",
         schedule: meta.schedule,
-        scheduleDescription: meta.schedule ? describeCron(meta.schedule) : "",
+        timezone: effectiveTimezone(meta.timezone),
+        scheduleDescription: meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+          : "",
         enabled: meta.enabled,
         lastRun: meta.lastRun || null,
         lastStatus: meta.lastStatus || null,
@@ -210,7 +247,10 @@ async function runList(args: Record<string, any>): Promise<string> {
   return JSON.stringify(scheduledJobs, null, 2);
 }
 
-async function runUpdate(args: Record<string, any>): Promise<string> {
+async function runUpdate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, schedule, instructions, enabled, scope, runAs, model } = args;
   const path = `jobs/${name}.md`;
 
@@ -236,10 +276,12 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   // `createdBy` is alice@…, and the next cron tick would run the
   // attacker's instructions as alice (creator-runAs schedules in
   // jobs/scheduler.ts line 273-278).
-  const denied = await authorizeJobMutation(resource.owner, meta);
+  const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
+
+  if (!meta.appId && appId?.trim()) meta.appId = appId.trim();
 
   if (schedule) {
     if (!isValidCron(schedule)) {
@@ -248,7 +290,23 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
       });
     }
     meta.schedule = schedule;
-    meta.nextRun = nextOccurrence(schedule).toISOString();
+  }
+
+  if (args.timezone !== undefined) {
+    if (!isValidTimezone(args.timezone)) {
+      return JSON.stringify({
+        error: `Unknown timezone: "${args.timezone}".`,
+      });
+    }
+    meta.timezone = args.timezone;
+  }
+
+  if (schedule || args.timezone !== undefined) {
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      undefined,
+      meta.timezone,
+    ).toISOString();
   }
 
   if (enabled !== undefined) {
@@ -281,14 +339,21 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
     updated: true,
     name,
     schedule: meta.schedule,
-    scheduleDescription: describeCron(meta.schedule),
+    timezone: effectiveTimezone(meta.timezone),
+    scheduleDescription: describeCron(
+      meta.schedule,
+      effectiveTimezone(meta.timezone),
+    ),
     enabled: meta.enabled,
     nextRun: meta.nextRun,
     mcpTools: meta.mcpTools || [],
   });
 }
 
-async function runDelete(args: Record<string, any>): Promise<string> {
+async function runDelete(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, scope } = args;
   const path = `jobs/${name}.md`;
 
@@ -310,7 +375,7 @@ async function runDelete(args: Record<string, any>): Promise<string> {
       error: `"${name}" is an automation. Use manage-automations to delete it.`,
     });
   }
-  const denied = await authorizeJobMutation(resource.owner, meta);
+  const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -319,7 +384,7 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   return JSON.stringify({ deleted: true, name });
 }
 
-export function createJobTools(): Record<string, ActionEntry> {
+export function createJobTools(appId?: string): Record<string, ActionEntry> {
   return {
     "manage-jobs": {
       tool: {
@@ -346,6 +411,11 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
               type: "string",
               description:
                 "Job name (hyphen-case, e.g. 'daily-scorecard-check'). Required for create and update.",
+            },
+            timezone: {
+              type: "string",
+              description:
+                "IANA timezone the schedule's clock time is read in, e.g. 'America/New_York'. Optional; defaults to the user's saved scheduling timezone, then the caller's browser zone. Always pass this when the user names a time of day, so '8am' means 8am where they are rather than on the server.",
             },
             schedule: {
               type: "string",
@@ -398,13 +468,13 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
       run: async (args) => {
         switch (args.action) {
           case "create":
-            return runCreate(args);
+            return runCreate(args, appId);
           case "list":
-            return runList(args);
+            return runList(args, appId);
           case "update":
-            return runUpdate(args);
+            return runUpdate(args, appId);
           case "delete":
-            return runDelete(args);
+            return runDelete(args, appId);
           default:
             return JSON.stringify({
               error: `Unknown action "${args.action}". Use "create", "list", or "update".`,

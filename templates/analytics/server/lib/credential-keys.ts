@@ -57,6 +57,8 @@ export const credentialKeys: CredentialKeyConfig[] = [
   { key: "POSTHOG_API_KEY", label: "PostHog API Key", required: false },
   { key: "POSTHOG_PROJECT_ID", label: "PostHog Project ID", required: false },
   { key: "POSTHOG_HOST", label: "PostHog Host", required: false },
+  // FullStory Server API fallback for structured reads
+  { key: "FULLSTORY_API_KEY", label: "FullStory API key", required: false },
   // PostgreSQL (user's external DB, not the app's DATABASE_URL)
   { key: "POSTGRES_URL", label: "PostgreSQL URL", required: false },
   // Stripe
@@ -342,6 +344,7 @@ const credentialAliases: Record<string, string[]> = {
   postgres: ["POSTGRES_URL"],
   postgresql: ["POSTGRES_URL"],
   posthog: ["POSTHOG_API_KEY", "POSTHOG_PROJECT_ID", "POSTHOG_HOST"],
+  fullstory: ["FULLSTORY_API_KEY"],
   prometheus: [
     "PROMETHEUS_URL",
     "PROMETHEUS_USERNAME",

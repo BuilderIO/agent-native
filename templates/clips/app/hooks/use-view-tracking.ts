@@ -1,27 +1,9 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useEffect, useRef } from "react";
 
+import { getViewerSessionId } from "@/lib/viewer-session";
+
 import { clampCompletionPct } from "../../shared/view-analytics";
-
-const SESSION_KEY = "clips-view-session-id";
-
-function getSessionId(): string {
-  if (typeof window === "undefined") return "server";
-  try {
-    let id = localStorage.getItem(SESSION_KEY);
-    if (!id) {
-      id =
-        "s-" +
-        Date.now().toString(36) +
-        "-" +
-        Math.random().toString(36).slice(2, 8);
-      localStorage.setItem(SESSION_KEY, id);
-    }
-    return id;
-  } catch {
-    return "s-" + Math.random().toString(36).slice(2, 8);
-  }
-}
 
 function createViewSessionId(recordingId: string): string {
   return [
@@ -118,7 +100,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
           recordingId,
           kind: "view-start",
           timestampMs: 0,
-          sessionId: getSessionId(),
+          sessionId: getViewerSessionId(),
           viewSessionId: viewSessionRef.current,
           totalWatchMs: 0,
           completedPct: 0,
@@ -130,7 +112,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
     }
 
     const video = videoEl;
-    const sessionId = getSessionId();
+    const sessionId = getViewerSessionId();
     viewSessionRef.current = createViewSessionId(recordingId);
     let progressTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -243,7 +225,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         body: JSON.stringify({
           recordingId: recordingIdRef.current,
           kind: "cta-click",
-          sessionId: getSessionId(),
+          sessionId: getViewerSessionId(),
         }),
       }).catch(() => {});
     },
@@ -255,7 +237,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         body: JSON.stringify({
           recordingId: recordingIdRef.current,
           kind: "reaction",
-          sessionId: getSessionId(),
+          sessionId: getViewerSessionId(),
           payload: { emoji },
         }),
       }).catch(() => {});

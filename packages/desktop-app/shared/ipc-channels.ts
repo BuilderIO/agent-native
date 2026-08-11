@@ -6,6 +6,10 @@ import type {
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
 } from "./desktop-shortcuts";
+import type {
+  QuickPromptSettings,
+  QuickPromptPreferences,
+} from "./quick-prompt";
 
 export const IPC = {
   /** Window control channels (renderer → main) */
@@ -25,6 +29,12 @@ export const IPC = {
 
   /** App status events (main → renderer) */
   APP_STATUS: "app:status",
+
+  /** Desktop workspace identity (renderer intent/status only; no secrets) */
+  IDENTITY_STATUS_GET: "identity:status:get",
+  IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  IDENTITY_SIGN_IN: "identity:sign-in",
+  IDENTITY_SIGN_OUT: "identity:sign-out",
 
   /** App config management (renderer ↔ main) */
   APPS_LOAD: "apps:load",
@@ -116,6 +126,12 @@ export const IPC = {
   SHORTCUTS_LOAD: "shortcuts:load",
   SHORTCUTS_UPSERT: "shortcuts:upsert",
   SHORTCUTS_REMOVE: "shortcuts:remove",
+
+  /** Global Quick Prompt overlay (renderer ↔ main) */
+  QUICK_PROMPT_LOAD: "quick-prompt:load",
+  QUICK_PROMPT_UPDATE: "quick-prompt:update",
+  QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
+  QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
 
 /** Auto-update status surfaced from electron-updater. */
@@ -134,6 +150,13 @@ export type UpdateStatus =
     }
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
+
+export type DesktopIdentityStatus =
+  | "idle"
+  | "signing-in"
+  | "signed-in"
+  | "sign-in-required"
+  | "failed";
 
 export interface ActiveWebviewTarget {
   appId: string;
@@ -356,6 +379,8 @@ export interface CodeAgentModelOption {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface CodeAgentModelListResult {
@@ -819,8 +844,18 @@ export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
   requestId: string;
 }
 
+export interface QuickPromptSubmitRequest {
+  prompt: string;
+  cwd?: string;
+  attachments?: CodeAgentPromptAttachment[];
+}
+
+export type QuickPromptSubmitResult = CodeAgentCreateRunResult;
+
 export type {
   DesktopShortcutSettings,
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
+  QuickPromptPreferences,
+  QuickPromptSettings,
 };

@@ -6,10 +6,15 @@ import {
   resourceGetByPath,
   resourceList,
 } from "../../resources/store.js";
-import { describeCron, isValidCron, nextOccurrence } from "../cron.js";
+import {
+  describeCron,
+  effectiveTimezone,
+  isValidCron,
+  nextOccurrence,
+} from "../cron.js";
 import { classifyJobResource } from "../frontmatter.js";
 import { parseJobFrontmatter } from "../scheduler.js";
-import { authorizeJobMutation } from "../tools.js";
+import { authorizeJobMutation, jobBelongsToApp } from "../tools.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -17,15 +22,25 @@ function jobName(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");
 }
 
+/**
+ * A stored `nextRun` in the past means the scheduler kept declining to run the
+ * job, not that it is due two days ago. Report the real next occurrence and
+ * let `lastError` carry the reason it keeps being passed over.
+ */
 function nextRun(
   meta: ReturnType<typeof parseJobFrontmatter>["meta"],
 ): string | null {
   if (!meta.enabled) return null;
-  if (meta.nextRun) return meta.nextRun;
-  if (meta.schedule && isValidCron(meta.schedule)) {
-    return nextOccurrence(meta.schedule).toISOString();
+  const scheduled = Boolean(meta.schedule && isValidCron(meta.schedule));
+  if (meta.nextRun) {
+    const stored = new Date(meta.nextRun).getTime();
+    if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
+      return meta.nextRun;
+    }
   }
-  return null;
+  return scheduled
+    ? nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString()
+    : null;
 }
 
 export interface RecurringJobActionItem {
@@ -34,10 +49,12 @@ export interface RecurringJobActionItem {
   path: string;
   scope: "personal" | "organization";
   schedule: string;
+  timezone: string;
   scheduleDescription: string;
   instructions: string;
   enabled: boolean;
   lastRun: string | null;
+  lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
   nextRun: string | null;
@@ -79,6 +96,7 @@ export default defineAction({
       }
 
       const { meta, body } = parseJobFrontmatter(full.content);
+      if (!jobBelongsToApp(meta, ctx?.appId)) continue;
       const canUpdate =
         scope === "personal" || !(await authorizeJobMutation(owner, meta));
       jobs.push({
@@ -87,10 +105,14 @@ export default defineAction({
         path: full.path,
         scope,
         schedule: meta.schedule,
-        scheduleDescription: meta.schedule ? describeCron(meta.schedule) : "",
+        timezone: effectiveTimezone(meta.timezone),
+        scheduleDescription: meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+          : "",
         instructions: body,
         enabled: meta.enabled,
         lastRun: meta.lastRun ?? null,
+        lastCheck: meta.lastCheck ?? null,
         lastStatus: meta.lastStatus ?? null,
         lastError: meta.lastError ?? null,
         nextRun: nextRun(meta),

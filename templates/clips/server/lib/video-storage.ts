@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 export const STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage to upload clips.";
+  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to upload clips.";
 
 function appDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");

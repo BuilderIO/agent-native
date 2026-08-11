@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
+  useDemoModeStatus: vi.fn(),
   appLinks: vi.fn(),
 }));
 
@@ -38,6 +39,10 @@ vi.mock("../use-session.js", () => ({
   useSession: mocks.useSession,
 }));
 
+vi.mock("../use-demo-mode-status.js", () => ({
+  useDemoModeStatus: mocks.useDemoModeStatus,
+}));
+
 vi.mock("../i18n.js", () => ({
   useT: () => (key: string) =>
     key === "settings.profileMenuItem" ? "Profile" : key,
@@ -62,9 +67,15 @@ describe("OrgSwitcher", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
     mocks.useSession.mockReset();
+    mocks.useDemoModeStatus.mockReset();
     mocks.navigate.mockReset();
     mocks.appLinks.mockReset();
     mocks.useSession.mockReturnValue({ session: null, isLoading: false });
+    mocks.useDemoModeStatus.mockReturnValue({
+      enabled: false,
+      forced: false,
+      isLoading: false,
+    });
     mocks.appLinks.mockReturnValue({
       apps: [],
       dispatchAllAppsHref: "/dispatch/apps",
@@ -136,6 +147,42 @@ describe("OrgSwitcher", () => {
     expect(button?.textContent).toBe("");
   });
 
+  it("makes demo mode visible and removes the redacted email from sign out", () => {
+    mocks.useDemoModeStatus.mockReturnValue({
+      enabled: true,
+      forced: false,
+      isLoading: false,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "anonymous@builder.io",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "owner",
+        orgs: [{ orgId: "org-1", orgName: "Acme" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+
+    const trigger = container.querySelector<HTMLButtonElement>("button");
+    expect(trigger?.getAttribute("aria-label")).toBe("Acme, Demo mode");
+    expect(trigger?.textContent).toContain("Demo mode");
+
+    act(() => {
+      trigger!.click();
+    });
+
+    expect(document.body.textContent).toContain("Demo mode is on");
+    expect(document.body.textContent).toContain(
+      "Your account and permissions are unchanged.",
+    );
+    expect(document.body.textContent).not.toContain("anonymous@builder.io");
+  });
+
   it("opens organization settings in the settings page tab", () => {
     const openPanel = vi.fn();
     const openSettings = vi.fn();
@@ -172,7 +219,7 @@ describe("OrgSwitcher", () => {
       settingsButton!.click();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/settings#organization");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/organization");
     expect(openPanel).not.toHaveBeenCalled();
     expect(openSettings).not.toHaveBeenCalled();
 
@@ -208,7 +255,7 @@ describe("OrgSwitcher", () => {
       profileButton!.click();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/settings#account");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
   });
 
   it("keeps Dispatch flat and shows descriptions in the apps submenu", () => {

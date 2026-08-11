@@ -232,7 +232,9 @@ function ServerStatus({ server }: { server: McpServer }) {
   );
 }
 
-function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
+export function ConnectionsTab({
+  canManageOrg,
+}: Partial<AgentPageTabProps> = {}) {
   const t = useT();
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
@@ -242,8 +244,10 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const data = serversQuery.data;
+  const resolvedCanManageOrg =
+    canManageOrg ?? (data?.role === "owner" || data?.role === "admin");
   const hasOrg = Boolean(data?.orgId);
-  const canCreateOrgMcp = hasOrg && canManageOrg;
+  const canCreateOrgMcp = hasOrg && resolvedCanManageOrg;
 
   const onCreateMcpServer = useCallback(
     async (args: {
@@ -255,7 +259,7 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
     }) => {
       if (args.scope === "org" && !canCreateOrgMcp) {
         throw new Error(
-          "Only organization admins can add organization MCP servers.",
+          "Only organization admins can add organization agent integrations.",
         );
       }
       return createServer.mutateAsync(args);
@@ -286,7 +290,7 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
 
   const renderServer = (server: McpServer) => {
     const key = `${server.scope}:${server.id}`;
-    const canDelete = server.scope === "user" || canManageOrg;
+    const canDelete = server.scope === "user" || resolvedCanManageOrg;
     const selected =
       selectedServer?.id === server.id && selectedServer.scope === server.scope;
     return (
@@ -345,7 +349,7 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
 
   return (
     <AgentTabFrame
-      title="Connections"
+      title="Agent integrations"
       description="Tools and services this agent can reach, grouped by where they are configured."
       actions={
         <button
@@ -370,7 +374,7 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
           <TabLoading />
         ) : serversQuery.isError ? (
           <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            Could not load MCP servers.
+            Could not load agent integrations.
           </p>
         ) : (
           <div className="space-y-6">
@@ -389,11 +393,11 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
                 ) : (
                   <AgentEmptyState
                     icon={IconPlugConnected}
-                    title={`No ${section.label.toLowerCase()} connections yet`}
+                    title={`No ${section.label.toLowerCase()} agent integrations yet`}
                     description={
                       section.label === "Personal"
                         ? "Connect a service to give the agent access to it."
-                        : "Organization connections shared with this workspace will appear here."
+                        : "Organization agent integrations shared with this workspace will appear here."
                     }
                   />
                 )}
@@ -459,7 +463,7 @@ function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
               title={docsLabel ?? `Open ${label} documentation`}
               className="inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
             >
-              <IconHelpCircle className="size-3" />
+              <IconHelpCircle className="size-2.5" />
             </a>
           )}
         </div>
@@ -847,12 +851,16 @@ export function AgentTabsPage({
       },
       {
         id: "connections",
-        label: "Connections",
+        label: "Agent integrations",
         icon: IconPlugConnected,
         group: "agent",
-        keywords: "mcp servers tools integrations",
+        keywords: "agent integrations tools connections",
         searchEntries: [
-          { id: "mcp-servers", label: "MCP servers", keywords: "tools" },
+          {
+            id: "mcp-servers",
+            label: "Agent integrations",
+            keywords: "tools integrations connections",
+          },
         ],
         content: <ConnectionsTab scope={scope} canManageOrg={canManageOrg} />,
       },

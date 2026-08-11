@@ -28,6 +28,49 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
 };
+const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
+  '"@tiptap/core"': '"3.28.0"',
+  '"@tiptap/extension-blockquote"': '"3.28.0"',
+  '"@tiptap/extension-bold"': '"3.28.0"',
+  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
+  '"@tiptap/extension-bullet-list"': '"3.28.0"',
+  '"@tiptap/extension-code"': '"3.28.0"',
+  '"@tiptap/extension-code-block"': '"3.28.0"',
+  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
+  '"@tiptap/extension-collaboration"': '"3.28.0"',
+  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
+  '"@tiptap/extension-color"': '"3.28.0"',
+  '"@tiptap/extension-document"': '"3.28.0"',
+  '"@tiptap/extension-dropcursor"': '"3.28.0"',
+  '"@tiptap/extension-floating-menu"': '"3.28.0"',
+  '"@tiptap/extension-gapcursor"': '"3.28.0"',
+  '"@tiptap/extension-hard-break"': '"3.28.0"',
+  '"@tiptap/extension-heading"': '"3.28.0"',
+  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
+  '"@tiptap/extension-image"': '"3.28.0"',
+  '"@tiptap/extension-italic"': '"3.28.0"',
+  '"@tiptap/extension-link"': '"3.28.0"',
+  '"@tiptap/extension-list"': '"3.28.0"',
+  '"@tiptap/extension-list-item"': '"3.28.0"',
+  '"@tiptap/extension-list-keymap"': '"3.28.0"',
+  '"@tiptap/extension-ordered-list"': '"3.28.0"',
+  '"@tiptap/extension-paragraph"': '"3.28.0"',
+  '"@tiptap/extension-placeholder"': '"3.28.0"',
+  '"@tiptap/extension-strike"': '"3.28.0"',
+  '"@tiptap/extension-table"': '"3.28.0"',
+  '"@tiptap/extension-table-cell"': '"3.28.0"',
+  '"@tiptap/extension-table-header"': '"3.28.0"',
+  '"@tiptap/extension-table-row"': '"3.28.0"',
+  '"@tiptap/extension-task-item"': '"3.28.0"',
+  '"@tiptap/extension-task-list"': '"3.28.0"',
+  '"@tiptap/extension-text"': '"3.28.0"',
+  '"@tiptap/extension-text-style"': '"3.28.0"',
+  '"@tiptap/extension-underline"': '"3.28.0"',
+  '"@tiptap/extensions"': '"3.28.0"',
+  '"@tiptap/pm"': '"3.28.0"',
+  '"@tiptap/react"': '"3.28.0"',
+  '"@tiptap/starter-kit"': '"3.28.0"',
+};
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -132,8 +175,9 @@ export interface CreateAppOptions {
 /**
  * Main entry for `agent-native create [name]`.
  *
- * Default behavior: scaffold a workspace at <name>/ with a multi-select
- * template picker. Use --standalone for the single-app standalone flow.
+ * Default behavior: ask for a starting shape, with Chat and first-party
+ * templates creating a workspace at <name>/. Use --standalone for the
+ * single-app standalone flow.
  *
  * If run *inside* an existing workspace, falls through to the add-app
  * flow that scaffolds one new app under apps/<name>/.
@@ -173,8 +217,8 @@ export async function createApp(
 
   // When exactly one template is specified explicitly, treat it as a
   // standalone scaffold (script-friendly, matches historic behavior).
-  // Use `--template a,b` or pass no --template to opt into the workspace
-  // flow with the multi-select picker.
+  // Use `--template a,b` to opt into the workspace flow with the multi-select
+  // picker. Bare `create` asks for the starting shape first.
   const parsed = parseTemplateList(opts?.template);
   // Headless can't live in a workspace, so reject it when more than one
   // template is requested or when workspace semantics are forced.
@@ -198,9 +242,8 @@ export async function createApp(
   // No template specified: ask what shape to start from before diving into
   // "which templates?". The on-ramp choice implies the project structure, so
   // we don't ask a separate "workspace or standalone?" question — Chat and
-  // Headless scaffold a single standalone app (the lightest starts; headless
-  // cannot live in a workspace), while Template continues into the workspace
-  // multi-select.
+  // Template creates a workspace, while Community and Headless scaffold a
+  // single standalone app.
   if (parsed.length === 0) {
     // The deprecated `create-workspace` alias forces workspace semantics, so
     // it must skip the start-shape prompt and scaffold a workspace directly.
@@ -209,8 +252,19 @@ export async function createApp(
       return;
     }
     const shape = await promptStartShape(clack);
-    if (shape === "headless" || shape === "chat") {
+    if (shape === "headless") {
       await createStandaloneApp(name, { ...opts, template: shape }, clack);
+      return;
+    }
+    if (shape === "chat") {
+      // Chat is the default workspace on-ramp. Keep the minimal chat app in
+      // the same workspace shape as every other first-party app so the next
+      // documented step, `add-app`, works immediately.
+      await createWorkspaceInteractive(
+        name,
+        { ...opts, template: shape },
+        clack,
+      );
       return;
     }
     if (shape === "community") {
@@ -232,12 +286,11 @@ export async function createApp(
  * choice made here implies the project structure, so we deliberately avoid a
  * separate "workspace or standalone?" question:
  *   - "template" → full app(s) in a workspace (the multi-select picker)
+ *   - "chat"     → a minimal Chat app in a workspace with Dispatch
  *   - "community" → a single standalone app from a public GitHub repository
- *   - "chat"     → a single standalone chat UI app
  *   - "headless" → a single standalone action-first app with no UI shell
- * Chat and headless are standalone on purpose: a monorepo is unnecessary
- * ceremony for the lightest on-ramps, and headless cannot be a workspace
- * member. Either can grow into a workspace later via `add-app`.
+ * Headless cannot be a workspace member. Use `--standalone --template chat`
+ * when a standalone Chat app is the intended shape.
  */
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
@@ -258,7 +311,7 @@ function startShapePromptOptions() {
       {
         value: "chat",
         label: "Chat",
-        hint: "A single app with a minimal chat UI and the browser shell wired up",
+        hint: "A minimal chat app in a workspace with the browser shell wired up",
       },
       {
         value: "template",
@@ -519,6 +572,7 @@ async function createWorkspaceInteractive(
         ...resolution,
         shape: "workspace",
       });
+      ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
         appName,
@@ -651,7 +705,7 @@ async function scaffoldWorkspaceRoot(
     const existing = fs.existsSync(wsPath)
       ? fs.readFileSync(wsPath, "utf-8")
       : "";
-    if (!existing.includes("catalog:")) {
+    if (!/^catalog:\s*$/m.test(existing)) {
       const catalogYaml = Object.entries(catalog)
         .map(([k, v]) => `  "${k}": "${v}"`)
         .join("\n");
@@ -677,6 +731,7 @@ async function scaffoldWorkspaceRoot(
   // Root-level agent instructions apply before an agent descends into an app.
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
+  ensureGuardedScaffold(targetDir);
 }
 
 function linkWorkspaceRootSkills(targetDir: string): void {
@@ -862,6 +917,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    ensureGuardedScaffold(appDir);
     fixWebManifestName(
       appDir,
       appName,
@@ -1458,13 +1514,17 @@ function localPackageTarball(packageDir: string): string {
   const packDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
-  const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  execFileSync(pnpm, ["pack", "--pack-destination", packDir], {
-    cwd: packageDir,
-    encoding: "utf-8",
-    env: { ...process.env, npm_config_ignore_scripts: "true" },
-    stdio: "pipe",
-  });
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  execFileSync(
+    npm,
+    ["pack", "--ignore-scripts", "--pack-destination", packDir],
+    {
+      cwd: packageDir,
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      stdio: "pipe",
+    },
+  );
 
   const tarballs = fs
     .readdirSync(packDir)
@@ -1475,9 +1535,108 @@ function localPackageTarball(packageDir: string): string {
     );
   }
 
-  const tarball = pathToFileURL(path.join(packDir, tarballs[0]!)).href;
+  const rawTarball = path.join(packDir, tarballs[0]!);
+  const unpackDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-unpack-"),
+  );
+  execFileSync("tar", ["-xzf", rawTarball, "-C", unpackDir], {
+    stdio: "pipe",
+  });
+  rewritePublishedPackageManifest(
+    path.join(unpackDir, "package", "package.json"),
+  );
+
+  const repackDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-repack-"),
+  );
+  execFileSync(
+    npm,
+    ["pack", "--ignore-scripts", "--pack-destination", repackDir],
+    {
+      cwd: path.join(unpackDir, "package"),
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      stdio: "pipe",
+    },
+  );
+  const repackedTarballs = fs
+    .readdirSync(repackDir)
+    .filter((entry) => entry.endsWith(".tgz"));
+  if (repackedTarballs.length !== 1) {
+    throw new Error(
+      `Expected one repacked local package artifact in ${repackDir}, found ${repackedTarballs.length}.`,
+    );
+  }
+
+  const tarball = pathToFileURL(
+    path.join(repackDir, repackedTarballs[0]!),
+  ).href;
   localPackageTarballs.set(packageDir, tarball);
   return tarball;
+}
+
+function rewritePublishedPackageManifest(manifestPath: string): void {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  const catalogs = loadCatalog();
+
+  for (const dependencyType of [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+  ] as const) {
+    const dependencies = manifest[dependencyType];
+    if (!dependencies) continue;
+    for (const [name, specifier] of Object.entries(dependencies)) {
+      if (specifier === "catalog:") {
+        const version = catalogs[name];
+        if (!version) {
+          throw new Error(
+            `Cannot resolve catalog dependency ${name} while linking a local package.`,
+          );
+        }
+        dependencies[name] = version;
+        continue;
+      }
+      if (specifier.startsWith("workspace:")) {
+        dependencies[name] = resolvePublishedWorkspaceSpecifier(
+          name,
+          specifier.slice("workspace:".length),
+        );
+      }
+    }
+  }
+
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function resolvePublishedWorkspaceSpecifier(
+  packageName: string,
+  workspaceSpecifier: string,
+): string {
+  if (workspaceSpecifier && !["*", "^", "~"].includes(workspaceSpecifier)) {
+    return workspaceSpecifier;
+  }
+
+  const localPackage = findLocalPackage(packageName);
+  if (!localPackage) return "*";
+  try {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(localPackage, "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    const version =
+      typeof packageJson.version === "string" ? packageJson.version : null;
+    if (!version) return "*";
+    if (workspaceSpecifier === "^" || workspaceSpecifier === "~") {
+      return `${workspaceSpecifier}${version}`;
+    }
+    return version;
+  } catch {
+    return "*";
+  }
 }
 
 /**
@@ -1583,6 +1742,118 @@ async function scaffoldRequiredPackages(
   }
 }
 
+const AGENT_NATIVE_DOCTOR = "agent-native doctor";
+const AGENT_NATIVE_DOCTOR_STRICT = `${AGENT_NATIVE_DOCTOR} --strict`;
+const GUARDED_VERIFICATION_MARKER = "Guarded verification";
+const GUARDED_VERIFICATION_GUIDANCE =
+  "- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.\n";
+
+/**
+ * Keep the portable guard contract attached to every app/workspace created by
+ * the CLI, including community templates whose package.json was not authored
+ * by this repository. The scanners stay versioned in @agent-native/core; a
+ * generated project only receives the small command/config/instructions
+ * surface needed to run them locally and in hosted builds.
+ */
+function ensureGuardedScaffold(appDir: string): void {
+  const packagePath = path.join(appDir, "package.json");
+  if (!fs.existsSync(packagePath)) return;
+
+  const parsedPackage = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+  if (
+    !parsedPackage ||
+    typeof parsedPackage !== "object" ||
+    Array.isArray(parsedPackage)
+  ) {
+    throw new Error(`${packagePath} must contain a JSON object`);
+  }
+  const packageJson = parsedPackage as {
+    scripts?: Record<string, unknown>;
+  } & Record<string, unknown>;
+  const existingScripts = packageJson.scripts;
+  if (
+    existingScripts !== undefined &&
+    (!existingScripts ||
+      typeof existingScripts !== "object" ||
+      Array.isArray(existingScripts))
+  ) {
+    throw new Error(`${packagePath} has an invalid scripts object`);
+  }
+  const scripts = existingScripts ?? {};
+
+  // Keep an existing project-specific `doctor` script intact while providing
+  // a collision-free framework entry point that every generated project has.
+  const existingNativeDoctor = scripts["agent-native:doctor"];
+  scripts["agent-native:doctor"] =
+    typeof existingNativeDoctor === "string" &&
+    existingNativeDoctor !== AGENT_NATIVE_DOCTOR &&
+    !existingNativeDoctor.includes(AGENT_NATIVE_DOCTOR)
+      ? `${existingNativeDoctor} && ${AGENT_NATIVE_DOCTOR}`
+      : AGENT_NATIVE_DOCTOR;
+  if (typeof scripts.doctor !== "string") {
+    scripts.doctor = AGENT_NATIVE_DOCTOR;
+  }
+
+  // Community templates may use vite/next/another build command instead of
+  // `agent-native build`, so attach the strict check to the package lifecycle.
+  // Agent-Native builds already run doctor and get strictness from the config.
+  if (
+    typeof scripts.build === "string" &&
+    !/\bagent-native\s+build\b/.test(scripts.build) &&
+    !String(scripts.prebuild ?? "").includes(AGENT_NATIVE_DOCTOR_STRICT)
+  ) {
+    const existingPrebuild =
+      typeof scripts.prebuild === "string" ? scripts.prebuild.trim() : "";
+    scripts.prebuild = existingPrebuild
+      ? `${existingPrebuild} && ${AGENT_NATIVE_DOCTOR_STRICT}`
+      : AGENT_NATIVE_DOCTOR_STRICT;
+  }
+  packageJson.scripts = scripts;
+  fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n");
+
+  const manifestPath = path.join(appDir, "agent-native.json");
+  let manifest: Record<string, unknown> = {};
+  if (fs.existsSync(manifestPath)) {
+    const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    if (
+      !parsedManifest ||
+      typeof parsedManifest !== "object" ||
+      Array.isArray(parsedManifest)
+    ) {
+      throw new Error(`${manifestPath} must contain a JSON object`);
+    }
+    manifest = parsedManifest as Record<string, unknown>;
+  }
+  const doctor =
+    manifest.doctor &&
+    typeof manifest.doctor === "object" &&
+    !Array.isArray(manifest.doctor)
+      ? (manifest.doctor as Record<string, unknown>)
+      : {};
+  // An explicit false remains an intentional, reviewable opt-out. Missing
+  // configuration is strict so a hosted build cannot publish a finding.
+  if (typeof doctor.failOnBuild !== "boolean") doctor.failOnBuild = true;
+  manifest.doctor = doctor;
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+  const agentsPath = path.join(appDir, "AGENTS.md");
+  if (fs.existsSync(agentsPath)) {
+    const agents = fs.readFileSync(agentsPath, "utf-8");
+    if (!agents.includes(GUARDED_VERIFICATION_MARKER)) {
+      fs.writeFileSync(
+        agentsPath,
+        `${agents.trimEnd()}\n\n${GUARDED_VERIFICATION_GUIDANCE}`,
+      );
+    }
+  } else {
+    fs.writeFileSync(
+      agentsPath,
+      `# Agent-Native project instructions\n\n${GUARDED_VERIFICATION_GUIDANCE}`,
+    );
+    setupAgentSymlinks(appDir);
+  }
+}
+
 /**
  * Post-process a standalone scaffold: replace placeholders, strip
  * workspace:* deps, set up agent symlinks, etc.
@@ -1605,6 +1876,7 @@ function postProcessStandalone(
     ...resolution,
     shape: "standalone",
   });
+  ensureGuardedScaffold(targetDir);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
@@ -1653,23 +1925,9 @@ function postProcessStandalone(
           }
         }
       }
-      // Ensure pnpm.onlyBuiltDependencies is set so native packages
-      // (better-sqlite3, esbuild, node-pty) compile their postinstall scripts
-      // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
-
-      const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
-      if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
-        pkg.pnpm = {};
-      }
-      const existing = Array.isArray(pkg.pnpm.onlyBuiltDependencies)
-        ? pkg.pnpm.onlyBuiltDependencies
-        : [];
-      pkg.pnpm.onlyBuiltDependencies = Array.from(
-        new Set([...existing, ...requiredBuilt]),
-      );
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
@@ -1688,6 +1946,7 @@ function postProcessStandalone(
         "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
+        "tesseract.js": "true",
       },
     };
     if (templateName !== "headless") {
@@ -1695,6 +1954,12 @@ function postProcessStandalone(
         '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
         '"@assistant-ui/tap"': '"^0.5.14"',
         nf3: '"0.3.17"',
+      };
+    }
+    if (templateName && getTemplate(templateName)) {
+      sections.overrides = {
+        ...sections.overrides,
+        ...TIPTAP_WORKSPACE_OVERRIDES,
       };
     }
     const localToolkit = localToolkitOverride();
@@ -1934,6 +2199,7 @@ export { parseWorkspaceScope };
 /** @internal — exported for E2E tests */
 export {
   scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
+  ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
   scaffoldRequiredPackages as _scaffoldRequiredPackages,
   postProcessStandalone as _postProcessStandalone,
@@ -3224,7 +3490,13 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
+    // Tolerate escaped quotes inside the command. Every template's build
+    // command now contains `\"` (the release-migration step's CONTEXT test),
+    // and a naive [^"]* stops at the first one — which silently dropped the
+    // NETLIFY_DATABASE_URL_UNPOOLED override for the four templates that use it.
+    const originalCommand = content.match(
+      /^\s*command = "((?:[^"\\]|\\.)*)"$/m,
+    )?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
@@ -3236,7 +3508,22 @@ function rewriteNetlifyToml(
     const buildDatabasePrefix = usesUnpooledDatabase
       ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
       : "";
-    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}`;
+    const releaseDatabasePrefix = usesUnpooledDatabase
+      ? 'DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" '
+      : "";
+    // Migrate at RELEASE, never on the request path. On serverless "migrate on
+    // first use" means migrate on every cold start; a production incident
+    // traced a multi-hour outage to schema introspection running concurrently
+    // on requests. Generated for every app so a fresh `create` + Netlify
+    // connect just works, with no flag to remember.
+    const releaseMigrations =
+      ' && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then ' +
+      releaseDatabasePrefix +
+      (mode === "workspace"
+        ? `pnpm --filter ${appName} migrate:production`
+        : "pnpm migrate:production") +
+      "; fi";
+    const command = `${databaseSetup} && ${buildDatabasePrefix}${buildCommand}${releaseMigrations}`;
     const publishPath = mode === "workspace" ? `apps/${appName}/dist` : "dist";
     const functionsPath =
       mode === "workspace"

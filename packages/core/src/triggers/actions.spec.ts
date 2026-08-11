@@ -8,6 +8,9 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const emitMock = vi.hoisted(() => vi.fn());
+const registerEventMock = vi.hoisted(() => vi.fn());
+const resolveUserSchedulingTimezoneMock = vi.hoisted(() => vi.fn());
+const deleteAutomationRunsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -32,8 +35,17 @@ vi.mock("./dispatcher.js", async (importOriginal) => {
 });
 
 vi.mock("../event-bus/index.js", () => ({
+  registerEvent: registerEventMock,
   listEvents: vi.fn(() => []),
   emit: emitMock,
+}));
+
+vi.mock("../localization/user-timezone.js", () => ({
+  resolveUserSchedulingTimezone: resolveUserSchedulingTimezoneMock,
+}));
+
+vi.mock("../jobs/run-history.js", () => ({
+  deleteAutomationRuns: deleteAutomationRunsMock,
 }));
 
 describe("manage-automations tool", () => {
@@ -46,6 +58,8 @@ describe("manage-automations tool", () => {
     resourcePutMock.mockResolvedValue(undefined);
     resourceDeleteMock.mockResolvedValue(undefined);
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
+    resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
+    deleteAutomationRunsMock.mockResolvedValue(undefined);
   });
 
   function tool() {
@@ -350,5 +364,15 @@ Record the signal.`,
       { data: { subject: "qa" } },
       { owner },
     );
+  });
+
+  it("does not allow an automation to recursively queue another automation", async () => {
+    const result = await tool().run(
+      { action: "run-now", name: "another-automation" },
+      { caller: "automation" },
+    );
+
+    expect(result).toBe("Error: an automation cannot run another automation.");
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
   });
 });

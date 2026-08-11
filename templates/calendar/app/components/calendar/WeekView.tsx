@@ -44,6 +44,10 @@ import {
 } from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
+  computeTimedEventLayout,
+  type TimedEventLayout,
+} from "@/lib/event-layout";
+import {
   getFirstVisibleOutOfOfficeDayIndex,
   getOutOfOfficeSegment,
   isFullDayOutOfOfficeEvent,
@@ -168,70 +172,6 @@ function formatEventTime(start: Date, end: Date): string {
   return `${startWithAmPm}\u2013${endStr}`;
 }
 
-interface LayoutInfo {
-  left: number; // percentage 0-100
-  width: number; // percentage 0-100
-  col: number;
-  totalCols: number;
-}
-
-/**
- * Stacking layout — like the user's drawing and Google Cal.
- *
- * Every event is nearly full width. Overlapping events get a small left
- * indent per nesting depth and stack on top with opaque backgrounds.
- * Text at the top stays readable; the card beneath is covered.
- */
-function computeLayout(
-  dayEvents: CalendarEvent[],
-  day: Date,
-): Map<string, LayoutInfo> {
-  const result = new Map<string, LayoutInfo>();
-  if (dayEvents.length === 0) return result;
-
-  const dayStartMs = startOfDay(day).getTime();
-  const dayEndMs = addDays(startOfDay(day), 1).getTime();
-
-  // Cap each event's times to this day's boundaries once, reuse in sort + overlap
-  const times = new Map(
-    dayEvents.map((ev) => [
-      ev.id,
-      {
-        start: Math.max(parseISO(ev.start).getTime(), dayStartMs),
-        end: Math.min(parseISO(ev.end).getTime(), dayEndMs),
-      },
-    ]),
-  );
-
-  const sorted = [...dayEvents].sort((a, b) => {
-    const ta = times.get(a.id)!;
-    const tb = times.get(b.id)!;
-    if (ta.start !== tb.start) return ta.start - tb.start;
-    return tb.end - ta.end; // later end first when starts are equal
-  });
-
-  const INDENT_PX = 16;
-
-  for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      const ta = times.get(other.id)!;
-      const tb = times.get(ev.id)!;
-      if (ta.start < tb.end && tb.start < ta.end) depth++;
-    }
-
-    result.set(ev.id, {
-      left: depth * INDENT_PX,
-      width: 0,
-      col: depth,
-      totalCols: depth + 1,
-    });
-  }
-
-  return result;
-}
-
 function getSegmentStyle(event: CalendarEvent, day: Date) {
   const evStart = parseISO(event.start);
   const evEnd = parseISO(event.end);
@@ -251,7 +191,7 @@ interface WeekEventCardProps {
   event: CalendarEvent;
   day: Date;
   dayIndex: number;
-  layout: Map<string, LayoutInfo>;
+  layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
   focusedEventId: string | null;
@@ -333,9 +273,10 @@ const WeekEventCard = memo(function WeekEventCard({
   const t = useT();
   const li = layout.get(event.id) ?? {
     left: 0,
-    width: 0,
+    width: 100,
     col: 0,
     totalCols: 1,
+    stackOrder: 0,
   };
   const overrides =
     overrideTop !== null && overrideHeight !== null && overrideDayIndex !== null
@@ -431,14 +372,14 @@ const WeekEventCard = memo(function WeekEventCard({
       }
       style={{
         ...style,
-        left: `${li.left}px`,
-        width: `calc(min(85%, 100% - ${li.left + 2}px))`,
+        left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
+        width: `calc(${li.width}% - ${li.col > 0 ? 4 : 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100
             : focusedEventId === event.id
               ? 50
-              : li.col + 1,
+              : li.stackOrder + 1,
         backgroundColor: color
           ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
           : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
@@ -747,7 +688,7 @@ export const WeekView = memo(function WeekView({
         const evEnd = parseISO(e.end);
         return evStart < dayEnd && evEnd > dayStart;
       });
-      const layout = computeLayout(dayEvents, day);
+      const layout = computeTimedEventLayout(dayEvents, day);
       return { day, events: dayEvents, layout };
     });
   }, [days, timedEvents]);

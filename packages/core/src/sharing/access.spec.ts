@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -57,6 +57,16 @@ async function insertDoc(values: {
   });
 }
 
+let memberSeq = 0;
+function addOrgMember(memberOrgId: string, email: string) {
+  sqlite
+    .prepare(
+      `INSERT INTO org_members (id, org_id, email, role, joined_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(`member-${++memberSeq}`, memberOrgId, email, "member", Date.now());
+}
+
 async function listVisible(
   ctx: { userEmail?: string; orgId?: string },
   minRole: ShareRole = "viewer",
@@ -95,6 +105,13 @@ beforeEach(() => {
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
     );
   `);
   db = drizzle(sqlite);
@@ -287,6 +304,7 @@ describe("shareable resource access helpers", () => {
       createdBy: ownerEmail,
       createdAt: "2026-04-30T00:00:00.000Z",
     });
+    addOrgMember(orgId, viewerEmail);
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -354,6 +372,52 @@ describe("shareable resource access helpers", () => {
         );
       },
     );
+  });
+
+  it("grants org-visibility access to a real org member even when a different org is active", async () => {
+    // Regression test: `org` visibility must key off actual `org_members`
+    // rows, not equality with the caller's currently active org. A caller
+    // can be a genuine member of both `orgId` and `otherOrgId` while only
+    // one of them is their active selection at any given moment.
+    await insertDoc({
+      id: "doc-org-cross-active",
+      ownerEmail: outsiderEmail,
+      orgId: otherOrgId,
+      visibility: "org",
+    });
+    addOrgMember(otherOrgId, viewerEmail);
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-cross-active"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(resourceType, "doc-org-cross-active", "viewer"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(resourceType, "doc-org-cross-active", "editor"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("denies org-visibility access when the caller has an active org but no real membership in the resource's org", async () => {
+    await insertDoc({
+      id: "doc-org-no-membership",
+      ownerEmail: outsiderEmail,
+      orgId: otherOrgId,
+      visibility: "org",
+    });
+    // viewerEmail has an active org, but is never added to `org_members` for
+    // `otherOrgId` — access must fail rather than fall back to any equality
+    // check.
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-no-membership"),
+      ).resolves.toBe(null);
+      await expect(
+        assertAccess(resourceType, "doc-org-no-membership", "viewer"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
   });
 
   it("allows a resource registration to explicitly upgrade public-by-link access", async () => {
@@ -713,6 +777,42 @@ describe("shareable resource access helpers", () => {
     expect(doc).toMatchObject({ visibility: "org" });
   });
 
+  it("delegates visibility persistence to a resource-owned hook", async () => {
+    const persistVisibilityChange = vi.fn(async () => undefined);
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      persistVisibilityChange,
+    });
+    await insertDoc({ id: "doc-hook" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-hook",
+          visibility: "org",
+        }),
+      ).resolves.toEqual({ ok: true, visibility: "org" });
+    });
+
+    expect(persistVisibilityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceId: "doc-hook",
+        visibility: "org",
+        update: { visibility: "org" },
+        userEmail: ownerEmail,
+        orgId,
+      }),
+    );
+    const [row] = await db.select().from(docs).where(eq(docs.id, "doc-hook"));
+    expect(row).toMatchObject({ visibility: "private" });
+  });
+
   it("upserts and revokes user shares case-insensitively", async () => {
     await insertDoc({ id: "doc-user-case-actions" });
 
@@ -930,6 +1030,7 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
         createdAt: "2026-04-30T00:00:00.000Z",
       },
     ]);
+    addOrgMember(orgId, viewerEmail);
 
     const cases: Array<{
       ctx: { userEmail?: string; orgId?: string };

@@ -10,6 +10,7 @@ import { useState } from "react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateDocsLink } from "../components/template-docs";
 import {
   templates,
@@ -130,7 +131,7 @@ export default function GenericTemplatePage() {
     return (
       <main className="mx-auto max-w-[900px] px-6 py-20">
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={sitePathForLocale("/apps", locale)}
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
         >
@@ -182,12 +183,13 @@ export default function GenericTemplatePage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                  onClick={() =>
+                  onClick={(event) => {
+                    applyFirstTouchAttributionToLink(event.currentTarget);
                     trackEvent("try live demo", {
                       template: template.slug,
                       location: "generic_template_page",
-                    })
-                  }
+                    });
+                  }}
                 >
                   {t("common.tryIt")}
                   <IconExternalLink size={16} />

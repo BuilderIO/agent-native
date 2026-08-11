@@ -54,6 +54,24 @@ describe("styled bullet editing", () => {
     expect(findEnclosingList(thirdText, root)).toBe(list);
   });
 
+  it("resolves a native list item to its UL or OL", () => {
+    // Editing the LI in isolation traps Enter inside that one item, so the
+    // list itself has to become the edit host.
+    const root = document.createElement("div");
+    root.innerHTML = "<ul><li>One</li><li>Two</li></ul><ol><li>First</li></ol>";
+    document.body.append(root);
+
+    const unordered = root.querySelector("ul") as HTMLElement;
+    const ordered = root.querySelector("ol") as HTMLElement;
+
+    expect(findEnclosingList(unordered.children[1] as HTMLElement, root)).toBe(
+      unordered,
+    );
+    expect(findEnclosingList(ordered.children[0] as HTMLElement, root)).toBe(
+      ordered,
+    );
+  });
+
   it("adds a new row when Enter is pressed at the end of a bullet", () => {
     const { list } = setup();
     const thirdText = list.children[2].children[1] as HTMLElement;

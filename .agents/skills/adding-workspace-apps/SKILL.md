@@ -6,6 +6,7 @@ description: >-
   mounting and base paths, action-first data, and finishing a chat-template app.
   Use when asked to create, build, scaffold, or generate a new agent or app in a
   workspace.
+scope: dev
 ---
 
 # Adding Workspace Apps
@@ -33,6 +34,12 @@ that existing app.
 Dispatch vault access is workspace-wide by default: every saved vault key is
 available to every workspace app. Only create or request per-app vault grants
 when Dispatch's vault access setting is switched to manual mode.
+
+When an app needs a provider credential, use the app's scoped secret or
+workspace-connection resolver so Dispatch remains the source of truth. Do not
+ask a non-admin builder to add a key to local project settings or `.env`; use
+Dispatch's vault request workflow for a missing key and keep the value out of
+app code.
 
 ## Discovery, Links, And The UI Stack
 

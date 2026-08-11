@@ -24,7 +24,30 @@ cross-cutting work and `self-modifying-code` when changing app source.
   unauthenticated URLs, or non-JSON responses.
 - Keep database code provider-agnostic and migrations additive. Do not use
   adapter-only database methods or production schema push commands.
-- All AI work goes through the agent chat. UIs do not call model providers.
+- All user-facing AI work goes through the agent chat. UI and server code do
+  not call model providers or inline LLM APIs directly, or hide AI-shaped
+  multi-step work in one action.
+  Keep actions deterministic and focused; use the AgentSidebar for research,
+  analysis, generation, recommendation, synthesis, and follow-ups in the same
+  thread.
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right AgentSidebar for contextual AI and open it when a
+  domain button hands work to the agent.
+- Keep the first viewport focused: one primary action, progressive disclosure,
+  concise copy, and no generic Chat label for a domain page. Never use sparkle,
+  wand, magic, or robot icons as AI affordances.
+- Page and section data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
+- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
+  type for content previews. Give the AgentSidebar a subtle surface/divider
+  boundary, and stack original/generated review vertically by default.
+- Before visual work, read `frontend-design` and fill in `DESIGN.md` with the
+  product mode, visual direction, palette family, type, composition, and
+  anti-references. Preserve existing brand tokens and do not default every app
+  to warm beige plus terracotta or copy a sibling app's accent.
+- Every AI-labeled button must call `sendToAgentChat()` with
+  `openSidebar: true`; label deterministic local actions as local or preview.
 - Keep application state in SQL so the agent can read navigation, selection,
   and focused-object context.
 - Never hardcode keys, tokens, webhook URLs, private data, or credential-like

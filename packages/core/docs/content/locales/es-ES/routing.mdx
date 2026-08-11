@@ -83,7 +83,9 @@ export default function SettingsPage() {
 }
 ```
 
-Eso es todo: el enrutador React lo detecta automáticamente, no es necesario registrarse.
+Eso es todo: el servidor de desarrollo lee los archivos de ruta al iniciarse. Si
+`pnpm dev` ya está en ejecución, reinícialo después de añadir el archivo. No es
+necesario registrarse.
 
 ## Parámetros dinámicos {#dynamic-params}
 
@@ -115,4 +117,4 @@ navigate(`/inbox/${threadId}`);
 ## ¿Qué sigue?
 
 - [**Client**](/docs/client): utilidades y ganchos del navegador nativo del agente
-- [**Server**](/docs/server): rutas de servidor basadas en archivos y el espacio de nombres `/_agent-native/`
+- [**Server**](/docs/server-overview): rutas de servidor basadas en archivos y el espacio de nombres `/_agent-native/`

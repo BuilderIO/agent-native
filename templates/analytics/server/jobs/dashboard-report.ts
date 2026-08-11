@@ -1,3 +1,4 @@
+import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import { sendDashboardReportSubscription } from "../lib/dashboard-report";
@@ -14,6 +15,11 @@ declare global {
 
 let running = false;
 const DEFAULT_MAX_REPORTS_PER_SWEEP = 5;
+// Bounds snapshot/panel/render work per subscription. Originally only applied
+// in serverless mode to fit the function's execution limit; it now also
+// backstops the long-running in-process cron, where a hung query or render
+// call would otherwise leave `running` stuck forever instead of just
+// delaying the next sweep.
 const SERVERLESS_REPORT_DELIVERY_BUDGET_MS = 220_000;
 const SERVERLESS_MAX_REPORTS_PER_SWEEP = 1;
 
@@ -57,6 +63,46 @@ async function persistDashboardReportCaptureOutcome(
   }
 }
 
+/**
+ * Tell the owner when a scheduled report is finally given up on. Retries stay
+ * silent — only an exhausted retry window means the report they expected will
+ * never arrive, and a log line alone leaves them waiting on nothing.
+ */
+async function notifyDashboardReportGaveUp(
+  sub: {
+    id: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    dashboardId?: string;
+  },
+  reason: string,
+): Promise<void> {
+  try {
+    await notifyWithDelivery(
+      {
+        severity: "warning",
+        title: "Scheduled dashboard report failed",
+        body: `The scheduled report for subscription ${sub.id} could not be delivered: ${reason}`,
+        channels: ["inbox", "email"],
+        metadata: {
+          kind: "dashboard_report_failure",
+          subscriptionId: sub.id,
+          path: "/dashboard-reports",
+          // The email channel is a no-op without explicit recipients.
+          emailRecipients: [sub.ownerEmail],
+          emailSubject: "Your scheduled dashboard report did not send",
+        },
+      },
+      { owner: sub.ownerEmail },
+    );
+  } catch (err) {
+    console.error(
+      `[dashboard-report] Could not notify owner of subscription ${sub.id} about the failure:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 function maxReportsPerSweep(): number {
   if (serverlessDashboardReportRuntime()) {
     return SERVERLESS_MAX_REPORTS_PER_SWEEP;
@@ -90,9 +136,8 @@ export async function runDashboardReportsOnce(): Promise<{
     remaining = batch.length >= sweepLimit ? 1 : 0;
     for (const sub of batch) {
       processed++;
-      const deliveryDeadlineAt = serverlessDashboardReportRuntime()
-        ? Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS
-        : undefined;
+      const deliveryDeadlineAt =
+        Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS;
       const retryAt = dashboardReportRetryAt(sub);
       try {
         const result = await runWithRequestContext(
@@ -127,6 +172,7 @@ export async function runDashboardReportsOnce(): Promise<{
             });
           } else {
             await persistDashboardReportResult(sub, "error", retryMessage);
+            await notifyDashboardReportGaveUp(sub, degradedReason);
           }
           continue;
         }
@@ -155,6 +201,7 @@ export async function runDashboardReportsOnce(): Promise<{
           });
         } else {
           await persistDashboardReportResult(sub, "error", message);
+          await notifyDashboardReportGaveUp(sub, message);
         }
       }
     }

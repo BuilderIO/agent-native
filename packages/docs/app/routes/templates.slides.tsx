@@ -1,6 +1,9 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
+import { Link } from "react-router";
 
+import { sitePathForLocale } from "../components/docs-locale";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SlidesTryNow } from "../components/SlidesTryNow";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -46,7 +49,8 @@ const COMPARISON_ROWS = [
     feature: "Does it know your brand?",
     google: "No",
     gamma: "If you pay.",
-    slides: "Yes. Import design systems.\nOr ask the agent to riff an old deck.",
+    slides:
+      "Yes. Import design systems.\nOr ask the agent to riff an old deck.",
   },
   {
     feature: "AI control",
@@ -122,6 +126,7 @@ function CliCopy() {
 
 export default function SlidesTemplate() {
   const t = useT();
+  const { locale } = useLocale();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -150,12 +155,13 @@ export default function SlidesTemplate() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={() =>
+                onClick={(event) => {
+                  applyFirstTouchAttributionToLink(event.currentTarget);
                   trackEvent("try live demo", {
                     template: "slides",
                     location: "landing_page",
-                  })
-                }
+                  });
+                }}
               >
                 {t("templateLanding.slides.s008")}
                 <svg
@@ -460,6 +466,13 @@ export default function SlidesTemplate() {
           >
             {t("templateLanding.slides.s057")}
           </TemplateDocsLink>
+          <Link
+            data-an-prefetch="viewport"
+            to={sitePathForLocale("/apps", locale)}
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+          >
+            {t("templateLanding.slides.s058")}
+          </Link>
         </div>
       </section>
     </main>

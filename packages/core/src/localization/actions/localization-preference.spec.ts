@@ -26,7 +26,7 @@ describe("localization preference actions", () => {
   it("defaults to system when no user setting exists", async () => {
     await expect(
       getPreference.run({}, { caller: "frontend", userEmail: "a@example.com" }),
-    ).resolves.toEqual({ locale: "system" });
+    ).resolves.toEqual({ locale: "system", timezone: "system" });
   });
 
   it("stores and reads a canonical locale", async () => {
@@ -35,11 +35,11 @@ describe("localization preference actions", () => {
         { locale: "zh" },
         { caller: "frontend", userEmail: "a@example.com" },
       ),
-    ).resolves.toEqual({ locale: "zh-CN" });
+    ).resolves.toEqual({ locale: "zh-CN", timezone: "system" });
 
     await expect(
       getPreference.run({}, { caller: "frontend", userEmail: "a@example.com" }),
-    ).resolves.toEqual({ locale: "zh-CN" });
+    ).resolves.toEqual({ locale: "zh-CN", timezone: "system" });
   });
 
   it("rejects unsupported locales", async () => {

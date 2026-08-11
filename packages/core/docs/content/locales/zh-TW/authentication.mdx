@@ -11,7 +11,7 @@ Agent-Native 應用程式使用 [Better Auth](https://better-auth.com) 進行帳
 
 Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的。共有三種模式：
 
-- **預設：**使用電子郵件/密碼+社交提供者進行更好的驗證。首次存取時顯示的入門頁面。
+- **預設：**當外寄電子郵件已準備就緒時，Better Auth 優先使用 magic link，並以電子郵件/密碼作為備用方式，同時支援社交提供者。設定 `AUTH_MAGIC_LINK=0` 可強制使用備用方式。
 - **遠端 MCP OAuth：** 適用於 MCP 主機的標準 OAuth 2.1，例如 Claude 程式碼和 ChatGPT 連線器。
 - **自訂：**透過 `getSession` 回調帶來您自己的驗證。
 
@@ -102,11 +102,20 @@ Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的�
 
 </Callout>
 
+## 本機開發登入 {#local-development-sign-in}
+
+在使用迴圈位址的開發伺服器上，共用登入頁面會優先顯示 **Continue as local
+dev**。它會建立或重複使用真實的 Better Auth 開發帳戶和工作階段，因此使用的仍然是應用程式其他地方相同的驗證流程。
+
+選擇 **Show full sign in options** 可顯示一般註冊、密碼、magic link 和社交提供者選項。如果無法建立本機工作階段，頁面會自動顯示這些選項，讓你可以繼續使用標準驗證。
+
+此便利功能僅在開發或測試環境中，瀏覽器透過 `localhost`、`127.0.0.0/8` 或 `::1` 連線時可用。部署預覽和託管正式環境會停用此功能。這不是驗證繞過。設定 `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` 可選擇退出，讓本機開發顯示一般登入頁面。
+
 ## 更好的驗證（預設） {#better-auth}
 
 預設情況下，Better Auth 支援驗證。它提供：
 
-- 電子郵件/密碼註冊和登入
+- 使用 magic link 註冊和登入，並以電子郵件/密碼作為備用方式
 - 社交提供者（Google、GitHub 和 35 多個其他提供者）
 - 具有角色和邀請的組織
 - 用於 API 和 A2A 存取的 JWT 權杖
@@ -115,6 +124,7 @@ Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的�
 Better Auth 路由安裝在 `/_agent-native/auth/ba/*`。此框架還提供向後相容的端點：
 
 - `GET /_agent-native/auth/session` — 取得目前工作階段
+- `POST /_agent-native/auth/magic-link` — 要求 magic link 電子郵件
 - `POST /_agent-native/auth/login` — 電子郵件/密碼登入
 - `POST /_agent-native/auth/register` — 建立帳戶
 - `POST /_agent-native/auth/logout` — 退出
@@ -379,7 +389,7 @@ function MyComponent() {
 具有**公開頁面**（共用連結、嵌入、行銷頁面）的範本通常需要一個頁面內 CTA 來要求匿名檢視者登入並將他們帶回到他們所在的頁面。此框架為此提供了一個入口點：
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 當匿名檢視者點選此 URL 時，將提供框架的登入頁面。成功登入（任何流程 - 權杖、電子郵件/密碼或 GoogleOAuth）後，瀏覽器會返回 `return`。
@@ -394,8 +404,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -403,13 +412,13 @@ function SignInCta() {
 
 ### 已新增書簽的私人路徑
 
-一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/_agent-native/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
+一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
 
 此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/deployment#ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
 
 ### 幕後花絮：GoogleOAuth
 
-兩個流（顯式 `/_agent-native/sign-in` 入口點和書簽路徑情況）都將傳回 URL 對話串穿過 OAuth 狀態。該狀態是 HMAC 簽名的，因此在運輸過程中無法偽造。在回調中，返回的 URL 在重新導向之前被重新驗證為同來源 - 因此泄漏的簽名金鑰仍然無法轉換為開放重新導向預言機。
+兩個流（顯式 `/sign-in` 入口點和書簽路徑情況）都將傳回 URL 對話串穿過 OAuth 狀態。該狀態是 HMAC 簽名的，因此在運輸過程中無法偽造。在回調中，返回的 URL 在重新導向之前被重新驗證為同來源 - 因此泄漏的簽名金鑰仍然無法轉換為開放重新導向預言機。
 
 如果您的範本直接包裝 `/_agent-native/google/auth-url`（例如郵件和行事曆範本這樣做，以擴大範圍），則接受 `?return=<path>` 查詢並透過 `encodeOAuthState` 的選項物件形式轉發它：
 
@@ -446,3 +455,8 @@ const state = encodeOAuthState({
 | `ACCESS_TOKEN`                          | MCP/連線用戶端的靜態承載回退；不是瀏覽器驗證                                                                         |
 | `ACCESS_TOKENS`                         | MCP/connect 用戶端的逗號分隔靜態承載回退；不是瀏覽器驗證                                                             |
 | `A2A_SECRET`                            | JWT 簽名的 A2A 跨應用驗證的共用金鑰，以及 MCP OAuth 存取權杖簽名（如果存在）                                         |
+
+Dispatch 的 `desktop.workspace-sso` 旗標預設關閉，且只控制可用性；驗證、簽章、nonce、來源、回呼、工作階段及撤銷檢查一律強制執行。旗標關閉或無法讀取時，Desktop 不會變更逐一應用程式登入、登出或設定。
+User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗證與授權皆不信任該標記。
+標準託管應用程式無需為每個應用程式設定身分中心環境變數，即可辨識封裝版 Desktop SSO Canary 的要求。一般瀏覽器和自行託管的應用程式仍需設定 `AGENT_NATIVE_IDENTITY_HUB_URL`。穩定版 Desktop 在後續版本獲得單獨核准前不會初始化代理程式。
+Canary 不會攔截匿名使用者前往應用程式登入頁面的導覽。使用者必須在 Desktop 設定中，為目前啟用的已註冊應用程式明確選擇工作區登入；一般應用程式登入仍是預設路徑。

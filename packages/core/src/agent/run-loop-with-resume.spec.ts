@@ -883,7 +883,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(err.error).toBe(RUN_BUDGET_EXHAUSTED_MESSAGE);
     expect(err.error).toContain("stopped");
     expect(err.error).toContain("Check any completed tool cards");
-    expect(err.recoverable).toBe(true);
+    expect(err.recoverable).toBe(false);
     // The unfinished partial text must be cleared before the terminal so it
     // stands alone instead of trailing a half sentence.
     const clearIndex = sentEvents.findIndex((e) => e.type === "clear");

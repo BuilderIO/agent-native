@@ -204,6 +204,22 @@ describe("delegated A2A final response guards", () => {
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
       "Do not bounce the work back",
     );
+    // Callees were exploring instead of routing to an action they already had,
+    // which is what made cross-app calls take minutes. Two sentences carry it:
+    // prefer your own registered actions, and stop rather than keep searching.
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "Reach for your own registered actions first",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "never use a shell, filesystem, or code-execution tool",
+    );
+    // The callee must be told the wall clock it actually gets. Production
+    // iterations average ~34s against a 40s foreground wall, so a callee that
+    // does not know the budget plans work it cannot finish — "I ran out of
+    // time before finishing this step" was 39% of failed inbound A2A tasks.
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "This step is cut off after about 12 seconds",
+    );
   });
 
   it("keeps the MCP-local ask_app loop on the same guard contract", async () => {
@@ -239,7 +255,7 @@ describe("delegated A2A final response guards", () => {
       expect.objectContaining({
         finalResponseGuard: guard,
         maxOutputTokens: 32_000,
-        reasoningEffort: "medium",
+        reasoningEffort: "high",
         maxIterations: DEFAULT_DELEGATED_MAX_ITERATIONS,
         maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
         toolLimits: expect.objectContaining({

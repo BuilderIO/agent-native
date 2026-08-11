@@ -24,9 +24,18 @@ dive that asks what happened in customer conversations.
 - `account-deep-dive` — first choice for named account/deal deep dives that
   need HubSpot plus Gong. It searches by account/deal/company/contact domain,
   loads Gong call details, and returns compact transcript excerpts for synthesis.
-- `gong-calls` — list recent calls, search by company/domain/person/email, fetch
-  a single transcript by call ID, or return transcript excerpts for matching
-  calls.
+- `gong-calls` — bounded convenience reads: list recent calls, search by
+  company/domain/person/email, fetch a single transcript by call ID, or return
+  transcript excerpts for a small matching cohort. Its `transcriptQuery` is a
+  local scan after batched transcript retrieval, not Gong's server-side
+  keyword search.
+
+For broad or absence-sensitive Gong work, prefer the raw provider API surface:
+use `provider-api-catalog` / `provider-api-docs`, then stage `/calls/extensive`
+or another raw endpoint with `provider-api-request`. Reduce staged tracker or
+call data with `query-staged-dataset` or a Data Program. Use
+`provider-corpus-job` only when raw transcript bodies are required and no
+native/indexed search can answer the question.
 
 ## Route Synthesis and Evidence Separately
 
@@ -97,10 +106,30 @@ For account or deal deep dives:
    quoting, debugging, or export.
 6. Ground qualitative findings in the transcript excerpts and state how many
    calls were inspected.
-7. Page through calls using `cursor`/offset when you need broad coverage — for
-   large accounts with many calls, do NOT stop at the first page. For very large
-   pulls (100+ calls), prefer chunked background processing rather than a single
-   blocking fetch.
+7. For bounded account coverage, use `cursor`/offset only when the cohort is
+   intentionally bounded. If the action reports truncation, treat coverage as
+   incomplete and switch to tracker staging with `provider-api-request` plus
+   `query-staged-dataset` or a Data Program, or to `provider-corpus-job` when
+   raw transcript bodies are required. Do not increase the limit or keep
+   paging `gong-calls` for broad scans. Do not use
+   `gong-calls(exhaustive=true)` or one blocking `provider-api-request` call as
+   the analysis. Stage the raw response and reduce it with a Data Program or
+   `query-staged-dataset`; use `provider-corpus-job` for checkpointed transcript
+   batches when raw bodies are necessary.
+
+## Quota and Coverage Rules
+
+- Every Gong list or transcript page consumes provider quota. Budget pages and
+  transcript batches before starting a broad scan; do not spend quota retrying
+  the same bounded action after it reports incomplete coverage.
+- A terminal HTTP 429 is terminal for that attempt. The shared provider
+  transport may perform bounded cooldown/retry handling from `Retry-After`, but
+  the agent must not add another retry loop. Report the rate-limit failure and
+  switch to the staged tracker or checkpointed `provider-corpus-job` path only
+  if that route is still appropriate.
+- Exhaustive, count, and absence claims require complete coverage of the stated
+  cohort. If any page, transcript batch, or provider request fails or is
+  truncated, report the gap and do not make the claim.
 
 Example:
 
@@ -113,6 +142,9 @@ emails, and domains through `/calls/extensive`. Treat call details and transcrip
 excerpts as evidence; treat missing coverage as a gap, not proof that the topic
 never came up.
 
+Title/party matching is discovery only. Never use a title pre-filter as proof
+that a phrase is absent from transcripts.
+
 If transcript loading fails for a call, report that gap instead of inferring the
 conversation content from title, date, or participants.
 
@@ -124,31 +156,50 @@ debugging/export, and never pass raw transcript payloads into `save-analysis`.
 
 When the question is "do ANY of these calls mention X?" or "how many calls across
 this cohort mention X?" — where missing a single call makes the answer wrong — do
-NOT conclude absence from a sampled `includeTranscripts` result. Choose the
+NOT conclude absence from a sampled `includeTranscripts` result. Exhaustive
+claims require complete coverage of every call in the stated cohort. Choose the
 smallest complete path for the bounded cohort:
 
-1. **Named account, up to 50 calls, qualitative review.** Make one `gong-calls`
+1. **Configured keyword tracker.** If the requested term is already a Gong
+   keyword tracker exposed in API results, use `provider-api-request` against
+   `/calls/extensive` with `contentSelector.exposedFields.content.trackers`.
+   Stage the paginated calls, then flatten and filter tracker ids, names, or
+   phrases with `query-staged-dataset` or a Data Program. This is the preferred
+   broad keyword path because Gong has already indexed the tracker. It does not
+   answer arbitrary terms that are not configured as trackers.
+
+2. **Named account, up to 50 calls, qualitative review.** Make one `gong-calls`
    call with `exhaustive=true`, a bounded `after`/`before` window, and
    `includeTranscripts=true`. The action discovers every matching call and
    fetches transcript excerpts in batches, returning `transcriptCoverage`. Do
    not fetch the same call IDs one at a time afterward.
 
-2. **Bounded mention/absence search, up to 200 calls.** Make one `gong-calls`
+3. **Bounded arbitrary mention/absence search, up to 200 calls.** Make one
+   `gong-calls`
    call with `exhaustive=true`, the date window, `transcriptQuery`, and an
-   adequate `transcriptScanLimit`. Report its coverage fields and only make an
-   absence claim when coverage is complete.
+   adequate `transcriptScanLimit`. This is a bounded local scan after batched
+   transcript retrieval. Report its coverage fields and only make an absence
+   claim when coverage is complete.
 
-3. **Larger or multi-account corpus.** Prefer `provider-corpus-job` with
-   `mode: "batch-search"` over one-call-at-a-time loops. Use
+4. **Larger or multi-account arbitrary corpus.** Use
    `provider-api-catalog(provider: "gong")` and its `corpusRecipes` if you need
-   the exact shape. The canonical request is `POST /calls/transcript` with
+   the exact shape. Stage call ids with the raw API, then use
+   `provider-corpus-job` with `mode: "batch-search"` and 20-call transcript
+   batches. The canonical request is `POST /calls/transcript` with
    `batch.itemBodyPath: "filter.callIds"`, `batch.responseItemsPath:
 "callTranscripts"`, `batch.batchSize: 20`, `search.textPaths:
 ["transcript"]`, and `search.idPaths: ["callId"]`. Feed the staged/discovered
-   call IDs through `batch.inputDatasetId` + `batch.inputValuePath` or through
-   `batch.items`.
+   call ids through `batch.inputDatasetId` + `batch.inputValuePath` or through
+   `batch.items`. This is a durable full scan, not a server-side keyword query;
+   do not implement it as a per-call loop in `run-code` or a delegated agent.
 
-4. **Use `run-code` only for joins/reductions around the corpus path.** After
+When delegating a corpus chunk to an Agent Teams sub-agent, include the exact
+staged dataset id or `scratch/...` path and the output/checkpoint path in the
+task brief. The child starts with a clean context and must read the staged
+input before making any provider request. If that input is unavailable, it
+must report the missing input rather than re-fetching the entire Gong corpus.
+
+5. **Use `run-code` only for joins/reductions around the corpus path.** After
    the transcript job exists, use `run-code`, `query-staged-dataset`, or job
    results to join hits back to deals/accounts, compute variants, dedupe, and
    format evidence. A `run-code` loop over `gong-calls(transcript: id)` is a
@@ -166,5 +217,6 @@ matches found. Never turn "I inspected a sample" into "no call mentions X".
 | `transcriptMaxChars`     | 8 000   | 100 000 |
 
 For large account deep-dives or competitive analyses spanning many calls, use
-`limit: 50-200` and `transcriptLimit: 20-50`. For very large datasets, the
-`provider-api-request` escape hatch can page through the full Gong call list.
+`limit: 50-200` and `transcriptLimit: 20-50`. For very large datasets, use the
+checkpointed `provider-corpus-job` path rather than paging the full Gong call
+list inside one agent action.

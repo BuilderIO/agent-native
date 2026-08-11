@@ -54,6 +54,29 @@ describe("serializeActionQueryParams", () => {
     expect(params.has("empty")).toBe(false);
     expect(params.has("none")).toBe(false);
   });
+
+  it("serializes nested object GET params as JSON", () => {
+    const tableQuery = {
+      filters: [
+        {
+          propertyId: "status",
+          operator: "equals",
+          value: "published",
+        },
+      ],
+      sorts: [{ propertyId: "date", direction: "desc" }],
+    };
+
+    const query = serializeActionQueryParams({
+      documentId: "doc-1",
+      tableQuery,
+    });
+
+    const params = new URLSearchParams(query);
+    expect(params.get("documentId")).toBe("doc-1");
+    expect(params.get("tableQuery")).toBe(JSON.stringify(tableQuery));
+    expect(query).not.toContain("%5Bobject+Object%5D");
+  });
 });
 
 describe("callAction", () => {
@@ -202,6 +225,31 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+  });
+
+  it("sends the browser session id so actions share the agent run's session", async () => {
+    const store = new Map<string, string>([
+      ["agent-native.session_id_pin", "run-42"],
+    ]);
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAction("log-meal", { name: "Salad" });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Session-Id": "run-42",
+    });
   });
 
   it("serializes GET params for imperative reads", async () => {

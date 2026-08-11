@@ -1,4 +1,5 @@
 import {
+  CHAT_FIRST_DEFAULT_APP_IDS,
   DEFAULT_APPS as SHARED_DEFAULT_APPS,
   TEMPLATE_APPS as SHARED_TEMPLATE_APPS,
   getTemplate as getSharedTemplate,
@@ -6,25 +7,19 @@ import {
   type AppConfig,
 } from "@agent-native/shared-app-config";
 
-const DESKTOP_DEFAULT_EXCLUDED_APP_IDS = new Set(["starter"]);
+const DESKTOP_DEFAULT_EXCLUDED_APP_IDS = new Set(["starter", "chat"]);
 const DEFAULT_DESKTOP_TEMPLATE_GATEWAY_URL = "http://127.0.0.1:8080";
 const DESKTOP_APP_ICON_OVERRIDES: Partial<Record<string, string>> = {
   clips: "VideoPlus",
 };
 const DESKTOP_DEFAULT_APP_ORDER = [
-  "clips",
-  "plan",
-  "design",
-  "content",
-  "slides",
-  "analytics",
-  "mail",
-  "forms",
-  "brain",
-  "assets",
-  "calendar",
-  "dispatch",
-  "chat",
+  ...CHAT_FIRST_DEFAULT_APP_IDS,
+  ...SHARED_DEFAULT_APPS.map((app) => app.id).filter(
+    (id) =>
+      !CHAT_FIRST_DEFAULT_APP_IDS.includes(
+        id as (typeof CHAT_FIRST_DEFAULT_APP_IDS)[number],
+      ),
+  ),
 ];
 const DESKTOP_DEFAULT_APP_ORDER_INDEX = new Map(
   DESKTOP_DEFAULT_APP_ORDER.map((id, index) => [id, index]),

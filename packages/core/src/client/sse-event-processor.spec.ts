@@ -587,6 +587,43 @@ async function drain(iterable: AsyncIterable<unknown>) {
 }
 
 describe("SSE replay render pacing", () => {
+  it("marks an explicit done frame terminal without treating EOF as success", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "complete" }, { type: "done" }]),
+        [],
+        { value: 0 },
+        "tab-terminal-frame",
+        undefined,
+        undefined,
+        { markTerminalResults: true },
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+    });
+
+    const abruptEof = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    await expect(
+      drain(
+        readSSEStream(
+          abruptEof,
+          [],
+          { value: 0 },
+          "tab-abrupt-eof",
+          undefined,
+          undefined,
+          { markTerminalResults: true },
+        ),
+      ),
+    ).rejects.toMatchObject({ reason: "stream_ended" });
+  });
+
   it("yields to the browser event loop during a dense replay burst", async () => {
     const textEvents = Array.from({ length: 60 }, (_, index) => ({
       type: "text",
@@ -680,6 +717,101 @@ describe("SSE replay render pacing", () => {
         text: after.map((event) => event.text).join(""),
       },
     ]);
+  });
+
+  it("marks the browser liveness cursor only for durable progress events", async () => {
+    const events = [
+      { type: "text", text: "working", seq: 0 },
+      { type: "stream_keepalive", seq: 1 },
+      { type: "clear", seq: 2 },
+      { type: "tool_input_delta", text: "{", seq: 3 },
+      { type: "done", seq: 4 },
+    ];
+    const progressBySeq = new Map<number, boolean | undefined>();
+
+    await drain(
+      readSSEStream(
+        eventStream(events),
+        [],
+        { value: 0 },
+        undefined,
+        (seq, isProgress) => progressBySeq.set(seq, isProgress),
+      ),
+    );
+
+    expect([...progressBySeq.entries()]).toEqual([
+      [0, true],
+      [1, false],
+      [2, false],
+      [3, true],
+      [4, true],
+    ]);
+  });
+
+  it("streams partial tool input into one card before upgrading it", async () => {
+    const events = [
+      { type: "tool_input_start", id: "call-1", tool: "add-slide" },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\">',
+      },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: "<h1>Live title",
+      },
+      {
+        type: "tool_start",
+        id: "call-1",
+        tool: "add-slide",
+        input: {
+          deckId: "deck-1",
+          content: '<div class="fmd-slide"><h1>Live title</h1></div>',
+        },
+      },
+      {
+        type: "tool_done",
+        id: "call-1",
+        tool: "add-slide",
+        result: '{"slideId":"slide-1"}',
+      },
+      { type: "done" },
+    ];
+
+    const results = (await drain(
+      readSSEStream(eventStream(events), [], { value: 0 }, undefined),
+    )) as any[];
+
+    expect(results[2].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        activity: true,
+        argsText:
+          '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\"><h1>Live title',
+      }),
+    ]);
+    expect(results[3].content).toEqual([
+      {
+        type: "tool-call",
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        argsText: JSON.stringify(events[3].input),
+        args: events[3].input,
+      },
+    ]);
+    expect(results.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolCallId: "call-1",
+          toolName: "add-slide",
+          result: '{"slideId":"slide-1"}',
+        }),
+      ]),
+    );
   });
 
   it("marks synthetic agent-call cards as presentation-only activity", async () => {
@@ -1564,6 +1696,39 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  // `error-detail.ts` now names two deterministic failures that used to persist
+  // as `unknown` (a model/tools config rejection and a missing auth header) so
+  // they stop reaching users as raw provider text. Naming them must not make
+  // them auto-continue — a retry cannot fix either one, and this is the check
+  // that keeps a future addition to the recoverable list from doing so.
+  it("names a deterministic failure without making it recoverable", async () => {
+    for (const [errorCode, error] of [
+      [
+        "provider_config_error",
+        "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+      ],
+      ["authentication_error", "Missing Authentication header"],
+    ]) {
+      const caught = await (async () => {
+        try {
+          for await (const _ of readSSEStream(
+            eventStream([{ type: "error", error, errorCode }]),
+            [],
+            { value: 0 },
+            undefined,
+          )) {
+            // no-op
+          }
+        } catch (err) {
+          return err;
+        }
+        return undefined;
+      })();
+
+      expect(caught).not.toBeInstanceOf(AgentAutoContinueSignal);
+    }
+  });
+
   it("carries activity trail on auto-continuation signals", async () => {
     const err = await (async () => {
       try {
@@ -1893,7 +2058,7 @@ describe("SSE event processor error classification", () => {
         type: "agent-chat:run-error",
         detail: {
           message:
-            "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+            "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
           details: "401 status code (no body)",
           tabId: "tab-provider-auth",
         },
@@ -1906,7 +2071,7 @@ describe("SSE event processor error classification", () => {
       content: [
         {
           type: "text",
-          text: "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+          text: "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
         },
       ],
       status: { type: "incomplete", reason: "error" },
@@ -1914,7 +2079,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           runError: {
             message:
-              "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
             details: "401 status code (no body)",
           },
         },
@@ -2219,6 +2384,36 @@ describe("SSE event processor error classification", () => {
         },
       },
     });
+  });
+
+  it("keeps an intentional user stop neutral instead of adding a final warning", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Contacting model",
+          },
+          { type: "done", reason: "user" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-user-stop",
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(results.at(-1)?.content).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("without sending a final message"),
+        }),
+      ]),
+    );
   });
 
   it("fills the pending tool activity card when tool_start arrives", async () => {
@@ -3577,6 +3772,85 @@ describe("SSE event processor tool id matching", () => {
       approvalKey: 'send-email:{"to":"a@b.com"}',
     });
   });
+
+  it("prefers toolCallId over id when an approval carries both", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "send-email", id: "call-1", input: {} },
+          { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:call-2",
+            // `toolCallId` is the contract field; `id` is a stale older frame.
+            toolCallId: "call-2",
+            id: "call-1",
+            input: {},
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find((p: any) => p.type === "tool-call" && p.toolCallId === id);
+    expect(byId("call-2")?.approval).toEqual({
+      approvalKey: "send-email:call-2",
+    });
+    expect(byId("call-1")?.approval).toBeUndefined();
+  });
+
+  it("does not attach a replayed approval to a different call of the same action", async () => {
+    // call-1 is gated and resolved by its paused tool_done. call-2 is a second
+    // in-flight call to the same action. Replaying call-1's approval must not
+    // put call-1's key behind call-2's Approve button.
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "send-email", id: "call-1", input: {} },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:call-1",
+            toolCallId: "call-1",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "send-email",
+            id: "call-1",
+            result: "Awaiting human approval — did NOT execute.",
+          },
+          { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
+          // Reordered/replayed frame for the already-resolved call-1.
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:call-1",
+            toolCallId: "call-1",
+            input: {},
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find((p: any) => p.type === "tool-call" && p.toolCallId === id);
+    expect(byId("call-1")?.approval).toEqual({
+      approvalKey: "send-email:call-1",
+    });
+    expect(byId("call-2")?.approval).toBeUndefined();
+  });
 });
 
 describe("SSE event processor activity-label clearing", () => {
@@ -3640,6 +3914,31 @@ describe("SSE event processor activity-label clearing", () => {
       expect.objectContaining({
         type: "agent-chat:activity-clear",
         detail: { tabId: "tab-clear-text" },
+      }),
+    );
+  });
+
+  it("clears the running activity label when a terminal done follows preparation", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing patch deck...",
+            tool: "patch-deck",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-terminal",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-terminal" },
       }),
     );
   });

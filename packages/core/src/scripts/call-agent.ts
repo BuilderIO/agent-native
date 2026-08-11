@@ -30,6 +30,7 @@ import { findAgent, discoverAgents } from "../server/agent-discovery.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestRunContext,
   isIntegrationCallerRequest,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
@@ -37,6 +38,7 @@ import { track } from "../tracking/registry.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
+const NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS = 15_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
@@ -93,8 +95,13 @@ function buildDelegationCorrelation(
   const inheritedDepth = Number.isInteger(context?.delegationDepth)
     ? Math.max(0, Number(context?.delegationDepth))
     : 0;
+  // The model this turn is actually running on, so a receiver with no model of
+  // its own can match the user's selection instead of its own default. A
+  // preference only — the receiver bounds it to its own engine's catalog.
+  const callerModel = getRequestRunContext()?.model?.trim();
   return {
     ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
+    ...(callerModel ? { callerModel } : {}),
     ...(context?.threadId ? { callerThreadId: context.threadId } : {}),
     ...(context?.runId ? { parentRunId: context.runId } : {}),
     ...(context?.turnId ? { parentTurnId: context.turnId } : {}),
@@ -136,6 +143,28 @@ function terminalTaskError(value: unknown): {
   };
 }
 
+/**
+ * A delegated failure must be an error at the caller's tool boundary. Returning
+ * an `Error: ...` string makes the production agent treat the failed call as a
+ * successful tool result, so it can spend the rest of its turn retrying or
+ * changing arguments while the real failure remains invisible to the loop
+ * breaker.
+ */
+class A2AInvocationError extends Error {
+  readonly taskId?: string;
+  readonly errorCode?: string;
+
+  constructor(
+    message: string,
+    options: { taskId?: string; errorCode?: string } = {},
+  ) {
+    super(message);
+    this.name = "A2AInvocationError";
+    this.taskId = options.taskId;
+    this.errorCode = options.errorCode;
+  }
+}
+
 function buildMessageIdempotencyKey(
   originatingTurnId: string | undefined,
   target: string,
@@ -161,13 +190,32 @@ function parseTimeoutMs(value: string | undefined): number | undefined {
   return Math.floor(parsed);
 }
 
+function hasExplicitNonHostedNetlifyOverride(): boolean {
+  return (
+    process.env.NETLIFY_LOCAL === "true" || process.env.NETLIFY === "false"
+  );
+}
+
+function isNetlifyHostedRuntimeForIntegrationCall(): boolean {
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
+  if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
+
+  // NETLIFY is a build-time marker, while deployed Netlify Functions expose
+  // SITE_ID at runtime. Recognize the same runtime-only marker used by the
+  // durable background and run-manager gates so the integration caller hands
+  // slow A2A work to durable delivery before its foreground budget expires.
+  return Boolean(process.env.SITE_ID); // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+}
+
 function isServerlessHost(): boolean {
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
+
   // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
   // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
   // the canonical signal is the `__cf_env`/`__env__` global injected by the
   // Cloudflare runtime adapter.
   return (
-    !!process.env.NETLIFY ||
+    isNetlifyHostedRuntimeForIntegrationCall() ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.VERCEL ||
     "__cf_env" in globalThis ||
@@ -187,7 +235,9 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   // calls very short so multi-agent integration requests queue downstream
   // continuations quickly instead of spending the parent Slack/email processor
   // budget waiting on separately deployed apps one-by-one.
-  if (process.env.NETLIFY) return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
+  if (isNetlifyHostedRuntimeForIntegrationCall()) {
+    return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
+  }
 
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
@@ -262,7 +312,7 @@ function formatDownstreamLlmCredentialFailure(
 
 export const tool: ActionTool = {
   description:
-    "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
     'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
@@ -290,12 +340,12 @@ export const tool: ActionTool = {
       action: {
         type: "string",
         description:
-          "Optional exact read-only action for an explicitly known bounded operation. Prefer message when the target agent must interpret data, choose sources or tools, synthesize, mutate, or do multi-step work. Never guess the action schema or send receiver-owned SQL.",
+          "Optional exact read-only action for an explicitly known bounded operation. This field is never for creates, updates, deletes, sends, saves, publishes, or any other side effect. Prefer message when the target agent must interpret data, choose sources or tools, synthesize, mutate, or do multi-step work. Never guess the action schema or send receiver-owned SQL.",
       },
       input: {
         type: "object",
         description:
-          "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations.",
+          "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations. For a mutating request, omit action and use message.",
         additionalProperties: true,
       },
       approvedActions: {
@@ -450,6 +500,7 @@ export async function run(
           status: terminalStatus,
           agentCallId,
           durationMs: Date.now() - startedAt,
+          ...(terminalCode ? { terminalCode } : {}),
         });
       }
     }
@@ -635,6 +686,12 @@ export async function run(
       let lastProgressEmitAt = callStartedAt;
       let lastActivitySequence = -1;
       const onRemotePollUpdate = (task: Task) => {
+        // Capture the remote task id on every poll, not only on the timeout and
+        // error branches that used to set it. Without this a call that SUCCEEDS
+        // slowly carries no task id, so "why did this one take four minutes?"
+        // cannot be traced into the receiving app's own task record — which is
+        // the question worth asking about a slow cross-app call.
+        if (task?.id) invocationTaskId = task.id;
         const state = task?.status?.state;
         const parts = task.status?.message?.parts;
         const snapshot = Array.isArray(parts)
@@ -670,6 +727,10 @@ export async function run(
         // Docker can wait for slow-but-valid answers; integration processors
         // still need to finish before their current function execution dies.
         const callTimeoutMs = getIntegrationCallTimeoutMs();
+        const submissionTimeoutMs =
+          callTimeoutMs && isNetlifyHostedRuntimeForIntegrationCall()
+            ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
+            : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
           apiKey,
           userEmail: callerEmail,
@@ -686,6 +747,7 @@ export async function run(
           ...(callTimeoutMs
             ? {
                 timeoutMs: callTimeoutMs,
+                ...(submissionTimeoutMs ? { submissionTimeoutMs } : {}),
               }
             : {}),
         });
@@ -797,7 +859,20 @@ export async function run(
         agentCallId,
         ...(invocationTaskId ? { taskId: invocationTaskId } : {}),
         durationMs: Date.now() - callStartedAt,
+        ...(invocationTerminalCode
+          ? { terminalCode: invocationTerminalCode }
+          : {}),
       });
+
+      if (terminalStatus === "error") {
+        throw new A2AInvocationError(
+          responseText || `Error: The ${agent.name} agent returned no result.`,
+          {
+            taskId: invocationTaskId,
+            errorCode: invocationTerminalCode,
+          },
+        );
+      }
 
       return (
         responseText || `Error: The ${agent.name} agent returned no result.`
@@ -849,6 +924,7 @@ export async function run(
     invocationStatus = "success";
     return expanded;
   } catch (err: any) {
+    if (err instanceof A2AInvocationError) throw err;
     const msg = err?.message ?? String(err);
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
@@ -870,11 +946,15 @@ export async function run(
       invocationStatus = "error";
       invocationTaskId = terminal.taskId;
       invocationTerminalCode = terminal.errorCode ?? terminal.state;
-      return (
+      throw new A2AInvocationError(
         `Error calling ${agent.name}: remote task ${terminal.state}` +
-        (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-        (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-        (terminal.responseText ? `: ${terminal.responseText}` : "")
+          (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
+          (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+          (terminal.responseText ? `: ${terminal.responseText}` : ""),
+        {
+          taskId: terminal.taskId,
+          errorCode: terminal.errorCode ?? terminal.state,
+        },
       );
     }
     const timeoutTaskId = getA2ATaskTimeoutTaskId(err);
@@ -893,11 +973,16 @@ export async function run(
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
       invocationStatus = "error";
       invocationTerminalCode = "timeout_without_task";
-      return `Error calling ${agent.name}: the remote request timed out before a task id could be recovered.`;
+      throw new A2AInvocationError(
+        `Error calling ${agent.name}: the remote request timed out before a task id could be recovered.`,
+        { errorCode: "timeout_without_task" },
+      );
     }
     invocationStatus = "error";
     invocationTerminalCode = "call_failed";
-    return `Error calling ${agent.name}: ${msg}`;
+    throw new A2AInvocationError(`Error calling ${agent.name}: ${msg}`, {
+      errorCode: "call_failed",
+    });
   } finally {
     trackA2AInvocation({
       invocationId,

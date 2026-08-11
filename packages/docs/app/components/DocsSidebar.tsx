@@ -193,6 +193,11 @@ export default function DocsSidebar() {
                                 current === item.id ? null : item.id,
                               )
                             }
+                            style={
+                              item.draft
+                                ? { color: "var(--approaches-warn)" }
+                                : undefined
+                            }
                           >
                             <span>{item.label}</span>
                             <IconChevronRight
@@ -204,10 +209,15 @@ export default function DocsSidebar() {
                           </button>
                         ) : (
                           <Link
-                            data-an-prefetch={isOpen ? "render" : undefined}
+                            data-an-prefetch={isOpen ? "viewport" : undefined}
                             to={item.to!}
                             className={`sidebar-link${active ? " is-active" : ""}`}
                             tabIndex={isOpen ? undefined : -1}
+                            style={
+                              item.draft
+                                ? { color: "var(--approaches-warn)" }
+                                : undefined
+                            }
                           >
                             {item.label}
                           </Link>
@@ -229,12 +239,19 @@ export default function DocsSidebar() {
                                   <li key={child.id}>
                                     <Link
                                       data-an-prefetch={
-                                        childrenTabbable ? "render" : undefined
+                                        childrenTabbable
+                                          ? "viewport"
+                                          : undefined
                                       }
                                       to={child.to!}
                                       className={`sidebar-link sidebar-sublink${childActive ? " is-active" : ""}`}
                                       tabIndex={
                                         childrenTabbable ? undefined : -1
+                                      }
+                                      style={
+                                        child.draft
+                                          ? { color: "var(--approaches-warn)" }
+                                          : undefined
                                       }
                                     >
                                       {child.label}

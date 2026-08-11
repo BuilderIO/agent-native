@@ -18,6 +18,7 @@ const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
 const mockBuildAgentApiUrls = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
 const mockCountRecordingViews = vi.hoisted(() => vi.fn());
+const mockCountRecordingAgentViews = vi.hoisted(() => vi.fn());
 const mockHasExplicitRecordingShare = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
@@ -74,6 +75,11 @@ vi.mock("../../lib/recordings.js", () => ({
   getOrganizationRoleForEmail: (...args: unknown[]) =>
     mockGetOrganizationRoleForEmail(...args),
   parseSpaceIds: vi.fn(() => []),
+}));
+
+vi.mock("../../lib/agent-views.js", () => ({
+  countRecordingAgentViews: (...args: unknown[]) =>
+    mockCountRecordingAgentViews(...args),
 }));
 
 vi.mock("../../lib/recording-share-grant.js", () => ({
@@ -135,6 +141,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     animatedThumbnailUrl: null,
     sourceAppName: "Screen Recorder",
     durationMs: 120_000,
+    videoSizeBytes: 1200,
     editsJson: null,
     videoFormat: "mp4",
     width: 1920,
@@ -192,6 +199,7 @@ describe("/api/public-recording route", () => {
     });
     mockIsMediaVerificationPending.mockResolvedValue(false);
     mockCountRecordingViews.mockResolvedValue(7);
+    mockCountRecordingAgentViews.mockResolvedValue(2);
     mockHasExplicitRecordingShare.mockResolvedValue(false);
   });
 
@@ -204,7 +212,10 @@ describe("/api/public-recording route", () => {
     const result = await handler(event as any);
 
     expect(result).toMatchObject({
-      recording: { videoUrl: "/api/video/rec-1?t=media-token" },
+      recording: {
+        videoUrl: "/api/video/rec-1?t=media-token",
+        videoSizeBytes: 1200,
+      },
     });
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
       resourceId: "rec-1",
@@ -251,6 +262,37 @@ describe("/api/public-recording route", () => {
       ownerEmail: "owner@example.com",
       recordingId: "rec-1",
       recordingStatus: "processing",
+    });
+  });
+
+  it("exposes an interrupted upload as failed immediately after a share reload", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [
+          makeRecording({
+            password: null,
+            status: "failed",
+            uploadProgress: 40,
+            failureReason:
+              "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toMatchObject({
+      recording: {
+        status: "failed",
+        uploadProgress: 40,
+        failureReason:
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+      },
     });
   });
 
@@ -412,6 +454,8 @@ describe("/api/public-recording route", () => {
     expect(result.viewCount).toBe(7);
     expect(Number.isInteger(result.viewCount)).toBe(true);
     expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
+    expect(result.agentViewCount).toBe(2);
+    expect(mockCountRecordingAgentViews).toHaveBeenCalledWith("rec-1");
     expect(result.viewer).toBeNull();
     expect(result).not.toHaveProperty("viewers");
     expect(JSON.stringify(result)).not.toContain("viewerEmail");

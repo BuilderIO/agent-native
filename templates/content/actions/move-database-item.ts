@@ -5,6 +5,10 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
   databaseItemsPositionScope,
@@ -69,6 +73,11 @@ export default defineAction({
       databaseItemsPositionScope(row.item.databaseId),
       () =>
         db.transaction(async (tx) => {
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            row.item.databaseId,
+          );
+
           const items = await tx
             .select()
             .from(schema.contentDatabaseItems)
@@ -88,6 +97,11 @@ export default defineAction({
           const [moved] = nextItems.splice(currentIndex, 1);
           nextItems.splice(nextIndex, 0, moved);
           const now = new Date().toISOString();
+          await touchContentDatabase(
+            tx as unknown as ReturnType<typeof getDb>,
+            row.item.databaseId,
+            now,
+          );
           const itemIds = nextItems.map((item) => item.id);
           const documentIds = nextItems.map((item) => item.documentId);
 
@@ -135,6 +149,9 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(row.item.databaseId);
+    return getContentDatabaseResponse(row.item.databaseId, {
+      limit: 100,
+      offset: 0,
+    });
   },
 });

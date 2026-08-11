@@ -15,6 +15,7 @@ import {
   isInBackgroundFunctionRuntime,
 } from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
+import { isServerlessRuntime } from "../db/client.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -33,6 +34,10 @@ import {
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   processA2AContinuationById,
@@ -93,7 +98,6 @@ import {
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   integrationDispatchScopeValue,
   isInIntegrationRecoveryRuntime,
-  isIntegrationDurableDispatchConfigured,
   isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
 import {
@@ -193,7 +197,12 @@ import {
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-let a2aContinuationRetryInterval: ReturnType<typeof setInterval> | null = null;
+// Timer-driven sweep only — the atomic DB claim inside
+// processDueA2AContinuations already makes concurrent calls (this timer, the
+// opportunistic post-dispatch sweep, etc.) safe.
+let a2aContinuationJob: IntervalJobHandle | null = null;
+let a2aContinuationStartupTimer: ReturnType<typeof setTimeout> | null = null;
+const A2A_CONTINUATION_SWEEP_INTERVAL_MS = 60_000;
 const INTEGRATION_DELIVERY_LEASE_MS = 2 * 60_000;
 
 async function checkpointIntegrationDeliveryRetry(
@@ -328,23 +337,23 @@ async function containFailedDeliveryTransition(
 function startA2AContinuationRetryJob(
   adapters: Map<string, PlatformAdapter>,
 ): void {
-  if (a2aContinuationRetryInterval) return;
-  const initialTimer = setTimeout(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
+  if (a2aContinuationJob || a2aContinuationStartupTimer) return;
+  a2aContinuationStartupTimer = setTimeout(() => {
+    a2aContinuationStartupTimer = null;
+    a2aContinuationJob = startIntervalJob(
+      () => processDueA2AContinuations({ adapters }),
+      {
+        intervalMs: A2A_CONTINUATION_SWEEP_INTERVAL_MS,
+        onError: (err) => {
+          console.error(
+            "[integrations] A2A continuation retry job failed:",
+            err,
+          );
+        },
+      },
+    );
   }, 10_000);
-  unrefTimer(initialTimer);
-  a2aContinuationRetryInterval = setInterval(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
-  }, 60_000);
-  unrefTimer(a2aContinuationRetryInterval);
-}
-
-function unrefTimer(timer: ReturnType<typeof setInterval>): void {
-  (timer as unknown as { unref?: () => void }).unref?.();
+  a2aContinuationStartupTimer.unref?.();
 }
 
 // ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────
@@ -1787,15 +1796,16 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 401);
           return { error: "Invalid or expired internal token" };
         }
-        if (!isIntegrationDurableDispatchConfigured()) {
-          return { ok: true, disabled: true };
-        }
         const webhookBaseUrl = getBaseUrl(event);
         const [pendingTasks, campaigns, a2aContinuations] = await Promise.all([
+          // Portable (fire-and-forget) dispatch loses tasks whenever the
+          // self-dispatch POST dies with the container, and the in-process
+          // retry interval does not survive a serverless freeze. Sweeping only
+          // durable scopes left those deployments with no recovery at all, so
+          // the queue is swept regardless of dispatch mode.
           retryStuckPendingTasks({
             webhookBaseUrl,
             limit: 20,
-            durableOnly: true,
           }).catch((error) => {
             console.error(
               "[integrations] Pending-task recovery failed:",
@@ -3416,12 +3426,16 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // Background agent and scheduled recovery functions mount the same Nitro
-    // app, but they are workers rather than hosts for recurring integration
-    // jobs. Starting these timers in every worker multiplies recovery sweeps
-    // and pollers across concurrent runs, exhausting the shared database
-    // precisely while those runs are trying to checkpoint and deliver replies.
-    if (!isInBackgroundFunctionRuntime() && !isInIntegrationRecoveryRuntime()) {
+    // Serverless functions mount the same Nitro app as the durable workers,
+    // but they are not a stable host for recurring integration jobs. Starting
+    // these timers in every cold-started instance multiplies recovery sweeps
+    // and pollers against the shared database; scheduled/background workers
+    // own this work on hosted deployments.
+    if (
+      !isInBackgroundFunctionRuntime() &&
+      !isInIntegrationRecoveryRuntime() &&
+      !isServerlessRuntime()
+    ) {
       // ─── Start pending-tasks retry sweeper ────────────────────────
       // Sweeps the integration_pending_tasks queue every 60s and re-fires the
       // processor for any tasks that got stuck (initial dispatch lost or

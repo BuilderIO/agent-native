@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "./ui/tooltip";
@@ -41,76 +42,93 @@ describe("WorkspaceAppCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses one visible, consistent action treatment for context, keys, and more", async () => {
+  it("uses one explicit open action and one settings control", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "analytics",
-              name: "Analytics",
-              path: "/analytics",
-              description: "Explore product and growth performance.",
-              status: "ready",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                description: "Explore product and growth performance.",
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 
     const appLink = container.querySelector<HTMLAnchorElement>(
-      'a[aria-label="Open Analytics"]',
+      'a[href="/analytics"]',
     );
-    expect(appLink?.getAttribute("href")).toBe("/analytics");
-    expect(appLink?.getAttribute("target")).toBeNull();
-    expect(appLink?.getAttribute("rel")).toBeNull();
-    expect(appLink?.className).toContain("focus-visible:ring-2");
+    expect(appLink).not.toBeNull();
+    expect(appLink?.textContent).toContain("Open app");
+    expect(appLink?.getAttribute("target")).toBe("_blank");
+    expect(appLink?.getAttribute("rel")).toBe("noreferrer");
+    expect(appLink?.querySelector("svg")).toBeNull();
 
-    const actions = [
-      container.querySelector<HTMLButtonElement>(
-        'button[aria-label="View agent resources for Analytics"]',
+    expect(
+      container.querySelector(
+        'button[aria-label="Open options for Analytics"]',
       ),
-      container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Manage keys for Analytics"]',
-      ),
-      container.querySelector<HTMLButtonElement>(
+    ).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Open in new tab");
+    expect(document.body.textContent).not.toContain("Add app");
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
+    );
+    expect(settingsButton).not.toBeNull();
+    expect(settingsButton?.className).toContain("size-7");
+    expect(
+      container.querySelector(
         'button[aria-label="More actions for Analytics"]',
       ),
-    ];
-
-    for (const action of actions) {
-      expect(action).not.toBeNull();
-      expect(action?.className).toContain("size-7");
-      expect(action?.className).toContain("text-muted-foreground");
-      expect(action?.className).toContain(
-        "transition-[background-color,color]",
-      );
-      expect(action?.className).not.toContain("opacity-0");
-    }
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        'button[aria-label="View agent resources for Analytics"]',
+      ),
+    ).toBeNull();
   });
 
   it("labels per-app context as agent resources while preserving workspace scope", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "analytics",
-              name: "Analytics",
-              path: "/analytics",
-              description: "Explore product and growth performance.",
-              status: "ready",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                description: "Explore product and growth performance.",
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 
-    const resourcesButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="View agent resources for Analytics"]',
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
     );
 
-    await act(async () => resourcesButton?.click());
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const resourcesItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Agent resources"));
+    expect(resourcesItem).not.toBeUndefined();
+
+    await act(async () => resourcesItem?.click());
 
     expect(document.body.textContent).toContain("Analytics agent resources");
     expect(document.body.textContent).toContain(
@@ -124,23 +142,26 @@ describe("WorkspaceAppCard", () => {
   it("opens pending Builder apps in a new tab", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "new-app",
-              name: "New app",
-              path: "/new-app",
-              builderUrl: "https://builder.example.com/projects/new-app",
-              status: "pending",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "new-app",
+                name: "New app",
+                path: "/new-app",
+                builderUrl: "https://builder.example.com/projects/new-app",
+                status: "pending",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 
     const appLink = container.querySelector<HTMLAnchorElement>(
-      'a[aria-label="Open New app"]',
+      'a[href="https://builder.example.com/projects/new-app"]',
     );
+    expect(appLink).not.toBeNull();
     expect(appLink?.getAttribute("href")).toBe(
       "https://builder.example.com/projects/new-app",
     );
@@ -148,33 +169,35 @@ describe("WorkspaceAppCard", () => {
     expect(appLink?.getAttribute("rel")).toBe("noreferrer");
   });
 
-  it("shows ownership metadata in the more menu", async () => {
+  it("shows ownership metadata in the settings menu", async () => {
     await act(async () => {
       root.render(
-        <TooltipProvider>
-          <WorkspaceAppCard
-            app={{
-              id: "analytics",
-              name: "Analytics",
-              path: "/analytics",
-              createdAt: "2026-07-28T12:00:00.000Z",
-              createdBy: "creator@example.com",
-              owner: "owner@example.com",
-              teams: ["Growth", "Operations"],
-              status: "ready",
-            }}
-          />
-        </TooltipProvider>,
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                createdAt: "2026-07-28T12:00:00.000Z",
+                createdBy: "creator@example.com",
+                owner: "owner@example.com",
+                teams: ["Growth", "Operations"],
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
       );
     });
 
-    const moreButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="More actions for Analytics"]',
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
     );
-    expect(moreButton).not.toBeNull();
+    expect(settingsButton).not.toBeNull();
 
     await act(async () => {
-      moreButton?.dispatchEvent(
+      settingsButton?.dispatchEvent(
         new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
       );
     });

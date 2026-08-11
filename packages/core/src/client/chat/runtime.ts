@@ -4,6 +4,10 @@ import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  emitChatFirstOpenApp,
+  emitChatFirstOpenBrowser,
+} from "../chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "../error-format.js";
 import {
   settleInterruptedToolCalls,
@@ -1360,7 +1364,10 @@ function mapAgentNativeEvent(
         type: "approval-request",
         ...base,
         approvalId: ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
-        toolCallId: ev.id,
+        // `approval_required` carries the model-side call id as `toolCallId`,
+        // not `id`. Without this the request falls back to matching by tool
+        // name, which picks the wrong call when two are pending at once.
+        toolCallId: ev.toolCallId ?? ev.id,
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
         input: ev.input,
@@ -1632,20 +1639,34 @@ function applyRuntimeEventToContent(
     return { content: [...content] } as ChatModelRunResult;
   }
   if (typed.type === "approval-request") {
-    const part = [...content]
-      .reverse()
-      .find(
-        (candidate): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-          candidate.type === "tool-call" &&
-          (candidate.toolCallId === typed.toolCallId ||
-            candidate.toolName === typed.toolName),
-      );
-    if (part) {
+    const reversed = [...content].reverse();
+    const isToolCall = (
+      candidate: ContentPart,
+    ): candidate is Extract<ContentPart, { type: "tool-call" }> =>
+      candidate.type === "tool-call";
+    // Match on the exact call id whenever the server supplied one. Falling back
+    // to "newest call with this name" would hand this call's approvalKey to a
+    // different parallel call of the same action, so name matching is reserved
+    // for events that carry no id at all.
+    const part = typed.toolCallId
+      ? reversed.find(
+          (candidate) =>
+            isToolCall(candidate) && candidate.toolCallId === typed.toolCallId,
+        )
+      : reversed.find(
+          (candidate) =>
+            isToolCall(candidate) && candidate.toolName === typed.toolName,
+        );
+    if (part && part.type === "tool-call") {
       part.approval = { approvalKey: typed.approvalId };
-    } else {
+    } else if (!typed.toolCallId) {
+      // Only runtimes that never announced the call (no id) get a synthesized
+      // card. An id that matches nothing means the call was never observed or
+      // is already resolved, and inventing an Approve/Deny card for it would
+      // gate something the user cannot see.
       content.push({
         type: "tool-call",
-        toolCallId: typed.toolCallId ?? typed.approvalId,
+        toolCallId: typed.approvalId,
         toolName: typed.toolName ?? "approval",
         argsText: typed.input ? JSON.stringify(typed.input) : "",
         args: toContentPartInput(typed.input),
@@ -1779,6 +1800,7 @@ export function createAgentChatRuntimeAdapter(
       };
       try {
         for await (const event of turn.events) {
+          emitChatFirstOpenAppFromRuntimeEvent(event);
           const result = applyRuntimeEventToContent(event, projection);
           if (result) {
             const metadata = (result.metadata ?? {}) as Record<string, unknown>;
@@ -1808,4 +1830,84 @@ export function createAgentChatRuntimeAdapter(
       }
     },
   };
+}
+
+function emitChatFirstOpenAppFromRuntimeEvent(
+  event: AgentChatRuntimeEventBase,
+): void {
+  if (event.type !== "tool-done") return;
+  const toolEvent = event as AgentChatRuntimeToolDoneEvent;
+  if (
+    toolEvent.status !== "completed" ||
+    (!isOpenAppTool(toolEvent.toolName) &&
+      !isOpenBrowserTool(toolEvent.toolName))
+  ) {
+    return;
+  }
+
+  const result =
+    asRecord(toolEvent.result) ?? parseResultRecord(toolEvent.resultText);
+  if (!result) {
+    console.warn(
+      `[chat-first] ${toolEvent.toolName} completed without a readable result`,
+    );
+    return;
+  }
+  if (isOpenBrowserTool(toolEvent.toolName)) {
+    const delivery = emitChatFirstOpenBrowser({
+      url: readString(result.url ?? result.href),
+      title: readString(result.title ?? result.name),
+    });
+    warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
+    return;
+  }
+
+  const detail = {
+    app: readString(result.app ?? result.appId ?? result.application),
+    path: readString(result.path ?? result.targetPath),
+    url: readString(result.url ?? result.href),
+    view: readString(result.view),
+  };
+  const delivery = emitChatFirstOpenApp(detail);
+  warnWhenChatFirstDeliveryIsNotObserved(toolEvent.toolName, delivery);
+}
+
+function warnWhenChatFirstDeliveryIsNotObserved(
+  toolName: string,
+  delivery: { delivered: boolean; reason?: string },
+): void {
+  if (delivery.delivered) return;
+  console.warn(
+    `[chat-first] ${toolName} was completed but not delivered (${delivery.reason ?? "unknown"})`,
+  );
+}
+
+function isOpenAppTool(toolName: string): boolean {
+  return toolName === "open_app";
+}
+
+function isOpenBrowserTool(toolName: string): boolean {
+  return toolName === "open_browser";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function parseResultRecord(
+  value: string | undefined,
+): Record<string, unknown> | null {
+  if (!value?.trim()) return null;
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    // coercion-ok: malformed tool output is an unreadable absence; the caller logs it.
+    return null;
+  }
 }

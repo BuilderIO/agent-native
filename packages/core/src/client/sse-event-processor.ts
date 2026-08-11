@@ -78,6 +78,8 @@ export interface SSEEvent {
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
    *  paused `needsApproval` tool call. Present on `approval_required` events. */
   approvalKey?: string;
+  /** Model-side tool-call id for `approval_required` (mirrors AgentChatEvent). */
+  toolCallId?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -259,18 +261,30 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
 export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
 export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
 
+function sseTimeoutOverrideMs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 export function sseNoProgressTimeoutMs(options?: SSEStreamOptions): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
-    : SSE_NO_PROGRESS_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.noProgressTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
+      : SSE_NO_PROGRESS_TIMEOUT_MS)
+  );
 }
 
 function sseActionPreparationStallTimeoutMs(
   options?: SSEStreamOptions,
 ): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
-    : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.actionPreparationStallTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+      : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS)
+  );
 }
 
 export interface SSEStreamOptions {
@@ -284,6 +298,16 @@ export interface SSEStreamOptions {
    * the tight foreground 75s/90s windows.
    */
   durableBackgroundRun?: boolean;
+  /**
+   * Optional reader-local watchdog override. A background follow reader can
+   * use a shorter value because a timeout only detaches that read; the follow
+   * loop immediately re-checks the server-owned run state.
+   */
+  noProgressTimeoutMs?: number;
+  /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
+  actionPreparationStallTimeoutMs?: number;
+  /** Mark the adapter's final `done` snapshot terminal before it is yielded. */
+  markTerminalResults?: boolean;
   /**
    * Optional caller-owned preparation watchdog state. Passing the same object
    * across reconnect reads keeps a stuck action preparation from getting a
@@ -339,6 +363,23 @@ function isMeaningfulProgressEvent(
   }
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     if (options?.durableBackgroundRun === true) return true;
+    return actionPreparationProgress === true;
+  }
+  return true;
+}
+
+/**
+ * The browser's durable liveness cursor must mirror the server's
+ * `last_progress_at` predicate. The stream watchdog intentionally has a
+ * broader background policy, so it cannot be reused for this cursor: raw
+ * keepalives and repeated zero-byte preparation are not proof of real work.
+ */
+function isDurableProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+): boolean {
+  if (ev.type === "stream_keepalive" || ev.type === "clear") return false;
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     return actionPreparationProgress === true;
   }
   return true;
@@ -414,6 +455,47 @@ function findPendingToolCallIndexById(
     }
   }
   return -1;
+}
+
+/**
+ * Locate the tool call an `approval_required` event refers to.
+ *
+ * Stricter than `findPendingToolCallIndex`: when the server supplies a call id
+ * we never fall back to "newest pending call with this name". A paused
+ * `tool_done` resolves the call right after the gate fires, so a replayed or
+ * reordered approval would otherwise miss on id and silently attach this call's
+ * approvalKey to a *different* in-flight call of the same action — putting the
+ * wrong key behind a visible Approve button.
+ *
+ * The only tolerated fallback mirrors `findPendingActivityToolCallIndex`: a
+ * single unambiguous reader-local (`tc_N`) placeholder, which is how a call
+ * looks when an older server omitted the id on `tool_start`.
+ */
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (!toolCallId) {
+    return findPendingToolCallIndex(content, toolName);
+  }
+
+  const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+  if (exactIndex >= 0) return exactIndex;
+
+  const readerLocalCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined &&
+      /^tc_\d+$/.test(part.toolCallId)
+    ) {
+      readerLocalCandidates.push(i);
+    }
+  }
+  return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
 }
 
 function findOldestPendingActivityToolCallIndex(
@@ -958,6 +1040,7 @@ function coalesceJournalRecoveredTool(
       }
       if (current.mcpApp) prior.mcpApp = current.mcpApp;
       if (current.chatUI) prior.chatUI = current.chatUI;
+      if (current.approval) prior.approval = { ...current.approval };
     }
     content.splice(completedIndex, 1);
     return true;
@@ -1304,6 +1387,68 @@ export function processEvent(
     };
   }
 
+  if (ev.type === "tool_input_start" || ev.type === "tool_input_delta") {
+    const tool = ev.tool?.trim() || "unknown";
+    const pendingToolCallIndex = findPendingActivityToolCallIndex(
+      content,
+      tool,
+      ev.id,
+    );
+    let toolCallIndex = pendingToolCallIndex;
+
+    if (toolCallIndex < 0) {
+      const hasCompletedSameTool = content.some(
+        (part) =>
+          part.type === "tool-call" &&
+          part.toolName === tool &&
+          part.result !== undefined &&
+          (!ev.id || part.toolCallId === ev.id),
+      );
+      if (!hasCompletedSameTool) {
+        content.push({
+          type: "tool-call",
+          toolCallId: ev.id ?? `tc_${++toolCallCounter.value}`,
+          toolName: tool,
+          argsText: "",
+          args: {},
+          activity: true,
+        });
+        toolCallIndex = content.length - 1;
+      }
+    }
+
+    const pending = toolCallIndex >= 0 ? content[toolCallIndex] : undefined;
+    if (pending?.type === "tool-call") {
+      if (ev.id && pending.toolCallId !== ev.id) {
+        pending.toolCallId = ev.id;
+      }
+      if (ev.type === "tool_input_delta" && ev.text) {
+        pending.argsText += ev.text;
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-input", {
+          detail: {
+            phase: ev.type === "tool_input_start" ? "start" : "delta",
+            tool,
+            ...(ev.id ? { id: ev.id } : {}),
+            argsText:
+              pending?.type === "tool-call" ? pending.argsText : undefined,
+            ...(ev.type === "tool_input_delta" ? { text: ev.text ?? "" } : {}),
+            tabId,
+          },
+        }),
+      );
+    }
+
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
@@ -1336,8 +1481,7 @@ export function processEvent(
     const pendingIsActivityPlaceholder =
       pendingToolCall?.type === "tool-call" &&
       pendingToolCall.activity === true &&
-      pendingToolCall.argsText === "" &&
-      Object.keys(pendingToolCall.args).length === 0;
+      pendingToolCall.result === undefined;
     // A re-emitted start for the SAME id — a retry/auto-continue clear that
     // keeps the in-flight card mounted, or a reconnect replay — must update the
     // existing card in place instead of pushing a duplicate. Matching on id
@@ -1385,7 +1529,14 @@ export function processEvent(
     const approvalTool = ev.tool ?? "unknown";
     const approvalKey = ev.approvalKey;
     if (approvalKey) {
-      const idx = findPendingToolCallIndex(content, approvalTool, ev.id);
+      // `toolCallId` is the model-side id in the `approval_required` contract;
+      // `id` is only carried by older frames. Same precedence as the runtime
+      // path so both processors resolve an event to the same call.
+      const idx = findApprovalToolCallIndex(
+        content,
+        approvalTool,
+        ev.toolCallId ?? ev.id,
+      );
       if (idx >= 0) {
         const part = content[idx];
         if (part.type === "tool-call") {
@@ -1609,6 +1760,9 @@ export function processEvent(
         }),
       );
     }
+    // This event is terminal. There may be no visible text or tool_done after
+    // the last preparation activity, so do not leave its label mounted.
+    dispatchActivityClear(tabId);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
@@ -1712,6 +1866,9 @@ export function processEvent(
       ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
       ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
     };
+    // Non-recoverable errors end the turn. Recoverable errors return above as
+    // auto-continue signals and must keep their activity state alive.
+    dispatchActivityClear(tabId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
@@ -1735,6 +1892,11 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
+    // `done` is authoritative even when the final model chunk contains only
+    // a wrap-up marker. Clear any preparation label before inspecting pending
+    // tools so both success and interrupted-terminal paths settle the UI.
+    dispatchActivityClear(tabId);
+    const userStoppedRun = ev.reason === "user";
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,
@@ -1742,6 +1904,16 @@ export function processEvent(
     ];
     if (allInterruptedTools.length > 0) {
       settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      if (userStoppedRun) {
+        return {
+          action: "done",
+          result: {
+            content: contentSnapshot(content),
+            status: { type: "complete" as const, reason: "stop" as const },
+            metadata: { custom: { userStopped: true } },
+          } as ChatModelRunResult,
+        };
+      }
       const message = interruptedToolMessage(interruptedTools);
       const runError = {
         message,
@@ -1766,6 +1938,16 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
+    if (userStoppedRun) {
+      return {
+        action: "done",
+        result: {
+          content: contentSnapshot(content),
+          status: { type: "complete" as const, reason: "stop" as const },
+          metadata: { custom: { userStopped: true } },
         } as ChatModelRunResult,
       };
     }
@@ -1831,7 +2013,7 @@ export async function* readSSEStream(
   content: ContentPart[],
   toolCallCounter: { value: number },
   tabId: string | undefined,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   runId?: string | null,
   options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
@@ -1949,14 +2131,23 @@ export async function* readSSEStream(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {
@@ -1990,9 +2181,22 @@ export async function* readSSEStream(
           processEventState,
         );
 
-        if (result) {
+        const terminalResult =
+          result &&
+          options?.markTerminalResults === true &&
+          action === "done" &&
+          result.status == null
+            ? {
+                ...result,
+                status: {
+                  type: "complete" as const,
+                  reason: "stop" as const,
+                },
+              }
+            : result;
+        if (terminalResult) {
           await paceRenderUpdate();
-          yield withStreamMetadata(result);
+          yield withStreamMetadata(terminalResult);
         }
         if (
           hasStalledPreparingAction(
@@ -2066,7 +2270,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
@@ -2140,13 +2344,22 @@ export async function readSSEStreamRaw(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {

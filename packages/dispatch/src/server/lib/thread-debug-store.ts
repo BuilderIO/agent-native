@@ -1,4 +1,9 @@
+import {
+  classifyAgentFailure,
+  type AgentFailureRegime,
+} from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
+import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
@@ -74,6 +79,8 @@ interface AgentRunRow {
   worker_stage?: string | null;
   diag_stage?: string | null;
   peak_rss_mb?: number | string | null;
+  in_flight_since?: number | string | null;
+  dispatch_payload?: string | null;
 }
 
 const execCache = new Map<string, Promise<DbExec>>();
@@ -492,7 +499,7 @@ function assertSourceAccess(
 ) {
   if (source.kind === "current") return;
   if (!access.canInspectAll) {
-    throw new Error(
+    throw new ForbiddenError(
       "Only Dispatch admins can inspect thread databases from other apps.",
     );
   }
@@ -581,6 +588,11 @@ function serializeRun(row: AgentRunRow, events: any[] = []) {
     workerStage: row.worker_stage ? String(row.worker_stage) : null,
     diagStage: row.diag_stage ? String(row.diag_stage) : null,
     peakRssMb: nullableNumberField(row.peak_rss_mb),
+    inFlightSince: nullableNumberField(row.in_flight_since),
+    hasDispatchPayload:
+      row.dispatch_payload !== null &&
+      row.dispatch_payload !== undefined &&
+      String(row.dispatch_payload).length > 0,
     events,
   };
 }
@@ -652,6 +664,14 @@ function serializeRunFailure(
 ) {
   const startedAt = numberField(row.started_at);
   const completedAt = nullableNumberField(row.completed_at);
+  const terminalEvent = parseTerminalEvent(row.debug_terminal_event_data);
+  const failureTaxonomy = classifyAgentFailure({
+    runId: row.id,
+    errorCode: row.error_code,
+    errorDetail: row.error_detail,
+    terminalReason: row.terminal_reason,
+    terminalEvent,
+  });
   return {
     source: publicSource(source),
     id: String(row.id),
@@ -674,7 +694,9 @@ function serializeRunFailure(
     workerStage: row.worker_stage ? String(row.worker_stage) : null,
     diagStage: row.diag_stage ? String(row.diag_stage) : null,
     peakRssMb: nullableNumberField(row.peak_rss_mb),
-    terminalEvent: parseTerminalEvent(row.debug_terminal_event_data),
+    terminalEvent,
+    regime: failureTaxonomy.regime,
+    failureTaxonomy,
   };
 }
 
@@ -701,6 +723,7 @@ async function failuresForSource(
   scope: OwnerScope,
   input: {
     status: AgentRunFailureStatus | "all";
+    regime: AgentFailureRegime | "all";
     cutoff: number;
     limit: number;
   },
@@ -709,6 +732,12 @@ async function failuresForSource(
   const statuses =
     input.status === "all" ? [...UNSUCCESSFUL_RUN_STATUSES] : [input.status];
   const statusPlaceholders = statuses.map(() => "?").join(", ");
+  const regimeClause =
+    input.regime === "scheduled"
+      ? "AND r.id LIKE 'job-%'"
+      : input.regime === "interactive"
+        ? "AND r.id NOT LIKE 'job-%'"
+        : "";
   const rows = await queryRows<AgentRunFailureRow>(
     exec,
     `SELECT r.*,
@@ -726,6 +755,7 @@ async function failuresForSource(
        JOIN chat_threads t ON t.id = r.thread_id
       WHERE r.status IN (${statusPlaceholders})
         AND ${scope.sql}
+        ${regimeClause}
         AND COALESCE(r.completed_at, r.started_at) >= ?
       ORDER BY COALESCE(r.completed_at, r.started_at) DESC, r.id DESC
       LIMIT ?`,
@@ -738,12 +768,14 @@ export async function listAgentRunFailures(input: {
   sourceId?: string;
   ownerEmail?: string;
   status?: AgentRunFailureStatus | "all";
+  regime?: AgentFailureRegime | "all";
   lookbackHours?: number;
   limit?: number;
 }) {
   const access = await resolveDebugAccess();
   const requestedSourceId = input.sourceId?.trim() || "all";
   const status = input.status ?? "all";
+  const regime = input.regime ?? "all";
   const lookbackHours = Math.max(1, Math.min(720, input.lookbackHours ?? 168));
   const limit = Math.max(1, Math.min(100, input.limit ?? DEFAULT_SEARCH_LIMIT));
   const scope = ownerScope(access, input.ownerEmail, "t.owner_email");
@@ -784,6 +816,7 @@ export async function listAgentRunFailures(input: {
       try {
         const failures = await failuresForSource(source, scope, {
           status,
+          regime,
           cutoff,
           limit,
         });
@@ -829,6 +862,7 @@ export async function listAgentRunFailures(input: {
   return {
     sourceId: requestedSourceId,
     status,
+    regime,
     lookbackHours,
     limit,
     count: failures.length,
@@ -879,11 +913,11 @@ export async function searchAgentThreads(input: {
         ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
         : "";
     where.push(
-      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
         runIdClause +
         ")",
     );
-    args.push(pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern);
     args.push(...runThreadIds);
   }
   args.push(limit);

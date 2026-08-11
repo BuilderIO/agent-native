@@ -1,0 +1,232 @@
+---
+title: "सर्वर"
+description: "एजेंट-नेटिव ऐप में Nitro सर्वर परत: यह किसलिए है, कस्टम रूट्स कब अपनाएं, और इसके हिस्से कैसे जुड़ते हैं।"
+---
+
+# सर्वर
+
+`server/` डायरेक्टरी एजेंट-नेटिव ऐप की इंफ्रास्ट्रक्चर परत है। यह स्टार्टअप कार्य, प्रमाणीकरण, और वे HTTP सतहें संभालती है जिन्हें Actions कवर नहीं करते। अधिकांश उत्पाद व्यवहार [Actions](/docs/actions) में रहता है। सर्वर वह है जो उन Actions को उपलब्ध बनाता है।
+
+<Diagram id="doc-block-server-overview-1" title="अनुरोध सर्वर से होकर कैसे प्रवाहित होते हैं" summary="कॉलर Nitro सर्वर तक पहुँचते हैं, जो अधिकांश अनुरोधों को Actions के माध्यम से संभालता है। मिडलवेयर और रूट्स उन मामलों को कवर करते हैं जिन्हें Actions नहीं कर सकते। दोनों पथ डेटाबेस को क्वेरी कर सकते हैं।">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">ब्राउज़र / UI</div>
+    <div class="diagram-node">एजेंट लूप</div>
+    <div class="diagram-node">
+      बाहरी क्लाइंट्स<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro सर्वर</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">प्राथमिक पथ</small>
+    </div>
+    <div class="srv-or diagram-muted">या</div>
+    <div class="srv-path">
+      <span class="diagram-pill">मिडलवेयर</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">रूट्स</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL डेटाबेस<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## सर्वर की भूमिका कहाँ है {#role}
+
+एक पारंपरिक वेब ऐप में, अधिकांश लॉजिक सर्वर में रहता है। व्यावसायिक नियम, डेटा एक्सेस, और प्रेजेंटेशन सब कुछ रूट हैंडलर के भीतर होता है। एजेंट-नेटिव ऐप्स अलग तरीके से काम करते हैं। लॉजिक Actions में रहता है, जिसे एजेंट और UI समान भागीदारों के रूप में साझा करते हैं। सर्वर का काम समन्वय करना है: डेटाबेस माइग्रेशन चलाना, प्रमाणीकरण कॉन्फ़िगर करना, एजेंट लूप माउंट करना, और उन सीमित HTTP सरोकारों को संभालना जिन्हें Actions खुद व्यक्त नहीं कर सकते।
+
+<Diagram id="doc-block-server-overview-2" title="पारंपरिक सर्वर बनाम Agent Native">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">पारंपरिक</div>
+    <div class="diagram-node">ब्राउज़र</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>सर्वर</strong>
+      <small class="diagram-muted">लॉजिक यहाँ रहता है</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">रूट हैंडलर</span>
+        <span class="cmp-tag">व्यावसायिक लॉजिक</span>
+        <span class="cmp-tag">डेटा एक्सेस</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>डेटाबेस</div>
+  </div>
+  <div class="cmp-vs diagram-muted">बनाम</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">ब्राउज़र / UI</div>
+      <div class="diagram-node">एजेंट</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>सर्वर</strong>
+      <small class="diagram-muted">केवल समन्वय</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">Auth</span>
+        <span class="cmp-tag">माइग्रेशन</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>डेटाबेस</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+ब्राउज़र अनुरोध, एजेंट लूप, और बाहरी API क्लाइंट सभी एक ही Nitro सर्वर से होकर गुजरते हैं और एक ही SQL डेटाबेस से पढ़ते हैं। न कोई अलग एजेंट बैकएंड है, न कोई अलग UI बैकएंड। सर्वर परत ही वह है जो Actions को बाहरी दुनिया के सामने उजागर करती है।
+
+## server/ डायरेक्टरी में क्या है {#server-directory}
+
+ये वे डायरेक्टरी और फ़ाइलें हैं जो `server/` के भीतर हर एजेंट-नेटिव ऐप शिप करता है। प्रत्येक सर्वर परत के एक विशिष्ट हिस्से से मेल खाती है: यह क्या करती है, इसे कब अपनाना है, और यह फ्रेमवर्क के बाकी हिस्सों से कैसे जुड़ती है।
+
+| पेज                                     | यह क्या कवर करता है                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------ |
+| **[डेटाबेस](/docs/server-database)**    | `table()` हेल्पर्स, `getDb`, और ownable टेबल पैटर्न के साथ स्कीमा परिभाषा            |
+| **[मिडलवेयर](/docs/server-middleware)** | `server/middleware/` में Auth गार्ड और वे प्लगइन के बजाय वहाँ क्यों चलते हैं         |
+| **[प्लगइन्स](/docs/server-plugins)**    | auth और agent-chat के स्टार्टअप प्लगइन्स, साथ में वैकल्पिक app-owned db migrations   |
+| **[रूट्स](/docs/server-routes)**        | फ़ाइल-आधारित रूट्स, SSR कैच-ऑल, और अनुरोध उपयोगकर्ता तक कस्टम रूट्स का दायरा तय करना |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) वह सर्वर टूलकिट है जो एजेंट-नेटिव HTTP परत को शक्ति देता है। `server/` में आप जो अधिकांश चीज़ें कॉन्फ़िगर करते हैं वह Nitro ही है: फ़ाइल-आधारित रूट्स, स्टार्टअप प्लगइन्स, और मिडलवेयर।
+
+- **फ़ाइल-आधारित रूटिंग**: फ़ाइलनाम सीधे एक HTTP मेथड और URL पथ से मैप होता है, बिना किसी रजिस्ट्रेशन की आवश्यकता के। `server/routes/api/health.get.ts` अपने आप `GET /api/health` बन जाता है। अधिक विवरण के लिए [रूट्स](/docs/server-routes) देखें।
+- **प्लगइन्स**: वह कोड जो सर्वर स्टार्टअप पर रजिस्टर होकर एक बार लोड होता है। Framework helpers auth और agent-chat को इनिशियलाइज़ करते हैं; वैकल्पिक app-owned database migrations पहली request आने पर अभी चल रही हो सकती हैं। अधिक विवरण के लिए [प्लगइन्स](/docs/server-plugins) देखें।
+- **मिडलवेयर**: वह कोड जो हर आने वाले अनुरोध पर, किसी रूट तक पहुँचने से पहले चलता है। Auth गार्ड `server/middleware/` में रहता है। अधिक विवरण के लिए [मिडलवेयर](/docs/server-middleware) देखें।
+
+Nitro डिप्लॉयमेंट-अज्ञेयवादी भी है। बिना किसी कोड परिवर्तन के वही ऐप Node.js, Cloudflare Workers, Netlify, Vercel, और अन्य रनटाइम पर तैनात होता है। बस एक प्रीसेट सेट करें। [तैनाती](/docs/deployment) देखें।
+
+अंतर्निहित अनुरोध/प्रतिक्रिया API [H3](https://h3.unjs.io) है। जब आप कस्टम रूट्स में `defineEventHandler`, `createError`, या `getQuery` देखते हैं, वह H3 है। [Nitro डॉक्स](https://nitro.build/guide) और [H3 डॉक्स](https://h3.unjs.io) उस किसी भी चीज़ के लिए संदर्भ हैं जिसे फ्रेमवर्क सीधे कवर नहीं करता।
+
+## पहले Actions को डिफ़ॉल्ट मानें {#actions-first}
+
+Agent Native आर्किटेक्चर अलग है। जब भी आप अपने एप्लिकेशन के लिए किसी नई सुविधा के बारे में सोचें, तो पहले यह विचार करें कि क्या यह एक Action हो सकती है। उदाहरण के लिए, यदि UI और एजेंट दोनों को कुछ करने की आवश्यकता है, तो कस्टम API रूट के बजाय एक Action परिभाषित करें। Actions स्वचालित रूप से बन जाते हैं:
+
+- एजेंट टूल्स।
+- टाइप किए गए फ्रंटएंड हुक्स।
+- `/_agent-native/actions/:name` के तहत HTTP एंडपॉइंट्स।
+- MCP और A2A-कॉल करने योग्य टूल्स।
+- डेवलपमेंट के लिए CLI कमांड्स।
+
+कस्टम `/api/*` रूट्स का उपयोग तभी करें जब आपको रूट-आकार का प्रोटोकॉल या बाइनरी/स्ट्रीमिंग व्यवहार चाहिए। अधिक विवरण के लिए [Actions](/docs/actions) देखें।
+
+## आगे क्या है {#whats-next}
+
+- [**Actions**](/docs/actions): डिफ़ॉल्ट ऑपरेशन सतह। कस्टम रूट का सहारा तभी लें जब यह फ़िट न बैठे।
+- [**डेटाबेस**](/docs/server-database): `getDb()`/स्कीमा पैटर्न जिसे कस्टम रूट्स और Actions दोनों इम्पोर्ट करते हैं
+- [**मिडलवेयर**](/docs/server-middleware): Auth गार्ड और `server/middleware/` डायरेक्टरी
+- [**प्लगइन्स**](/docs/server-plugins): माइग्रेशन, auth, और एजेंट के लिए स्टार्टअप प्लगइन्स
+- [**रूट्स**](/docs/server-routes): फ़ाइल-आधारित रूट्स, अनुरोध संदर्भ, और SSR कैच-ऑल

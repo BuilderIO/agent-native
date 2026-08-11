@@ -1,4 +1,15 @@
+import type {
+  CreateMcpServerArgs,
+  McpServersList,
+  McpServer,
+  McpServerScope,
+  TestMcpUrlResult,
+} from "@agent-native/core/client/resources";
 import type { AppConfig, FrameSettings } from "@shared/app-registry";
+import {
+  CHAT_FIRST_MCP_IPC,
+  type ChatFirstMcpPluginImportResult,
+} from "@shared/chat-first-mcp";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
 import {
   IPC,
@@ -39,12 +50,17 @@ import {
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
   type DesktopAppRuntimeStatus,
+  type DesktopIdentityStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
+  type QuickPromptPreferences,
+  type QuickPromptSettings,
+  type QuickPromptSubmitRequest,
+  type QuickPromptSubmitResult,
   type InterAppMessage,
   type LocalAppFolderSelectResult,
   type UpdateStatus,
@@ -205,6 +221,49 @@ const electronAPI = {
     },
   },
 
+  /** Workspace identity commands expose intent and status, never credentials. */
+  identity: {
+    getStatus: (): Promise<DesktopIdentityStatus> =>
+      ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
+    signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
+    onStatusChange: (
+      cb: (status: DesktopIdentityStatus) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        status: DesktopIdentityStatus,
+      ) => cb(status);
+      ipcRenderer.on(IPC.IDENTITY_STATUS_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.IDENTITY_STATUS_CHANGED, handler);
+    },
+  },
+
+  /** Shared MCP connection management used by the desktop settings surface. */
+  mcpServers: {
+    list: (): Promise<McpServersList> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.LIST),
+    create: (args: CreateMcpServerArgs): Promise<McpServer> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.CREATE, args),
+    delete: (args: { id: string; scope: McpServerScope }): Promise<void> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.DELETE, args),
+    reconnect: (args: { id: string; scope: McpServerScope }): Promise<void> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.RECONNECT, args),
+    test: (
+      url: string,
+      headers?: Record<string, string>,
+    ): Promise<TestMcpUrlResult> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.TEST, { url, headers }),
+    testExisting: (args: {
+      id: string;
+      scope: McpServerScope;
+    }): Promise<TestMcpUrlResult> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.TEST_EXISTING, args),
+    importPlugin: (): Promise<ChatFirstMcpPluginImportResult> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.IMPORT_PLUGIN),
+  },
+
   /** Tell main process which app webview is currently active (for DevTools targeting) */
   setActiveApp: (appId: string) => ipcRenderer.send(IPC.SET_ACTIVE_APP, appId),
   setActiveWebview: (target: ActiveWebviewTarget) =>
@@ -221,6 +280,23 @@ const electronAPI = {
     load: (): Promise<FrameSettings> => ipcRenderer.invoke(IPC.FRAME_LOAD),
     update: (settings: Partial<FrameSettings>): Promise<FrameSettings> =>
       ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
+  },
+
+  /** Global Quick Prompt overlay controls */
+  quickPrompt: {
+    load: (): Promise<QuickPromptSettings> =>
+      ipcRenderer.invoke(IPC.QUICK_PROMPT_LOAD),
+    update: (
+      settings: Partial<QuickPromptPreferences>,
+    ): Promise<QuickPromptSettings> =>
+      ipcRenderer.invoke(IPC.QUICK_PROMPT_UPDATE, settings),
+    dismiss: (): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_DISMISS);
+    },
+    submit: (
+      request: QuickPromptSubmitRequest,
+    ): Promise<QuickPromptSubmitResult> =>
+      ipcRenderer.invoke(IPC.QUICK_PROMPT_SUBMIT, request),
   },
 
   /** Auto-update controls + status */

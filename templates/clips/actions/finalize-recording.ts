@@ -30,6 +30,7 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../server/lib/media-storage-provenance.js";
 import {
   mediaVerificationStateKey,
   parseMediaVerificationMarker,
@@ -48,6 +49,7 @@ import {
   getResumableSession,
 } from "../server/lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
+import { fetchS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   probeHasAudioStream,
@@ -181,7 +183,11 @@ function servedMediaSizeBytes(response: Response): number | null {
   return null;
 }
 
-async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
+async function verifyServedMediaUrl(
+  recordingId: string,
+  videoUrl: string,
+  allowLegacyObjectKey = false,
+): Promise<number | null> {
   if (!shouldVerifyServedMediaUrl(videoUrl)) return null;
 
   let lastFailure = "media URL did not serve readable bytes";
@@ -196,11 +202,21 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
       MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
     );
     try {
-      const response = await fetch(videoUrl, {
-        method: "GET",
-        headers: { Range: "bytes=0-1023" },
-        signal: controller.signal,
+      const signedS3Response = await fetchS3ObjectByUrl(videoUrl, {
+        range: "bytes=0-1023",
+        timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
+        recordingId,
+        ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
       });
+      let response = signedS3Response;
+      if (response?.status !== 200 && response?.status !== 206) {
+        await response?.body?.cancel().catch(() => undefined);
+        response = await fetch(videoUrl, {
+          method: "GET",
+          headers: { Range: "bytes=0-1023" },
+          signal: controller.signal,
+        });
+      }
       const statusOk = response.status === 200 || response.status === 206;
       if (statusOk) {
         const servedBytes = servedMediaSizeBytes(response);
@@ -727,6 +743,7 @@ async function retryPendingMediaVerification(params: {
     .select({
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
+      editsJson: schema.recordings.editsJson,
     })
     .from(schema.recordings)
     .where(
@@ -754,7 +771,15 @@ async function retryPendingMediaVerification(params: {
     videoUrl: recording.videoUrl || media.videoUrl,
   };
   try {
-    const servedBytes = await verifyServedMediaUrl(candidate.videoUrl);
+    const servedBytes = await verifyServedMediaUrl(
+      id,
+      candidate.videoUrl,
+      allowsLegacyS3ObjectForPersistedMedia({
+        requestedUrl: candidate.videoUrl,
+        persistedUrl: recording.videoUrl,
+        editsJson: recording.editsJson,
+      }),
+    );
     const result = await markRecordingReady({
       id,
       ownerEmail,
@@ -902,6 +927,12 @@ export default defineAction({
         "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
       ),
     mediaVerificationRetryAttempt: z.number().int().min(1).max(10).optional(),
+    uploadGenerationId: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe("Upload generation that owns the scratch data being finalized"),
   }),
   run: async (args) => {
     const db = getDb();
@@ -921,7 +952,7 @@ export default defineAction({
     // never retain scratch video blobs.
     let chunkKeysToPurge: string[] = [];
     try {
-      const [existing] = await db
+      let [existing] = await db
         .select()
         .from(schema.recordings)
         .where(
@@ -938,6 +969,32 @@ export default defineAction({
         throw new Error(`Recording not found: ${id}`);
       }
 
+      const generationId = args.uploadGenerationId ?? null;
+      if ((existing.uploadGenerationId ?? null) !== generationId) {
+        throw new Error("Upload generation changed before finalization");
+      }
+      // Claim finalization before touching provider/scratch state. Reset only
+      // admits uploading/failed rows, so once this CAS succeeds it cannot
+      // replace the generation underneath a delayed final chunk.
+      if (generationId !== null && existing.status === "uploading") {
+        const claimed = await db
+          .update(schema.recordings)
+          .set({ status: "processing", updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "uploading"),
+              eq(schema.recordings.uploadGenerationId, generationId),
+            ),
+          )
+          .returning();
+        if (claimed.length !== 1) {
+          throw new Error("Upload changed before finalization could claim it");
+        }
+        existing = claimed[0]!;
+      }
+
       // Idempotency guard: finalize can be re-invoked when a client retries the
       // final chunk after a lost response. If already 'ready' return the existing
       // result instead of re-running the complete/assembly path (session and
@@ -947,7 +1004,7 @@ export default defineAction({
         // A prior attempt may have persisted the ready row and then failed
         // before deleting its resumable-session handle. The provider upload is
         // complete at this point, so retire only the local retry state.
-        await deleteResumableSession(id).catch((err) =>
+        await deleteResumableSession(id, generationId).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
         );
         await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
@@ -1038,7 +1095,7 @@ export default defineAction({
 
       // Resumable path: create-recording initialized a session and chunk.post.ts
       // forwarded all chunks to the provider. Complete the session to get the CDN URL.
-      const resumableSession = await getResumableSession(id);
+      const resumableSession = await getResumableSession(id, generationId);
       if (resumableSession && isStreamingUploadDisabled()) {
         console.warn(
           `[finalize] streaming uploads are disabled, but completing existing resumable session for in-flight recording: ${id}`,
@@ -1123,7 +1180,7 @@ export default defineAction({
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
           let servedBytes: number | null;
           try {
-            servedBytes = await verifyServedMediaUrl(videoUrl);
+            servedBytes = await verifyServedMediaUrl(id, videoUrl, true);
           } catch (err) {
             const failureReason =
               err instanceof Error ? err.message : String(err);
@@ -1147,7 +1204,7 @@ export default defineAction({
                 locallyTranscoded: args.locallyTranscoded === true,
               },
             });
-            await deleteResumableSession(id).catch((deleteErr) =>
+            await deleteResumableSession(id, generationId).catch((deleteErr) =>
               console.warn(
                 "[finalize] failed to retire pending resumable session:",
                 deleteErr,
@@ -1178,7 +1235,7 @@ export default defineAction({
           }
           // Delete only after durable state is written — so a retry before
           // this point can still find the session and re-enter this path.
-          deleteResumableSession(id).catch((err) =>
+          deleteResumableSession(id, generationId).catch((err) =>
             console.warn("[finalize] failed to delete resumable session:", err),
           );
           return result;
@@ -1262,7 +1319,11 @@ export default defineAction({
       // Pull chunk keys first, then fetch values one at a time. A single
       // SELECT key,value over many base64 chunks can exceed Neon's 8s op
       // timeout before we even start assembling the recording.
-      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      const chunkKeys = await listRecordingChunkKeys(
+        ownerEmail,
+        id,
+        generationId,
+      );
       const expectedDataChunks = stateNumber(uploadState, "expectedDataChunks");
       debugLog("[finalize] chunks found", {
         id,
@@ -1667,7 +1728,7 @@ export default defineAction({
       });
       let servedBytes: number | null;
       try {
-        servedBytes = await verifyServedMediaUrl(upload.url);
+        servedBytes = await verifyServedMediaUrl(id, upload.url, true);
       } catch (err) {
         const failureReason = err instanceof Error ? err.message : String(err);
         return await leaveRecordingProcessingForMediaVerification({

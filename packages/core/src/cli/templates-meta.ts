@@ -105,7 +105,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "analytics",
     label: "Analytics",
-    hint: "Agent-native Amplitude/Mixpanel — connect data sources, prompt for charts",
+    hint: "Agent-native provider analytics - connect data sources, prompt for charts and deep dives",
     icon: "BarChart2",
     color: "#F59E0B",
     colorRgb: "245 158 11",
@@ -253,6 +253,19 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://macros.agent-native.com",
     hidden: true,
     defaultMode: "dev",
+  },
+  {
+    name: "factory",
+    label: "Factory",
+    hint: "Build agent factories with gates you control",
+    icon: "Users",
+    color: "#7C3AED",
+    colorRgb: "124 58 237",
+    devPort: 8108,
+    prodUrl: "https://agent-native-factory.netlify.app",
+    hidden: true,
+    defaultMode: "dev",
+    core: false,
   },
 ];
 

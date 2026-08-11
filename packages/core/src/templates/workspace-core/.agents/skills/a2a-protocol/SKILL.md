@@ -17,6 +17,17 @@ Agents call other agents over A2A, a JSON-RPC protocol for discovery and
 delegation. Use it when work belongs to a different agent entirely — not the
 local agent chat.
 
+**No workarounds when A2A feels flaky.** The strong default is `ask_app` (or
+`call-agent`) working reliably, full stop — not apps reaching around it. Do
+not have app A generate and execute raw SQL against app B's database, and do
+not expose B's internal tools directly to A as a substitute for delegation.
+The receiving agent has context, skills, and guardrails the caller doesn't;
+bypassing it to work around a flaky A2A call reintroduces exactly the bugs A2A
+exists to prevent, and makes the real reliability problem invisible instead of
+fixing it. If A2A delegation is unreliable, fix A2A — file it as a bug in the
+delegation path (timeout handling, retries, typed terminal states), don't
+route around it app by app.
+
 Connecting app A to app B is two independent things, and both must be true:
 
 1. **B is registered on A** as a `remote-agents/<id>.json` resource.

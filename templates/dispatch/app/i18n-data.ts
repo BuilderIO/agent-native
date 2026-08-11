@@ -1,5 +1,6 @@
 import { type LocaleCode } from "@agent-native/core/client/i18n";
 
+import { chatFirstPageTranslations } from "./chat-first-pages";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
@@ -37,6 +38,16 @@ const enUS = {
     deliveryDescription:
       "Manage message destinations and check the outbound delivery queue.",
     openDelivery: "Open delivery",
+    chatFirstTitle: "Chat-first workspace",
+    chatFirstDescription:
+      "Keep chats at the center and open workspace apps in a contextual pane beside them. This preference only changes your local Dispatch shell.",
+    chatFirstAriaLabel: "Use chat-first navigation",
+    chatFirstSessionWatchDescription:
+      "Session watch and follow-up messaging work in this browser pane too. Local CLI subscription detection stays in the Electron app; Dispatch uses workspace/provider credentials.",
+    chatFirstStorageUnavailable:
+      "This browser is not allowing local preferences, so Chat-first mode cannot be persisted.",
+    chatFirstStorageBlocked:
+      "This browser blocked local preferences, so Chat-first mode was not changed.",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, voice, and other controls. Use the Automations page for scheduled and event-triggered jobs.",
@@ -266,6 +277,7 @@ const enUS = {
   },
   dispatch: {
     nav: {
+      admin: "Admin",
       automations: "Automations",
       approvals: "Approvals",
       delivery: "Delivery",
@@ -276,6 +288,18 @@ const enUS = {
       agent: "Agent",
     },
     pages: {
+      adminDescription: "Workspace controls and operations",
+      adminNavigation: "Admin navigation",
+      adminWelcome: "Workspace control plane",
+      adminChooseArea:
+        "Manage apps, connections, automations, and operational tools from one place.",
+      adminChooseAreaHint: "Choose an area from the Admin navigation.",
+      adminWorkspace: "Workspace",
+      adminOperations: "Operations",
+      adminAutomation: "Automation & delivery",
+      adminConnections: "Connections",
+      adminAgentPlatform: "Agent platform",
+      adminWorkspaceExtensions: "Workspace extensions",
       dataLoadFailed: "Couldn't load data",
       dataLoadFailedDescription: "Dispatch couldn't load this data.",
       tryAgain: "Try again",
@@ -356,7 +380,7 @@ const enUS = {
       threadDebugRefreshFailures: "Refresh failed runs",
       threadDebugNoFailures: "No failed runs found.",
       threadDebugCurrentDatabase: "Current Dispatch DB",
-      threadDebugSearchPlaceholder: "Search title, preview, messages, tools",
+      threadDebugSearchPlaceholder: "Search threads or email",
       threadDebugSearch: "Search",
       threadDebugLookupPlaceholder: "Paste thread or request/run ID",
       threadDebugInspect: "Inspect",
@@ -366,6 +390,77 @@ const enUS = {
       threadDebugRefreshThreads: "Refresh threads",
       threadDebugNoThreads: "No threads found.",
       threadDebugSelectPrompt: "Select a failed run or thread to inspect.",
+      chatFirstWorkspaceApps: "Workspace apps",
+      chatFirstCreateWorkspaceApp: "Create workspace app",
+      chatFirstOpenApp: "Open {{name}}",
+      chatFirstAppsLoadError: "Workspace apps could not be loaded",
+      chatFirstNoWorkspaceApps: "No workspace apps yet.",
+      chatFirstCreateApp: "Create app",
+      chatFirstRetry: "Retry",
+      chatFirstUnpinApp: "Unpin {{name}}",
+      chatFirstPinApp: "Pin {{name}}",
+      chatFirstRemovePinned: "Remove from pinned apps",
+      chatFirstPinTop: "Pin app to the top",
+      chatFirstOpenSideSurfaces: "Open side surfaces",
+      chatFirstCloseTab: "Close {{name}}",
+      chatFirstClose: "Close",
+      chatFirstCloseOthers: "Close others",
+      chatFirstCloseToRight: "Close to the right",
+      chatFirstCloseAll: "Close all",
+      chatFirstBrowserAgentHint: "Ask the agent to open a web URL.",
+      chatFirstUnavailable: "This surface is not available here.",
+      chatFirstOpenActivity: "Open activity",
+      chatFirstDeferred: "Deferred",
+      chatFirstSurfaceBrowserLabel: "Browser",
+      chatFirstSurfaceBrowserDescription:
+        "Open a regular web page with address-bar controls.",
+      chatFirstSurfaceBrowserReason: "Ask the agent to open a web URL.",
+      chatFirstSurfaceTerminalLabel: "Terminal",
+      chatFirstSurfaceTerminalDescription:
+        "Run commands beside the conversation.",
+      chatFirstSurfaceTerminalReason:
+        "Deferred in this release: the existing terminal is a standalone host surface; an embedded pane needs a shared PTY lifecycle.",
+      chatFirstSurfaceFilesLabel: "Files",
+      chatFirstSurfaceFilesDescription: "Browse the active workspace tree.",
+      chatFirstSurfaceFilesReason:
+        "Deferred in this release: this shared pane contract does not expose a bounded workspace tree yet.",
+      chatFirstSurfaceDiffLabel: "Diff",
+      chatFirstSurfaceDiffDescription: "Review the current changeset.",
+      chatFirstSurfaceDiffReason:
+        "Deferred in this release: diff blocks remain available in chat while a shared changed-file source is defined.",
+      chatFirstSurfaceSideChatLabel: "Side chat",
+      chatFirstSurfaceSideChatDescription:
+        "Watch and message another session beside the main chat.",
+      chatFirstSurfaceAgentsLabel: "Agents",
+      chatFirstSurfaceAgentsDescription:
+        "Review agent sessions and watch one beside the conversation.",
+      chatFirstSurfaceSideChatReason:
+        "Choose Watch and message from any chat row.",
+      chatFirstSurfaceAgentsReason:
+        "Review recent runs or watch one beside this conversation.",
+      chatFirstAppView: "Contextual app view",
+      chatFirstContextualView: "Contextual view · {{view}}",
+      chatFirstWorkspaceApp: "Workspace app",
+      chatFirstCloseAppPane: "Close app pane",
+      chatFirstAppUnavailable: "This workspace app is no longer available.",
+      chatFirstLoadingApp: "Loading app",
+      chatFirstBrowserBack: "Back",
+      chatFirstBrowserForward: "Forward",
+      chatFirstBrowserReload: "Reload page",
+      chatFirstBrowserAddress: "Browser address",
+      chatFirstBrowserOpenExternal: "Open in external browser",
+      chatFirstBrowserClose: "Close browser",
+      chatFirstBrowserPage: "Browser page",
+      chatFirstBrowserInvalidUrl: "Enter a full http(s) URL to navigate.",
+      chatFirstWatchingSession: "Watching {{name}}",
+      chatFirstSession: "session",
+      chatFirstStopWatchingSession: "Stop watching session",
+      chatFirstStopWatching: "Stop watching",
+      chatFirstWatchedSession: "Watched session",
+      chatFirstSessionMessagePlaceholder: "Message this session…",
+      chatFirstAgentsTitle: "Subagents",
+      chatFirstUntitledAgentSession: "Untitled agent session",
+      chatFirstAgentChatSession: "Agent chat session",
     },
   },
 };
@@ -491,6 +586,16 @@ export const messagesByLocale = {
       deliveryTitle: "投递",
       deliveryDescription: "管理消息目的地并查看出站投递队列。",
       openDelivery: "打开投递",
+      chatFirstTitle: "聊天优先工作区",
+      chatFirstDescription:
+        "让聊天保持中心位置，并在旁边的上下文面板中打开工作区应用。此偏好只会更改你在 Dispatch 中的本地界面。",
+      chatFirstAriaLabel: "使用聊天优先导航",
+      chatFirstSessionWatchDescription:
+        "会话监看和后续消息也可在此浏览器面板中使用。本地 CLI 订阅检测保留在 Electron 应用中；Dispatch 使用工作区/提供商凭据。",
+      chatFirstStorageUnavailable:
+        "此浏览器不允许使用本地偏好设置，因此无法保存聊天优先模式。",
+      chatFirstStorageBlocked:
+        "此浏览器阻止了本地偏好设置，因此未更改聊天优先模式。",
       agentTitle: "管理代理",
       agentDescription:
         "管理代理的模型、API 密钥、语音和其他控制项。定时与事件触发的任务请使用自动化页面。",
@@ -713,6 +818,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "管理",
         automations: "自动化",
         approvals: "批准",
         delivery: "投递",
@@ -723,6 +829,18 @@ export const messagesByLocale = {
         agent: "代理",
       },
       pages: {
+        ...chatFirstPageTranslations["zh-CN"],
+        adminDescription: "工作区控制与运营",
+        adminNavigation: "管理导航",
+        adminWelcome: "工作区控制中心",
+        adminChooseArea: "在一个地方管理应用、连接、自动化和运营工具。",
+        adminChooseAreaHint: "从管理导航中选择一个区域。",
+        adminWorkspace: "工作区",
+        adminOperations: "运营",
+        adminAutomation: "自动化与投递",
+        adminConnections: "连接",
+        adminAgentPlatform: "代理平台",
+        adminWorkspaceExtensions: "工作区扩展",
         dataLoadFailed: "无法加载数据",
         dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
         tryAgain: "重试",
@@ -848,6 +966,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gestiona destinos de mensajes y revisa la cola de entrega saliente.",
       openDelivery: "Abrir entrega",
+      chatFirstTitle: "Espacio de trabajo centrado en el chat",
+      chatFirstDescription:
+        "Deja los chats en el centro y abre las apps del espacio de trabajo en un panel contextual junto a ellos. Esta preferencia solo cambia tu shell local de Dispatch.",
+      chatFirstAriaLabel: "Usar navegación centrada en el chat",
+      chatFirstSessionWatchDescription:
+        "Puedes observar sesiones y enviar mensajes de seguimiento desde este panel del navegador. La detección de suscripciones CLI locales permanece en la app de Electron; Dispatch usa credenciales del espacio de trabajo/proveedor.",
+      chatFirstStorageUnavailable:
+        "Este navegador no permite las preferencias locales, por lo que el modo centrado en el chat no se puede guardar.",
+      chatFirstStorageBlocked:
+        "Este navegador bloqueó las preferencias locales, por lo que no se cambió el modo centrado en el chat.",
       agentTitle: "Gestionar agente",
       agentDescription:
         "Gestiona el modelo del agente, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
@@ -1093,6 +1221,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administración",
         automations: "Automatizaciones",
         approvals: "Aprobaciones",
         delivery: "Entrega",
@@ -1103,6 +1232,20 @@ export const messagesByLocale = {
         agent: "Agente",
       },
       pages: {
+        ...chatFirstPageTranslations["es-ES"],
+        adminDescription: "Controles y operaciones del espacio de trabajo",
+        adminNavigation: "Navegación de administración",
+        adminWelcome: "Panel de control del espacio de trabajo",
+        adminChooseArea:
+          "Gestiona aplicaciones, conexiones, automatizaciones y herramientas operativas desde un solo lugar.",
+        adminChooseAreaHint:
+          "Elige un área en la navegación de administración.",
+        adminWorkspace: "Espacio de trabajo",
+        adminOperations: "Operaciones",
+        adminAutomation: "Automatización y entrega",
+        adminConnections: "Conexiones",
+        adminAgentPlatform: "Plataforma de agentes",
+        adminWorkspaceExtensions: "Extensiones del espacio de trabajo",
         dataLoadFailed: "No se pudieron cargar los datos",
         dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
         tryAgain: "Intentar de nuevo",
@@ -1239,6 +1382,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gérez les destinations de messages et consultez la file d’attente sortante.",
       openDelivery: "Ouvrir la livraison",
+      chatFirstTitle: "Espace de travail axé sur le chat",
+      chatFirstDescription:
+        "Gardez les chats au centre et ouvrez les apps de l’espace de travail dans un panneau contextuel à côté. Cette préférence ne modifie que votre interface locale Dispatch.",
+      chatFirstAriaLabel: "Utiliser la navigation axée sur le chat",
+      chatFirstSessionWatchDescription:
+        "Le suivi des sessions et les messages de suivi fonctionnent aussi dans ce panneau du navigateur. La détection des abonnements CLI locaux reste dans l’app Electron ; Dispatch utilise les identifiants de l’espace de travail/fournisseur.",
+      chatFirstStorageUnavailable:
+        "Ce navigateur n’autorise pas les préférences locales ; le mode axé sur le chat ne peut donc pas être conservé.",
+      chatFirstStorageBlocked:
+        "Ce navigateur a bloqué les préférences locales ; le mode axé sur le chat n’a pas été modifié.",
       agentTitle: "Gérer l’agent",
       agentDescription:
         "Gérez le modèle de l’agent, les clés API, la voix et les autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
@@ -1484,6 +1637,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administration",
         automations: "Automatisations",
         approvals: "Approbations",
         delivery: "Livraison",
@@ -1494,6 +1648,20 @@ export const messagesByLocale = {
         agent: "Agent",
       },
       pages: {
+        ...chatFirstPageTranslations["fr-FR"],
+        adminDescription: "Contrôles et opérations de l’espace de travail",
+        adminNavigation: "Navigation d’administration",
+        adminWelcome: "Centre de contrôle de l’espace de travail",
+        adminChooseArea:
+          "Gérez les applications, connexions, automatisations et outils opérationnels depuis un seul endroit.",
+        adminChooseAreaHint:
+          "Choisissez une section dans la navigation d’administration.",
+        adminWorkspace: "Espace de travail",
+        adminOperations: "Opérations",
+        adminAutomation: "Automatisation et livraison",
+        adminConnections: "Connexions",
+        adminAgentPlatform: "Plateforme d’agents",
+        adminWorkspaceExtensions: "Extensions de l’espace de travail",
         dataLoadFailed: "Impossible de charger les données",
         dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
         tryAgain: "Réessayer",
@@ -1631,6 +1799,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Nachrichtenziele verwalten und die ausgehende Zustellungswarteschlange prüfen.",
       openDelivery: "Zustellung öffnen",
+      chatFirstTitle: "Chat-zentrierter Arbeitsbereich",
+      chatFirstDescription:
+        "Chats bleiben im Mittelpunkt, während Workspace-Apps in einem kontextbezogenen Bereich daneben geöffnet werden. Diese Einstellung ändert nur deine lokale Dispatch-Oberfläche.",
+      chatFirstAriaLabel: "Chat-zentrierte Navigation verwenden",
+      chatFirstSessionWatchDescription:
+        "Sessions können auch in diesem Browserbereich beobachtet und mit Folgemeldungen versehen werden. Die Erkennung lokaler CLI-Abos bleibt in der Electron-App; Dispatch verwendet Workspace-/Anbieter-Anmeldedaten.",
+      chatFirstStorageUnavailable:
+        "Dieser Browser lässt lokale Einstellungen nicht zu. Der chat-zentrierte Modus kann daher nicht gespeichert werden.",
+      chatFirstStorageBlocked:
+        "Dieser Browser hat lokale Einstellungen blockiert. Der chat-zentrierte Modus wurde nicht geändert.",
       agentTitle: "Agent verwalten",
       agentDescription:
         "Verwalte das Modell, die API-Schlüssel, Sprache und weitere Steuerungen des Agents. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
@@ -1865,6 +2043,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administration",
         automations: "Automatisierungen",
         approvals: "Freigaben",
         delivery: "Zustellung",
@@ -1875,6 +2054,20 @@ export const messagesByLocale = {
         agent: "Agent",
       },
       pages: {
+        ...chatFirstPageTranslations["de-DE"],
+        adminDescription: "Arbeitsbereichssteuerung und -betrieb",
+        adminNavigation: "Administrationsnavigation",
+        adminWelcome: "Arbeitsbereichsleitstelle",
+        adminChooseArea:
+          "Verwalte Apps, Verbindungen, Automatisierungen und Betriebstools an einem Ort.",
+        adminChooseAreaHint:
+          "Wähle einen Bereich in der Administrationsnavigation.",
+        adminWorkspace: "Arbeitsbereich",
+        adminOperations: "Betrieb",
+        adminAutomation: "Automatisierung und Zustellung",
+        adminConnections: "Verbindungen",
+        adminAgentPlatform: "Agentenplattform",
+        adminWorkspaceExtensions: "Arbeitsbereichserweiterungen",
         dataLoadFailed: "Daten konnten nicht geladen werden",
         dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
         tryAgain: "Erneut versuchen",
@@ -2008,6 +2201,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "メッセージの送信先を管理し、送信キューを確認します。",
       openDelivery: "配信を開く",
+      chatFirstTitle: "チャット中心のワークスペース",
+      chatFirstDescription:
+        "チャットを中心に保ち、ワークスペースアプリを隣のコンテキストパネルで開きます。この設定で変わるのはローカルの Dispatch シェルだけです。",
+      chatFirstAriaLabel: "チャット中心のナビゲーションを使用",
+      chatFirstSessionWatchDescription:
+        "このブラウザパネルでもセッションの監視とフォローアップメッセージを利用できます。ローカル CLI サブスクリプションの検出は Electron アプリに残り、Dispatch はワークスペース/プロバイダーの認証情報を使用します。",
+      chatFirstStorageUnavailable:
+        "このブラウザではローカル設定が許可されないため、チャット中心モードを保存できません。",
+      chatFirstStorageBlocked:
+        "このブラウザがローカル設定をブロックしたため、チャット中心モードは変更されませんでした。",
       agentTitle: "エージェントを管理",
       agentDescription:
         "エージェントのモデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
@@ -2240,6 +2443,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "管理",
         automations: "自動化",
         approvals: "承認",
         delivery: "配信",
@@ -2250,6 +2454,19 @@ export const messagesByLocale = {
         agent: "エージェント",
       },
       pages: {
+        ...chatFirstPageTranslations["ja-JP"],
+        adminDescription: "ワークスペースの管理と運用",
+        adminNavigation: "管理ナビゲーション",
+        adminWelcome: "ワークスペースのコントロールプレーン",
+        adminChooseArea:
+          "アプリ、接続、オートメーション、運用ツールを 1 か所で管理します。",
+        adminChooseAreaHint: "管理ナビゲーションから領域を選択してください。",
+        adminWorkspace: "ワークスペース",
+        adminOperations: "運用",
+        adminAutomation: "自動化と配信",
+        adminConnections: "接続",
+        adminAgentPlatform: "エージェントプラットフォーム",
+        adminWorkspaceExtensions: "ワークスペース拡張機能",
         dataLoadFailed: "データを読み込めませんでした",
         dataLoadFailedDescription:
           "Dispatch はこのデータを読み込めませんでした。",
@@ -2382,6 +2599,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "메시지 대상을 관리하고 발신 전달 대기열을 확인합니다.",
       openDelivery: "전달 열기",
+      chatFirstTitle: "채팅 중심 작업공간",
+      chatFirstDescription:
+        "채팅을 중심에 두고 작업공간 앱을 옆의 컨텍스트 패널에서 엽니다. 이 설정은 로컬 Dispatch 셸만 변경합니다.",
+      chatFirstAriaLabel: "채팅 중심 탐색 사용",
+      chatFirstSessionWatchDescription:
+        "이 브라우저 패널에서도 세션을 지켜보고 후속 메시지를 보낼 수 있습니다. 로컬 CLI 구독 감지는 Electron 앱에 남아 있으며, Dispatch는 작업공간/공급자 자격 증명을 사용합니다.",
+      chatFirstStorageUnavailable:
+        "이 브라우저에서는 로컬 환경설정을 허용하지 않아 채팅 중심 모드를 저장할 수 없습니다.",
+      chatFirstStorageBlocked:
+        "이 브라우저가 로컬 환경설정을 차단하여 채팅 중심 모드가 변경되지 않았습니다.",
       agentTitle: "에이전트 관리",
       agentDescription:
         "에이전트의 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
@@ -2611,6 +2838,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "관리",
         automations: "자동화",
         approvals: "승인",
         delivery: "전달",
@@ -2621,6 +2849,18 @@ export const messagesByLocale = {
         agent: "에이전트",
       },
       pages: {
+        ...chatFirstPageTranslations["ko-KR"],
+        adminDescription: "워크스페이스 제어 및 운영",
+        adminNavigation: "관리 탐색",
+        adminWelcome: "워크스페이스 제어 센터",
+        adminChooseArea: "한곳에서 앱, 연결, 자동화 및 운영 도구를 관리하세요.",
+        adminChooseAreaHint: "관리 탐색에서 영역을 선택하세요.",
+        adminWorkspace: "워크스페이스",
+        adminOperations: "운영",
+        adminAutomation: "자동화 및 전달",
+        adminConnections: "연결",
+        adminAgentPlatform: "에이전트 플랫폼",
+        adminWorkspaceExtensions: "워크스페이스 확장",
         dataLoadFailed: "데이터를 불러올 수 없습니다",
         dataLoadFailedDescription:
           "Dispatch에서 이 데이터를 불러오지 못했습니다.",
@@ -2750,6 +2990,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gerencie destinos de mensagens e verifique a fila de entrega de saída.",
       openDelivery: "Abrir entrega",
+      chatFirstTitle: "Espaço de trabalho com foco no chat",
+      chatFirstDescription:
+        "Mantenha os chats no centro e abra os apps do workspace em um painel contextual ao lado. Esta preferência altera apenas o shell local do Dispatch.",
+      chatFirstAriaLabel: "Usar navegação com foco no chat",
+      chatFirstSessionWatchDescription:
+        "O acompanhamento de sessões e as mensagens de acompanhamento também funcionam neste painel do navegador. A detecção de assinaturas CLI locais continua no app Electron; o Dispatch usa credenciais do workspace/provedor.",
+      chatFirstStorageUnavailable:
+        "Este navegador não permite preferências locais, então o modo com foco no chat não pode ser salvo.",
+      chatFirstStorageBlocked:
+        "Este navegador bloqueou as preferências locais, então o modo com foco no chat não foi alterado.",
       agentTitle: "Gerenciar agente",
       agentDescription:
         "Gerencie o modelo do agente, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
@@ -2991,6 +3241,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administração",
         automations: "Automações",
         approvals: "Aprovações",
         delivery: "Entrega",
@@ -3001,6 +3252,19 @@ export const messagesByLocale = {
         agent: "Agente",
       },
       pages: {
+        ...chatFirstPageTranslations["pt-BR"],
+        adminDescription: "Controles e operações do espaço de trabalho",
+        adminNavigation: "Navegação de administração",
+        adminWelcome: "Central de controle do espaço de trabalho",
+        adminChooseArea:
+          "Gerencie apps, conexões, automações e ferramentas operacionais em um só lugar.",
+        adminChooseAreaHint: "Escolha uma área na navegação de administração.",
+        adminWorkspace: "Espaço de trabalho",
+        adminOperations: "Operações",
+        adminAutomation: "Automação e entrega",
+        adminConnections: "Conexões",
+        adminAgentPlatform: "Plataforma de agentes",
+        adminWorkspaceExtensions: "Extensões do espaço de trabalho",
         dataLoadFailed: "Não foi possível carregar os dados",
         dataLoadFailedDescription:
           "O Dispatch não conseguiu carregar estes dados.",
@@ -3133,6 +3397,16 @@ export const messagesByLocale = {
       deliveryTitle: "डिलीवरी",
       deliveryDescription: "संदेश गंतव्य प्रबंधित करें और आउटबाउंड डिलीवरी कतार जांचें।",
       openDelivery: "डिलीवरी खोलें",
+      chatFirstTitle: "चैट-केंद्रित कार्यक्षेत्र",
+      chatFirstDescription:
+        "चैट को केंद्र में रखें और कार्यक्षेत्र ऐप्स को बगल के संदर्भ पैनल में खोलें। यह प्राथमिकता केवल आपके स्थानीय Dispatch शेल को बदलती है।",
+      chatFirstAriaLabel: "चैट-केंद्रित नेविगेशन का उपयोग करें",
+      chatFirstSessionWatchDescription:
+        "इस ब्राउज़र पैनल में भी सत्र देखना और फ़ॉलो-अप संदेश भेजना काम करता है। स्थानीय CLI सदस्यता पहचान Electron ऐप में रहती है; Dispatch कार्यक्षेत्र/प्रदाता क्रेडेंशियल का उपयोग करता है।",
+      chatFirstStorageUnavailable:
+        "यह ब्राउज़र स्थानीय प्राथमिकताओं की अनुमति नहीं देता, इसलिए चैट-केंद्रित मोड सहेजा नहीं जा सकता।",
+      chatFirstStorageBlocked:
+        "इस ब्राउज़र ने स्थानीय प्राथमिकताओं को ब्लॉक कर दिया, इसलिए चैट-केंद्रित मोड बदला नहीं गया।",
       agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
         "एजेंट के मॉडल, API कुंजियों, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
@@ -3359,6 +3633,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "व्यवस्थापक",
         automations: "ऑटोमेशन",
         approvals: "अनुमोदन",
         delivery: "डिलीवरी",
@@ -3369,6 +3644,19 @@ export const messagesByLocale = {
         agent: "एजेंट",
       },
       pages: {
+        ...chatFirstPageTranslations["hi-IN"],
+        adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
+        adminNavigation: "व्यवस्थापक नेविगेशन",
+        adminWelcome: "वर्कस्पेस नियंत्रण केंद्र",
+        adminChooseArea:
+          "ऐप्स, कनेक्शन, ऑटोमेशन और संचालन टूल एक ही जगह से प्रबंधित करें।",
+        adminChooseAreaHint: "व्यवस्थापक नेविगेशन से कोई क्षेत्र चुनें।",
+        adminWorkspace: "वर्कस्पेस",
+        adminOperations: "संचालन",
+        adminAutomation: "ऑटोमेशन और डिलीवरी",
+        adminConnections: "कनेक्शन",
+        adminAgentPlatform: "एजेंट प्लेटफ़ॉर्म",
+        adminWorkspaceExtensions: "वर्कस्पेस एक्सटेंशन",
         dataLoadFailed: "डेटा लोड नहीं हो सका",
         dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
         tryAgain: "फिर से कोशिश करें",
@@ -3493,6 +3781,16 @@ export const messagesByLocale = {
       deliveryDescription:
         "إدارة وجهات الرسائل وفحص قائمة انتظار التسليم الصادرة.",
       openDelivery: "فتح التسليم",
+      chatFirstTitle: "مساحة عمل تركز على الدردشة",
+      chatFirstDescription:
+        "أبقِ الدردشات في المركز وافتح تطبيقات مساحة العمل في لوحة سياقية بجانبها. يغيّر هذا التفضيل واجهة Dispatch المحلية فقط.",
+      chatFirstAriaLabel: "استخدام التنقل المتمحور حول الدردشة",
+      chatFirstSessionWatchDescription:
+        "تعمل مراقبة الجلسات وإرسال رسائل المتابعة أيضًا في لوحة المتصفح هذه. يبقى اكتشاف اشتراكات CLI المحلية في تطبيق Electron؛ ويستخدم Dispatch بيانات اعتماد مساحة العمل/الموفر.",
+      chatFirstStorageUnavailable:
+        "لا يسمح هذا المتصفح بالتفضيلات المحلية، لذلك لا يمكن حفظ وضع التركيز على الدردشة.",
+      chatFirstStorageBlocked:
+        "حظر هذا المتصفح التفضيلات المحلية، لذلك لم يتم تغيير وضع التركيز على الدردشة.",
       agentTitle: "إدارة الوكيل",
       agentDescription:
         "أدر نموذج الوكيل ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
@@ -3758,6 +4056,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "الإدارة",
         automations: "الأتمتة",
         approvals: "الموافقات",
         delivery: "التسليم",
@@ -3768,6 +4067,19 @@ export const messagesByLocale = {
         agent: "الوكيل",
       },
       pages: {
+        ...chatFirstPageTranslations["ar-SA"],
+        adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
+        adminNavigation: "تنقل الإدارة",
+        adminWelcome: "مركز التحكم في مساحة العمل",
+        adminChooseArea:
+          "أدر التطبيقات والاتصالات والأتمتة وأدوات التشغيل من مكان واحد.",
+        adminChooseAreaHint: "اختر قسمًا من تنقل الإدارة.",
+        adminWorkspace: "مساحة العمل",
+        adminOperations: "التشغيل",
+        adminAutomation: "الأتمتة والتسليم",
+        adminConnections: "الاتصالات",
+        adminAgentPlatform: "منصة الوكلاء",
+        adminWorkspaceExtensions: "امتدادات مساحة العمل",
         dataLoadFailed: "تعذر تحميل البيانات",
         dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
         tryAgain: "حاول مرة أخرى",

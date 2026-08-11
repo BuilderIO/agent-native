@@ -129,8 +129,12 @@ Extensions have full access to app data via helpers injected into the iframe
   in chat, record passive control/selection output at
   `inline-ui:<extensionId>:output` in application state so the agent can read it
   later with `readAppState`.
-- `agentNative.chat.send(message, opts?)` — send a visible prompt or selected
-  value back into the current agent chat.
+- `agentNative.chat.send(message, opts?)` - send a visible prompt or selected
+  value back into the current agent chat. The extension bridge keeps messages
+  draft-only unless `opts.submit === true`; pass `{ submit: true }` only from a
+  user-triggered Apply or Submit action. Never call it from polling, refresh, or
+  error handlers; use application state or `agentNative.ui.output` for passive
+  results.
 
 For transient inline generative UI, `extensionData` is host-browser
 `localStorage`: the agent cannot read it, it does not sync across devices, it
@@ -217,9 +221,12 @@ POST /_agent-native/extensions
 
 HTTP creation is disabled by default. The host app must set
 `extensionTools: true` on `createCoreRoutesPlugin()` as well as
-`createAgentChatPlugin()`; otherwise authenticated collection `POST` requests
-return `403` while existing extension runtime, read, edit, and deep-link routes
-remain available for compatibility.
+`frameworkTools: { extensions: true }` on `createAgentChatPlugin()`; otherwise
+authenticated collection `POST` requests return `403` while existing extension
+runtime, read, edit, and deep-link routes remain available for compatibility.
+(`extensionTools` on the agent-chat plugin is the deprecated spelling of
+`frameworkTools.extensions`; the core-routes option keeps its own name because
+it gates route mounting rather than agent tools.)
 
 The action accepts:
 

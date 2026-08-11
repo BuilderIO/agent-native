@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
+import { _resetCapabilityCacheForTests } from "../server/agent-capabilities.js";
 import type { DiscoveredAgent } from "../server/agent-discovery.js";
 
 const getAgentCard = vi.fn();
@@ -60,6 +61,7 @@ function card(overrides: Partial<AgentCard> = {}): AgentCard {
 describe("describe-workspace-apps", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    _resetCapabilityCacheForTests();
     discoverAgents.mockResolvedValue([]);
     findAgent.mockResolvedValue(undefined);
     getAgentCard.mockResolvedValue(card());
@@ -85,6 +87,33 @@ describe("describe-workspace-apps", () => {
     expect(output).toContain("Product analytics, funnels, and session replay.");
     expect(output).toContain("query-events");
     expect(discoverAgents).toHaveBeenCalledWith("coach");
+  });
+
+  it("separates direct reads from capabilities that require message delegation", async () => {
+    discoverAgents.mockResolvedValue([agent()]);
+    getAgentCard.mockResolvedValue(
+      card({
+        skills: [
+          skill(),
+          skill({
+            id: "create-campaign",
+            name: "Create campaign",
+            description: "Build and save a campaign.",
+            readOnly: false,
+          }),
+        ],
+      }),
+    );
+
+    const output = await run({}, undefined, "coach");
+
+    expect(output).toContain(
+      "Read-only actions (direct action + input): query-events",
+    );
+    expect(output).toContain(
+      "Message-only capabilities (use a natural-language message): create-campaign",
+    );
+    expect(output).not.toContain("Callable actions:");
   });
 
   // The catalog is only trustworthy if it is read from live deployments, so an

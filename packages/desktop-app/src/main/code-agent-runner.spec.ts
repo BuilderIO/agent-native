@@ -94,6 +94,7 @@ describe("resolveCodeAgentRunnerInvocation", () => {
       command: "node",
       args: ["packages/core/dist/cli/index.js", "code", "run", "task-1"],
       cwd: repoRoot,
+      env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     });
   });
 
@@ -124,7 +125,37 @@ describe("resolveCodeAgentRunnerInvocation", () => {
         "task-2",
       ],
       cwd: repoRoot,
+      env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     });
+  });
+
+  it("resolves pnpm from the Desktop launch environment", () => {
+    const root = createTempRoot();
+    const bin = path.join(root, "bin");
+    const pnpm = path.join(bin, "pnpm");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(pnpm, "#!/bin/sh\n", { mode: 0o755 });
+    const repoRoot = path.join(root, "source-checkout");
+
+    const invocation = resolveCodeAgentRunnerInvocation(
+      {
+        appIsPackaged: false,
+        resourcesPath: "/ignored/resources",
+        electronPath: "/ignored/electron",
+        repoRoot,
+        environment: { PATH: bin, HOME: root },
+      },
+      "run",
+      "task-3",
+    );
+
+    expect(invocation.command).toBe(pnpm);
+    expect(invocation.cwd).toBe(repoRoot);
+    expect(invocation.args.slice(0, 3)).toEqual([
+      "--filter",
+      "@agent-native/core",
+      "exec",
+    ]);
   });
 });
 

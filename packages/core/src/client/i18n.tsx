@@ -61,6 +61,16 @@ export { getLocaleInitScript } from "../localization/server.js";
 
 export type LocaleMessages = Record<string, unknown>;
 
+export type AgentNativeI18nLocaleLoader = () => Promise<
+  LocaleMessages | { default: LocaleMessages }
+>;
+
+function isAgentNativeI18nModuleNamespace(
+  value: LocaleMessages | { default: LocaleMessages },
+): value is { default: LocaleMessages } {
+  return Object.prototype.toString.call(value) === "[object Module]";
+}
+
 export interface LocaleHydrationPayload {
   locale?: LocaleCode;
   preference?: LocalizationPreference;
@@ -73,6 +83,37 @@ export interface AgentNativeI18nCatalog {
   sourceLocale?: LocaleCode;
   messages?: LocaleMessages;
   loadMessages?: (locale: LocaleCode) => Promise<LocaleMessages | null>;
+  /**
+   * Locales this app actually ships translations for. Defaults to every
+   * framework-supported locale when omitted, which only matches apps whose
+   * `loadMessages` covers all of them.
+   */
+  supportedLocales?: readonly LocaleCode[];
+}
+
+export function createAgentNativeI18nCatalog(args: {
+  messages: LocaleMessages;
+  localeLoaders: Partial<Record<LocaleCode, AgentNativeI18nLocaleLoader>>;
+  namespace?: string;
+  sourceLocale?: LocaleCode;
+  supportedLocales?: readonly LocaleCode[];
+}): AgentNativeI18nCatalog & {
+  messages: LocaleMessages;
+  sourceLocale: LocaleCode;
+  loadMessages: (locale: LocaleCode) => Promise<LocaleMessages | null>;
+} {
+  return {
+    namespace: args.namespace,
+    sourceLocale: args.sourceLocale ?? DEFAULT_LOCALE,
+    messages: args.messages,
+    supportedLocales: args.supportedLocales,
+    loadMessages: async (locale) => {
+      const loader = args.localeLoaders[locale];
+      if (!loader) return null;
+      const loaded = await loader();
+      return isAgentNativeI18nModuleNamespace(loaded) ? loaded.default : loaded;
+    },
+  };
 }
 
 export interface AgentNativeI18nProviderProps {
@@ -92,6 +133,7 @@ interface LocaleContextValue {
   metadata: LocaleMetadata;
   setPreference: (preference: LocalePreference) => Promise<void>;
   loading: boolean;
+  supportedLocales: readonly LocaleCode[];
 }
 
 declare global {
@@ -275,6 +317,7 @@ export function AgentNativeI18nProvider({
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
   const loadMessages = catalog?.loadMessages;
+  const supportedLocales = catalog?.supportedLocales ?? SUPPORTED_LOCALES;
   const hydration = readHydrationPayload();
   const initialState = useMemo(
     () => resolveInitialState({ initialLocale, initialPreference }),
@@ -463,8 +506,16 @@ export function AgentNativeI18nProvider({
       metadata: LOCALE_METADATA[locale],
       setPreference,
       loading,
+      supportedLocales,
     }),
-    [loading, locale, preference, setPreference, sourceLocale],
+    [
+      loading,
+      locale,
+      preference,
+      setPreference,
+      sourceLocale,
+      supportedLocales,
+    ],
   );
 
   return (
@@ -519,6 +570,9 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.finishedHours": "Finished {{count}}h ago",
   "runsTray.updatedDate": "Updated {{date}}",
   "runsTray.finishedDate": "Finished {{date}}",
+  "agentTask.backgroundTask": "Background task",
+  "agentTask.stop": "Stop background task",
+  "agentTask.openThread": "Open task thread",
   "codeRequired.fallbackDetail":
     "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
   "codeRequired.defaultFeature": "Make the requested code changes to this app",
@@ -538,7 +592,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "codeRequired.codeChangeBadge": "Code change",
   "codeRequired.connectBuilderTitle": "Connect Builder.io",
   "codeRequired.connectBuilderDescription":
-    "Connect Builder to enable cloud-based code changes from this app.",
+    "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
   "codeRequired.setupRequired": "Setup required",
   "codeRequired.branchCreated": "Branch created",
   "codeRequired.close": "Close",
@@ -571,6 +625,15 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "agentPanel.cliRequiresDevModeDescription":
     "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
   "agentPanel.toggleAgent": "Toggle agent",
+  "runtimeConfig.warningTitle": "Production configuration warning",
+  "runtimeConfig.errorTitle": "Production configuration error",
+  "runtimeConfig.issue_one": "{{count}} issue",
+  "runtimeConfig.issue_other": "{{count}} issues",
+  "runtimeConfig.showDetails": "Show configuration details",
+  "runtimeConfig.hideDetails": "Hide configuration details",
+  "runtimeConfig.copyPrompt": "Copy prompt for AI",
+  "runtimeConfig.copied": "Prompt copied",
+  "runtimeConfig.copyFailed": "Copy failed",
 };
 
 function flattenMessages(
@@ -687,7 +750,7 @@ export function LanguagePicker({
   label?: string;
   variant?: "select" | "icon" | "ghost-icon";
 }) {
-  const { locale, preference, setPreference } = useLocale();
+  const { locale, preference, setPreference, supportedLocales } = useLocale();
   const [open, setOpen] = useState(false);
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
@@ -702,7 +765,7 @@ export function LanguagePicker({
           },
         ]
       : []),
-    ...SUPPORTED_LOCALES.map((code) => ({
+    ...supportedLocales.map((code) => ({
       value: code,
       label: `${LOCALE_METADATA[code].nativeName} (${code})`,
       description: code,
@@ -778,6 +841,7 @@ export function LanguagePicker({
             sideOffset={6}
             role="menu"
             className={cn(
+              // compositing-ok: popover content unmounts on close.
               "z-[9999] max-h-[min(20rem,var(--radix-popover-content-available-height))] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-in data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
               variant === "icon" || variant === "ghost-icon"
                 ? "min-w-56"

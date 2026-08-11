@@ -58,25 +58,42 @@ export function buildBookingEventTitle({
 }
 
 export function buildBookingEventAttendees({
+  organizerEmail,
   attendeeEmail,
   attendeeName,
   hostEmails = [],
 }: {
+  organizerEmail: string;
   attendeeEmail: string;
   attendeeName: string;
   hostEmails?: string[];
 }) {
+  const organizer = stripCrlf(organizerEmail).toLowerCase();
   const attendee = stripCrlf(attendeeEmail).toLowerCase();
-  return [
-    {
-      email: attendee,
-      displayName: attendeeName,
-    },
+  const guests = [
+    ...(attendee !== organizer
+      ? [
+          {
+            email: attendee,
+            displayName: attendeeName,
+          },
+        ]
+      : []),
     ...uniqueEmails(hostEmails)
-      .filter((email) => email !== attendee)
+      .filter((email) => email !== attendee && email !== organizer)
       .map((email) => ({
         email,
         displayName: displayNameFromEmail(email),
       })),
+  ];
+
+  return [
+    {
+      email: organizer,
+      organizer: true,
+      self: true,
+      responseStatus: "accepted" as const,
+    },
+    ...guests,
   ];
 }

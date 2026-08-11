@@ -6,7 +6,7 @@ import {
 } from "@agent-native/toolkit/app-shell";
 import {
   IconAlertTriangle,
-  IconPalette,
+  IconComponents,
   IconPlus,
   IconRefresh,
 } from "@tabler/icons-react";
@@ -53,9 +53,9 @@ export default function DesignSystems() {
     setShowSetup(true);
   };
 
-  const handleSetDefault = async (id: string) => {
+  const handleSetDefault = async (id: string, isDefault: boolean) => {
     try {
-      await callAction("set-default-design-system", { id });
+      await callAction("set-default-design-system", { id, isDefault });
       refetch();
     } catch (err) {
       console.error("Failed to set default design system:", err);
@@ -264,9 +264,10 @@ export default function DesignSystems() {
                     data={parsed}
                     isDefault={ds.isDefault}
                     visibility={ds.visibility}
+                    accessRole={ds.accessRole}
                     canManage={ds.canManage}
                     onClick={() => handleCardClick(ds.id)}
-                    onSetDefault={() => handleSetDefault(ds.id)}
+                    onSetDefault={() => handleSetDefault(ds.id, !ds.isDefault)}
                     onDelete={() => setDeleteId(ds.id)}
                     isWorkspaceDefault={workspaceDesignSystem?.id === ds.id}
                     canSetWorkspaceDefault={canManageWorkspaceDefaults}
@@ -348,7 +349,7 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconPalette className="w-7 h-7 text-[#609FF8]" />
+        <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("designSystems.emptyTitle")}

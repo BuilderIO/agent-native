@@ -108,6 +108,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  isNull: (col: unknown) => ({ isNull: col }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 

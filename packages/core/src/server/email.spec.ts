@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sendEmail } from "./email";
+import { getEmailReadiness, sendEmail } from "./email";
 
 describe("sendEmail", () => {
   afterEach(() => {
@@ -29,6 +29,126 @@ describe("sendEmail", () => {
       name: "Alex Doe (via Agent-Native Clips)",
     });
     expect(body.reply_to).toEqual({ email: "alex@example.com" });
+  });
+
+  it("adds an organization-scoped provider category for registered emails", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Booking confirmed",
+      html: "<p>Booked</p>",
+      templateId: "calendar.booking-confirmed",
+      orgId: "org-1",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.categories).toContain("calendar.booking-confirmed::org::org-1");
+  });
+
+  it("applies per-app sender branding on agent-native.com deployments", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <noreply@agent-native.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "agent-native@builder.io",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({
+      name: "Agent-Native Clips",
+      email: "clips@agent-native.com",
+    });
+    expect(body.reply_to).toEqual({ email: "agent-native@builder.io" });
+  });
+
+  it("keeps the branded address intact when APP_NAME contains header specials", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <noreply@agent-native.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Acme <Support>, Inc.",
+        slug: "clips",
+        replyTo: "agent-native@builder.io",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({
+      name: "Agent-Native Acme Support , Inc.",
+      email: "clips@agent-native.com",
+    });
+  });
+
+  it("keeps a self-hosted verified sender and reply-to untouched", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Acme <noreply@acme.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "agent-native@builder.io",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({ name: "Acme", email: "noreply@acme.com" });
+    expect(body.reply_to).toBeUndefined();
+  });
+
+  it("warns once without leaking the tenant sender into logs", async () => {
+    // Fresh module: the suppression notice is process-scoped by design.
+    vi.resetModules();
+    const { sendEmail: freshSendEmail } = await import("./email");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+
+    const send = async () =>
+      freshSendEmail({
+        to: "reader@example.com",
+        subject: "Verify your email",
+        html: "<p>hi</p>",
+        appSender: { name: "Agent-Native Clips", slug: "clips" },
+      });
+
+    vi.stubEnv("EMAIL_FROM", "Tenant <ceo@tenant-one.example>");
+    await send();
+    vi.stubEnv("EMAIL_FROM", "Other <owner@tenant-two.example>");
+    await send();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = String(warn.mock.calls[0]?.[0]);
+    expect(logged).not.toContain("tenant-one.example");
+    expect(logged).not.toContain("tenant-two.example");
+    expect(logged).toContain("agent-native.com");
+
+    warn.mockRestore();
   });
 
   it("maps inline CID attachments for SendGrid", async () => {
@@ -127,6 +247,28 @@ describe("sendEmail", () => {
       '"Evil Bcc: victim@example.com" <notifications@example.com>',
     );
     expect(body.from).not.toContain("\n");
+  });
+
+  it("carries branded sender and reply-to through the Resend payload", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <noreply@agent-native.com>");
+    const fetchMock = vi.fn(async () => Response.json({ id: "email_123" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "agent-native@builder.io",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toBe('"Agent-Native Clips" <clips@agent-native.com>');
+    expect(body.reply_to).toBe("agent-native@builder.io");
   });
 
   it("maps inline CID attachments for Resend", async () => {
@@ -230,5 +372,36 @@ describe("sendEmail", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.from).toBe("Billing <billing@example.com>");
+  });
+});
+
+describe("getEmailReadiness", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("reports Resend as ready without requiring EMAIL_FROM", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+
+    await expect(getEmailReadiness()).resolves.toEqual({
+      status: "ready",
+      provider: "resend",
+    });
+  });
+
+  it("reports SendGrid without EMAIL_FROM as misconfigured", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+
+    await expect(getEmailReadiness()).resolves.toEqual({
+      status: "misconfigured",
+      provider: "sendgrid",
+    });
+  });
+
+  it("distinguishes an unconfigured transport from a ready one", async () => {
+    await expect(getEmailReadiness()).resolves.toEqual({
+      status: "not-configured",
+      provider: "dev",
+    });
   });
 });

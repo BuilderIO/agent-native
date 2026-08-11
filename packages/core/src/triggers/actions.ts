@@ -5,10 +5,11 @@
  * available in every template. The agent uses them to create, list, and
  * manage automations from chat.
  *
- * All six operations are consolidated into a single `manage-automations` tool
+ * All seven operations are consolidated into a single `manage-automations` tool
  * with an `action` discriminator to keep the tool registry compact.
  */
 
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   defineAutomation,
@@ -18,7 +19,8 @@ import {
   type AutomationScope,
 } from "../automations/service.js";
 import { listEvents } from "../event-bus/index.js";
-import { describeCron } from "../jobs/cron.js";
+import { describeCron, effectiveTimezone } from "../jobs/cron.js";
+import { queueAutomationRunNow } from "../jobs/run-now.js";
 import {
   getIntegrationRequestContext,
   getRequestOrgId,
@@ -56,10 +58,11 @@ async function handleListEvents(): Promise<string> {
 async function handleList(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   const scope = automationScope(args.scope);
   const definitions = await listAutomationDefinitions(
-    { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+    { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
     scope,
   );
   const automations = definitions
@@ -71,10 +74,14 @@ async function handleList(
       triggerType: meta.triggerType,
       event: meta.event ?? null,
       schedule: meta.schedule || null,
-      scheduleDescription: meta.schedule ? describeCron(meta.schedule) : null,
+      timezone: meta.timezone ? effectiveTimezone(meta.timezone) : null,
+      scheduleDescription: meta.schedule
+        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+        : null,
       condition: meta.condition ?? null,
       mode: meta.mode,
       domain: meta.domain ?? null,
+      appId: meta.appId ?? null,
       enabled: meta.enabled,
       lastRun: meta.lastRun ?? null,
       lastStatus: meta.lastStatus ?? null,
@@ -109,6 +116,7 @@ function automationTriggerType(value: unknown): "schedule" | "event" {
 async function handleDefine(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   if (args.mode === "deterministic") {
     return (
@@ -120,13 +128,18 @@ async function handleDefine(
   const integration = getIntegrationRequestContext();
   try {
     const definition = await defineAutomation(
-      { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+      {
+        userEmail: getCurrentUser(),
+        orgId: getRequestOrgId(),
+        appId,
+      },
       {
         name: typeof args.name === "string" ? args.name : "",
         scope: automationScope(args.scope),
         triggerType: automationTriggerType(args.trigger_type),
         body: typeof args.body === "string" ? args.body : "",
         schedule: typeof args.schedule === "string" ? args.schedule : undefined,
+        timezone: typeof args.timezone === "string" ? args.timezone : undefined,
         event: typeof args.event === "string" ? args.event : undefined,
         condition:
           typeof args.condition === "string" ? args.condition : undefined,
@@ -164,6 +177,7 @@ async function handleDefine(
       triggerType: definition.meta.triggerType,
       event: definition.meta.event ?? null,
       schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
@@ -183,10 +197,11 @@ async function handleDefine(
 async function handleUpdate(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   try {
     const definition = await updateAutomation(
-      { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+      { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
       {
         name: typeof args.name === "string" ? args.name : "",
         scope: automationScope(args.scope),
@@ -208,6 +223,7 @@ async function handleUpdate(
               : null,
         body: typeof args.body === "string" ? args.body : undefined,
         schedule: typeof args.schedule === "string" ? args.schedule : undefined,
+        timezone: typeof args.timezone === "string" ? args.timezone : undefined,
         model:
           args.model === undefined
             ? undefined
@@ -225,6 +241,7 @@ async function handleUpdate(
       triggerType: definition.meta.triggerType,
       enabled: definition.meta.enabled,
       schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
@@ -244,11 +261,12 @@ async function handleUpdate(
 async function handleDelete(
   args: Record<string, unknown>,
   getCurrentUser: () => string,
+  appId?: string,
 ): Promise<string> {
   const name = typeof args.name === "string" ? args.name : "";
   try {
     await deleteAutomation(
-      { userEmail: getCurrentUser(), orgId: getRequestOrgId() },
+      { userEmail: getCurrentUser(), orgId: getRequestOrgId(), appId },
       automationScope(args.scope),
       name,
     );
@@ -282,6 +300,29 @@ async function handleFireTest(
   return `Test event fired with payload: ${JSON.stringify({ data })}. Any automations subscribed to "test.event.fired" will be evaluated.`;
 }
 
+async function handleRunNow(
+  args: Record<string, unknown>,
+  getCurrentUser: () => string,
+  appId?: string,
+  context?: ActionRunContext,
+): Promise<string> {
+  if (context?.caller === "automation") {
+    return "Error: an automation cannot run another automation.";
+  }
+  try {
+    const result = await queueAutomationRunNow({
+      userEmail: getCurrentUser(),
+      orgId: getRequestOrgId(),
+      appId,
+      scope: automationScope(args.scope),
+      name: typeof args.name === "string" ? args.name : "",
+    });
+    return JSON.stringify(result);
+  } catch (error) {
+    return `Error: ${(error as Error).message}`;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Consolidated tool entry                                           */
 /* ------------------------------------------------------------------ */
@@ -293,10 +334,12 @@ const VALID_ACTIONS = [
   "update",
   "delete",
   "fire-test",
+  "run-now",
 ] as const;
 
 export function createAutomationToolEntries(
   getCurrentUser: () => string,
+  appId?: string,
 ): Record<string, ActionEntry> {
   return {
     "manage-automations": {
@@ -305,23 +348,24 @@ export function createAutomationToolEntries(
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list**: List all automations (triggers). Shows trigger, status, model, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, condition, mode, domain, delegated_policy_id, model, mcpTools.
-- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, mcpTools.
+- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
-- **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).`,
+- **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
+- **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name; optional scope.`,
         parameters: {
           type: "object" as const,
           properties: {
             action: {
               type: "string",
               description:
-                "The operation to perform: list-events, list, define, update, delete, or fire-test.",
+                "The operation to perform: list-events, list, define, update, delete, fire-test, or run-now.",
               enum: [...VALID_ACTIONS],
             },
             name: {
               type: "string",
               description:
-                "Slug name for the automation (lowercase, hyphens). Used by define, update, and delete.",
+                "Slug name for the automation (lowercase, hyphens). Used by define, update, delete, and run-now.",
             },
             scope: {
               type: "string",
@@ -338,6 +382,11 @@ export function createAutomationToolEntries(
               type: "string",
               description:
                 "For event triggers: the event name to subscribe to. Call with action=list-events first to see available events.",
+            },
+            timezone: {
+              type: "string",
+              description:
+                "IANA timezone the cron clock time is read in, e.g. 'America/New_York'. Optional; defaults to the user's saved scheduling timezone, then the caller's browser zone. Always pass this when the user names a time of day.",
             },
             schedule: {
               type: "string",
@@ -408,22 +457,27 @@ export function createAutomationToolEntries(
         allowedValues: { action: ["list-events", "list"] },
         description: "Plan mode allows listing automations and event types.",
       },
-      run: async (args: Record<string, unknown>) => {
+      run: async (
+        args: Record<string, unknown>,
+        context?: ActionRunContext,
+      ) => {
         const action = args.action;
 
         switch (action) {
           case "list-events":
             return handleListEvents();
           case "list":
-            return handleList(args, getCurrentUser);
+            return handleList(args, getCurrentUser, appId);
           case "define":
-            return handleDefine(args, getCurrentUser);
+            return handleDefine(args, getCurrentUser, appId);
           case "update":
-            return handleUpdate(args, getCurrentUser);
+            return handleUpdate(args, getCurrentUser, appId);
           case "delete":
-            return handleDelete(args, getCurrentUser);
+            return handleDelete(args, getCurrentUser, appId);
           case "fire-test":
             return handleFireTest(args, getCurrentUser);
+          case "run-now":
+            return handleRunNow(args, getCurrentUser, appId, context);
           default:
             return `Error: unknown action "${action}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
         }

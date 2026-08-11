@@ -1,4 +1,7 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
@@ -16,9 +19,10 @@ import {
   IconWorld,
   IconFileDescription,
   IconPhoto,
-  IconPalette,
+  IconComponents,
   IconCheck,
   IconExternalLink,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -34,6 +38,7 @@ import {
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
+import { cn } from "@/lib/utils";
 
 interface GitHubLink {
   id: string;
@@ -47,6 +52,8 @@ interface UploadedFile {
   size: number;
   textContent?: string;
 }
+
+type OtherSource = "brand" | "code" | "files" | "existing" | "notes";
 
 interface BuilderIndexResult {
   ok: boolean;
@@ -81,6 +88,8 @@ export default function DesignSystemSetup() {
   const [notes, setNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("figma");
+  const [otherSource, setOtherSource] = useState<OtherSource | null>(null);
 
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -95,6 +104,7 @@ export default function DesignSystemSetup() {
   const { data: designSystemsData } = useActionQuery<{
     designSystems: Array<{ id: string; title: string }>;
   }>("list-design-systems");
+  const updateSystemMutation = useActionMutation("update-design-system");
 
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
@@ -185,7 +195,7 @@ export default function DesignSystemSetup() {
             .replace(/[-_]+/g, " ")
             .trim() || "Imported brand";
         const json = await uploadAndIndexFigmaFiles([file], {
-          projectName: suggestedTitle,
+          projectName: companyInfo.trim() || suggestedTitle,
         });
         const parsed = json as unknown as BuilderIndexResult;
         if (parsed.jobId) {
@@ -203,7 +213,7 @@ export default function DesignSystemSetup() {
         setBuilderIndexing(false);
       }
     },
-    [t, startDecodePolling, stopDecodePolling],
+    [companyInfo, t, startDecodePolling, stopDecodePolling],
   );
 
   useEffect(() => {
@@ -247,6 +257,11 @@ export default function DesignSystemSetup() {
     notes,
     customInstructions,
   ]);
+
+  const selectOtherSource = useCallback((source: OtherSource) => {
+    setSourcePanel("other");
+    setOtherSource((current) => (current === source ? null : source));
+  }, []);
 
   const addWebsiteUrl = useCallback(() => {
     const url = websiteUrl.trim();
@@ -386,7 +401,7 @@ export default function DesignSystemSetup() {
     [readTextFiles],
   );
 
-  const handleContinue = useCallback(() => {
+  const handleContinue = useCallback(async () => {
     if (!hasAnySources) {
       setValidationError(t("designSystemSetup.errors.noSources"));
       return;
@@ -422,18 +437,20 @@ export default function DesignSystemSetup() {
     );
 
     if (companyInfo.trim()) {
-      parts.push(`\n## Company / Brand\n${companyInfo.trim()}`);
+      parts.push(
+        `\n## Company / Brand\n${companyInfo.trim()}\n\nUse exactly this as the design system name. Never replace it with the uploaded Figma filename.`,
+      );
     }
 
     if (normalizedWebsiteUrls.length > 0) {
       parts.push(
-        `\n## Website URLs\nExtract design tokens from these websites:\n${normalizedWebsiteUrls.map((u) => `- ${u}`).join("\n")}\n\n**Best approach:** Call \`activate-browser\` first, then use chrome-devtools MCP tools to navigate each URL and extract computed styles (colors, fonts, spacing, CSS custom properties) via \`evaluate_script\`. This captures the real rendered design — including JS-injected styles, CSS-in-JS, and SPA content that plain HTML fetch misses. Take a screenshot too for visual reference. If Builder is not connected, fall back to \`import-from-url\` for each URL (limited to static HTML parsing).`,
+        `\n## Website URLs\nExtract design tokens from these websites:\n${normalizedWebsiteUrls.map((u) => `- ${u}`).join("\n")}\n\nCall \`import-from-url\` for each URL. It uses the shared layered renderer: Builder Browser when available, then local Playwright or an approved attached browser, with an explicit SSRF-safe static fallback. The result includes hydrated computed styles (including React, CSS-in-JS, Tailwind, SPA content, and loaded fonts), desktop/mobile screenshot evidence, and a bounded design.md-style summary. Use that result as the source of truth; do not replace it with a plain HTML fetch.`,
       );
     }
 
     if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder from Settings instead of asking me to paste repository credentials into chat.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 
@@ -513,6 +530,23 @@ export default function DesignSystemSetup() {
       );
     }
 
+    const requestedTitle = companyInfo.trim();
+    const localDesignSystemId = builderIndexResult?.localDesignSystemId;
+    if (requestedTitle && localDesignSystemId) {
+      try {
+        await updateSystemMutation.mutateAsync({
+          id: localDesignSystemId,
+          title: requestedTitle,
+        });
+      } catch (error) {
+        toast.error(t("common.genericError"), {
+          description:
+            error instanceof Error ? error.message : t("common.genericError"),
+        });
+        return;
+      }
+    }
+
     parts.push(
       `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
@@ -521,9 +555,13 @@ export default function DesignSystemSetup() {
       }. Present a summary for review.`,
     );
 
+    const message =
+      parts[0] ?? "Set up a design system from the selected sources.";
+    const context = parts.slice(1).join("\n");
     openAgentSidebar();
     sendToDesignAgentChat({
-      message: parts.join("\n"),
+      message,
+      context,
       submit: true,
       newTab: true,
     });
@@ -547,6 +585,7 @@ export default function DesignSystemSetup() {
     existingSystems,
     navigate,
     t,
+    updateSystemMutation,
   ]);
 
   useSetPageTitle(
@@ -597,11 +636,23 @@ export default function DesignSystemSetup() {
             </div>
           )}
 
-          <div className="space-y-8">
+          <div className="space-y-5">
             {/* Start from a Figma file via Builder DSI. */}
+            <SourceAccordionRow
+              icon={IconBrandFigma}
+              title={t("designSystemSetup.sections.figma.title")}
+              description={t("designSystemSetup.sections.figma.description")}
+              expanded={sourcePanel === "figma"}
+              onClick={() => setSourcePanel("figma")}
+              panelId="design-system-figma-source"
+            />
             <Section
               title={t("designSystemSetup.sections.figma.title")}
               description={t("designSystemSetup.sections.figma.description")}
+              hidden={sourcePanel !== "figma"}
+              hideHeading
+              id="design-system-figma-source"
+              className="rounded-lg border border-border bg-card p-4"
             >
               {!builderIndexResult ? (
                 <>
@@ -655,6 +706,7 @@ export default function DesignSystemSetup() {
                 <BuilderIndexPreview
                   result={builderIndexResult}
                   decodeStatus={decodeStatus}
+                  displayTitle={companyInfo.trim()}
                   onReset={() => {
                     stopDecodePolling();
                     setDecodeStatus(null);
@@ -665,10 +717,97 @@ export default function DesignSystemSetup() {
               )}
             </Section>
 
+            <SourceAccordionRow
+              icon={IconComponents}
+              title={t("designSystemSetup.otherSources")}
+              description={t("designSystemSetup.otherSourcesDescription")}
+              expanded={sourcePanel === "other"}
+              onClick={() => setSourcePanel("other")}
+              panelId="design-system-other-sources"
+            />
+            {sourcePanel === "other" && (
+              <div
+                id="design-system-other-sources"
+                className="overflow-hidden rounded-lg border border-border"
+              >
+                <div className="border-b border-border px-4 py-3">
+                  <p className="text-xs font-medium text-foreground/70">
+                    {t("designSystemSetup.chooseSourcePrompt")}
+                  </p>
+                </div>
+                <div className="divide-y divide-border">
+                  <SourceAccordionRow
+                    className="rounded-none border-0"
+                    icon={IconComponents}
+                    title={t("designSystemSetup.sections.company.title")}
+                    description={t(
+                      "designSystemSetup.sections.company.description",
+                    )}
+                    expanded={otherSource === "brand"}
+                    onClick={() => selectOtherSource("brand")}
+                    panelId="design-system-brand-source"
+                  />
+                  <SourceAccordionRow
+                    className="rounded-none border-0"
+                    icon={IconBrandGithub}
+                    title={t("designSystemSetup.sections.code.title")}
+                    description={t(
+                      "designSystemSetup.sections.code.description",
+                    )}
+                    expanded={otherSource === "code"}
+                    onClick={() => selectOtherSource("code")}
+                    panelId="design-system-code-source"
+                  />
+                  <SourceAccordionRow
+                    className="rounded-none border-0"
+                    icon={IconFileDescription}
+                    title={t("designSystemSetup.sections.designFiles.title")}
+                    description={t(
+                      "designSystemSetup.sections.designFiles.description",
+                    )}
+                    expanded={otherSource === "files"}
+                    onClick={() => selectOtherSource("files")}
+                    panelId="design-system-file-source"
+                  />
+                  {(existingProjects.length > 0 ||
+                    existingSystems.length > 0) && (
+                    <SourceAccordionRow
+                      className="rounded-none border-0"
+                      icon={IconComponents}
+                      title={t(
+                        "designSystemSetup.sections.importExisting.title",
+                      )}
+                      description={t(
+                        "designSystemSetup.sections.importExisting.description",
+                      )}
+                      expanded={otherSource === "existing"}
+                      onClick={() => selectOtherSource("existing")}
+                      panelId="design-system-existing-source"
+                    />
+                  )}
+                  <SourceAccordionRow
+                    className="rounded-none border-0"
+                    icon={IconFileDescription}
+                    title={t("designSystemSetup.sections.notes.title")}
+                    description={t(
+                      "designSystemSetup.sections.notes.description",
+                    )}
+                    expanded={otherSource === "notes"}
+                    onClick={() => selectOtherSource("notes")}
+                    panelId="design-system-notes-source"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Company / Brand */}
             <Section
               title={t("designSystemSetup.sections.company.title")}
               description={t("designSystemSetup.sections.company.description")}
+              hidden={sourcePanel !== "other" || otherSource !== "brand"}
+              hideHeading
+              id="design-system-brand-source"
+              className="rounded-lg border border-border bg-card p-4"
             >
               <Textarea
                 value={companyInfo}
@@ -733,6 +872,10 @@ export default function DesignSystemSetup() {
             <Section
               title={t("designSystemSetup.sections.code.title")}
               description={t("designSystemSetup.sections.code.description")}
+              hidden={sourcePanel !== "other" || otherSource !== "code"}
+              hideHeading
+              id="design-system-code-source"
+              className="rounded-lg border border-border bg-card p-4"
             >
               {/* GitHub */}
               <div className="mb-4">
@@ -764,7 +907,7 @@ export default function DesignSystemSetup() {
                 <p className="mt-2 text-xs text-muted-foreground/80">
                   {t("designSystemSetup.privateRepoPrefix")}{" "}
                   <a
-                    href="/settings#secrets:GITHUB_TOKEN"
+                    href="/settings/integrations#secrets:GITHUB_TOKEN"
                     className="font-medium text-foreground/80 underline-offset-2 hover:underline"
                   >
                     GITHUB_TOKEN
@@ -863,6 +1006,10 @@ export default function DesignSystemSetup() {
               description={t(
                 "designSystemSetup.sections.designFiles.description",
               )}
+              hidden={sourcePanel !== "other" || otherSource !== "files"}
+              hideHeading
+              id="design-system-file-source"
+              className="rounded-lg border border-border bg-card p-4"
             >
               {/* Figma .fig import lives in the "Start from a Figma file"
                   section at the top — it deeply parses the file in-process. */}
@@ -970,6 +1117,10 @@ export default function DesignSystemSetup() {
                 description={t(
                   "designSystemSetup.sections.importExisting.description",
                 )}
+                hidden={sourcePanel !== "other" || otherSource !== "existing"}
+                hideHeading
+                id="design-system-existing-source"
+                className="rounded-lg border border-border bg-card p-4"
               >
                 <div className="grid grid-cols-2 gap-2">
                   {existingSystems.map((ds) => (
@@ -987,7 +1138,7 @@ export default function DesignSystemSetup() {
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                        <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
                         <span className="text-sm text-foreground/70 truncate">
                           {ds.title}
                         </span>
@@ -1027,6 +1178,10 @@ export default function DesignSystemSetup() {
             <Section
               title={t("designSystemSetup.sections.notes.title")}
               description={t("designSystemSetup.sections.notes.description")}
+              hidden={sourcePanel !== "other" || otherSource !== "notes"}
+              hideHeading
+              id="design-system-notes-source"
+              className="rounded-lg border border-border bg-card p-4"
             >
               <Textarea
                 value={notes}
@@ -1043,6 +1198,9 @@ export default function DesignSystemSetup() {
               description={t(
                 "designSystemSetup.sections.customInstructions.description",
               )}
+              hidden={sourcePanel !== "other" || otherSource !== "notes"}
+              hideHeading
+              className="rounded-lg border border-border bg-card p-4"
             >
               <Textarea
                 value={customInstructions}
@@ -1077,19 +1235,80 @@ function Section({
   title,
   description,
   children,
+  hidden = false,
+  hideHeading = false,
+  id,
+  className,
 }: {
   title: string;
   description: string;
   children: React.ReactNode;
+  hidden?: boolean;
+  hideHeading?: boolean;
+  id?: string;
+  className?: string;
 }) {
+  if (hidden) return null;
   return (
-    <section>
-      <div className="mb-3">
-        <h2 className="text-sm font-medium text-foreground/70">{title}</h2>
-        <p className="text-xs text-muted-foreground/70 mt-0.5">{description}</p>
-      </div>
+    <section id={id} className={className}>
+      {!hideHeading && (
+        <div className="mb-3">
+          <h2 className="text-sm font-medium text-foreground/70">{title}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground/70">
+            {description}
+          </p>
+        </div>
+      )}
       {children}
     </section>
+  );
+}
+
+function SourceAccordionRow({
+  icon: Icon,
+  title,
+  description,
+  expanded,
+  onClick,
+  panelId,
+  className,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  expanded: boolean;
+  onClick: () => void;
+  panelId: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-controls={panelId}
+      aria-expanded={expanded}
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-[background-color,border-color] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        expanded && "bg-accent/40",
+        className,
+      )}
+    >
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-foreground/90">
+          {title}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {description}
+        </span>
+      </span>
+      <IconChevronDown
+        className={cn(
+          "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
+          expanded && "rotate-180",
+        )}
+      />
+    </button>
   );
 }
 
@@ -1128,10 +1347,12 @@ function FileList({
 function BuilderIndexPreview({
   result,
   decodeStatus,
+  displayTitle,
   onReset,
 }: {
   result: BuilderIndexResult;
   decodeStatus: DecodeJobStatus | null;
+  displayTitle?: string;
   onReset: () => void;
 }) {
   const t = useT();
@@ -1146,7 +1367,7 @@ function BuilderIndexPreview({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
-            {result.suggestedTitle}
+            {displayTitle || result.suggestedTitle}
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {

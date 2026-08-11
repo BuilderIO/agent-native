@@ -1,3 +1,4 @@
+import { AgentNativeRouteWarmup } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
@@ -20,6 +21,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
   localeDirection,
@@ -48,8 +50,6 @@ const LazyAgentSidebar = lazy(async () => {
 });
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
-
-const GA_SCRIPT = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-ESF7FYXGN9');`;
 
 const JSON_LD = JSON.stringify({
   "@context": "https://schema.org",
@@ -337,6 +337,12 @@ function ScrollManager() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const localeData = useRootLocaleData();
+  const matches = useMatches() as unknown as Array<{ loaderData: unknown }>;
+  const hasDocBlocks = matches.some((match) => {
+    if (!match.loaderData || typeof match.loaderData !== "object") return false;
+    const data = match.loaderData as { body?: unknown };
+    return typeof data.body === "string" && hasDocBlockSyntax(data.body);
+  });
   const locale = localeData.locale;
   const localeInitScript =
     typeof document !== "undefined"
@@ -346,17 +352,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
           locale,
           preference:
             locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
-          messages: localeData.messages,
         }))
       : getLocaleInitScript({
           locale,
           preference:
             locale === DEFAULT_DOCS_LOCALE ? undefined : localeData.preference,
-          messages: localeData.messages,
         });
 
   return (
-    <html lang={locale} dir={localeDirection(locale)} suppressHydrationWarning>
+    <html
+      lang={locale}
+      dir={localeDirection(locale)}
+      data-doc-blocks={hasDocBlocks ? "true" : undefined}
+      suppressHydrationWarning
+    >
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -366,11 +375,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
-        <script
-          async
-          src="https://www.googletagmanager.com/gtag/js?id=G-ESF7FYXGN9"
-        />
-        <script dangerouslySetInnerHTML={{ __html: GA_SCRIPT }} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON_LD }}
@@ -471,23 +475,26 @@ function RootShell({ mounted }: { mounted: boolean }) {
   if (!mounted) return fallback;
 
   return (
-    <Suspense fallback={fallback}>
-      <LazyAgentSidebar
-        storageKey="docs"
-        position="right"
-        defaultOpen={false}
-        defaultSidebarWidth={400}
-        emptyStateText={t("agent.emptyState")}
-        suggestions={[
-          t("agent.suggestionGettingStarted"),
-          t("agent.suggestionActions"),
-          t("agent.suggestionPolling"),
-          t("agent.suggestionDeploy"),
-        ]}
-      >
-        {content}
-      </LazyAgentSidebar>
-    </Suspense>
+    <>
+      <AgentNativeRouteWarmup />
+      <Suspense fallback={fallback}>
+        <LazyAgentSidebar
+          storageKey="docs"
+          position="right"
+          defaultOpen={false}
+          defaultSidebarWidth={400}
+          emptyStateText={t("agent.emptyState")}
+          suggestions={[
+            t("agent.suggestionGettingStarted"),
+            t("agent.suggestionActions"),
+            t("agent.suggestionPolling"),
+            t("agent.suggestionDeploy"),
+          ]}
+        >
+          {content}
+        </LazyAgentSidebar>
+      </Suspense>
+    </>
   );
 }
 
@@ -512,14 +519,14 @@ function LocalizedError({ error }: { error: unknown }) {
           </p>
           <div className="flex items-center gap-3">
             <Link
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/")}
               className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
               {t("errors.goHome")}
             </Link>
             <Link
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs")}
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
             >
@@ -552,7 +559,7 @@ function LocalizedError({ error }: { error: unknown }) {
           {t("errors.genericBody")}
         </p>
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={localizedPath("/")}
           className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >

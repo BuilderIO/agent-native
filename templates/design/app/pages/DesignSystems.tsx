@@ -12,6 +12,7 @@ import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,
   IconChecks,
+  IconComponents,
   IconDots,
   IconPlus,
   IconPalette,
@@ -220,7 +221,7 @@ export default function DesignSystems() {
   }, []);
 
   const handleSetDefault = useCallback(
-    (id: string) => {
+    (id: string, isDefault: boolean) => {
       // Optimistic update
       queryClient.setQueryData(
         ["action", "list-design-systems", undefined],
@@ -230,13 +231,17 @@ export default function DesignSystems() {
             ...old,
             designSystems: old.designSystems.map((ds: DesignSystem) => ({
               ...ds,
-              isDefault: ds.id === id,
+              isDefault: isDefault
+                ? ds.id === id
+                : ds.id === id
+                  ? false
+                  : ds.isDefault,
             })),
           };
         },
       );
 
-      setDefaultMutation.mutate({ id } as any, {
+      setDefaultMutation.mutate({ id, isDefault } as any, {
         onError: () => {
           queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
@@ -583,7 +588,7 @@ export default function DesignSystems() {
                             {!primaryColor &&
                               !secondaryColor &&
                               !accentColor && (
-                                <IconPalette className="w-8 h-8 text-muted-foreground/40" />
+                                <IconComponents className="w-8 h-8 text-muted-foreground/40" />
                               )}
                           </div>
                           <div className="p-4 pb-3">
@@ -645,7 +650,9 @@ export default function DesignSystems() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    onClick={() => handleSetDefault(ds.id)}
+                                    onClick={() =>
+                                      handleSetDefault(ds.id, !ds.isDefault)
+                                    }
                                     className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
                                   >
                                     {ds.isDefault ? (
@@ -1223,7 +1230,7 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconPalette className="w-7 h-7 text-[#609FF8]" />
+        <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("designSystems.empty.title")}

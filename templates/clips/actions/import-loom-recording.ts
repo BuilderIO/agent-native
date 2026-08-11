@@ -12,7 +12,7 @@ import { queueBuilderMediaCompression } from "../server/lib/builder-media-compre
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
-  getOrganizationDefaultVisibility,
+  getDefaultRecordingVisibility,
   nanoid,
   ownerEmailMatches,
   parseSpaceIds,
@@ -89,9 +89,9 @@ const ImportLoomRecordingSchema = z.object({
 });
 
 const LOOM_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage, then retry this Loom import.";
+  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
 const DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage, then retry this import.";
+  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -215,7 +215,7 @@ export default defineAction({
       existingRecording?.organizationId ?? args.organizationId,
     );
     const defaultVisibility =
-      await getOrganizationDefaultVisibility(organizationId);
+      await getDefaultRecordingVisibility(organizationId);
 
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
@@ -387,10 +387,17 @@ export default defineAction({
       await writeAppState("navigate", { view: "recording", recordingId: id });
 
       try {
+        console.log("[import-loom-recording] dispatching loom-import job", {
+          recordingId: id,
+          provider: providerId,
+        });
         await dispatchPostFinalizeJob({
           recordingId: id,
           kind: "loom-import",
           requireAccepted: true,
+        });
+        console.log("[import-loom-recording] loom-import job accepted", {
+          recordingId: id,
         });
       } catch (err) {
         const failureReason = `Could not start the Loom import: ${

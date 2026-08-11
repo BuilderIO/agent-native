@@ -123,6 +123,12 @@ export function resolveComposerPrimaryAction(options: {
   return !options.canSubmit && options.hasStopButton ? "stop" : "send";
 }
 
+export function getComposerSendTooltipKey(
+  willQueue: boolean,
+): "composer.queueMessage" | "composer.sendMessage" {
+  return willQueue ? "composer.queueMessage" : "composer.sendMessage";
+}
+
 export type ContextChipBackspaceAction =
   | { type: "select"; key: string }
   | { type: "remove"; key: string }
@@ -280,21 +286,27 @@ function isDocumentAttachment(value: Record<string, unknown>): boolean {
 
 export function getOversizedDocumentAttachmentError(
   attachments: ReadonlyArray<unknown>,
+  options: {
+    maxBytes?: number;
+    label?: string;
+  } = {},
 ): string | null {
+  const maxBytes = options.maxBytes ?? MAX_DOCUMENT_ATTACHMENT_BYTES;
+  const label = options.label ?? "PDFs";
   for (const attachment of attachments) {
     if (!attachment || typeof attachment !== "object") continue;
     const candidate = attachment as Record<string, unknown>;
     if (!isDocumentAttachment(candidate)) continue;
     const file = candidate.file;
     if (!(file instanceof File)) continue;
-    if (file.size <= MAX_DOCUMENT_ATTACHMENT_BYTES) continue;
+    if (file.size <= maxBytes) continue;
     const name =
       typeof candidate.name === "string" && candidate.name.trim()
         ? candidate.name
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    const maxMb = (MAX_DOCUMENT_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
-    return `"${name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+    const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
+    return `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
   }
   return null;
 }
@@ -549,6 +561,10 @@ type ExecMode = "build" | "plan";
 export interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
+  /** Override the generic document attachment cap for a multipart host. */
+  maxDocumentAttachmentBytes?: number;
+  /** Label used in the visible document attachment limit error. */
+  documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
   /** Programmatically seed the editor with plain text. */
   initialText?: string;
@@ -564,7 +580,7 @@ export interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   /**
@@ -576,6 +592,8 @@ export interface TiptapComposerProps {
   onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
+  /** Whether the default send action will wait behind existing work. */
+  willQueue?: boolean;
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
@@ -613,20 +631,24 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
+  /** Show the legacy provider-level Auto model option (default: true). */
+  showAutoModelOption?: boolean;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
     label: string;
     models: string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort */
+  /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
@@ -826,7 +848,7 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
-  "codex-cli": "ChatGPT subscription",
+  "codex-cli": "Codex",
   "claude-fable-5": "Fable 5",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
@@ -941,7 +963,7 @@ function latestModelsOnly(models: string[]): string[] {
       return true;
     }
     // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI reasoning: each is its own family
+    // OpenAI effort: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
     if (gemini) {
@@ -1028,6 +1050,7 @@ function ModelSelector({
   model,
   effort,
   engines,
+  showAutoModelOption = true,
   modelListLoading = false,
   onChange,
   onEffortChange,
@@ -1043,7 +1066,10 @@ function ModelSelector({
     label: string;
     models: string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
+  showAutoModelOption?: boolean;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
@@ -1057,7 +1083,9 @@ function ModelSelector({
   const reasoning = adapters.models?.reasoning;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
   const [open, setOpen] = useState(false);
-  const autoModelGroup = engines.find((group) => group.models.includes("auto"));
+  const autoModelGroup = showAutoModelOption
+    ? engines.find((group) => group.models.includes("auto"))
+    : undefined;
   const providerGroups = useMemo(
     () =>
       engines
@@ -1105,12 +1133,12 @@ function ModelSelector({
     });
   }, []);
 
-  // The reasoning effort list is collapsed by default — it's a secondary
+  // The effort list is collapsed by default — it's a secondary
   // control most users don't touch, so it stays tucked behind a header that
   // reveals the current effort at a glance. Reset to collapsed on each open.
-  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  const [effortExpanded, setEffortExpanded] = useState(false);
   useEffect(() => {
-    if (open) setReasoningExpanded(false);
+    if (open) setEffortExpanded(false);
   }, [open]);
 
   // The optional image-model section follows the same collapsed-by-default
@@ -1137,12 +1165,16 @@ function ModelSelector({
   const hasConfiguredBuilderModels = providerGroups.some(
     (group) => group.engine === "builder" && group.configured,
   );
+  const hasConnectedSubscription = providerGroups.some(
+    (group) => group.configured && group.isSubscription,
+  );
   const showBuilderCta =
     (builderFlow.hasFetchedStatus ||
       (!providerConnectStatusEnabled && !!onConnectProvider)) &&
     !builderFlow.configured &&
     !builderFlow.envManaged &&
-    !hasConfiguredBuilderModels;
+    !hasConfiguredBuilderModels &&
+    !hasConnectedSubscription;
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
     showBuilderCta,
     providerGroups,
@@ -1170,7 +1202,7 @@ function ModelSelector({
           data-agent-composer-slot="model-button"
           aria-label={`Model: ${friendlyModelName(model)}${
             effortOptions.length > 0
-              ? `. Reasoning: ${effortLabel(selectedEffort)}`
+              ? `. Effort: ${effortLabel(selectedEffort)}`
               : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1249,8 +1281,7 @@ function ModelSelector({
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
                   {t("agentPanel.configureProviderKeys", {
-                    defaultValue:
-                      "Configure Anthropic, OpenAI, or another provider",
+                    defaultValue: "Choose a cloud, gateway, or local provider",
                   })}
                 </span>
               </span>
@@ -1335,6 +1366,17 @@ function ModelSelector({
             const groupKey = `${group.engine}:${group.label}`;
             const isExpanded = expandedGroups.has(groupKey);
             const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
+            const isLocalRuntime =
+              group.engine === "codex-cli" || group.engine === "claude-cli";
+            const canConnectLocalRuntime =
+              isLocalRuntime && Boolean(onConnectLocalRuntime);
+            const statusLabel =
+              group.statusLabel ??
+              (!group.configured
+                ? canConnectLocalRuntime
+                  ? "sign in"
+                  : "needs API key"
+                : undefined);
             return (
               <div key={groupKey}>
                 <div className="flex items-center hover:bg-accent/30">
@@ -1354,20 +1396,23 @@ function ModelSelector({
                       </span>
                     )}
                   </button>
-                  {!group.configured && (
+                  {!group.configured && statusLabel && (
                     <button
                       type="button"
-                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
+                      className="ms-auto max-w-[9rem] shrink-0 text-end text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
                       onClick={() =>
-                        group.engine === "codex-cli" && onConnectLocalRuntime
+                        canConnectLocalRuntime
                           ? connectLocalRuntime(group.engine)
                           : openLlmSettings()
                       }
                     >
-                      {group.engine === "codex-cli" && onConnectLocalRuntime
-                        ? "sign in"
-                        : "needs API key"}
+                      {statusLabel}
                     </button>
+                  )}
+                  {group.configured && statusLabel && (
+                    <span className="ms-auto max-w-[9rem] shrink-0 pe-3 text-end text-[10px] text-muted-foreground/70">
+                      {statusLabel}
+                    </span>
                   )}
                 </div>
                 {isExpanded &&
@@ -1377,10 +1422,7 @@ function ModelSelector({
                       type="button"
                       onClick={() => {
                         if (!group.configured) {
-                          if (
-                            group.engine === "codex-cli" &&
-                            onConnectLocalRuntime
-                          ) {
+                          if (canConnectLocalRuntime) {
                             connectLocalRuntime(group.engine);
                           } else {
                             openLlmSettings();
@@ -1424,26 +1466,26 @@ function ModelSelector({
               <div className="flex items-center hover:bg-accent/30">
                 <button
                   type="button"
-                  aria-expanded={reasoningExpanded}
-                  onClick={() => setReasoningExpanded((prev) => !prev)}
+                  aria-expanded={effortExpanded}
+                  onClick={() => setEffortExpanded((prev) => !prev)}
                   className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
                 >
-                  {reasoningExpanded ? (
+                  {effortExpanded ? (
                     <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                   ) : (
                     <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                   )}
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    Reasoning
+                    Effort
                   </span>
-                  {!reasoningExpanded && (
+                  {!effortExpanded && (
                     <span className="text-[11px] text-muted-foreground/80 truncate">
                       {effortLabel(selectedEffort)}
                     </span>
                   )}
                 </button>
               </div>
-              {reasoningExpanded &&
+              {effortExpanded &&
                 effortOptions.map((option) => (
                   <button
                     key={option}
@@ -1494,6 +1536,8 @@ type PopoverState = {
 export function TiptapComposer({
   placeholder = "Message agent...",
   disabled = false,
+  maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
+  documentAttachmentLimitLabel = "PDFs",
   focusRef,
   initialText,
   initialTextKey,
@@ -1502,6 +1546,7 @@ export function TiptapComposer({
   clearOnSubmit = true,
   onTextChange,
   actionButton,
+  willQueue = false,
   extraActionButton,
   stopButton,
   attachButton,
@@ -1520,6 +1565,7 @@ export function TiptapComposer({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
   selectedEffort,
+  showAutoModelOption = true,
   availableModels,
   modelListLoading,
   onModelChange,
@@ -1538,6 +1584,9 @@ export function TiptapComposer({
 }: TiptapComposerProps) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
+  const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
+    defaultValue: willQueue ? "Queue message" : "Send message",
+  });
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
@@ -2498,8 +2547,13 @@ export function TiptapComposer({
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
         return;
-      const oversizedDocumentError =
-        getOversizedDocumentAttachmentError(attachments);
+      const oversizedDocumentError = getOversizedDocumentAttachmentError(
+        attachments,
+        {
+          maxBytes: maxDocumentAttachmentBytes,
+          label: documentAttachmentLimitLabel,
+        },
+      );
       if (oversizedDocumentError) {
         onAttachmentErrorRef.current?.(oversizedDocumentError);
         return;
@@ -2597,7 +2651,13 @@ export function TiptapComposer({
       }
 
       if (onSubmit) {
-        onSubmit(text, references, attachments, { intent });
+        try {
+          await onSubmit(text, references, attachments, { intent });
+        } catch {
+          // Hosts own their submit errors. Keep the draft and attachments
+          // available for recovery when a host rejects the submission.
+          return;
+        }
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
@@ -2957,6 +3017,7 @@ export function TiptapComposer({
             model={selectedModel}
             effort={selectedEffort}
             engines={availableModels}
+            showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
             onChange={onModelChange}
             onEffortChange={onEffortChange}
@@ -2995,7 +3056,7 @@ export function TiptapComposer({
                     <IconArrowUp className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Send message</TooltipContent>
+                <TooltipContent>{sendButtonTooltip}</TooltipContent>
               </Tooltip>
             )}
           </>

@@ -132,7 +132,7 @@ filters for that column, hide property columns in the current view without
 changing other views, and resize column widths. Column headers show compact
 sort/filter indicators when that column has active view constraints. Table
 rows can be selected with row checkboxes, and the table shows a compact
-selected-row bar with clear, duplicate, confirmed delete, and bulk property
+selected-row bar with clear, duplicate, confirmed membership removal, and bulk property
 set actions for editable non-computed fields. Empty table cells stay
 visually blank while remaining clickable for editing, and checkbox table
 cells render as compact checkbox glyphs instead of "Checked"/"Unchecked"
@@ -228,16 +228,31 @@ property definition.
 Use `create-content-database`, `create-inline-content-database`,
 `get-content-database`, `list-trashed-content-databases`,
 `restore-content-database`, `add-database-item`, `duplicate-database-item`,
-`duplicate-database-items`, `delete-database-items`, `move-database-item`,
+`duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
 
+For a bounded migration that must rewrite every existing row body while adding
+new property definitions and values, use `migrate-content-database-rows` rather
+than looping the single-row actions. Its `validate` phase is read-only; `apply`
+commits the complete plan with an idempotency receipt or writes nothing. Read
+the database and every row independently after apply, then call its separate
+`verify` phase with the saved post-apply digest. Only a verified receipt may
+`finalize` the exact legacy property IDs stored in that receipt. `rollback` is
+available before finalize only while the saved post-apply digest still matches,
+so it never overwrites a later edit. The bounded migration accepts ordinary
+databases without attached Sources; source-backed and system databases retain
+their dedicated synchronization actions. If flushing a live row editor changes
+its persisted revision, read the rows again and build a fresh plan.
+
 When targeting more than one database row, call `duplicate-database-items` or
-`delete-database-items` once with a native JSON array of `itemIds` or
+`remove-database-items` once with a native JSON array of `itemIds` or
 `documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
-multi-row duplicate/delete requests.
+multi-row duplicate or membership-removal requests. Removing a row from a
+database preserves its Page, descendants, other database memberships, and
+unrelated property values.
 
 Database views follow Notion-style tab labels. When creating or duplicating
 views in `viewConfig`, use unique default names (`Table 2`, `SEO copy 2`,

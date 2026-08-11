@@ -32,6 +32,7 @@ let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
   started_at: number;
+  has_dispatch_payload?: boolean | number;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
 // claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
@@ -71,7 +72,7 @@ const mockDb = {
     // come before the narrower id-only variant below (both match
     // "dispatch_mode = 'background'").
     if (
-      /SELECT id, started_at FROM agent_runs\s*WHERE status = 'running'/i.test(
+      /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
         rawSql,
       ) &&
       /dispatch_mode = 'background'/i.test(rawSql)
@@ -322,7 +323,7 @@ describe("run store", () => {
     expect(insert?.args[0]).toBe("run-abort");
     expect(insert?.args[1]).toBe(0);
     expect(typeof insert?.args[2]).toBe("number");
-    expect(insert?.args[3]).toBe('{"type":"done"}');
+    expect(insert?.args[3]).toBe('{"type":"done","reason":"user"}');
   });
 
   it("persists a reason-shaped terminal event for a recovery abort", async () => {
@@ -344,10 +345,17 @@ describe("run store", () => {
       type: "auto_continue",
       reason: "run_timeout",
     });
-    expect(terminalEventForAbortReason(undefined)).toEqual({ type: "done" });
-    expect(terminalEventForAbortReason("user")).toEqual({ type: "done" });
+    expect(terminalEventForAbortReason(undefined)).toEqual({
+      type: "done",
+      reason: "user",
+    });
+    expect(terminalEventForAbortReason("user")).toEqual({
+      type: "done",
+      reason: "user",
+    });
     expect(terminalEventForAbortReason("user_stuck_retry")).toEqual({
       type: "done",
+      reason: "user",
     });
     // The displacing writer already recorded the row's real terminal state.
     expect(terminalEventForAbortReason("displaced")).toEqual({ type: "done" });
@@ -1274,12 +1282,12 @@ describe("run store", () => {
     ];
     const rows = await listUnclaimedBackgroundRunRows();
     expect(rows).toEqual([
-      { id: "run-lost-1", startedAt: 111 },
-      { id: "run-lost-2", startedAt: 222 },
+      { id: "run-lost-1", startedAt: 111, hasDispatchPayload: false },
+      { id: "run-lost-2", startedAt: 222, hasDispatchPayload: false },
     ]);
 
     const select = execCalls.find((call) =>
-      /SELECT id, started_at FROM agent_runs\s*WHERE status = 'running'/i.test(
+      /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
         call.sql,
       ),
     );
@@ -1294,7 +1302,30 @@ describe("run store", () => {
       { id: null, started_at: 200 },
     ];
     const rows = await listUnclaimedBackgroundRunRows();
-    expect(rows).toEqual([{ id: "run-ok", startedAt: 100 }]);
+    expect(rows).toEqual([
+      { id: "run-ok", startedAt: 100, hasDispatchPayload: false },
+    ]);
+  });
+
+  // Sweep eligibility does not imply the row can be redispatched. A row with no
+  // `dispatch_payload` sent to a worker under `payloadRef: true` dies as
+  // `dispatch_payload_missing` — 98 production runs did exactly that — so the
+  // sweep has to be able to tell the two apart.
+  it("listUnclaimedBackgroundRunRows reports whether the row can still be rehydrated", async () => {
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-with-payload", started_at: 1, has_dispatch_payload: true },
+      { id: "run-no-payload", started_at: 2, has_dispatch_payload: false },
+      // SQLite reports booleans as 1/0.
+      { id: "run-sqlite", started_at: 3, has_dispatch_payload: 1 },
+    ];
+
+    const rows = await listUnclaimedBackgroundRunRows();
+
+    expect(rows).toEqual([
+      { id: "run-with-payload", startedAt: 1, hasDispatchPayload: true },
+      { id: "run-no-payload", startedAt: 2, hasDispatchPayload: false },
+      { id: "run-sqlite", startedAt: 3, hasDispatchPayload: true },
+    ]);
   });
 
   // ─── Idle sweep cost ──────────────────────────────────────────────────────
@@ -1332,7 +1363,7 @@ describe("run store", () => {
     ).toBe(true);
     expect(
       execCalls.some((call) =>
-        /SELECT id, started_at FROM agent_runs/i.test(call.sql),
+        /SELECT id, started_at.*FROM agent_runs/is.test(call.sql),
       ),
     ).toBe(true);
   });
@@ -1542,7 +1573,27 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
       const update = execCalls.find((call) =>
         /UPDATE agent_runs/i.test(call.sql),
       );
-      expect(update?.sql).not.toContain("status");
+      // The SET clause is what must leave status alone — the WHERE clause reads
+      // it deliberately, to keep the write once-only (see the guard below).
+      const setClause = update?.sql.split(/\bWHERE\b/i)[0] ?? "";
+      expect(setClause).not.toContain("status");
+    }
+  });
+
+  // Three writers in three isolates race on terminal_reason with no ordering.
+  // Last-writer-wins let a late mid-run checkpoint relabel a row another
+  // isolate had already finalized, producing rows whose reason names a failure
+  // the run never hit.
+  it("setRunTerminalReason will not relabel a row that already recorded one", async () => {
+    for (const reason of ["done", "no_progress", "dispatch_payload_missing"]) {
+      execCalls.length = 0;
+      await setRunTerminalReason("run-final", reason);
+      const update = execCalls.find((call) =>
+        /UPDATE agent_runs/i.test(call.sql),
+      );
+      expect(update?.sql).toContain(
+        "(status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')",
+      );
     }
   });
 });

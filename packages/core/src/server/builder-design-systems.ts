@@ -57,7 +57,14 @@ export interface BuilderDesignSystemProxyFieldsOptions {
   projectName?: string;
   description?: string;
   surface: "design" | "slides";
+  sourceKind?: BuilderDesignSystemSourceKind;
 }
+
+export type BuilderDesignSystemSourceKind =
+  | "figma"
+  | "code"
+  | "github"
+  | "mixed";
 
 export interface BuilderDesignSystemProxyFields {
   title: string;
@@ -68,6 +75,7 @@ export interface BuilderDesignSystemProxyFields {
 
 export interface BuilderDesignSystemProxyReference {
   source: "builder";
+  sourceKind?: BuilderDesignSystemSourceKind;
   builderDesignSystemId: string;
   builderJobId: string;
   builderProjectId?: string;
@@ -320,7 +328,7 @@ async function resolveBuilderDesignSystemCredentials(): Promise<BuilderDesignSys
     throw new FeatureNotConfiguredError({
       requiredCredential: "BUILDER_PRIVATE_KEY",
       message:
-        "Connect Builder.io before indexing a design system from Figma or code.",
+        "Connect Builder.io (free tier available) before indexing a design system from Figma or code.",
       builderConnectUrl: "/_agent-native/builder/connect",
     });
   }
@@ -532,6 +540,7 @@ export function createBuilderDesignSystemProxyFields({
   projectName,
   description,
   surface,
+  sourceKind,
 }: BuilderDesignSystemProxyFieldsOptions): BuilderDesignSystemProxyFields {
   const title = projectName?.trim() || "Builder indexed design system";
   const fallbackDescription =
@@ -540,6 +549,7 @@ export function createBuilderDesignSystemProxyFields({
   const spacingKey = surface === "slides" ? "slidePadding" : "pagePadding";
   const data = JSON.stringify({
     source: "builder",
+    ...(sourceKind ? { sourceKind } : {}),
     builderDesignSystemId: result.designSystemId,
     builderJobId: result.jobId,
     builderProjectId: result.projectId,
@@ -611,8 +621,19 @@ export function parseBuilderDesignSystemProxyReference(
   if (value.source !== "builder") return null;
   if (typeof value.builderDesignSystemId !== "string") return null;
   if (typeof value.builderJobId !== "string") return null;
+  const sourceKind = value.sourceKind;
+  if (
+    sourceKind !== undefined &&
+    sourceKind !== "figma" &&
+    sourceKind !== "code" &&
+    sourceKind !== "github" &&
+    sourceKind !== "mixed"
+  ) {
+    return null;
+  }
   return {
     source: "builder",
+    ...(sourceKind ? { sourceKind } : {}),
     builderDesignSystemId: value.builderDesignSystemId,
     builderJobId: value.builderJobId,
     builderProjectId:

@@ -16,8 +16,11 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
 });
 
 import {
+  composeRecapCopy,
+  formatClipDuration,
   normalizeEmailDisplayName,
   renderClipsTransactionalEmail,
+  renderRecapSubject,
   sendClipsTransactionalEmail,
   type ClipsTransactionalEmailInput,
 } from "./transactional-email-templates.js";
@@ -67,6 +70,7 @@ describe("renderClipsTransactionalEmail", () => {
         title: "Imported demo",
       },
       subject: "Your first imported video is now Agent-Native",
+      templateId: "clips.first-import",
       heading: "Your video is ready for more than playback",
       cta: "Open your Agent-Native Clip: https://clips.example/r/rec-3",
     },
@@ -265,6 +269,236 @@ describe("renderClipsTransactionalEmail", () => {
     expect(firstImport.html).toContain(">https://clips.example/r/rec-3</a>");
   });
 
+  it("names the reading agent and falls back when it is unidentified", () => {
+    const named = render({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+      agentName: "Claude",
+    });
+    expect(named.subject).toBe("An AI agent “watched” your Clip");
+    expect(named.text).toContain(
+      "Claude accessed Deploy walkthrough today — the full transcript and the frames, not just the title.",
+    );
+    expect(named.text).toMatch(/two formats/i);
+    expect(named.text).toMatch(/answers questions without you/i);
+    expect(named.html).toContain('href="https://clips.example/r/rec-4"');
+
+    const unidentified = render({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+    });
+    expect(unidentified.text).toContain(
+      "An AI agent accessed Deploy walkthrough today",
+    );
+  });
+
+  it("offers both the analytics and import calls to action", () => {
+    const result = render({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+      agentName: "Claude",
+    });
+
+    expect(result.text).toContain(
+      "You can even import videos from other screen recording apps to give them agentic readability.",
+    );
+    expect(result.html).toContain("See Clip Analytics");
+    expect(result.html).toContain("Import a video");
+    expect(result.html).toContain('href="https://clips.example/r/rec-4"');
+    expect(result.html).toContain('href="https://clips.example/record"');
+  });
+
+  it("builds the recap subject around whichever audience showed up", () => {
+    expect(renderRecapSubject(9, 4, "2026-07")).toBe(
+      "9 human views and 4 agent reads on your clips in July",
+    );
+    expect(renderRecapSubject(1, 1, "2026-07")).toBe(
+      "1 human view and 1 agent read on your clips in July",
+    );
+    expect(renderRecapSubject(9, 0, "2026-07")).toBe(
+      "9 human views on your clips in July",
+    );
+    expect(renderRecapSubject(0, 4, "2026-07")).toBe(
+      "4 agent reads on your clips in July",
+    );
+  });
+
+  it("formats clip durations as minutes and padded seconds", () => {
+    expect(formatClipDuration(0)).toBe("0:00");
+    expect(formatClipDuration(9_000)).toBe("0:09");
+    expect(formatClipDuration(252_000)).toBe("4:12");
+  });
+
+  it("renders the recap card, both numbers, and both calls to action", () => {
+    const result = render({
+      kind: "monthly-recap",
+      to: "owner@example.test",
+      month: "2026-07",
+      humanViews: 9,
+      agentSessions: 4,
+      topClip: {
+        recordingId: "rec-top",
+        title: "Deploy walkthrough",
+        thumbnailUrl: "https://cdn.example/thumb.jpg",
+        durationMs: 252_000,
+        recordedAt: "2026-07-12T00:00:00.000Z",
+        humanViews: 9,
+        agentSessions: 4,
+      },
+      copy: {
+        heroLine: "Your clips were watched 9 times. 4 agents read them.",
+        agentBreakdown: "3 from Claude · 1 from ChatGPT",
+        completionNote: "71% average completion · most stopped at 4:12",
+      },
+    });
+
+    expect(result.subject).toBe(
+      "9 human views and 4 agent reads on your clips in July",
+    );
+    expect(result.html).toContain(
+      "Your clips were watched 9 times. 4 agents read them.",
+    );
+    expect(result.html).toContain('src="https://cdn.example/thumb.jpg"');
+    expect(result.html).toContain("Deploy walkthrough");
+    expect(result.html).toContain("Jul 12 · 4:12");
+    expect(result.html).toContain("Watched");
+    expect(result.html).toContain("Read");
+    expect(result.html).toContain(
+      "71% average completion · most stopped at 4:12",
+    );
+    expect(result.html).toContain("3 from Claude · 1 from ChatGPT");
+    expect(result.html).toContain("Here’s your top Clip of the month:");
+    expect(result.html).not.toContain("Record the next one");
+    expect(result.html).toContain('href="https://clips.example/r/rec-top"');
+    expect(result.html).toContain('href="https://clips.example/record"');
+    expect(result.text).toContain("View more Clips Analytics");
+    expect(result.text).toContain("Record a new Clip");
+  });
+
+  it("composes every recap module from the metrics alone", () => {
+    expect(
+      composeRecapCopy({
+        humanViews: 9,
+        agentSessions: 4,
+        topClip: {
+          humanViews: 9,
+          completedPct: 71,
+          dropOffMs: 252_000,
+          agentBreakdown: [
+            { agentLabel: "Claude", sessions: 3 },
+            { agentLabel: "ChatGPT", sessions: 1 },
+          ],
+        },
+      }),
+    ).toEqual({
+      heroLine: "Your clips were watched 9 times. 4 agents read them.",
+      completionNote: "71% average completion \u00b7 most stopped at 4:12",
+      agentBreakdown: "3 from Claude \u00b7 1 from ChatGPT",
+    });
+  });
+
+  it("says so plainly when a side of the recap is empty", () => {
+    expect(
+      composeRecapCopy({
+        humanViews: 0,
+        agentSessions: 8,
+        topClip: {
+          humanViews: 0,
+          completedPct: 0,
+          dropOffMs: null,
+          agentBreakdown: [
+            { agentLabel: null, sessions: 6 },
+            { agentLabel: "Claude", sessions: 2 },
+          ],
+        },
+      }),
+    ).toEqual({
+      heroLine: "8 agents read your clips.",
+      completionNote: "No human views on this one yet",
+      agentBreakdown: "6 unidentified \u00b7 2 from Claude",
+    });
+
+    expect(
+      composeRecapCopy({
+        humanViews: 1,
+        agentSessions: 0,
+        topClip: {
+          humanViews: 1,
+          completedPct: 40,
+          dropOffMs: null,
+          agentBreakdown: [],
+        },
+      }),
+    ).toEqual({
+      heroLine: "Your clips were watched 1 time.",
+      completionNote: "40% average completion",
+      agentBreakdown: "No agent reads yet",
+    });
+  });
+
+  it("omits the thumbnail rather than emitting a broken image", () => {
+    const result = render({
+      kind: "monthly-recap",
+      to: "owner@example.test",
+      month: "2026-07",
+      humanViews: 0,
+      agentSessions: 2,
+      topClip: {
+        recordingId: "rec-top",
+        title: "Deploy walkthrough",
+        thumbnailUrl: null,
+        durationMs: 60_000,
+        recordedAt: "2026-07-12T00:00:00.000Z",
+        humanViews: 0,
+        agentSessions: 2,
+      },
+      copy: {
+        heroLine: "2 agents read your clip.",
+        agentBreakdown: "Claude 2",
+        completionNote: "No human viewers yet",
+      },
+    });
+
+    expect(result.subject).toBe("2 agent reads on your clips in July");
+    expect(result.html).not.toContain('alt="Deploy walkthrough"');
+    expect(result.html).toContain("Deploy walkthrough");
+  });
+
+  it("escapes hostile AI recap copy instead of trusting it as HTML", () => {
+    const result = render({
+      kind: "monthly-recap",
+      to: "owner@example.test",
+      month: "2026-07",
+      humanViews: 1,
+      agentSessions: 1,
+      topClip: {
+        recordingId: "rec-top",
+        title: "</a><script>bad()</script>",
+        thumbnailUrl: 'https://cdn.example/t.jpg" onerror="steal()',
+        durationMs: 1_000,
+        recordedAt: "2026-07-12T00:00:00.000Z",
+        humanViews: 1,
+        agentSessions: 1,
+      },
+      copy: {
+        heroLine: "1 person watched.",
+        agentBreakdown: '<img src=x onerror="steal()">',
+        completionNote: "50% completion",
+      },
+    });
+
+    expect(result.html).not.toContain("<script>bad()</script>");
+    expect(result.html).not.toContain("<img src=x");
+    expect(result.html).not.toContain('onerror="steal()"');
+    expect(result.html).toContain("&lt;script&gt;bad()&lt;/script&gt;");
+  });
+
   it("escapes a hostile generated summary instead of trusting it as HTML", () => {
     const hostile =
       'Alex shared </strong><img src=x onerror="steal()"><script>bad()</script>.';
@@ -306,9 +540,15 @@ describe("sendClipsTransactionalEmail", () => {
       text: expect.stringContaining(
         "Open your Agent-Native Clip: https://workspace.example/clips/r/rec-1",
       ),
-      fromName: undefined,
+      fromName: "Agent-Native Clips",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "hello@agent-native.com",
+      },
       replyTo: "hello@agent-native.com",
       timeoutMs: 60_000,
+      templateId: "clips.first-import",
     });
   });
 
@@ -333,8 +573,40 @@ describe("sendClipsTransactionalEmail", () => {
       ),
       text: expect.stringContaining("Alex Rivera shared a Clip with you"),
       fromName: "Alex Rivera (via Agent-Native Clips)",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "hello@agent-native.com",
+      },
       replyTo: "alex@example.com",
       timeoutMs: 60_000,
+      templateId: "clips.unviewed-reminder",
     });
+  });
+
+  it("sends the first-agent-view note under the Clips sender name", async () => {
+    mocks.getAppProductionUrl.mockReturnValue("https://workspace.example");
+
+    await sendClipsTransactionalEmail({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+      agentName: "Claude",
+    });
+
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@example.test",
+        subject: "An AI agent “watched” your Clip",
+        fromName: "Agent-Native Clips",
+        appSender: {
+          name: "Agent-Native Clips",
+          slug: "clips",
+          replyTo: "hello@agent-native.com",
+        },
+        replyTo: "hello@agent-native.com",
+      }),
+    );
   });
 });

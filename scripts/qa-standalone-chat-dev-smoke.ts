@@ -37,6 +37,11 @@ import { fileURLToPath } from "node:url";
 
 import type { APIResponse, Browser, Page } from "playwright";
 
+import {
+  MISSING_BROWSER_HINT,
+  MISSING_HEADED_BROWSER_HINT,
+} from "./playwright-browser-hint";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -566,7 +571,7 @@ async function launchBrowser(): Promise<Browser> {
             ? bundledError.message.split("\n")[0]
             : String(bundledError)
         }`,
-        "Install a browser with `pnpm exec playwright install chromium` or set PLAYWRIGHT_CHANNEL.",
+        headed ? MISSING_HEADED_BROWSER_HINT : MISSING_BROWSER_HINT,
       ].join("\n"),
     );
   }
@@ -626,12 +631,16 @@ async function retryAfterNavigation<T>(
   throw lastError;
 }
 
-async function gotoCommitted(page: Page, url: string): Promise<void> {
+async function gotoCommitted(
+  page: Page,
+  url: string,
+  waitUntil: "commit" | "domcontentloaded" = "commit",
+): Promise<void> {
   const attempts = isCi ? 12 : 6;
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      await page.goto(url, { waitUntil: "commit", timeout: 90_000 });
+      await page.goto(url, { waitUntil, timeout: 90_000 });
       return;
     } catch (err) {
       lastError = err;
@@ -646,6 +655,24 @@ async function gotoCommitted(page: Page, url: string): Promise<void> {
     }
   }
   throw lastError;
+}
+
+/**
+ * Console/HTTP noise that is expected during dev warmup and therefore never
+ * fails the smoke. It is still the most common explanation for a page that
+ * renders blank (an outdated optimized dep 504s, so the app never mounts), so
+ * keep the tail around to attach to readiness timeouts.
+ */
+const suppressedBrowserNoise: string[] = [];
+
+function recordSuppressedNoise(entry: string): void {
+  suppressedBrowserNoise.push(entry);
+  if (suppressedBrowserNoise.length > 40) suppressedBrowserNoise.shift();
+}
+
+function suppressedNoiseBlock(): string {
+  if (suppressedBrowserNoise.length === 0) return "";
+  return `\nSuppressed browser noise:\n${suppressedBrowserNoise.join("\n")}`;
 }
 
 function isBenignConsoleError(text: string): boolean {
@@ -791,6 +818,19 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
+/**
+ * An empty preview is ambiguous: it means both "app rendered nothing" and "the
+ * read raced a reload". Distinguish them so timeouts point at the right cause.
+ */
+async function readBodyPreview(page: Page): Promise<string> {
+  try {
+    return await page.locator("body").innerText({ timeout: 2_000 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `<unreadable: ${message.split("\n")[0]}>`;
+  }
+}
+
 async function gotoAndWaitForAgentPage(
   page: Page,
   running: RunningDev,
@@ -798,29 +838,32 @@ async function gotoAndWaitForAgentPage(
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
-  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  const deadline = Date.now() + (isCi ? 300_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
+  let lastUrl = "";
 
   while (Date.now() < deadline) {
     browserErrors.length = 0;
     httpErrors.length = 0;
 
     try {
-      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await gotoCommitted(
+        page,
+        `${running.baseUrl}${path}`,
+        "domcontentloaded",
+      );
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("tablist", { name: "Agent sections" })
+        .getByRole("tablist", { name: /(?:Agent|Settings) sections/ })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
       lastError = err;
-      lastBody = await page
-        .locator("body")
-        .innerText({ timeout: 2_000 })
-        .catch(() => "");
+      lastBody = await readBodyPreview(page);
+      lastUrl = page.url();
       if (Date.now() >= deadline) break;
       if (verbose || isCi) {
         const message = err instanceof Error ? err.message : String(err);
@@ -835,8 +878,10 @@ async function gotoAndWaitForAgentPage(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show Agent sections tabs before timeout: ${message}\n` +
-      `Body preview: ${lastBody.slice(0, 400)}`,
+    `${path} did not show Agent or Settings sections tabs before timeout: ${message}\n` +
+      `Last URL: ${lastUrl}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}` +
+      suppressedNoiseBlock(),
   );
 }
 
@@ -847,16 +892,21 @@ async function gotoAndWaitForChatPage(
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
-  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  const deadline = Date.now() + (isCi ? 300_000 : 45_000);
   let lastError: unknown;
   let lastBody = "";
+  let lastUrl = "";
 
   while (Date.now() < deadline) {
     browserErrors.length = 0;
     httpErrors.length = 0;
 
     try {
-      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await gotoCommitted(
+        page,
+        `${running.baseUrl}${path}`,
+        "domcontentloaded",
+      );
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 30_000,
       });
@@ -867,10 +917,8 @@ async function gotoAndWaitForChatPage(
       return;
     } catch (err) {
       lastError = err;
-      lastBody = await page
-        .locator("body")
-        .innerText({ timeout: 2_000 })
-        .catch(() => "");
+      lastBody = await readBodyPreview(page);
+      lastUrl = page.url();
       if (Date.now() >= deadline) break;
       if (verbose || isCi) {
         const message = err instanceof Error ? err.message : String(err);
@@ -886,7 +934,9 @@ async function gotoAndWaitForChatPage(
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
     `${path} did not render the Chat surface before timeout: ${message}\n` +
-      `Body preview: ${lastBody.slice(0, 400)}`,
+      `Last URL: ${lastUrl}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}` +
+      suppressedNoiseBlock(),
   );
 }
 
@@ -1033,7 +1083,10 @@ async function main(): Promise<void> {
     page.on("console", (message) => {
       if (message.type() !== "error") return;
       const text = message.text();
-      if (isBenignConsoleError(text)) return;
+      if (isBenignConsoleError(text)) {
+        recordSuppressedNoise(text);
+        return;
+      }
       browserErrors.push(text);
     });
     page.on("response", (response) => {
@@ -1041,7 +1094,10 @@ async function main(): Promise<void> {
       if (status < 400) return;
       const url = response.url();
       if (!url.startsWith(running.baseUrl)) return;
-      if (isBenignHttpError(status, url)) return;
+      if (isBenignHttpError(status, url)) {
+        recordSuppressedNoise(`${status} ${url}`);
+        return;
+      }
       httpErrors.push(`${status} ${url}`);
     });
 

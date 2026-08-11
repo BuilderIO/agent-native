@@ -346,12 +346,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("defaults reasoning to medium", () => {
+  it("defaults effort to high", () => {
     expect(
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("medium");
+    ).toBe("high");
   });
 
   // The engines fetch is still in flight when an app-initiated first turn
@@ -509,7 +509,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toBe("claude-sonnet-5");
   });
 
-  it("migrates persisted legacy auto reasoning to medium", async () => {
+  it("migrates persisted legacy auto effort to high", async () => {
     window.localStorage.setItem(
       "agent-native:chat-models:selection:legacy-medium-test",
       JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
@@ -525,7 +525,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("medium");
+    ).toBe("high");
   });
 
   it("continues to submit when submit is omitted", () => {
@@ -902,6 +902,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(
       container.querySelectorAll("[data-testid='assistant-chat']"),
     ).toHaveLength(1);
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      "/_agent-native/agent-chat",
+      "scope-reset-test",
+      { type: "design", id: "design-1", label: "QA Smoke" },
+      expect.objectContaining({ restoreActiveThread: true }),
+    );
   });
 
   it("renders resource context as a normal composer context item", async () => {

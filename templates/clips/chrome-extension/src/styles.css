@@ -861,7 +861,7 @@ h1 {
 
 .field-label {
   color: var(--foreground);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -873,6 +873,7 @@ h1 {
   padding: 0 11px;
   color: var(--fg);
   background: var(--bg);
+  font-size: 14px;
 }
 
 .form-actions {
@@ -899,14 +900,14 @@ h1 {
 
 .toggle-title {
   color: var(--foreground);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .toggle-subtitle {
   margin-top: 3px;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
 }
 
@@ -923,11 +924,20 @@ h1 {
   background: var(--primary);
   color: var(--primary-foreground);
   cursor: pointer;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .primary-action:hover {
   opacity: 0.92;
+}
+
+.options-page .secondary-action {
+  font-size: 14px;
+}
+
+.options-page .field-help {
+  font-size: 13px;
 }
 
 /* Unsupported-page notice (shown in the popup when the active tab can't host

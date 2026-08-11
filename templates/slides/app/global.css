@@ -14,6 +14,12 @@
 
 @source "./**/*.{ts,tsx}";
 
+/* Keep the editable agent prompt readable even if the generated text utility
+   is missing or loses a cascade tie during the hosted build. */
+.agent-composer-root [data-agent-composer-slot="editor-input"] {
+  color: hsl(var(--foreground));
+}
+
 /* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
    toolbar serves this purpose instead, so we don't want a redundant bar. */
 button[title="Open agent sidebar"] {
@@ -109,9 +115,10 @@ button[title="Open agent sidebar"] {
   --accent-cyan: 193 82% 31%;
 }
 
-/* Slides keeps the shared visual inspector behavior, but the dock needs the
+/* Slides keeps the shared visual inspector behavior, but the dock and context toolbar need the
    flatter, filled-control treatment used by the slide editor. */
-.slide-style-inspector {
+.slide-style-inspector,
+.slide-context-toolbar {
   --slides-inspector-control-background: hsl(var(--muted) / 0.82);
   --slides-inspector-divider: hsl(var(--border) / 0.7);
   --design-editor-control-bg: var(--slides-inspector-control-background);
@@ -136,7 +143,7 @@ button[title="Open agent sidebar"] {
 }
 
 .slide-style-inspector .slides-inspector-section {
-  border-bottom: 1px solid var(--slides-inspector-divider);
+  border-bottom: 0;
   border-radius: 0;
   padding: 0.625rem 0.75rem;
 }
@@ -161,11 +168,21 @@ button[title="Open agent sidebar"] {
   box-shadow: none;
 }
 
+/* The toolbar sits on a muted surface, so its inputs need the opposite
+   treatment to stay readable: a light box rather than a darker fill. */
+.slide-context-toolbar input {
+  border: 1px solid var(--slides-inspector-divider);
+  border-radius: 0.25rem;
+  background: hsl(var(--background));
+  box-shadow: none;
+}
+
 .slide-style-inspector input:focus {
   border: 0;
 }
 
-.slide-style-inspector .slides-inspector-segment {
+.slide-style-inspector .slides-inspector-segment,
+.slide-context-toolbar .slides-inspector-segment {
   min-height: 1.5rem;
   border: 0;
   border-radius: 0.125rem;
@@ -220,6 +237,81 @@ button[title="Open agent sidebar"] {
 
 .deck-grid-container {
   container-type: inline-size;
+}
+
+.deck-editor-shell {
+  --slides-editor-surface: hsl(var(--background));
+  container-type: inline-size;
+  container-name: deck-editor;
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .deck-editor-shell {
+    --slides-editor-surface: color-mix(
+      in srgb,
+      hsl(var(--background)) 35%,
+      var(--agent-native-lower-surface, hsl(var(--background))) 65%
+    );
+  }
+}
+
+.deck-editor-context-toolbar-host {
+  min-width: 0;
+  overflow: auto;
+}
+
+.deck-editor-context-toolbar-host--wide {
+  display: none;
+}
+
+.deck-editor-context-toolbar-host--narrow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.deck-editor-context-toolbar-host--narrow
+  > [data-slide-inline-edit-surface="true"] {
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+
+@container deck-editor (max-width: 1149px) {
+  .deck-editor-context-toolbar-host--wide {
+    display: none;
+  }
+
+  .deck-editor-context-toolbar-host--narrow {
+    display: flex;
+  }
+}
+
+@container deck-editor (min-width: 1150px) {
+  .deck-editor-context-toolbar-host--narrow {
+    display: none;
+  }
+
+  .deck-editor-context-toolbar-host--wide[data-context-toolbar-visible="true"] {
+    display: flex;
+    flex: 1 1 0%;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .deck-editor-context-toolbar-host--wide
+    > [data-slide-inline-edit-surface="true"] {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .deck-editor-context-toolbar-host--wide .slide-context-toolbar--top-row {
+    height: 2.75rem;
+    justify-content: flex-end;
+    border: 0;
+    background: transparent;
+    padding-inline: 0;
+  }
 }
 
 @container (max-width: 36rem) {

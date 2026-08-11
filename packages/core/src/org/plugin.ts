@@ -32,6 +32,7 @@ import {
   joinByDomainHandler,
   setDomainHandler,
   setWorkspaceUrlHandler,
+  setRequiredAuthProviderHandler,
   revealA2ASecretHandler,
   setA2ASecretHandler,
   syncA2ASecretHandler,
@@ -63,6 +64,7 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   POST   /_agent-native/org/join-by-domain              — join org via email domain match
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
  *   PUT    /_agent-native/org/workspace-url               — set/clear the org's workspace origin (owner/admin)
+ *   PUT    /_agent-native/org/auth-provider               — require/clear Google sign-in (owner/admin)
  *   GET    /_agent-native/org/a2a-secret                  — reveal A2A secret on demand (owner/admin)
  *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
  *   POST   /_agent-native/org/a2a-secret/sync             — push secret to all connected apps (owner/admin)
@@ -262,6 +264,18 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return setWorkspaceUrlHandler(event);
+      }),
+    );
+
+    // PUT /auth-provider
+    app.use(
+      `${ORG_PREFIX}/auth-provider`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setRequiredAuthProviderHandler(event);
       }),
     );
 

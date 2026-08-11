@@ -4,6 +4,7 @@ import {
   createAgentEngineScriptEntries,
   createCallAgentScriptEntry,
   createChatScriptEntries,
+  createDocsScriptEntries,
   createResourceScriptEntries,
 } from "./script-entries.js";
 
@@ -18,6 +19,15 @@ function classify(
 }
 
 describe("cross-app script entries", () => {
+  it("registers unified framework lookup for every built-in app agent", async () => {
+    const entries = await createDocsScriptEntries();
+
+    expect(entries["framework-search"]?.readOnly).toBe(true);
+    expect(entries["framework-search"]?.tool.description).toContain(
+      "Core, Toolkit",
+    );
+  });
+
   it("keeps discovery read-only without treating delegation as read-only", async () => {
     const entries = await createCallAgentScriptEntry("analytics");
 

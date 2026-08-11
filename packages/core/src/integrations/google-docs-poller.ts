@@ -1,3 +1,4 @@
+import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
@@ -15,9 +16,14 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import {
   createThread,
   getThread,
+  setThreadSourceIfMissing,
   updateThreadData,
 } from "../chat-threads/store.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   getServiceAccountAccessToken,
@@ -69,7 +75,13 @@ export interface GoogleDocsPollerOptions {
   webhookUrl?: string;
 }
 
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
+let pollerJob: IntervalJobHandle | null = null;
+// Held only for the startup delay below. It counts as "already running" for
+// both the idempotency guard and stop(): `pollerJob` is still null during that
+// window, so without this a second start() would build a second independent
+// poller, and a stop() inside the window could not prevent the loop from
+// arming itself afterwards.
+let pollerStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
 
 // ─── Watch Channel Management ───────────────────────────────────────────────
@@ -431,14 +443,24 @@ async function processComment(
     timestamp: Date.now(),
   };
 
+  const source = {
+    platform: PLATFORM,
+    url: `https://docs.google.com/document/d/${fileId}/edit`,
+  };
+
   let threadId = existingThreadId;
   if (!threadId) {
     const thread = await createThread(options.ownerEmail, {
       title: `Google Doc: ${senderName}`,
+      source,
     });
     await saveThreadMapping(PLATFORM, key, thread.id, { fileId, commentId });
     threadId = thread.id;
   }
+
+  // Older mapped conversations predate thread provenance. Backfill them as
+  // they are touched so Dispatch's default local-history view excludes them.
+  await setThreadSourceIfMissing(threadId, source);
 
   const thread = await getThread(threadId);
   const existingMessages: EngineMessage[] = [];
@@ -518,7 +540,17 @@ async function processComment(
               signal,
             },
             undefined,
-            { useHostedDefault: true },
+            // Same omission the scheduled-job runner had: without this, a
+            // poller-driven reply inherits the interactive clamp (40s soft
+            // timeout, a no-progress backstop at 0.75x that, 6 continuations)
+            // even though no client is waiting on a response. Uses the runtime
+            // check rather than a hardcoded `true` — matching webhook-handler.ts
+            // in this same subsystem — because unlike the job runner there is no
+            // hard-abort cap here to bound a wider ceiling.
+            {
+              useHostedDefault: true,
+              backgroundFunction: isInBackgroundFunctionRuntime(),
+            },
           ),
       );
     },
@@ -602,7 +634,7 @@ async function persistThreadData(
 export async function startGoogleDocsPoller(
   options: GoogleDocsPollerOptions,
 ): Promise<void> {
-  if (pollerInterval) {
+  if (pollerJob || pollerStartTimer) {
     console.warn("[google-docs] Already running");
     return;
   }
@@ -648,7 +680,7 @@ function startPollLoop(
   let disabledUntil = 0;
   let disabledAtConfigWriteEpoch = -1;
 
-  async function poll() {
+  async function poll(): Promise<void> {
     try {
       // The loop starts even when google-docs was never configured (so it picks
       // up a later enable), which used to mean one `integration_configs` read
@@ -677,8 +709,15 @@ function startPollLoop(
     }
   }
 
-  setTimeout(poll, 5000);
-  pollerInterval = setInterval(poll, intervalMs);
+  // processChanges ultimately calls the Drive/Docs REST API
+  // (adapters/google-docs.ts), none of whose fetch()s carry a request
+  // timeout — startIntervalJob's own cadence-scaled timeout backstops a hung
+  // call, same convention as SyncTransport's poll abort.
+  if (pollerStartTimer) clearTimeout(pollerStartTimer);
+  pollerStartTimer = setTimeout(() => {
+    pollerStartTimer = null;
+    pollerJob = startIntervalJob(poll, { intervalMs });
+  }, 5000);
 
   const email = getServiceAccountEmail();
   if (process.env.DEBUG) {
@@ -692,9 +731,13 @@ function startPollLoop(
  * Stop the Google Docs integration.
  */
 export async function stopGoogleDocsPoller(): Promise<void> {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
+  if (pollerStartTimer) {
+    clearTimeout(pollerStartTimer);
+    pollerStartTimer = null;
+  }
+  if (pollerJob) {
+    pollerJob.stop();
+    pollerJob = null;
   }
   if (watchRenewalTimer) {
     clearTimeout(watchRenewalTimer);

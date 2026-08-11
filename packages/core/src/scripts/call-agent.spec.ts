@@ -9,6 +9,7 @@ import type { TrackingEvent } from "../tracking/types.js";
 const callAgentMock = vi.hoisted(() => vi.fn());
 const invokeActionMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationsMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
 const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
 const integrationRequestContextMock = vi.hoisted(() => vi.fn());
@@ -61,13 +62,17 @@ vi.mock("../org/context.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
+  getRequestRunContext: () => ({ model: "claude-opus-4-8" }),
+  // `track()` reads the ambient browser session through this getter, so a mock
+  // that omits it makes every tracked event throw inside a best-effort catch.
+  getRequestContext: () => ({ userEmail: "alice+qa@agent-native.test" }),
   isIntegrationCallerRequest: () => true,
   getIntegrationRequestContext: integrationRequestContextMock,
 }));
 
 vi.mock("../integrations/a2a-continuations-store.js", () => ({
   insertA2AContinuation: insertA2AContinuationMock,
-  getA2AContinuationsForIntegrationTaskAgent: vi.fn(async () => []),
+  getA2AContinuationsForIntegrationTaskAgent: getA2AContinuationsMock,
 }));
 
 vi.mock("../integrations/a2a-continuation-processor.js", () => ({
@@ -134,8 +139,14 @@ describe("call-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.NETLIFY;
+    delete process.env.NETLIFY_LOCAL;
+    delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.VERCEL;
+    delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
+    getA2AContinuationsMock.mockResolvedValue([]);
     dispatchA2AContinuationMock.mockResolvedValue(undefined);
   });
 
@@ -148,6 +159,9 @@ describe("call-agent action", () => {
     );
     expect(tool.description).toContain(
       "never expose or call a direct action to work around",
+    );
+    expect(tool.description).toContain(
+      "Never put a create, update, delete, send, save, publish, or any other side effect in action",
     );
   });
 
@@ -281,6 +295,8 @@ describe("call-agent action", () => {
         parentTurnId: "turn-qa",
         delegationDepth: 1,
         visitedApps: ["mail"],
+        // Preference hint: the receiver only uses it when it has no model.
+        callerModel: "claude-opus-4-8",
       },
       idempotencyKey: expect.stringMatching(/^v1:[a-f0-9]{64}$/),
     });
@@ -393,6 +409,7 @@ describe("call-agent action", () => {
           invocationId: expect.any(String),
           delegationDepth: 1,
           visitedApps: ["mail"],
+          callerModel: "claude-opus-4-8",
         },
       }),
     );
@@ -483,13 +500,20 @@ describe("call-agent action", () => {
       const { run } = await import("./call-agent.js");
       const send = vi.fn();
 
-      const result = await run(
-        { agent: "analytics", message: "analyze customers" },
-        { send } as any,
-      );
+      const result = run({ agent: "analytics", message: "analyze customers" }, {
+        send,
+      } as any);
 
-      expect(result).toContain(responseText);
-      if (state === "failed") expect(result).toMatch(/^Error:/);
+      if (state === "failed") {
+        await expect(result).rejects.toThrow(responseText);
+      } else {
+        const resolved = await result;
+        expect(resolved).toContain(responseText);
+        if (state === "input-required") {
+          expect(resolved).toContain(`taskId "task-${state}"`);
+          expect(resolved).toContain(`taskId="task-${state}" (omit message)`);
+        }
+      }
       expect(send).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "agent_call",
@@ -500,8 +524,6 @@ describe("call-agent action", () => {
         expect.objectContaining({ type: "agent_call", status: "done" }),
       );
       if (state === "input-required") {
-        expect(result).toContain(`taskId "task-${state}"`);
-        expect(result).toContain(`taskId="task-${state}" (omit message)`);
         expect(send).toHaveBeenCalledWith(
           expect.objectContaining({
             type: "agent_call",
@@ -539,6 +561,16 @@ describe("call-agent action", () => {
     expect(send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent_call", status: "done" }),
     );
+    // The reason has to ride on the event, not only on the telemetry call.
+    // This event is what lands in agent_run_events, and without a code the
+    // stored record says a cross-app call failed after N ms and never why.
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call",
+        status: "error",
+        terminalCode: "direct_action_failed",
+      }),
+    );
   });
 
   it("tracks a content-free sender outcome for failed delegated tasks", async () => {
@@ -561,16 +593,18 @@ describe("call-agent action", () => {
       );
       const { run } = await import("./call-agent.js");
 
-      await run(
-        { agent: "analytics", message: "private customer request" },
-        {
-          send: vi.fn(),
-          threadId: "thread-qa",
-          runId: "run-qa",
-          turnId: "turn-qa",
-        } as any,
-        "mail",
-      );
+      await expect(
+        run(
+          { agent: "analytics", message: "private customer request" },
+          {
+            send: vi.fn(),
+            threadId: "thread-qa",
+            runId: "run-qa",
+            turnId: "turn-qa",
+          } as any,
+          "mail",
+        ),
+      ).rejects.toThrow("provider retries exhausted");
 
       const event = tracked.find(
         (candidate) => candidate.name === "$a2a_invocation",
@@ -599,12 +633,11 @@ describe("call-agent action", () => {
     const { run } = await import("./call-agent.js");
     const send = vi.fn();
 
-    const result = await run(
-      { agent: "analytics", message: "analyze customers" },
-      { send } as any,
-    );
-
-    expect(result).toBe("Error: The Slides agent returned no result.");
+    await expect(
+      run({ agent: "analytics", message: "analyze customers" }, {
+        send,
+      } as any),
+    ).rejects.toThrow("The Slides agent returned no result.");
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent_call", status: "error" }),
     );
@@ -655,6 +688,135 @@ describe("call-agent action", () => {
       expect.any(Object),
     );
   });
+
+  it("uses the bounded Netlify handoff when SITE_ID is the only runtime marker", async () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    const timeout = Object.assign(
+      new Error(
+        "A2A task remote-task-site-id did not complete within 2000ms (last state: processing)",
+      ),
+      {
+        name: "A2ATaskTimeoutError",
+        taskId: "remote-task-site-id",
+      },
+    );
+    callAgentMock.mockRejectedValueOnce(timeout);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "content", message: "create the QA design ask" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      expect.any(String),
+      expect.objectContaining({
+        timeoutMs: 2_000,
+        submissionTimeoutMs: 15_000,
+      }),
+    );
+    expect(insertA2AContinuationMock).toHaveBeenCalledTimes(1);
+    expect(insertA2AContinuationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        integrationTaskId: "integration-task-1",
+        externalThreadId: "C123:123.456",
+        a2aTaskId: "remote-task-site-id",
+        dedupeKey: expect.any(String),
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
+      }),
+    );
+    expect(dispatchA2AContinuationMock).toHaveBeenCalledTimes(1);
+    expect(dispatchA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(result).toContain("[agent-native:a2a-continuation-queued]");
+  });
+
+  it("reuses an existing SITE_ID continuation without calling the downstream agent again", async () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    integrationRequestContextMock.mockReturnValue({
+      ...slackIntegrationContext,
+      attempts: 2,
+    });
+    getA2AContinuationsMock.mockResolvedValueOnce([
+      { id: "cont-existing", status: "pending" },
+    ]);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "content", message: "create the QA design ask" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(getA2AContinuationsMock).toHaveBeenCalledWith(
+      "integration-task-1",
+      "https://slides.agent-native.test",
+      expect.any(String),
+    );
+    expect(result).toContain("[agent-native:a2a-continuation-queued]");
+    expect(result).toContain("already accepted this delegated subtask");
+    expect(callAgentMock).not.toHaveBeenCalled();
+    expect(insertA2AContinuationMock).not.toHaveBeenCalled();
+    expect(dispatchA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["explicit NETLIFY=false with SITE_ID", "NETLIFY", "false", true],
+    ["NETLIFY_LOCAL=true with SITE_ID", "NETLIFY_LOCAL", "true", true],
+    ["explicit NETLIFY=false without SITE_ID", "NETLIFY", "false", false],
+    ["NETLIFY_LOCAL=true without SITE_ID", "NETLIFY_LOCAL", "true", false],
+  ])(
+    "lets %s suppress Netlify and compatibility-host timeouts",
+    async (_label, key, value, withSiteId) => {
+      if (withSiteId) {
+        process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+      }
+      process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+      process.env[key] = value;
+      callAgentMock.mockResolvedValueOnce("Handled");
+      const { run } = await import("./call-agent.js");
+
+      await run({ agent: "content", message: "create the QA design ask" }, {
+        send: vi.fn(),
+      } as any);
+
+      expect(callAgentMock).toHaveBeenCalledWith(
+        "https://slides.agent-native.test",
+        expect.any(String),
+        expect.not.objectContaining({
+          timeoutMs: expect.any(Number),
+          submissionTimeoutMs: expect.any(Number),
+        }),
+      );
+    },
+  );
+
+  it.each([
+    ["AWS Lambda", "AWS_LAMBDA_FUNCTION_NAME", "server"],
+    ["Vercel", "VERCEL", "1"],
+  ])(
+    "keeps the existing non-Netlify timeout on %s",
+    async (_label, key, value) => {
+      process.env[key] = value;
+      callAgentMock.mockResolvedValueOnce("Handled");
+      const { run } = await import("./call-agent.js");
+
+      await run({ agent: "content", message: "create the QA design ask" }, {
+        send: vi.fn(),
+      } as any);
+
+      expect(callAgentMock).toHaveBeenCalledWith(
+        "https://slides.agent-native.test",
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 18_000 }),
+      );
+      expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty(
+        "submissionTimeoutMs",
+      );
+    },
+  );
 
   it("returns receiver-verified artifacts when continuation enqueue fails", async () => {
     process.env.NETLIFY = "true";
@@ -968,7 +1130,9 @@ describe("call-agent action", () => {
       const { run } = await import("./call-agent.js");
       const send = vi.fn();
 
-      await run({ agent: "slides", message: "x" }, { send } as any);
+      await expect(
+        run({ agent: "slides", message: "x" }, { send } as any),
+      ).rejects.toThrow("fetch failed");
 
       const events = send.mock.calls.map(([e]) => e);
       expect(

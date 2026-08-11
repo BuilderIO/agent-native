@@ -4,10 +4,16 @@ export {
   type EnvKeyConfig,
 } from "./create-server.js";
 export {
+  startIntervalJob,
+  type IntervalJobOptions,
+  type IntervalJobHandle,
+} from "./interval-job.js";
+export {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   dispatchPathTargetsNetlifyBackgroundFunction,
+  isInBackgroundFunctionRuntime,
   resolveDurableBackgroundDispatchPath,
 } from "../agent/durable-background.js";
 
@@ -81,6 +87,7 @@ export {
   identitySsoLoginButtonHtml,
   IDENTITY_SSO_PROVIDER_ID,
   IDENTITY_SSO_SCOPE,
+  IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
@@ -120,9 +127,12 @@ export {
   actionsToEngineTools,
   executeAgentToolCall,
   getOwnerActiveApiKey,
+  getOwnerApiKeyForEngine,
+  resolveOwnerEngineApiKey,
   runAgentLoop,
   type AgentToolCallExecutionResult,
   type ExecuteAgentToolCallOptions,
+  type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
 export {
   mountRealtimeVoiceRoutes,
@@ -162,6 +172,11 @@ export {
 export { createPollEventsHandler } from "./poll-events.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
+  BETTER_AUTH_MIGRATIONS,
+  runBetterAuthMigrations,
+} from "./better-auth-migrations.js";
+export { runFrameworkReleaseMigrations } from "./release-migrations.js";
+export {
   initServerSentry,
   isServerSentryEnabled,
   setSentryUserForRequest,
@@ -200,6 +215,10 @@ export {
   refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export type {
+  AgentChatMcpIcon,
+  AgentChatMcpOptions,
+} from "./agent-chat/mcp-options.js";
 export {
   configureAgentNativeEmbeddedEnvironment,
   createAgentNativeEmbeddedAuthOptions,
@@ -235,6 +254,20 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export {
+  buildRuntimeConfigPrompt,
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+  parseRuntimeConfigReport,
+  runtimeConfigRequirementsFromSearchParams,
+  type RuntimeConfigEnvironment,
+  type RuntimeConfigIssue,
+  type RuntimeConfigIssueCode,
+  type RuntimeConfigIssueSeverity,
+  type RuntimeConfigPhase,
+  type RuntimeConfigReport,
+  type RuntimeConfigRequirements,
+} from "../shared/runtime-config.js";
 export {
   AGENT_NATIVE_OG_IMAGE_CACHE_CONTROL,
   AGENT_NATIVE_OG_IMAGE_HEIGHT,
@@ -340,6 +373,27 @@ export {
   mergeCoreSharingActions,
   registerPackageActions,
 } from "./action-discovery.js";
+// A standalone `mountMCP` plugin has to compose the same action surface the
+// agent-chat plugin does. Without these, the only way to build one was to
+// hand-roll a copy — which is how a template ends up with a `tool-search` that
+// drifts from the framework's, and an MCP mount that silently ignores
+// `frameworkTools`.
+export {
+  attachToolSearch,
+  createToolSearchEntry,
+  searchToolRegistry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "../agent/tool-search.js";
+export {
+  filterFrameworkToolGroups,
+  frameworkGroupEnabled,
+  resolveFrameworkTools,
+  FRAMEWORK_TOOL_GROUPS,
+  type FrameworkToolGroup,
+  type FrameworkToolsConfig,
+  type FrameworkToolsOption,
+  type ResolvedFrameworkTools,
+} from "../framework-tools.js";
 export {
   registerPromptContextProvider,
   type PromptContextProvider,
@@ -514,14 +568,19 @@ export {
   type BuilderDesignSystemProxyFields,
   type BuilderDesignSystemProxyFieldsOptions,
   type BuilderDesignSystemProxyReference,
+  type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
+  createBuilderProject,
+  ensureBuilderProject,
+  findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,
+  type BuilderProjectResult,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
 export {
@@ -541,11 +600,31 @@ export {
 export {
   sendEmail,
   isEmailConfigured,
+  getEmailReadiness,
   getEmailProvider,
   type EmailAttachment,
+  type EmailReadiness,
   type EmailProvider,
   type SendEmailArgs,
 } from "./email.js";
+export {
+  defineTransactionalEmail,
+  listTransactionalEmails,
+  getTransactionalEmail,
+  renderTransactionalEmailPreview,
+  type TransactionalEmailDefinition,
+  type RegisteredTransactionalEmail,
+} from "../email-catalog/registry.js";
+export {
+  notifyActivity,
+  runActivityNotification,
+  resolveActivityRecipients,
+  type ActivityDeliveryFailure,
+  type ActivityNotificationResult,
+  type ActivityNotificationStatus,
+  type NotifyActivityInput,
+  type ResolveActivityRecipientsInput,
+} from "./activity-notifications.js";
 export {
   renderEmail,
   emailStrong,

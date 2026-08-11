@@ -13,20 +13,19 @@ export const INITIAL_TOOL_NAMES = [
   "list-session-recordings",
   "list-analyses",
   "get-analysis",
-  // Dashboard/extension INSPECTION stays on the initial surface so a
-  // template-clone request can resolve and inspect the source on the first
-  // turn. The MUTATING writers (update-dashboard, mutate-dashboard,
-  // create-extension, update-extension) are intentionally left off: the
-  // dashboard-construction final-response guard retries with
-  // `expandToolSurface: true` (see server/plugins/agent-chat.ts), which opens
-  // the full run registry exactly when a save is needed, and tool-search can
-  // surface them otherwise. This keeps the first-request surface under the
-  // 40-tool ceiling enforced by scripts/guard-agent-chat-context.ts.
+  // Keep the complete dashboard build path on the initial surface. An explicit
+  // build request should not stop at inspection or an empty extension shell
+  // while the agent lazily discovers the next mutating action.
   "get-sql-dashboard",
   "list-sql-dashboards",
-  "list-dashboard-templates",
   "list-extensions",
   "get-extension",
+  "update-dashboard",
+  "mutate-dashboard",
+  "compose-dashboard",
+  "create-extension",
+  "update-extension",
+  "extension-data-set",
   "generate-chart",
   "search-analytics-query-catalog",
   "query-agent-native-analytics",
@@ -38,6 +37,7 @@ export const INITIAL_TOOL_NAMES = [
   // tool-search round trip (~15 KB of results) before it can even start — or worse,
   // enumerates the cohort page by page through whatever it can already see.
   "provider-api-request",
+  "provider-corpus-job",
   "query-staged-dataset",
   "hubspot-records",
   "navigate",

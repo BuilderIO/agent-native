@@ -2,7 +2,6 @@ import {
   IconComponents,
   IconFrame,
   IconPhoto,
-  IconTypography,
   IconVector,
 } from "@tabler/icons-react";
 import {
@@ -29,6 +28,7 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 
+import { IconText } from "./inspector/design-icons";
 import type { CanvasLayerHitCandidate } from "./types";
 
 // LIVE-VERIFIED (real Figma, UI3) canvas context menus:
@@ -1177,7 +1177,7 @@ function CanvasLayerCandidateItem({
   const Icon = candidate.info.componentName
     ? IconComponents
     : /^(h[1-6]|p|span|label|input|textarea)$/.test(tag)
-      ? IconTypography
+      ? IconText
       : /^(img|picture|video)$/.test(tag)
         ? IconPhoto
         : /^(svg|path|circle|ellipse|polygon|line)$/.test(tag)

@@ -1,6 +1,8 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsTabItem,
@@ -20,14 +22,6 @@ import { AdvancedSettings } from "@/components/crm/settings/AdvancedSettings";
 import { ConnectionSettings } from "@/components/crm/settings/ConnectionSettings";
 import { FieldsSettings } from "@/components/crm/settings/FieldsSettings";
 import { ListsSettings } from "@/components/crm/settings/ListsSettings";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 
 import changelog from "../../CHANGELOG.md?raw";
 
@@ -36,7 +30,7 @@ export function meta() {
 }
 
 /**
- * `/settings/<section>` deep links. `connections` is the shared workspace tab
+ * `/settings/<section>` deep links. `integrations` is the shared workspace tab
  * and `connection` is the CRM one, so the segment is matched exactly rather
  * than by substring.
  */
@@ -51,7 +45,7 @@ const SETTINGS_SECTIONS: readonly string[] = [
 
 function sectionFromPath(pathname: string): string {
   const section = pathname.split("/settings/")[1]?.split("/")[0] ?? "";
-  return SETTINGS_SECTIONS.includes(section) ? section : "general";
+  return SETTINGS_SECTIONS.includes(section) ? section : "integrations";
 }
 
 export default function SettingsRoute() {
@@ -117,20 +111,18 @@ export default function SettingsRoute() {
             </p>
           </div>
 
-          <Card id="language" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.languageTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.languageDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+          </SettingsGroup>
         </div>
       }
       whatsNew={

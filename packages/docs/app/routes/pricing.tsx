@@ -385,8 +385,7 @@ export default function PricingPage() {
           {t("home.hero.titleLine1")} {t("home.hero.titleAccent")}
         </h2>
         <p className="mx-auto mb-8 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-          <span className="block">{t("home.hero.bodyLine1")}</span>
-          <span className="block">{t("home.hero.bodyLine2")}</span>
+          {t("home.hero.body")}
         </p>
         <div className="mb-16 flex flex-wrap items-center justify-center gap-4">
           <Link to={localizedPath("/apps")} className="primary-button">

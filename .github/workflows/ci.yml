@@ -259,6 +259,54 @@ jobs:
       - name: Run Content DB tests
         run: pnpm test:content-db
 
+      - name: Install isolated PGlite test driver
+        run: >-
+          npm install --ignore-scripts --no-save
+          --prefix "$RUNNER_TEMP/s2573-pglite"
+          @electric-sql/pglite@0.5.4
+
+      - name: Run PGlite lock and migration action semantics tests
+        run: node scripts/test-content-database-lock-pglite.mjs
+        env:
+          S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
+
+  content-db-postgres-tests:
+    name: Content DB PostgreSQL locking
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: content_migration_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d content_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run Content PostgreSQL lock integration tests
+        run: pnpm test:content-db-postgres
+        env:
+          CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+
   core-integration-tests:
     name: Core integration tests
     runs-on: ubuntu-latest
@@ -416,8 +464,6 @@ jobs:
     name: Scaffold E2E — create + pnpm install
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -454,9 +500,19 @@ jobs:
         # Guards the documented one-file headless onboarding: a fresh
         # `--headless` scaffold must `pnpm typecheck` (no inherited vite/client
         # types) and `pnpm action hello` (server-safe package root, no React /
-        # react-query in the load graph) out of the box. AGENT_NATIVE_CREATE_USE_LOCAL_CORE
-        # is set at the job level, so the gated heavyweight guard actually runs.
+        # react-query in the load graph) out of the box.
         run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
+
+      - name: Headless onboarding — local core install + typecheck + action
+        # Keep the local package-linking setup scoped to the heavyweight test.
+        # Applying it to the whole create-e2e file makes lightweight scaffold
+        # tests spend their timeout packing the local Core and Toolkit.
+        env:
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+        run: >-
+          pnpm --filter @agent-native/core exec vitest run
+          src/cli/create-e2e.spec.ts
+          -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         # Dispatch is in the combo because it exercises the
@@ -465,6 +521,10 @@ jobs:
         # workspace app). Calendar covers the requiredPackages →
         # packages/scheduling scaffold path. Together they guard the two
         # distinct ways a workspace template can break `pnpm install`.
+        env:
+          # The PR's core version may not be published to npm yet. Exercise
+          # the scaffold against the core build checked out by this job.
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: |
           cd "$(mktemp -d)"
           node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template chat,calendar,dispatch
@@ -558,18 +618,22 @@ jobs:
       - name: Build Content template (Cloudflare Pages preset)
         run: NITRO_PRESET=cloudflare_pages pnpm --filter content build
 
-      # Plan covers diagram-heavy SSR and Clips covers public-share SSR. Build
-      # both real Netlify function artifacts so a core runtime dependency cannot
-      # be missing from either deployment's server bundle.
-      - name: Build Plan and Clips templates (netlify preset)
-        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips build
+      # Three templates, one per size class, because building all 17 per PR is
+      # too slow: Plan covers diagram-heavy SSR, Clips covers public-share SSR,
+      # and Assets is the one that legitimately depends on creative-context — so
+      # it is the only build that exercises the browser-runtime size budget.
+      - name: Build Plan, Clips, and Assets templates (netlify preset)
+        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips --filter assets build
 
       - name: Import SSR handler — must not crash at cold-start
         # External timeout is a backstop against a pathological synchronous hang;
         # the script itself races module eval against a 30s window and force-exits.
         # Match the deployed Netlify environment so failed best-effort local
         # SQLite setup cannot call process.exit during this import-only probe.
-        run: NETLIFY=true timeout 120 node scripts/ssr-boot-smoke.mjs plan clips
+        # This lane intentionally probes the three built representatives above.
+        # The smoke script's optional `--report-uncovered` mode is fail-closed;
+        # use it only when the caller intends to gate on full template coverage.
+        run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs plan clips assets
 
       # Exercise the two other Node serverless presets as well. These import
       # their generated handlers, so an unresolved bare runtime dependency

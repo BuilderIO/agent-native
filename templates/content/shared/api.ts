@@ -29,12 +29,14 @@ export interface Document {
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
+  canView?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;
   properties?: DocumentProperty[];
   database?: ContentDatabase;
   databaseMembership?: ContentDatabaseMembership;
+  bodyHydration?: ContentDocumentBodyHydration;
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
@@ -126,6 +128,16 @@ export interface DocumentMoveRequest {
 
 export interface DocumentListResponse {
   documents: Document[];
+  pagination: DocumentDiscoveryPagination;
+}
+
+export interface DocumentDiscoveryPagination {
+  offset: number;
+  limit: number;
+  totalItems: number;
+  returnedItems: number;
+  hasMore: boolean;
+  nextOffset: number | null;
 }
 
 export interface DocumentTreeNode extends Document {
@@ -276,6 +288,13 @@ export interface ContentDatabaseFilter {
   parentFilterGroupId?: string;
 }
 
+export interface ContentDatabaseTableQuery {
+  search: string;
+  filters: ContentDatabaseFilter[];
+  sorts: ContentDatabaseSort[];
+  filterMode: ContentDatabaseFilterMode;
+}
+
 export type ContentDatabaseColumnCalculation =
   | "count_all"
   | "count_values"
@@ -397,6 +416,13 @@ export interface ContentDatabaseMembership {
   position: number;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
+}
+
+export interface ContentDocumentBodyHydration {
+  provider?: "builder";
+  hydration?: ContentDatabaseBodyHydration;
+  sourceId?: string;
+  databaseDocumentId?: string;
 }
 
 export type ContentDatabaseBodyHydrationState =
@@ -707,6 +733,10 @@ export interface ContentDatabaseSource {
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
   changeSets: ContentDatabaseSourceChangeSet[];
+  projection?: {
+    rows: "complete" | "page";
+    changeSets: "complete" | "page";
+  };
   bodyHydration?: ContentDatabaseBodyHydrationSummary;
 }
 
@@ -774,16 +804,34 @@ export interface ContentDatabaseResponse {
     hasMore: boolean;
   };
   createdItemId?: string;
+  createdItem?: ContentDatabaseItem;
   createdDocumentId?: string;
   createdDocumentUpdatedAt?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
   duplicatedItemIds?: string[];
+  duplicatedItems?: ContentDatabaseItem[];
   duplicatedDocumentIds?: string[];
   deletedItemIds?: string[];
   deletedDocumentIds?: string[];
+  removedItemIds?: string[];
+  removedDocumentIds?: string[];
+  removedCount?: number;
   timings?: BuilderActionTiming[];
+  tableQueryMode?: "server" | "client-required";
+  /** Client-only optimistic state while real provider rows are being attached. */
+  attachPreview?: {
+    sourceTable: string;
+    fetchedAt: string;
+    importedItemCount?: number;
+    complete?: boolean;
+  };
 }
+
+export type ContentDatabaseItemsPageResponse = Pick<
+  ContentDatabaseResponse,
+  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+>;
 
 export interface BuilderActionTiming {
   name: string;
@@ -897,6 +945,8 @@ export interface AttachContentDatabaseSourceRequest {
   sourceType?: ContentDatabaseSourceType;
   sourceName?: string;
   sourceTable?: string;
+  /** Projected Builder model fields already visible in the model picker. */
+  builderFieldPaths?: string[];
   /** "items" adds more rows; "details" joins fields onto existing rows. */
   relationshipMode?: "items" | "details";
   join?: ContentDatabaseSourceJoinRequest;
@@ -904,6 +954,31 @@ export interface AttachContentDatabaseSourceRequest {
   mode?: "replace" | "add";
   limit?: number;
   offset?: number;
+}
+
+export interface ContentDatabaseSourceAttachmentAck {
+  responseProjection: "ack";
+  databaseId: string;
+  documentId: string;
+  sourceId: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  importedItemCount: number;
+  fetchedAt: string;
+}
+
+export type ContentDatabaseSourceAttachmentResult =
+  | ContentDatabaseResponse
+  | ContentDatabaseSourceAttachmentAck;
+
+export interface BuilderCmsAttachPreviewResponse {
+  databaseId: string;
+  documentId: string;
+  sourceTable: string;
+  base: ContentDatabaseResponse;
+  items: ContentDatabaseItem[];
+  fetchedAt: string;
+  hasMore: boolean;
 }
 
 export interface ChangeContentDatabaseSourceRoleRequest {
@@ -985,6 +1060,7 @@ export interface RefreshContentDatabaseSourceRequest {
   documentId?: string;
   sourceId?: string;
   fullRefresh?: boolean;
+  finishBuilderPagination?: boolean;
   expectedBuilderContinuationOffset?: number;
 }
 
@@ -1259,10 +1335,6 @@ export interface PreviewBuilderSourceReviewResponse {
 }
 
 export interface PrepareBuilderSourceReviewResponse {
-  database: ContentDatabase;
-  properties: DocumentProperty[];
-  items: ContentDatabaseItem[];
-  source: ContentDatabaseSource | null;
   review: ContentDatabaseSourceReviewPayload;
   /**
    * Maps the operator-selected diff identities to the immutable change-set

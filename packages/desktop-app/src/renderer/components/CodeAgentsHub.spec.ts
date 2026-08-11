@@ -7,7 +7,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MultiFrontierIpcEvent } from "../../../shared/multi-frontier-ipc.js";
-import { MultiFrontierModeControl } from "./CodeAgentsHub.js";
+import {
+  chatFirstAppSurfaceTab,
+  chatFirstPreviewPartitionKey,
+  dispatchControlPlaneUrlParams,
+  isDispatchControlPlanePath,
+  isChatFirstSurfaceTabActive,
+  MultiFrontierModeControl,
+} from "./CodeAgentsHub.js";
 import {
   initialMultiFrontierRunAutoContinue,
   locksMultiFrontierMode,
@@ -198,6 +205,138 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
+  });
+
+  it("keeps the chat-first composer narrower than its apps grid", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toContain("width: min(100%, 750px) !important;");
+    expect(shellCss).toMatch(
+      /\.desktop-apps-grid\s*\{[\s\S]*?max-width: 1000px;/,
+    );
+  });
+
+  it("keeps full-page settings on the shared query and theme contracts", () => {
+    const settingsSource = readFileSync(
+      "src/renderer/components/AppSettings.tsx",
+      "utf8",
+    );
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(settingsSource).toContain("createAgentNativeQueryClient");
+    expect(settingsSource).toContain(
+      "<QueryClientProvider client={desktopSettingsQueryClient}>",
+    );
+    expect(shellCss).toContain("--border: 0 0% 24%;");
+    expect(shellCss).toContain("--radius: 0.5rem;");
+    expect(shellCss).toContain(".settings-page-tabs-content .settings-btn");
+  });
+
+  it("passes the chat-first unavailable-notice presentation guard", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain(
+      "suppressChatFirstUnavailableNotice={chatFirstMode}",
+    );
+    expect(hubSource).toContain('error: "Desktop bridge is not available."');
+  });
+
+  it("keeps inactive chat-first tabs from inheriting the active webview state", () => {
+    expect(
+      isChatFirstSurfaceTabActive({
+        surfaceActive: true,
+        tabId: "tab-1",
+        activeTabId: "tab-1",
+      }),
+    ).toBe(true);
+    expect(
+      isChatFirstSurfaceTabActive({
+        surfaceActive: true,
+        tabId: "tab-1",
+        activeTabId: "tab-2",
+      }),
+    ).toBe(false);
+    expect(
+      isChatFirstSurfaceTabActive({
+        surfaceActive: false,
+        tabId: "tab-1",
+        activeTabId: "tab-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("shares the created app partition with chat-first previews", () => {
+    expect(chatFirstPreviewPartitionKey("app-1")).toBe("persist:app-app-1");
+    expect(chatFirstPreviewPartitionKey("  app-1  ")).toBe("persist:app-app-1");
+    expect(chatFirstPreviewPartitionKey(undefined)).toBe(
+      "persist:chat-first-browser",
+    );
+  });
+
+  it("builds app surface tabs without losing arbitrary route state", () => {
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "calendar", name: "Calendar" },
+        "/events/42?mode=week#details",
+        "event",
+      ),
+    ).toEqual({
+      id: "app:calendar:/events/42?mode=week#details:event",
+      kind: "app",
+      title: "Calendar",
+      appId: "calendar",
+      path: "/events/42?mode=week#details",
+      view: "event",
+    });
+  });
+
+  it("opens Dispatch control-plane pages without nested navigation chrome", () => {
+    expect(isDispatchControlPlanePath("/integrations")).toBe(true);
+    expect(isDispatchControlPlanePath("/integrations/stripe")).toBe(true);
+    expect(isDispatchControlPlanePath("/admin/automations?view=all")).toBe(
+      true,
+    );
+    expect(isDispatchControlPlanePath("/admin/integrations/slack/setup")).toBe(
+      true,
+    );
+    expect(isDispatchControlPlanePath("/overview")).toBe(false);
+    expect(isDispatchControlPlanePath("/integrations-extra")).toBe(false);
+    expect(dispatchControlPlaneUrlParams("/automations")).toEqual({
+      embedded: "1",
+      chatFirst: null,
+      electron: "1",
+    });
+    expect(dispatchControlPlaneUrlParams("/apps")).toEqual({
+      embedded: "1",
+      chatFirst: "1",
+    });
+  });
+
+  it("records whether an app was opened from the rail or the agent", () => {
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "analytics", name: "Analytics" },
+        "/adhoc/q2",
+        undefined,
+        "side",
+      ),
+    ).toMatchObject({
+      kind: "app",
+      appId: "analytics",
+      placement: "side",
+      path: "/adhoc/q2",
+    });
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "analytics", name: "Analytics" },
+        "/",
+        undefined,
+        "main",
+      ).placement,
+    ).toBe("main");
   });
 
   it("renders a live provider update in the subscription usage popover", async () => {

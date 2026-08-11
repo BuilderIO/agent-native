@@ -82,4 +82,15 @@ describe("get-design-system", () => {
     );
     expect(result.agentContext).toContain("override local proxy placeholders");
   });
+
+  it("returns a client-safe not-found error when the design system is unavailable", async () => {
+    mockResolveAccess.mockResolvedValue(null);
+
+    await expect(
+      action.run({ id: "missing-design-system" }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Design system not found",
+    });
+  });
 });

@@ -52,6 +52,8 @@ const run = {
   worker_stage: "model",
   diag_stage: '{"stage":"model"}',
   peak_rss_mb: 321,
+  in_flight_since: 8,
+  dispatch_payload: '{"request":"retained"}',
 };
 
 function rowsForThreadLookup(sql: string, args: unknown[]) {
@@ -117,6 +119,19 @@ describe("thread-debug-store", () => {
     expect(result.threads[0]?.id).toBe(thread.id);
   });
 
+  it("matches owner email from the main search query", async () => {
+    const result = await searchAgentThreads({ query: "owner@example.com" });
+
+    expect(result.threads).toHaveLength(1);
+    const searchRequest = mocks.currentExecute.mock.calls.find(
+      ([request]) =>
+        typeof request?.sql === "string" &&
+        request.sql.includes("LOWER(owner_email) LIKE"),
+    )?.[0];
+    expect(searchRequest?.sql).toContain("LOWER(owner_email) LIKE");
+    expect(searchRequest?.args).toContain("%owner@example.com%");
+  });
+
   it("resolves a run id and returns rich run diagnostics", async () => {
     const result = await getAgentThreadDebug({ runId: run.id });
 
@@ -137,6 +152,8 @@ describe("thread-debug-store", () => {
       workerStage: "model",
       diagStage: '{"stage":"model"}',
       peakRssMb: 321,
+      inFlightSince: 8,
+      hasDispatchPayload: true,
     });
     expect(
       mocks.currentExecute.mock.calls.some(([request]) =>
@@ -179,6 +196,66 @@ describe("thread-debug-store", () => {
       diagStage: null,
       peakRssMb: null,
       terminalEvent: null,
+    });
+  });
+
+  it("separates interactive and scheduled populations and attaches the measured taxonomy", async () => {
+    mocks.currentExecute.mockImplementation(async ({ sql }) => {
+      if (!sql.includes("JOIN chat_threads")) return { rows: [] };
+      if (sql.includes("r.id NOT LIKE 'job-%'")) {
+        return {
+          rows: [
+            failureRow("run-interactive", Date.now(), {
+              error_code: null,
+              error_detail: "Missing Authentication header",
+              terminal_reason: null,
+            }),
+          ],
+        };
+      }
+      if (sql.includes("r.id LIKE 'job-%'")) {
+        return {
+          rows: [
+            failureRow("job-analytics-1", Date.now(), {
+              error_code: null,
+              error_detail:
+                '{"error":{"type":"overloaded_error","message":"Overloaded"}}',
+              terminal_reason: null,
+            }),
+          ],
+        };
+      }
+      return [];
+    });
+
+    const interactive = await listAgentRunFailures({
+      sourceId: "current",
+      regime: "interactive",
+    });
+    const scheduled = await listAgentRunFailures({
+      sourceId: "current",
+      regime: "scheduled",
+    });
+
+    expect(interactive).toMatchObject({
+      regime: "interactive",
+      failures: [
+        {
+          id: "run-interactive",
+          regime: "interactive",
+          failureTaxonomy: { code: "authentication_error" },
+        },
+      ],
+    });
+    expect(scheduled).toMatchObject({
+      regime: "scheduled",
+      failures: [
+        {
+          id: "job-analytics-1",
+          regime: "scheduled",
+          failureTaxonomy: { code: "overloaded_error" },
+        },
+      ],
     });
   });
 
@@ -330,9 +407,13 @@ describe("thread-debug-store", () => {
   it("keeps explicit remote sources admin-only", async () => {
     vi.stubEnv("REMOTE_DATABASE_URL", "libsql://remote");
 
-    await expect(listAgentRunFailures({ sourceId: "remote" })).rejects.toThrow(
-      "Only Dispatch admins",
-    );
+    await expect(
+      listAgentRunFailures({ sourceId: "remote" }),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message:
+        "Only Dispatch admins can inspect thread databases from other apps.",
+    });
     expect(mocks.createDbExec).not.toHaveBeenCalled();
   });
 

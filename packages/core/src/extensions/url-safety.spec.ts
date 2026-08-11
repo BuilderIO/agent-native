@@ -130,6 +130,29 @@ describe("ssrfSafeFetch per-hop policies", () => {
     expect(redirectResponse.bodyUsed).toBe(true);
   });
 
+  it("allows configured loopback aliases without allowing an unconfigured port", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ssrfSafeFetch(
+        "http://localhost:4123/health",
+        {},
+        { allowedPrivateOrigins: ["http://127.0.0.1:4123"] },
+      ),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(
+      ssrfSafeFetch(
+        "http://localhost:4124/health",
+        {},
+        {
+          allowedPrivateOrigins: ["http://127.0.0.1:4123"],
+        },
+      ),
+    ).rejects.toThrow(/SSRF blocked/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a caller-disallowed redirect before forwarding sensitive request data", async () => {
     const redirectUrl = "https://93.184.216.35/steal";
     const redirectResponse = new Response("moved", {

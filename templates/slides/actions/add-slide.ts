@@ -17,15 +17,13 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
+import { hashSlideContent } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
   awaitLayoutFitCheck,
   formatOverflowForTool,
 } from "./_await-fit-check.js";
-import {
-  readAppStateForCurrentTab,
-  writeAppStateForCurrentTab,
-} from "./_tab-state.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -307,11 +305,20 @@ export default defineAction({
         typeof position === "number"
           ? Math.max(0, Math.min(position, slides.length))
           : slides.length;
+      const shouldRepairTitle = slides.length === 0;
       slides.splice(insertIndex, 0, newSlide);
 
       const now = new Date().toISOString();
       deck.slides = slides;
       deck.updatedAt = now;
+      const currentTitle =
+        typeof row.title === "string" && row.title.trim()
+          ? row.title
+          : deck.title;
+      const repairedTitle = shouldRepairTitle
+        ? repairGeneratedDeckTitle(currentTitle, newSlide.content)
+        : null;
+      if (repairedTitle) deck.title = repairedTitle;
       deck.creativeContext =
         contextMode === "off" && existingContext
           ? existingContext
@@ -333,7 +340,11 @@ export default defineAction({
       await db.transaction(async (tx: any) => {
         await tx
           .update(schema.decks)
-          .set({ data: JSON.stringify(deck), updatedAt: now })
+          .set({
+            ...(repairedTitle ? { title: repairedTitle } : {}),
+            data: JSON.stringify(deck),
+            updatedAt: now,
+          })
           .where(eq(schema.decks.id, deckId));
         await recordGenerationCreativeContext(
           {
@@ -350,6 +361,11 @@ export default defineAction({
         );
       });
 
+      // Start the freshness window immediately after the SQL write and before
+      // notifying the editor. A render can happen during presence/navigation;
+      // capturing the timestamp later can discard that valid measurement.
+      const fitSince = Date.now();
+
       // Best-effort agent presence: light the agent up on the newly-added slide
       // in open editors and drop a lingering "AI edited" highlight for it. Uses
       // the NEW slide's id. Never blocks or fails the write.
@@ -363,36 +379,17 @@ export default defineAction({
       // Include the new slideId + agent actor (backwards-compatible payload).
       notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
 
-      // Nudge any open editor onto the new slide so the renderer measures
-      // IT (not whichever slide was previously selected). Only fires when an
-      // editor is open on this deck; navigation state is a no-op if nobody
-      // is watching.
-      const nav = (await readAppStateForCurrentTab("navigation", {
-        fallbackToGlobal: false,
-      }).catch(() => null)) as {
-        view?: string;
-        deckId?: string;
-      } | null;
-      if (nav?.view === "editor" && nav.deckId === deckId) {
-        await writeAppStateForCurrentTab("navigate", {
-          deckId,
-          slideIndex: insertIndex,
-          // Unique-per-write token. The UI's `use-navigation-state` hook
-          // dedups by this so a race between the GET and the consume-DELETE
-          // doesn't cause the same command to be re-applied repeatedly
-          // (which previously bounced the editor between slides whenever the
-          // agent path errored partway through a turn).
-          _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        }).catch(() => {});
-      }
-
       // Wait briefly for the editor to render the new slide and report its
       // measured fit. If we get an "overflows" signal, append the auto-fix
-      // hint so the agent can call update-slide right away and patch the
-      // slide HTML until it fits. Timeout = no editor measurement available
+      // hint so the agent can make one bounded structural repair. Timeout = no
+      // editor measurement available
       // (e.g. headless server) — return success without a fit hint.
-      const fitSince = Date.now();
-      const fit = await awaitLayoutFitCheck(newSlideId, fitSince, 5000);
+      const fit = await awaitLayoutFitCheck(
+        newSlideId,
+        fitSince,
+        5000,
+        hashSlideContent(newSlide.content),
+      );
 
       const base = {
         deckId,
@@ -411,7 +408,10 @@ export default defineAction({
           ...base,
           layoutOverflow: {
             verticalOverflow: fit.measurement.verticalOverflow,
+            horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
+            contentWidth: fit.measurement.contentWidth,
             contentHeight: fit.measurement.contentHeight,
+            viewportWidth: fit.measurement.viewportWidth,
             viewportHeight: fit.measurement.viewportHeight,
           },
           message: formatOverflowForTool(deckId, fit.measurement),

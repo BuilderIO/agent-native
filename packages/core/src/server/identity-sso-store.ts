@@ -34,6 +34,26 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
+const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
+  "https://analytics.agent-native.com",
+  "https://assets.agent-native.com",
+  "https://brain.agent-native.com",
+  "https://calendar.agent-native.com",
+  "https://chat.agent-native.com",
+  "https://clips.agent-native.com",
+  "https://content.agent-native.com",
+  "https://crm.agent-native.com",
+  "https://design.agent-native.com",
+  "https://dispatch.agent-native.com",
+  "https://forms.agent-native.com",
+  "https://macros.agent-native.com",
+  "https://mail.agent-native.com",
+  "https://plan.agent-native.com",
+  "https://slides.agent-native.com",
+  "https://tasks.agent-native.com",
+]);
+
 // ---------------------------------------------------------------------------
 // Feature switch — the SINGLE source of truth for whether the federated-SSO
 // client is active. Lives here (a leaf module with no dependency on auth.ts)
@@ -68,6 +88,42 @@ export function getIdentityHubUrl(): string | undefined {
  */
 export function isIdentitySsoEnabled(): boolean {
   return !!getIdentityHubUrl();
+}
+
+export function isDesktopSsoCanaryUserAgent(
+  userAgent: string | undefined,
+): boolean {
+  return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
+}
+
+export function isCanonicalAgentNativeAppOrigin(
+  origin: string | undefined,
+): boolean {
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === "https:" &&
+      !parsed.username &&
+      !parsed.password &&
+      parsed.pathname === "/" &&
+      !parsed.search &&
+      !parsed.hash &&
+      CANONICAL_IDENTITY_SSO_APP_ORIGINS.has(parsed.origin)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isCanonicalAgentNativeAppRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  if (!host || forwardedProtocol !== "https") {
+    return false;
+  }
+  return isCanonicalAgentNativeAppOrigin(`https://${host}`);
 }
 
 /**

@@ -23,11 +23,30 @@ export function useUpdateStatus(): UpdateStatus | null {
 
 /**
  * Sidebar pill that becomes visible whenever an update is in flight or
- * ready to install. Hidden in idle / not-available / dev / unsupported
- * states so it doesn't add visual noise.
+ * ready to install. Hidden in idle / not-available / unsupported states so it
+ * doesn't add visual noise.
  */
-export function UpdateIndicator() {
+export function UpdateIndicator({
+  variant = "sidebar",
+}: {
+  variant?: "sidebar" | "rail";
+}) {
   const status = useUpdateStatus();
+  const itemClassName = (stateClassName: string) =>
+    `${variant === "rail" ? "code-agents-nav-link" : "sidebar-item"} update-indicator ${stateClassName}`;
+  const itemTabIndex = variant === "rail" ? undefined : -1;
+  const iconSize = variant === "rail" ? 15 : 18;
+  const icon = (element: React.ReactNode) =>
+    variant === "rail" ? (
+      element
+    ) : (
+      <span className="icon-wrapper">{element}</span>
+    );
+  const label = (value: string) => (
+    <span className={variant === "rail" ? undefined : "item-label"}>
+      {value}
+    </span>
+  );
 
   if (!status) return null;
 
@@ -51,15 +70,15 @@ export function UpdateIndicator() {
     // before "downloading" arrives. Render a subtle pending state.
     return (
       <button
-        className="sidebar-item update-indicator update-indicator--pending"
-        tabIndex={-1}
+        type="button"
+        className={itemClassName("update-indicator--pending")}
+        tabIndex={itemTabIndex}
+        disabled
         title={`Update ${status.version} available — downloading…`}
         aria-label={`Update ${status.version} available`}
       >
-        <span className="icon-wrapper">
-          <IconDownload size={18} strokeWidth={1.75} />
-        </span>
-        <span className="item-label">Update</span>
+        {icon(<IconDownload size={iconSize} strokeWidth={1.75} />)}
+        {label("Update")}
       </button>
     );
   }
@@ -67,32 +86,33 @@ export function UpdateIndicator() {
   if (status.state === "downloading") {
     return (
       <button
-        className="sidebar-item update-indicator update-indicator--downloading"
-        tabIndex={-1}
+        type="button"
+        className={itemClassName("update-indicator--downloading")}
+        tabIndex={itemTabIndex}
+        disabled
         title={`Downloading update — ${status.percent}%`}
         aria-label={`Downloading update, ${status.percent} percent`}
       >
-        <span className="icon-wrapper">
-          <IconLoader2 size={18} strokeWidth={1.75} className="spin" />
-        </span>
-        <span className="item-label">{status.percent}%</span>
+        {icon(
+          <IconLoader2 size={iconSize} strokeWidth={1.75} className="spin" />,
+        )}
+        {label(`${status.percent}%`)}
       </button>
     );
   }
 
-  // Downloaded — clicking restarts the app and applies the update.
+  // Downloaded or local-dev production update — clicking restarts the app.
   return (
     <button
-      className="sidebar-item update-indicator update-indicator--ready"
-      tabIndex={-1}
+      type="button"
+      className={itemClassName("update-indicator--ready")}
+      tabIndex={itemTabIndex}
       onClick={() => window.electronAPI?.updater.install()}
       title={`Update ${status.version} ready — click to restart`}
-      aria-label={`Update ${status.version} ready, click to restart`}
+      aria-label={`Restart to update Agent Native to version ${status.version}`}
     >
-      <span className="icon-wrapper">
-        <IconRefresh size={18} strokeWidth={1.75} />
-      </span>
-      <span className="item-label">Relaunch</span>
+      {icon(<IconRefresh size={iconSize} strokeWidth={1.75} />)}
+      {label("Restart to update")}
     </button>
   );
 }

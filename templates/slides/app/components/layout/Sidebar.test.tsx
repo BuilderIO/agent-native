@@ -83,7 +83,7 @@ describe("<Sidebar collapsed>", () => {
     const aside = screen.getByRole("complementary");
     expect(aside.className).toContain("w-12");
 
-    const expandBtn = screen.getByLabelText("Expand sidebar");
+    const expandBtn = screen.getAllByLabelText("Expand sidebar")[0];
     expect(expandBtn).toBeDefined();
     expandBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggle).toHaveBeenCalledTimes(1);
@@ -106,6 +106,25 @@ describe("<Sidebar collapsed>", () => {
 });
 
 describe("<Sidebar expanded>", () => {
+  it("reserves fixed dimensions for the brand marks", () => {
+    const { container } = renderAt(
+      "/",
+      <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
+    );
+
+    const brandMarks = container.querySelectorAll(
+      'img[src="/agent-native-icon-light.svg"], img[src="/agent-native-icon-dark.svg"]',
+    );
+
+    expect(brandMarks).toHaveLength(2);
+    for (const brandMark of brandMarks) {
+      expect(brandMark.getAttribute("width")).toBe("28");
+      expect(brandMark.getAttribute("height")).toBe("16");
+      expect(brandMark.className).toContain("w-7");
+      expect(brandMark.className).toContain("object-contain");
+    }
+  });
+
   it("renders the full sidebar (w-56) with the Collapse button and labelled nav", () => {
     const onToggle = vi.fn();
     renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={onToggle} />);
@@ -118,7 +137,7 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Design Systems")).toBeDefined();
     expect(screen.getByText("Settings")).toBeDefined();
 
-    const collapseBtn = screen.getByLabelText("Collapse sidebar");
+    const collapseBtn = screen.getAllByLabelText("Collapse sidebar")[0];
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggle).toHaveBeenCalledTimes(1);
 
@@ -158,7 +177,7 @@ describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
 describe("<Sidebar> accessibility", () => {
   it("gives icon-only controls aria-labels", () => {
     renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
-    expect(screen.getByLabelText("Expand sidebar")).toBeDefined();
+    expect(screen.getAllByLabelText("Expand sidebar")).toHaveLength(2);
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
     expect(screen.getByLabelText("Settings")).toBeDefined();
@@ -166,6 +185,6 @@ describe("<Sidebar> accessibility", () => {
 
   it("labels the Collapse button in the expanded layout", () => {
     renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={() => {}} />);
-    expect(screen.getByLabelText("Collapse sidebar")).toBeDefined();
+    expect(screen.getAllByLabelText("Collapse sidebar")).toHaveLength(2);
   });
 });

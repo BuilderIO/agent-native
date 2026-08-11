@@ -22,9 +22,9 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-// Window is wider than the 440px card so the card's drop shadow (~32px each
-// side) renders inside the transparent window instead of being clipped. The
-// right margin is pulled in to keep the card near the top-right corner.
+// Window is wider than the 440px card so its close control and menu stay inside
+// the transparent window. The right margin is pulled in to keep the card near
+// the top-right corner.
 const NOTIFICATION_W_LOGICAL: u32 = 504;
 const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;

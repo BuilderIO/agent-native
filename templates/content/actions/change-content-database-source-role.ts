@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -23,9 +23,9 @@ import {
   importBuilderCmsEntriesAsDatabaseItems,
   mapBuilderCmsEntriesToLocalItems,
   mutateContentDatabaseSourceMetadata,
+  replaceMockSourceRows,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
-  seedMockSourceRows,
   seedSecondarySourceFields,
   sourceSetupPayload,
   storeSecondarySourceRows,
@@ -157,41 +157,77 @@ async function clearSourceFederation(sourceId: string, now: string) {
   });
 }
 
-async function removeRowsOwnedOnlyBySource(args: {
+export async function removeRowsOwnedOnlyBySource(args: {
   databaseId: string;
   sourceId: string;
 }) {
   const db = getDb();
-  const [targetRows, otherRows] = await Promise.all([
-    db
+  await db.transaction(async (tx) => {
+    const [lockedDatabase] = await tx
+      .update(schema.contentDatabases)
+      .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+      .where(
+        and(
+          eq(schema.contentDatabases.id, args.databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      )
+      .returning({ id: schema.contentDatabases.id });
+    if (!lockedDatabase) throw new Error("Database is no longer active.");
+
+    const targetRows = await tx
       .select()
       .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId)),
-    db
-      .select()
-      .from(schema.contentDatabaseSourceRows)
-      .where(ne(schema.contentDatabaseSourceRows.sourceId, args.sourceId)),
-  ]);
-  const otherDocumentIds = new Set(
-    otherRows.map((row) => row.documentId).filter(Boolean),
-  );
-  const itemIds = targetRows
-    .filter(
-      (row) =>
-        row.databaseItemId &&
-        row.documentId &&
-        !otherDocumentIds.has(row.documentId),
-    )
-    .map((row) => row.databaseItemId);
-  if (itemIds.length === 0) return;
-  await db
-    .delete(schema.contentDatabaseItems)
-    .where(
-      and(
-        eq(schema.contentDatabaseItems.databaseId, args.databaseId),
-        inArray(schema.contentDatabaseItems.id, itemIds),
-      ),
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+    const siblingSources = await tx
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.databaseId, args.databaseId),
+          ne(schema.contentDatabaseSources.id, args.sourceId),
+        ),
+      );
+    const otherRows = siblingSources.length
+      ? await tx
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            inArray(
+              schema.contentDatabaseSourceRows.sourceId,
+              siblingSources.map((source) => source.id),
+            ),
+          )
+      : [];
+    const otherDocumentIds = new Set(
+      otherRows.map((row) => row.documentId).filter(Boolean),
     );
+    const itemIds = targetRows
+      .filter(
+        (row) =>
+          row.databaseItemId &&
+          row.documentId &&
+          !otherDocumentIds.has(row.documentId),
+      )
+      .map((row) => row.databaseItemId as string);
+    if (itemIds.length === 0) return;
+    await tx
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        and(
+          eq(schema.contentDatabaseItemKeyClaims.databaseId, args.databaseId),
+          inArray(schema.contentDatabaseItemKeyClaims.itemId, itemIds),
+        ),
+      );
+    await tx
+      .delete(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, args.databaseId),
+          inArray(schema.contentDatabaseItems.id, itemIds),
+        ),
+      );
+  });
 }
 
 export async function readBuilderCmsEntriesForRoleChange(
@@ -400,9 +436,6 @@ export default defineAction({
       await db
         .delete(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
-      await db
-        .delete(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
       await clearSourceFederation(source.id, now);
 
       let importedEntriesByDocumentId = new Map<
@@ -412,6 +445,7 @@ export default defineAction({
       if (read.state === "live") {
         const importResult = await importBuilderCmsEntriesAsDatabaseItems({
           database,
+          sourceId: source.id,
           entries,
           now,
           sourceTable: source.sourceTable,
@@ -443,7 +477,7 @@ export default defineAction({
         builderSampleEntries: entries,
         now,
       });
-      await seedMockSourceRows({
+      await replaceMockSourceRows({
         sourceId: source.id,
         ownerEmail: database.ownerEmail,
         sourceType: "builder-cms",

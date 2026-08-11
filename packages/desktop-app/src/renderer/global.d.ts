@@ -17,6 +17,13 @@ type UpdateStatus =
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
 
+type DesktopIdentityStatus =
+  | "idle"
+  | "signing-in"
+  | "signed-in"
+  | "sign-in-required"
+  | "failed";
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -68,6 +75,8 @@ type CodeAgentModelOption = {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 };
 
 type CodeAgentModelListResult = {
@@ -570,6 +579,25 @@ type DesktopShortcutUpdateResult = {
   error?: string;
 };
 
+type QuickPromptSettings = {
+  enabled: boolean;
+  accelerator: string;
+  registered: boolean;
+  error?: string;
+};
+
+type QuickPromptPreferences = {
+  enabled: boolean;
+};
+
+type QuickPromptSubmitRequest = {
+  prompt: string;
+  cwd?: string;
+  attachments?: CodeAgentPromptAttachment[];
+};
+
+type QuickPromptSubmitResult = CodeAgentCreateRunResult;
+
 type LocalAppFolderInfo = {
   path: string;
   name: string;
@@ -674,6 +702,13 @@ interface ElectronAPI {
     ackActivation(requestId: string, appId?: string): void;
   };
 
+  identity: {
+    getStatus(): Promise<DesktopIdentityStatus>;
+    signIn(): Promise<boolean>;
+    signOut(): Promise<boolean>;
+    onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
+  };
+
   setActiveApp(appId: string): void;
   setActiveWebview(target: {
     appId: string;
@@ -695,20 +730,32 @@ interface ElectronAPI {
     load(): Promise<{
       enabled: boolean;
       showCodeTab: boolean;
+      chatFirstMode: boolean;
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;
     update(settings: {
       enabled?: boolean;
       showCodeTab?: boolean;
+      chatFirstMode?: boolean;
       mode?: "dev" | "prod";
       prodUrl?: string;
     }): Promise<{
       enabled: boolean;
       showCodeTab: boolean;
+      chatFirstMode: boolean;
       mode: "dev" | "prod";
       prodUrl?: string;
     }>;
+  };
+
+  quickPrompt: {
+    load(): Promise<QuickPromptSettings>;
+    update(
+      settings: Partial<QuickPromptPreferences>,
+    ): Promise<QuickPromptSettings>;
+    dismiss(): void;
+    submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };
 
   updater: {
@@ -852,6 +899,34 @@ interface ElectronAPI {
     ): Promise<DesktopCreateAppResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
+  };
+
+  mcpServers: {
+    list(): Promise<
+      import("@agent-native/core/client/resources").McpServersList
+    >;
+    create(
+      args: import("@agent-native/core/client/resources").CreateMcpServerArgs,
+    ): Promise<import("@agent-native/core/client/resources").McpServer>;
+    delete(args: {
+      id: string;
+      scope: import("@agent-native/core/client/resources").McpServerScope;
+    }): Promise<void>;
+    reconnect(args: {
+      id: string;
+      scope: import("@agent-native/core/client/resources").McpServerScope;
+    }): Promise<void>;
+    test(
+      url: string,
+      headers?: Record<string, string>,
+    ): Promise<import("@agent-native/core/client/resources").TestMcpUrlResult>;
+    testExisting(args: {
+      id: string;
+      scope: import("@agent-native/core/client/resources").McpServerScope;
+    }): Promise<import("@agent-native/core/client/resources").TestMcpUrlResult>;
+    importPlugin(): Promise<
+      import("../../shared/chat-first-mcp").ChatFirstMcpPluginImportResult
+    >;
   };
 }
 

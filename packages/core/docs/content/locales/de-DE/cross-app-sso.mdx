@@ -15,6 +15,19 @@ Dies ist das gleiche Vertrauensprimitiv, das [A2A](/docs/a2a-protocol) und [Exte
 
 </Callout>
 
+## Was der Benutzer sieht {#user-flow}
+
+Cross-App SSO sollte sich wie der Wechsel zwischen Produkten in einem Workspace anfühlen, nicht wie das Erstellen eines zweiten Kontos. Zum Beispiel:
+
+1. Melden Sie sich bei [Dispatch](https://dispatch.agent-native.com) oder einer anderen App an, die bereits die Workspace-Identität verwendet.
+2. Öffnen Sie [Mail](https://mail.agent-native.com), [Calendar](https://calendar.agent-native.com) oder eine andere aktivierte App in einem neuen Tab.
+3. Die App leitet den Browser nur dann zu Dispatch weiter, wenn noch keine Dispatch-Sitzung besteht. Ist die Sitzung vorhanden, ist die Weiterleitung praktisch unsichtbar.
+4. Sie kehren bereits angemeldet zur App zurück - mit derselben E-Mail-Adresse, denselben Datensätzen und demselben Organisationskontext.
+
+Wichtig ist: Dies ist **eine Anmeldung, kein gemeinsames Cookie**. Jede separat gehostete App erstellt und besitzt weiterhin ihre eigene lokale Sitzung. Dispatch bestätigt die Identität des Benutzers am Eingang der App; danach gelten die normale lokale Authentifizierung und die normalen Zugriffskontrollen der App.
+
+Für eine Produktdemo zeichnen Sie genau diesen Ablauf auf: einmal bei Dispatch anmelden, zwei weitere gehostete Apps öffnen, zeigen, dass keine davon erneut Zugangsdaten verlangt, und sich anschließend in einer App abmelden, um die unabhängige Sitzung der anderen App zu zeigen. So wird die Sicherheitsgrenze sichtbar.
+
 ## Was und warum {#what-why}
 
 Benutzerspezifische Stores pro App bedeuten, dass es keinen einzigen Ort gibt, an dem ein Browser-Cookie gespeichert werden kann, dem jede App vertraut. Das Föderationsmodell benennt stattdessen eine App – **Dispatch** – als Identitätsautorität. Jede andere App kann „Wer ist diese Person?“ delegieren. an Dispatch senden, erhalten Sie eine kurzlebige signierte Bestätigung der verifizierten E-Mail-Adresse des Benutzers zurück und **verknüpfen Sie diese dann per E-Mail mit seinem eigenen lokalen Konto**.
@@ -171,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 Das gesamte Modell basiert auf ein paar bewusst kleinen Garantien:
 
 - **Kurzlebiges signiertes Token.** Die Identitätszusicherung ist ein `A2A_SECRET`-signiertes JWT mit einem **≤ 2-Minuten** Ablaufdatum und `scope: "identity"`. Es autorisiert eine einmalige Anmeldung und kann nicht für längere Zeit wiedergegeben oder für den API/A2A-Zugriff umgewidmet werden.
-- **Strikte `redirect_uri`-Zulassungsliste.** Dispatch leitet standardmäßig immer nur zu `*.agent-native.com` oder localhost weiter. Beliebige, schemarelative (`//host`) und Cross-Origin-Redirect-Ziele werden abgelehnt, sodass die Autorität nicht in ein Open-Redirect- oder Token-Exfiltration-Orakel umgewandelt werden kann.
+- **Strikte, app-gebundene `redirect_uri`-Zulassungsliste.** Jede kanonische App-ID ist genau einer Produktions-Origin und Callback-Route zugeordnet; localhost bleibt für die Entwicklung verfügbar. Unbekannte Subdomains, nicht passende App-IDs, beliebige Pfade und Cross-Origin-Ziele werden abgelehnt.
 - **Nur E-Mail-Beitritt von einem verifizierten Token aus.** Das Einzige, was die Vertrauensgrenze überschreitet, ist die verifizierte E-Mail in einem signierten Token. Die App akzeptiert keine Benutzer-ID, Rolle, Organisationsmitgliedschaft oder einen privilegierten Status aus der Verbindung – sie leitet alles lokal vom übereinstimmenden Konto ab.
 - **Nur additive Identitätsschreibvorgänge.** Beim Verknüpfen wird entweder ein vorhandenes Konto mit derselben E-Mail-Adresse unverändert wiederverwendet oder ein neues eingefügt. Auf diesem Pfad findet niemals eine Aktualisierung, Umbenennung, Neuzuweisung oder Löschung von Identitätszeilen statt.
 - **Standardmäßig deaktiviert.** Wenn `AGENT_NATIVE_IDENTITY_HUB_URL` deaktiviert ist, ist die gesamte Funktion inaktiv.
@@ -249,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Zulassungsliste für Weiterleitungen.** Der Hub (Dispatch) validiert `redirect_uri` auf dem Autorisierungsendpunkt, bevor er ein Token ausstellt. Die Zulassungsliste wird in `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Standard:** Nur `*.agent-native.com` und localhost (die `DEFAULT_ALLOWED_HOST_SUFFIXES`-Konstante).
+- **Standard:** Nur exakt registrierte Agent-Native-App-ID/Origin-Paare und localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Erweitern:** Legen Sie die Umgebungsvariable `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` in der Dispatch-Bereitstellung mit einer durch Kommas getrennten Liste zusätzlicher Hostsuffixe fest:
 
   ```bash
@@ -310,3 +323,8 @@ Beim Rollout werden Benutzer abgemeldet, wenn jede App aktiviert wird (sie authe
 - [Dispatch](/docs/dispatch) – die Workspace-Identitätsbehörde und der Routing-Hub.
 - [Security & Data Scoping](/docs/security) – Nur additive Datenschreibvorgänge und Scoping pro Konto.
 - [Multi-App Workspaces](/docs/multi-app-workspace) – die einheitliche Single-Origin-Bereitstellung, die domänenübergreifendes SSO vollständig vermeidet.
+
+Das standardmäßig deaktivierte Dispatch-Flag `desktop.workspace-sso` steuert nur die Verfügbarkeit; Authentifizierung, Signatur-, Nonce-, Origin-, Callback-, Sitzungs- und Widerrufsprüfungen bleiben immer verpflichtend. Ist das Flag aus oder nicht lesbar, verändert Desktop weder App-Anmeldung noch Abmeldung oder Einstellungen.
+Die Canary-Kennung im User-Agent ist nur ein Verfügbarkeitshinweis und keine Remote-Attestierung; Authentifizierung und Autorisierung vertrauen ihr nicht.
+Kanonische gehostete Apps erkennen Anfragen der paketierten Desktop SSO Canary ohne eine Identity-Hub-Umgebungsvariable pro App. Normale Browser und selbst gehostete Apps benötigen weiterhin `AGENT_NATIVE_IDENTITY_HUB_URL`. Stabile Desktop-Builds initialisieren den Broker erst nach einer separat genehmigten späteren Veröffentlichung.
+Die Canary-Version fängt anonyme App-Anmeldungen nicht ab. Benutzer müssen die Workspace-Anmeldung in den Desktop-Einstellungen für die aktive registrierte App ausdrücklich auswählen; die normale App-Anmeldung bleibt der Standardpfad.

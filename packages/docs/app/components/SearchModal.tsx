@@ -1,5 +1,7 @@
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconMoon, IconSun } from "@tabler/icons-react";
+import { submitToAgent } from "@agent-native/core/client/navigation";
+import { IconMessage, IconMoon, IconSun } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router";
@@ -141,6 +143,17 @@ export function SearchModal({
     queryWords.length === 0 ||
     queryWords.every((word) => themeSearchTerms.includes(word));
   const resultIndexOffset = showThemeAction ? 1 : 0;
+  const askAiIndex = resultIndexOffset + results.length;
+
+  const submitAskAi = useCallback(() => {
+    onClose();
+    const message = query.trim();
+    if (!message) {
+      focusAgentChat();
+      return;
+    }
+    submitToAgent(message);
+  }, [onClose, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -198,15 +211,20 @@ export function SearchModal({
         onClose();
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        const maxIndex = Math.max(results.length + resultIndexOffset - 1, 0);
+        const maxIndex = askAiIndex;
         setActiveIdx((i) => Math.min(i + 1, maxIndex));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setActiveIdx((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
+        e.preventDefault();
         if (showThemeAction && activeIdx === 0) {
           toggleTheme();
           onClose();
+          return;
+        }
+        if (activeIdx === askAiIndex) {
+          submitAskAi();
           return;
         }
         const result = results[activeIdx - resultIndexOffset];
@@ -242,10 +260,12 @@ export function SearchModal({
     open,
     results,
     activeIdx,
+    askAiIndex,
     go,
     onClose,
     resultIndexOffset,
     showThemeAction,
+    submitAskAi,
     toggleTheme,
   ]);
 
@@ -431,6 +451,40 @@ export function SearchModal({
               ))}
             </div>
           )}
+        </div>
+
+        <div className="border-t border-[var(--docs-border)] py-2">
+          <button
+            ref={activeIdx === askAiIndex ? activeItemRef : undefined}
+            type="button"
+            onClick={submitAskAi}
+            onMouseEnter={() => setActiveIdx(askAiIndex)}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+              activeIdx === askAiIndex
+                ? "bg-[var(--docs-accent)]/10"
+                : "hover:bg-[var(--bg-secondary)]"
+            }`}
+          >
+            <IconMessage
+              size={16}
+              stroke={1.5}
+              className="shrink-0 text-[var(--docs-accent)]"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 truncate font-medium text-[var(--fg)]">
+              {t("header.askAssistant")}
+              {query.trim() ? (
+                <span className="font-normal text-[var(--fg-secondary)]">
+                  : "{query}"
+                </span>
+              ) : null}
+            </span>
+            {query.trim() ? (
+              <kbd className="ms-auto shrink-0 text-[10px] text-[var(--fg-secondary)]">
+                ↵
+              </kbd>
+            ) : null}
+          </button>
         </div>
       </div>
     </div>,

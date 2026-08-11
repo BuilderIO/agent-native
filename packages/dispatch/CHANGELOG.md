@@ -1,5 +1,234 @@
 # @agent-native/dispatch
 
+## 0.23.5
+
+### Patch Changes
+
+- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
+
+  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
+
+## 0.23.4
+
+### Patch Changes
+
+- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
+- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
+- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
+- Updated dependencies [7c5888c]
+  - @agent-native/toolkit@0.13.10
+
+## 0.23.3
+
+### Patch Changes
+
+- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
+- a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
+
+## 0.23.2
+
+### Patch Changes
+
+- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
+
+## 0.23.1
+
+### Patch Changes
+
+- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
+- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/toolkit@0.13.9
+
+## 0.23.0
+
+### Minor Changes
+
+- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
+
+### Patch Changes
+
+- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
+- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
+- Updated dependencies [c41fd16]
+  - @agent-native/toolkit@0.13.8
+
+## 0.22.1
+
+### Patch Changes
+
+- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
+
+## 0.22.0
+
+### Minor Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- 061896a: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- 061896a: Use the Toolkit header store and mobile hook through Dispatch compatibility paths.
+- 061896a: Improve Thread Debug with diagnosis-first failure triage and retained run evidence.
+- Updated dependencies [061896a]
+  - @agent-native/toolkit@0.13.7
+
+## 0.21.0
+
+### Minor Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- Updated dependencies [cf16fae]
+  - @agent-native/toolkit@0.13.6
+
+## 0.20.4
+
+### Patch Changes
+
+- e959709: Export `runDispatchMigrations` so a consuming app can own dispatch schema in a release-time migration step instead of at server startup.
+- e959709: Scope workspace automations to their owning app by default, keep Dispatch's all-apps view explicit, and expose failed run threads for troubleshooting.
+
+## 0.20.3
+
+### Patch Changes
+
+- Updated dependencies [a107169]
+  - @agent-native/toolkit@0.13.5
+
+## 0.20.2
+
+### Patch Changes
+
+- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
+- 6071f7d: Keep language selection in Settings instead of the Dispatch header.
+
+## 0.20.1
+
+### Patch Changes
+
+- c440e50: Route Turn Into App requests from Claude Web, ChatGPT Web, and web Projects to Builder through Dispatch instead of building in the host sandbox.
+
+## 0.20.0
+
+### Minor Changes
+
+- 1d5bab1: Simplify the Dispatch Admin overview and Apps catalog with shared icon cards, app colors, and lighter progressive disclosure.
+
+## 0.19.2
+
+### Patch Changes
+
+- Updated dependencies [da40677]
+  - @agent-native/toolkit@0.13.4
+
+## 0.19.1
+
+### Patch Changes
+
+- db62d66: Consolidate every MCP setting on `createAgentChatPlugin` under one `mcp: {}` option, and add `mcp.catalog: "app"`.
+
+  `mcp` accepts `enabled`, `catalog`, `connectorCatalog`, `externalAgents`, `builtinCrossAppTools`, `title`, `description`, `websiteUrl`, and `icons`. The top-level `disableMcp`, `mcpServerInfo`, `connectorCatalog`, and `externalAgents` stay accepted for one minor and are deprecated; the nested value wins, and setting both forms to disagreeing values throws at plugin init rather than booting an app with an MCP surface nobody chose (same contract as `resolveFrameworkTools`). `disableMcp: true` and `mcp.enabled: false` are normalized as inverses, so a correctly migrated app is not read as a conflict.
+
+  Two behavior fixes come with it:
+  - `builtinCrossAppTools` had no route through the plugin at all — it was reachable only by calling `mountMCP` directly. That is why `frameworkTools: "minimal"` and `workspaceApps: false` could never remove the cross-app builtins (`list_apps`, `open_app`, `ask_app`, `ask_app_status`, `create_embed_session`, `create_workspace_app`, `list_templates`) from an app using the normal plugin entry point: the MCP layer merges them downstream of the `frameworkTools` filter. `mcp.builtinCrossAppTools: false` is now the switch.
+  - A2A read the connector policy straight off the raw plugin options, so `mcp.connectorCatalog` would have narrowed the MCP surface while A2A kept serving the old one. `filterDirectA2AActions` / `buildAuthenticatedAgentA2ASkills` now take the resolved shape, so the two external surfaces cannot diverge.
+
+  `mcp.catalog: "app"` serves external callers exactly the app's own tool registry, flat — the same actions the in-app agent holds, with no cross-app builtins, no `ask-agent`, no `tool-search`, and no compact/connector trimming. `externalAgents.denyActions` and the OAuth scope filter still apply, since both are explicit removals rather than catalog tiering, and the dev-open surface split is unchanged (an unauthenticated loopback probe still gets `actions`, not `productionActions`). Weigh the token cost before setting it: an app registering ~100 actions puts every schema in the caller's context on `tools/list`, which is what the compact default exists to avoid.
+
+  Also folds the per-tier `tools/call` gate into one rule — the advertised set is the callable surface on every tier except the explicit `--full-catalog` opt-in — so adding a tier can no longer default to "everything callable" by omission.
+
+  `tool-search` is fixed on both ends over MCP. It is dropped entirely from every flat catalog (`mcp.catalog: "app"` and the `--full-catalog` opt-in), where every tool is already listed beside it and it could only describe its own neighbours. On the trimmed catalogs, where it does earn its place, it is now scoped to the advertised set: previously it closed over the app's whole registry while `tools/call` accepted only the advertised subset, so it answered with names that came straight back as "Unknown tool". `attachToolSearch`, `searchToolRegistry`, `createToolSearchEntry`, `TOOL_SEARCH_ACTION_NAME`, `resolveFrameworkTools`, `filterFrameworkToolGroups`, and `frameworkGroupEnabled` are now exported from `@agent-native/core/server`, so a standalone `mountMCP` plugin can compose the same surface the agent-chat plugin does instead of hand-rolling a copy that drifts.
+
+## 0.19.0
+
+### Minor Changes
+
+- 8f10ada: Move Dispatch management and operator tools into a dedicated Admin control plane.
+
+## 0.18.0
+
+### Minor Changes
+
+- d3f8794: Add a compact workspace app rail to Dispatch navigation for ready workspace apps.
+
+### Patch Changes
+
+- d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
+- Updated dependencies [d3f8794]
+  - @agent-native/toolkit@0.13.3
+
+## 0.17.6
+
+### Patch Changes
+
+- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
+
+## 0.17.5
+
+### Patch Changes
+
+- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
+
+## 0.17.4
+
+### Patch Changes
+
+- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
+
+## 0.17.3
+
+### Patch Changes
+
+- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+  - @agent-native/toolkit@0.13.2
+
+## 0.17.2
+
+### Patch Changes
+
+- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
+- Updated dependencies [c71d383]
+  - @agent-native/toolkit@0.13.1
+
+## 0.17.1
+
+### Patch Changes
+
+- Updated dependencies [106af0e]
+  - @agent-native/toolkit@0.13.0
+
+## 0.17.0
+
+### Minor Changes
+
+- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
+
+## 0.16.7
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+- Updated dependencies [f499dff]
+  - @agent-native/toolkit@0.12.2
+
+## 0.16.6
+
+### Patch Changes
+
+- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
+- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
+
 ## 0.16.5
 
 ### Patch Changes

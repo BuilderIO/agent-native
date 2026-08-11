@@ -9,6 +9,7 @@
       "dist/agent-native/index.d.ts",
       "dist/agent-native/index.js"
     ],
+    "./config": ["dist/config.d.ts", "dist/config.js"],
     "./agent-web": ["dist/agent-web/index.js"],
     "./agent/context-xray/actions/context-evict": [
       "dist/agent/context-xray/actions/context-evict.js"
@@ -40,6 +41,7 @@
     "./cli/skills": ["dist/cli/skills.d.ts", "dist/cli/skills.js"],
     "./client": ["dist/client/index.js"],
     "./client/agent-chat": ["dist/client/agent-chat/index.js"],
+    "./client/chat-first": ["dist/client/chat-first/index.js"],
     "./client/AgentPanel": ["dist/client/AgentPanel.js"],
     "./client/analytics": ["dist/client/analytics/index.js"],
     "./client/api-path": ["dist/client/api-path.js"],
