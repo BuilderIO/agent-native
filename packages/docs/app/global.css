@@ -157,6 +157,18 @@ body {
   overflow-x: clip;
 }
 
+.agent-sidebar-shell:has(
+  > .agent-sidebar-main-surface[data-agent-sidebar-main-state="closed"]
+) {
+  height: auto !important;
+  min-height: 100vh;
+  overflow: visible !important;
+}
+
+.agent-sidebar-main-surface[data-agent-sidebar-main-state="closed"] {
+  overflow: visible !important;
+}
+
 body {
   margin: 0;
   color: var(--fg);
