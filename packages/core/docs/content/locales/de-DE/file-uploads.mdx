@@ -142,7 +142,8 @@ Die `FileUploadProvider`-Schnittstelle:
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 
@@ -150,7 +151,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
