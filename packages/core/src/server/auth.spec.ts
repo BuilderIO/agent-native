@@ -188,6 +188,81 @@ describe("server/auth", () => {
       });
     });
 
+    it("bridges a verified magic-link callback to a native desktop exchange", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "owner@example.com" },
+              session: { token: "magic-session-token" },
+            })),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => ({
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "owner@example.com" },
+              session: { token: "magic-session-token" },
+            })),
+          },
+        })),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) =>
+          call[0] === "/_agent-native/auth/magic-link/desktop-callback",
+      )?.[1];
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      expect(callbackHandler).toBeTypeOf("function");
+      expect(exchangeHandler).toBeTypeOf("function");
+
+      const callbackResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: { flow_id: "magic-flow-1" },
+        }),
+      );
+      expect(callbackResponse).toBeInstanceOf(Response);
+      await expect((callbackResponse as Response).text()).resolves.toContain(
+        "Sign-in complete. You can return to the app.",
+      );
+
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: "magic-flow-1" },
+          }),
+        ),
+      ).resolves.toEqual({
+        token: "magic-session-token",
+        email: "owner@example.com",
+      });
+    });
+
     it("sets first-run onboarding only for an authenticated callback", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");

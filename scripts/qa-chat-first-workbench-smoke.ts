@@ -1139,8 +1139,11 @@ async function runElectronSmoke(): Promise<void> {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForTimeout(5_000);
     await openElectronAgentSurface(page);
-    await activeChatRow.waitFor({ state: "visible", timeout: 15_000 });
-    await activeChatRow.locator(".an-chat-history-row__button").click();
+    const currentChatRow = page
+      .locator(".code-agents-run-list .an-chat-history-row")
+      .first();
+    await currentChatRow.waitFor({ state: "visible", timeout: 15_000 });
+    await currentChatRow.locator(".an-chat-history-row__button").click();
     const closePreview = page.getByRole("button", { name: "Close browser" });
     if (await closePreview.count()) await closePreview.click();
     const electronToggle = page.locator("[data-chat-first-surface-toggle]");

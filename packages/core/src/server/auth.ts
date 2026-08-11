@@ -168,6 +168,7 @@ import {
   decodeOAuthState,
   createOAuthSession,
   oauthCallbackResponse,
+  oauthDesktopExchangePage,
   oauthErrorPage,
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
@@ -1518,6 +1519,12 @@ const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
 
 // 5-minute TTL for exchange entries (short — single-use tokens).
 const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
+
+function normalizeDesktopFlowId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const flowId = value.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(flowId) ? flowId : null;
+}
 
 export function setDesktopExchange(
   flowId: string,
@@ -3397,15 +3404,7 @@ async function mountBetterAuthRoutes(
           });
 
           if (flowId && sessionToken) {
-            _desktopExchanges.set(flowId, {
-              token: sessionToken,
-              email,
-              expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
-            });
-            // Also persist to DB for cross-instance durability (Cloudflare
-            // Workers, multi-region). Fire-and-forget — in-memory Map is
-            // still the primary fast path for same-instance requests.
-            void persistDesktopExchangeToDB(flowId, sessionToken, email);
+            setDesktopExchange(flowId, sessionToken, email);
             logGoogleOAuthDebug(event, "callback-exchange-stored", {
               flowId,
               desktop,
@@ -3448,7 +3447,7 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const query = getQuery(event);
-      const flowId = query.flow_id as string | undefined;
+      const flowId = normalizeDesktopFlowId(query.flow_id);
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
@@ -3499,12 +3498,51 @@ async function mountBetterAuthRoutes(
       // still make a follow-up /auth/session?_session=... request, but the
       // OAuth handoff should not depend on that second request succeeding.
       setFrameworkSessionCookie(event, entry.token);
+      if (isElectronRequest(event)) {
+        await writeDesktopSso({
+          email: entry.email,
+          token: entry.token,
+          expiresAt: Date.now() + sessionMaxAge * 1000,
+        });
+      }
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
       logGoogleOAuthDebug(event, "exchange-success", {
         flowId,
         emailDomain: entry.email.split("@")[1] || "",
       });
       return { token: entry.token, email: entry.email };
+    }),
+  );
+
+  // Magic-link verification happens in the system browser, so native shells
+  // need the verified browser session copied into the same one-time exchange
+  // used by Google OAuth before they can establish their own WebView session.
+  app.use(
+    "/_agent-native/auth/magic-link/desktop-callback",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const flowId = normalizeDesktopFlowId(getQuery(event).flow_id);
+      if (!flowId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing flow_id" };
+      }
+
+      const session = await getSession(event);
+      if (!session?.email || !session.token) {
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "callback_error",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
+      setDesktopExchange(flowId, session.token, session.email);
+      return oauthDesktopExchangePage(
+        "Sign-in complete. You can return to the app.",
+      );
     }),
   );
 

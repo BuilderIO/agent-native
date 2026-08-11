@@ -77,9 +77,6 @@ export function ChatFirstSurfaceTabs({
               <ContextMenu key={tab.id}>
                 <ContextMenuTrigger asChild>
                   <div
-                    role="tab"
-                    tabIndex={activeTabId === tab.id ? 0 : -1}
-                    aria-selected={activeTabId === tab.id}
                     data-surface-tab-id={tab.id}
                     data-active={activeTabId === tab.id ? "true" : "false"}
                     className={cn(
@@ -88,29 +85,6 @@ export function ChatFirstSurfaceTabs({
                         ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground",
                     )}
-                    onKeyDown={(event) => {
-                      const nextIndex =
-                        event.key === "ArrowRight"
-                          ? (index + 1) % tabs.length
-                          : event.key === "ArrowLeft"
-                            ? (index - 1 + tabs.length) % tabs.length
-                            : event.key === "Home"
-                              ? 0
-                              : event.key === "End"
-                                ? tabs.length - 1
-                                : -1;
-                      if (nextIndex < 0) return;
-                      event.preventDefault();
-                      onActivate(tabs[nextIndex]);
-                      requestAnimationFrame(() => {
-                        document
-                          .querySelector<HTMLElement>(
-                            `[data-chat-first-surface-tab-id="${CSS.escape(tabs[nextIndex].id)}"]`,
-                          )
-                          ?.focus();
-                      });
-                    }}
-                    data-chat-first-surface-tab-id={tab.id}
                     onMouseDown={(event) => {
                       if (event.button === 1) {
                         event.preventDefault();
@@ -121,9 +95,39 @@ export function ChatFirstSurfaceTabs({
                   >
                     <button
                       type="button"
-                      className="flex min-w-0 flex-1 items-center gap-1.5 truncate px-2 text-start"
+                      role="tab"
+                      tabIndex={activeTabId === tab.id ? 0 : -1}
+                      aria-selected={activeTabId === tab.id}
+                      data-chat-first-surface-tab-id={tab.id}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded-md px-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onActivate(tab);
+                          return;
+                        }
+                        const nextIndex =
+                          event.key === "ArrowRight"
+                            ? (index + 1) % tabs.length
+                            : event.key === "ArrowLeft"
+                              ? (index - 1 + tabs.length) % tabs.length
+                              : event.key === "Home"
+                                ? 0
+                                : event.key === "End"
+                                  ? tabs.length - 1
+                                  : -1;
+                        if (nextIndex < 0) return;
+                        event.preventDefault();
+                        onActivate(tabs[nextIndex]);
+                        requestAnimationFrame(() => {
+                          document
+                            .querySelector<HTMLElement>(
+                              `[data-chat-first-surface-tab-id="${CSS.escape(tabs[nextIndex].id)}"]`,
+                            )
+                            ?.focus();
+                        });
+                      }}
                       onClick={() => onActivate(tab)}
-                      tabIndex={-1}
                     >
                       <SurfaceIcon kind={tab.kind} />
                       <span className="truncate">{tab.title}</span>
