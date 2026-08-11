@@ -3545,7 +3545,7 @@ async function mountBetterAuthRoutes(
         await addSession(session.token, session.email);
       } catch (error) {
         captureAuthError(error, {
-          route: "magic-link-desktop-callback",
+          route: "magic-link",
           email: session.email,
         });
         setDesktopExchangeError(flowId, {

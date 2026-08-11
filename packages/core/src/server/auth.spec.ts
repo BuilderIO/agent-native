@@ -191,6 +191,7 @@ describe("server/auth", () => {
     it("bridges a verified magic-link callback to a native desktop exchange", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("./better-auth-instance.js", () => ({
         getBetterAuth: vi.fn(async () => ({
           handler: vi.fn(async () => new Response("{}")),
@@ -215,7 +216,7 @@ describe("server/auth", () => {
         })),
       }));
       vi.doMock("../db/client.js", () => ({
-        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getDbExec: () => ({ execute: mockExecute }),
         isPostgres: () => false,
         isLocalDatabase: () => true,
         intType: () => "INTEGER",
@@ -261,6 +262,15 @@ describe("server/auth", () => {
         token: "magic-session-token",
         email: "owner@example.com",
       });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: [
+            "magic-session-token",
+            "owner@example.com",
+            expect.any(Number),
+          ],
+        }),
+      );
     });
 
     it("sets first-run onboarding only for an authenticated callback", async () => {

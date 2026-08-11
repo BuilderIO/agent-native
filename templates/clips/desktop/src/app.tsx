@@ -2097,7 +2097,7 @@ export function App() {
           }
           return;
         }
-        const xd = (await xr.json().catch(() => null)) as {
+        const xd = (await xr.json()) as {
           error?: string;
           message?: string;
           token?: string;
@@ -2202,7 +2202,7 @@ export function App() {
         }),
         credentials: "include",
       });
-      const json = (await res.json().catch(() => null)) as {
+      const json = (await res.json()) as {
         error?: string;
       } | null;
       if (!res.ok) {
