@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
   readAgentsBundleFromFs,
@@ -11,6 +11,7 @@ import {
   generateDevelopmentSkillsPromptBlock,
   getRuntimeSkills,
   getDevelopmentSkills,
+  isRuntimeVisibleScope,
   normalizeSkillScope,
   __resetAgentsBundleCache,
   type AgentsBundle,
@@ -108,11 +109,11 @@ describe("parseSkillFrontmatter", () => {
     expect(meta.scope).toBeUndefined();
   });
 
-  it("normalizes an unknown scope value to both", () => {
+  it("marks an unknown scope value invalid rather than defaulting to both", () => {
     const meta = parseSkillFrontmatter(
       "---\nname: foo\ndescription: hello\nscope: production\n---\nbody",
     );
-    expect(meta.scope).toBe("both");
+    expect(meta.scope).toBe("invalid");
   });
 });
 
@@ -123,10 +124,38 @@ describe("normalizeSkillScope", () => {
     expect(normalizeSkillScope(" Both ")).toBe("both");
   });
 
-  it("falls back to both for empty/unknown values", () => {
+  it("falls back to both only when the value is absent", () => {
     expect(normalizeSkillScope(undefined)).toBe("both");
     expect(normalizeSkillScope("")).toBe("both");
-    expect(normalizeSkillScope("nonsense")).toBe("both");
+    expect(normalizeSkillScope("   ")).toBe("both");
+  });
+
+  it("returns the invalid sentinel and logs the file + value for a typo", () => {
+    const errors: string[] = [];
+    const spy = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: unknown[]) => {
+        errors.push(args.join(" "));
+      });
+    try {
+      expect(
+        normalizeSkillScope("app", ".agents/skills/nonsense-scope/SKILL.md"),
+      ).toBe("invalid");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors.join("\n")).toContain(
+      ".agents/skills/nonsense-scope/SKILL.md",
+    );
+    expect(errors.join("\n")).toContain('"app"');
+  });
+
+  it("keeps invalid distinguishable from every valid scope", () => {
+    expect(isRuntimeVisibleScope("both")).toBe(true);
+    expect(isRuntimeVisibleScope("runtime")).toBe(true);
+    expect(isRuntimeVisibleScope(undefined)).toBe(true);
+    expect(isRuntimeVisibleScope("dev")).toBe(false);
+    expect(isRuntimeVisibleScope("invalid")).toBe(false);
   });
 });
 
@@ -156,6 +185,33 @@ describe("skill scope loading", () => {
       const bundle = readAgentsBundleFromFs(tpl);
       expect(bundle.skills["dev-only"]!.meta.scope).toBe("dev");
     } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("never treats a bogus scope as runtime-visible", () => {
+    const tpl = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-tpl-"));
+    const skillDir = path.join(tpl, ".agents", "skills", "typo-scope");
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: typo-scope\ndescription: Secret dev guidance\nscope: app\n---\nDEV ONLY BODY",
+    );
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const bundle = readAgentsBundleFromFs(tpl);
+      expect(bundle.skills["typo-scope"]!.meta.scope).toBe("invalid");
+      expect(getRuntimeSkills(bundle).map((s) => s.meta.name)).not.toContain(
+        "typo-scope",
+      );
+      expect(generateSkillsPromptBlock(bundle)).not.toContain("typo-scope");
+      // Still visible to the coding agent — the audience that can fix the typo.
+      expect(getDevelopmentSkills(bundle).map((s) => s.meta.name)).toContain(
+        "typo-scope",
+      );
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
       fs.rmSync(tpl, { recursive: true, force: true });
     }
   });
@@ -198,8 +254,20 @@ describe("generateSkillsPromptBlock scope filtering", () => {
     const block = generateSkillsPromptBlock(bundle);
     expect(block).toContain("runtime-one");
     expect(block).not.toContain("dev-one");
-    expect(block).toContain('docs-search --slug "skill-runtime-one"');
+    expect(block).toContain("[skill-runtime-one]");
+    expect(block).toContain('docs-search --slug "<slug>"');
     expect(block).not.toContain('bash(command="cat <skill-dir>/SKILL.md")');
+  });
+
+  it("states the docs-search instruction once, not once per skill", () => {
+    const bundle = bundleWith([
+      skill("one", "both"),
+      skill("two", "both"),
+      skill("three", "both"),
+    ]);
+    const block = generateSkillsPromptBlock(bundle);
+    const hints = block.match(/before starting a task it applies to/g) ?? [];
+    expect(hints).toHaveLength(1);
   });
 
   it("returns empty string when every skill is dev-scoped", () => {

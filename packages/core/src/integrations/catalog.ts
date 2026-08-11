@@ -131,7 +131,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
         "Apply the Agent Native Slack manifest to enable Agent View and writable direct messages.",
         "Configure the OAuth client id, client secret, and signing secret.",
         "Enable Event Subscriptions and Interactivity with the documented URLs.",
-        "Subscribe to app_home_opened, app_context_changed, app_mention, and message.im/channels/groups, then use Add to Slack.",
+        "Subscribe to app_home_opened, app_context_changed, app_mention, and message.im, then use Add to Slack.",
       ],
     },
     credentialRequirements: [

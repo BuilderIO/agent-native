@@ -51,14 +51,16 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Get a specific deck with all slides. Returns full deck JSON including slide content. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits. After a mutation or for a large deck when only IDs, count, previews, and animation targets are needed, pass compact=true to avoid retransmitting all slide HTML.",
+    "Get a specific deck. Agent calls return compact slide metadata by default; set compact=false when full slide HTML is needed for an edit. Frontend and CLI reads remain full unless compact=true. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
     compact: z
       .enum(["true", "false"])
       .optional()
-      .describe("Set to 'true' for compact output (slide summaries only)"),
+      .describe(
+        "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. Agent calls default to compact output.",
+      ),
   }),
   http: { method: "GET" },
   mcpApp: {
@@ -71,7 +73,7 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (!args.id) {
       throw new Error("--id is required.");
     }
@@ -88,7 +90,11 @@ export default defineAction({
     const slides = data?.slides || [];
     const ownerEmail = getRequestUserEmail();
 
-    if (args.compact === "true") {
+    const compact =
+      args.compact === "true" ||
+      (args.compact === undefined && ctx?.caller === "tool");
+
+    if (compact) {
       return {
         id: row.id,
         title: row.title || data?.title,

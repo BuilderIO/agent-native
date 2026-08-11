@@ -144,7 +144,7 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
-  it("keeps completed historical assistant controls visible while chat work runs", () => {
+  it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
         isLast: false,
@@ -153,6 +153,19 @@ describe("shouldShowAssistantMessageFooter", () => {
         statusIsTerminal: true,
       }),
     ).toBe(true);
+  });
+
+  it("hides historical controls when they belong to the active run", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-active",
+        messageRunId: "run-active",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
   });
 });
 

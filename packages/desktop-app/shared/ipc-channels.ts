@@ -134,6 +134,11 @@ export type UpdateStatus =
   | { state: "unsupported"; reason: string }
   | { state: "checking" }
   | { state: "available"; version: string; releaseNotes?: string }
+  | {
+      state: "restart-required";
+      version: string;
+      currentVersion: string;
+    }
   | { state: "not-available"; currentVersion: string }
   | {
       state: "downloading";

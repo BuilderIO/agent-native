@@ -127,7 +127,7 @@ y `link_shared` al controlador de despliegue de clips.
 
 ### Consejos
 
-- **Menciones de canales**: use una @mención para iniciar el trabajo. Las respuestas sin mención solo continúan mientras ese hilo exacto tenga trabajo activo.
+- **Menciones de canales**: use una @mención para iniciar el trabajo. Cada mensaje del canal que deba procesarse debe mencionar explícitamente al agente; las respuestas normales del hilo y la conversación general del canal no lo invocan.
 - **Mensajes directos**: los mensajes directos personales aceptados son conversaciones privadas y requieren un miembro verificado de la organización o una identidad de Slack vinculada.
 - **Identidad**: los mensajes directos pueden vincular un correo de Slack verificado al mismo usuario de la aplicación; los canales administrados usan su identidad de servicio y política.
 - **Listas permitidas de producción**: configure `SLACK_ALLOWED_TEAM_IDS` y, para aplicaciones Slack compartidas, `SLACK_ALLOWED_API_APP_IDS` para que un espacio de trabajo inesperado no pueda reutilizar un secreto de firma válido.
@@ -173,7 +173,7 @@ Event Subscriptions Request URL como
 Interactivity Request URL como
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`.
 Suscríbase a `app_home_opened`, `app_context_changed`, `app_mention`,
-`message.channels`, `message.groups`, `message.im` y `message.mpim`.
+`message.im`.
 Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` y
 `SLACK_SIGNING_SECRET`; después, en **Configuración → Mensajería**, pulse
 **Add to Slack**. Cada instalación guarda su token cifrado y usa claves de
@@ -192,8 +192,8 @@ verificado de la organización de Agent Native o de una identidad de Slack ya
 vinculada. Las políticas y los presupuestos del principal de servicio del canal
 son independientes.
 
-Las respuestas sin mención solo dirigen un hilo con una tarea activa; el resto
-de la conversación del canal no invoca al agente. Se carga un contexto acotado
+Cada mensaje del canal debe mencionar explícitamente al agente; las respuestas
+normales del hilo y el resto de la conversación del canal no lo invocan. Se carga un contexto acotado
 con reacciones y referencias de archivo, y una tarjeta nativa muestra el plan,
 el progreso, cancelar y aprobar/rechazar. Los mensajes directos usan la identidad
 personal; los canales administrados usan una identidad de servicio explícita y
@@ -215,7 +215,7 @@ Todo lo que aparece entre `<ANGLE_BRACKETS>` es un marcador de posición. Nunca 
 Completa [Configurar Slack](#slack) y comprueba que una `@mention` en un canal recibe respuesta antes de tocar Notion. Dos comportamientos importan para el resto del ejemplo:
 
 - El mensaje con la `@mention` es la invocación, y su texto es lo que ve el agente.
-- Una respuesta normal posterior en el mismo hilo llega al agente **solo mientras ese hilo siga teniendo trabajo en curso**. Si la ejecución ya terminó, tu mensaje de seguimiento se ignora: vuelve a hacer una @mention en lugar de dar por hecho que el agente sigue escuchando.
+- Cada mensaje posterior en el mismo hilo debe mencionar explícitamente al agente; una respuesta normal no llega a él. Vuelve a hacer una @mention para cada solicitud nueva.
 
 #### 2. Expón las acciones de la API de proveedor
 
@@ -375,7 +375,7 @@ Cuando no funciona:
 | `notion credential not configured. Tried: NOTION_API_KEY`           | Paso 3. La clave está en `.env`, o guardada como **Personal** para una cuenta distinta de aquella con la que se ejecuta. Guárdala como **Workspace**. |
 | Notion responde `404`                                               | Paso 4. La base de datos nunca se compartió con la integración.                                                                                       |
 | Notion responde `400` por las propiedades                           | Los nombres o tipos de propiedad de la acción no coinciden con las columnas de la base de datos.                                                      |
-| Funcionó una vez y luego se ignoró una respuesta posterior del hilo | Es lo esperado. Las respuestas del hilo sin mención solo llegan al agente mientras ese hilo tiene trabajo activo: vuelve a hacer una @mention.        |
+| Funcionó una vez y luego se ignoró una respuesta posterior del hilo | Es lo esperado. Cada mensaje que deba procesar el agente debe mencionarlo explícitamente: vuelve a hacer una @mention.                  |
 
 ## Configurar Telegrama {#telegram}
 

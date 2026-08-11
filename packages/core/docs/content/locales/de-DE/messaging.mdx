@@ -127,7 +127,7 @@ und `link_shared`-Ereignisse an den Clips-Unfurl-Handler.
 
 ### Tipps
 
-- **Kanalerwähnungen** – Starten Sie Arbeit mit einer @Erwähnung. Antworten ohne Erwähnung gelten nur, solange genau dieser Thread aktive Arbeit enthält.
+- **Kanalerwähnungen** – Starten Sie Arbeit mit einer @Erwähnung. Jede Kanalnachricht, die der Agent verarbeiten soll, muss ihn ausdrücklich erwähnen; gewöhnliche Thread-Antworten und allgemeiner Kanalverkehr rufen ihn nicht auf.
 - **DMs** – akzeptierte persönliche DMs sind private Unterhaltungen und erfordern ein verifiziertes Organisationsmitglied oder eine verknüpfte Slack-Identität.
 - **Identität** – DMs können eine verifizierte Slack-E-Mail demselben App-Benutzer zuordnen; verwaltete Kanäle verwenden ihre Dienstidentität und Richtlinie.
 - **Produktionszulassungslisten** – Legen Sie `SLACK_ALLOWED_TEAM_IDS` und für freigegebene Slack-Apps `SLACK_ALLOWED_API_APP_IDS` fest, damit ein gültiges Signaturgeheimnis nicht von einem unerwarteten Arbeitsbereich wiederverwendet werden kann.
@@ -174,7 +174,7 @@ die Event Subscriptions Request URL auf
 Interactivity Request URL auf
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`.
 Abonnieren Sie `app_home_opened`, `app_context_changed`, `app_mention`,
-`message.channels`, `message.groups`, `message.im` und `message.mpim`.
+`message.im`.
 Konfigurieren Sie `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`
 und `SLACK_SIGNING_SECRET`; klicken Sie dann unter **Einstellungen → Messaging**
 auf **Add to Slack**. Jede Installation besitzt einen verschlüsselten Token und
@@ -194,8 +194,8 @@ Agent-Native-Organisation oder von bereits verknüpften Slack-Identitäten
 angenommen. Richtlinien und Budgets des Dienstprinzipals eines Kanals sind davon
 getrennt.
 
-Antworten ohne Erwähnung steuern nur einen gerade aktiven Thread weiter; sonstiger
-Kanalverkehr wird ignoriert. Der Agent lädt begrenzten Thread-Kontext samt
+Jede Kanalnachricht muss den Agenten ausdrücklich erwähnen; gewöhnliche
+Thread-Antworten und sonstiger Kanalverkehr werden ignoriert. Der Agent lädt begrenzten Thread-Kontext samt
 Reaktionen und Dateiverweisen und zeigt einen nativen Live-Arbeitsplan mit
 Abbrechen sowie Genehmigen/Ablehnen. DMs verwenden die persönliche Identität,
 verwaltete Kanäle eine ausdrückliche Dienstidentität mit Gast-, Slack-Connect-
@@ -216,7 +216,7 @@ Alles in `<ANGLE_BRACKETS>` ist ein Platzhalter. Fügen Sie niemals ein echtes N
 Schließen Sie [Slack einrichten](#slack) ab und prüfen Sie, dass eine `@mention` in einem Kanal eine Antwort erhält, bevor Sie Notion anfassen. Zwei Verhaltensweisen sind für den Rest wichtig:
 
 - Die Nachricht mit der `@mention` ist der Auslöser, und ihr Text ist das, was der Agent sieht.
-- Eine gewöhnliche spätere Antwort im selben Thread erreicht den Agenten **nur, solange dieser Thread noch laufende Arbeit hat**. Ist der Lauf beendet, wird Ihre Nachfrage ignoriert — erwähnen Sie den Agenten erneut, statt anzunehmen, dass er weiter zuhört.
+- Jede spätere Nachricht im selben Thread muss den Agenten ausdrücklich erwähnen; eine gewöhnliche Antwort erreicht ihn nicht. Erwähnen Sie den Agenten für jede neue Anfrage erneut.
 
 #### 2. Die Provider-API-Aktionen freischalten
 
@@ -376,7 +376,7 @@ Wenn nicht:
 | `notion credential not configured. Tried: NOTION_API_KEY`                  | Schritt 3. Der Schlüssel liegt in `.env` oder wurde als **Personal** für ein anderes Konto gespeichert als das, unter dem der Lauf ausgeführt wird. Speichern Sie ihn als **Workspace**. |
 | Notion antwortet mit `404`                                                 | Schritt 4. Die Datenbank wurde nie für die Integration freigegeben.                                                                                                                      |
 | Notion antwortet mit `400` wegen der Eigenschaften                         | Die Eigenschaftsnamen oder -typen in der Aktion passen nicht zu den Spalten der Datenbank.                                                                                               |
-| Es hat einmal funktioniert, eine spätere Antwort im Thread wurde ignoriert | Das ist erwartet. Thread-Antworten ohne Erwähnung erreichen den Agenten nur, solange der Thread aktive Arbeit hat — erwähnen Sie ihn erneut.                                             |
+| Es hat einmal funktioniert, eine spätere Antwort im Thread wurde ignoriert | Das ist erwartet. Jede Nachricht, die der Agent verarbeiten soll, muss ihn ausdrücklich erwähnen — erwähnen Sie ihn erneut.                                           |
 
 ## Telegramm einrichten {#telegram}
 

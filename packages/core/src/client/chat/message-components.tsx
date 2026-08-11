@@ -89,6 +89,7 @@ import {
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
+  ChatRunningRunIdContext,
   ChatRunDurationContext,
   formatWorkedDuration,
   RanToolsSummary,
@@ -1104,19 +1105,28 @@ export function computeActiveTailToolCallId(
 export function shouldShowAssistantMessageFooter({
   isLast,
   chatRunning,
+  activeRunId,
+  messageRunId,
   hasRenderableContent,
   statusIsTerminal,
   hasUnresolvedTool,
 }: {
   isLast: boolean;
   chatRunning: boolean;
+  activeRunId?: string | null;
+  messageRunId?: string;
   hasRenderableContent: boolean;
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
+  const ownsActiveRun =
+    isLast ||
+    (activeRunId != null &&
+      messageRunId != null &&
+      activeRunId === messageRunId);
+  if (chatRunning && ownsActiveRun) return false;
   if (!isLast) return true;
-  if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
   return statusIsTerminal;
 }
@@ -1506,6 +1516,7 @@ export function AssistantMessage() {
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
+  const activeRunId = React.useContext(ChatRunningRunIdContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const persistedDurationMs = getAssistantRunDurationMs(msg);
@@ -1523,6 +1534,7 @@ export function AssistantMessage() {
     msg.content,
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
+  const messageRunId = assistantMessageRunId(msg);
   const serverRunActive = React.useContext(ServerRunActiveContext);
   const messageRunError = getRunErrorMetadata(msg);
   const messageActions = React.useContext(MessageActionsContext);
@@ -1586,6 +1598,8 @@ export function AssistantMessage() {
     shouldShowAssistantMessageFooter({
       isLast,
       chatRunning,
+      activeRunId,
+      messageRunId,
       hasRenderableContent,
       statusIsTerminal,
       hasUnresolvedTool,
@@ -1633,8 +1647,6 @@ export function AssistantMessage() {
     }
     wasRunningRef.current = chatRunning && isLast;
   }, [chatRunning, isComplete, isLast]);
-
-  const messageRunId = assistantMessageRunId(msg);
 
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle" || restoreState === "error") {

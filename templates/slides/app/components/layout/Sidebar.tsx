@@ -161,8 +161,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
-        <div className="flex h-12 w-full shrink-0 items-center justify-center border-b border-border">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center overflow-hidden bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
+        <div className="flex h-12 w-full shrink-0 items-center justify-center">
           {brandControl}
         </div>
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
@@ -224,10 +224,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   }
 
   return (
-    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
-      <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
-        {brandControl}
-      </div>
+    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
+      <div className="flex h-12 shrink-0 items-center px-4">{brandControl}</div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <nav className="space-y-1 px-2 py-2">

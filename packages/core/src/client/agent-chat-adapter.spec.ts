@@ -3611,7 +3611,7 @@ describe("createAgentChatAdapter", () => {
       }),
     );
     const last = results.at(-1) as any;
-    expect(last.status).toBeUndefined();
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
     expect(last.content.at(-1).text).toBe(
       "saved variants after inspecting state",
     );
@@ -3685,7 +3685,7 @@ describe("createAgentChatAdapter", () => {
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
     const last = results.at(-1) as any;
-    expect(last.status).toBeUndefined();
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
     expect(last.content.at(-1).text).toBe("started after retry");
   });
 
@@ -7447,6 +7447,86 @@ describe("createAgentChatAdapter", () => {
     );
     const last = results.at(-1) as any;
     expect(last.content.at(-1).text).toContain("Working continued");
+  });
+
+  it("reattaches an internal continuation when 409 confirms the same turn", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let chatPostCount = 0;
+    let turnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        chatPostCount += 1;
+        turnId = JSON.parse(init.body as string).turnId;
+        if (chatPostCount === 1) {
+          return sseResponse(
+            [
+              { type: "text", text: "Working" },
+              { type: "auto_continue", reason: "no_progress" },
+            ],
+            "run-first",
+          );
+        }
+        return jsonResponse({ activeRunId: "run-first" }, 409);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-first",
+          threadId: "thread-same-turn-conflict",
+          turnId,
+          status: "running",
+        });
+      }
+      if (url.includes("/runs/run-first/events")) {
+        return sseResponse(
+          [{ type: "text", text: " recovered continuation" }, { type: "done" }],
+          "run-first",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-same-turn-conflict",
+      threadId: "thread-same-turn-conflict",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "continue after quiet stream" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const results = await promise;
+
+    expect(chatPostCount).toBe(2);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/runs/run-first/events"),
+      expect.any(Object),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("recovered continuation");
   });
 
   it("gives up quickly when the model repeats the same narration without finishing", async () => {

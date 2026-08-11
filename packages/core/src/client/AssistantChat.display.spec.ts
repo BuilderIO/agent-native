@@ -1479,6 +1479,20 @@ describe("resolveAssistantChatRunningState", () => {
     ).toEqual({ isRunning: true, showRunningInUI: true });
   });
 
+  it("hides the running presentation after a terminal run error", () => {
+    expect(
+      resolveAssistantChatRunningState({
+        forceStopped: false,
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        optimisticRunning: false,
+        isAutoResuming: false,
+        hasActiveServerRun: true,
+        hasTerminalRunError: true,
+      }),
+    ).toEqual({ isRunning: true, showRunningInUI: false });
+  });
+
   it("keeps auto-resume visible through the between-chunk idle gap", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",

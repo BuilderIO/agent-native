@@ -7,9 +7,9 @@
 // quitAndInstall from a sidebar pill / restart prompt. The app also
 // installs queued updates automatically on quit.
 //
-// In development and local packaged builds, autoUpdater is unsupported (there
-// is no release channel to update from), so we report an "unsupported" status
-// and skip all autoUpdater calls.
+// In development and local packaged builds, autoUpdater cannot install a
+// release, so we compare the local version against the production manifest and
+// surface a restart affordance when the local checkout is behind.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
@@ -31,10 +31,15 @@ const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
   "https://agent-native.com/api/desktop-updates";
+const DEFAULT_DESKTOP_LATEST_VERSION_URL =
+  "https://agent-native.com/api/desktop-latest.json";
 const DESKTOP_UPDATE_FEED_URL = (
   process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
   DEFAULT_DESKTOP_UPDATE_FEED_URL
 ).replace(/\/+$/, "");
+const DESKTOP_LATEST_VERSION_URL =
+  process.env.AGENT_NATIVE_DESKTOP_LATEST_VERSION_URL ||
+  DEFAULT_DESKTOP_LATEST_VERSION_URL;
 
 let currentUpdateStatus: UpdateStatus = IS_DEV_BUILD
   ? { state: "unsupported", reason: "Auto-update is disabled in development" }
@@ -94,7 +99,8 @@ function publishDownloadedUpdate() {
 function hasUpdateReadyToInstall(): boolean {
   return (
     pendingDownloadedUpdate !== null ||
-    currentUpdateStatus.state === "downloaded"
+    currentUpdateStatus.state === "downloaded" ||
+    currentUpdateStatus.state === "restart-required"
   );
 }
 
@@ -121,20 +127,156 @@ function withUpdateCheckTimeout<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+type ParsedDesktopVersion = {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: string[];
+};
+
+function parseDesktopVersion(value: string): ParsedDesktopVersion | null {
+  const match =
+    /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+      value.trim(),
+    );
+  if (!match) return null;
+
+  const [major, minor, patch] = match.slice(1, 4).map(Number);
+  if (![major, minor, patch].every(Number.isSafeInteger)) return null;
+
+  const prerelease = match[4]?.split(".") ?? [];
+  if (
+    prerelease.some(
+      (identifier) =>
+        /^\d+$/.test(identifier) &&
+        identifier.length > 1 &&
+        identifier.startsWith("0"),
+    )
+  ) {
+    return null;
+  }
+
+  return { major, minor, patch, prerelease };
+}
+
+function comparePrereleaseIdentifiers(left: string, right: string): number {
+  const leftNumeric = /^\d+$/.test(left);
+  const rightNumeric = /^\d+$/.test(right);
+  if (leftNumeric && rightNumeric) return Number(left) - Number(right);
+  if (leftNumeric) return -1;
+  if (rightNumeric) return 1;
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Compares the desktop's stable and prerelease semantic versions. */
+export function compareDesktopVersions(left: string, right: string): number {
+  const leftParsed = parseDesktopVersion(left);
+  const rightParsed = parseDesktopVersion(right);
+  if (!leftParsed || !rightParsed) {
+    throw new Error(`Invalid desktop version comparison: ${left} vs ${right}`);
+  }
+
+  for (const key of ["major", "minor", "patch"] as const) {
+    if (leftParsed[key] !== rightParsed[key]) {
+      return leftParsed[key] - rightParsed[key];
+    }
+  }
+
+  if (leftParsed.prerelease.length === 0 && rightParsed.prerelease.length) {
+    return 1;
+  }
+  if (leftParsed.prerelease.length && rightParsed.prerelease.length === 0) {
+    return -1;
+  }
+
+  const length = Math.max(
+    leftParsed.prerelease.length,
+    rightParsed.prerelease.length,
+  );
+  for (let index = 0; index < length; index += 1) {
+    const leftIdentifier = leftParsed.prerelease[index];
+    const rightIdentifier = rightParsed.prerelease[index];
+    if (leftIdentifier === undefined) return -1;
+    if (rightIdentifier === undefined) return 1;
+    const comparison = comparePrereleaseIdentifiers(
+      leftIdentifier,
+      rightIdentifier,
+    );
+    if (comparison !== 0) return comparison;
+  }
+  return 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function fetchLatestProductionVersion(): Promise<string> {
+  const response = await fetch(DESKTOP_LATEST_VERSION_URL, {
+    headers: {
+      accept: "application/json",
+      "user-agent": "agent-native-desktop-dev-update-check",
+    },
+    signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Production desktop update check failed (${response.status})`,
+    );
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("Production desktop update metadata was not valid JSON.");
+  }
+
+  const version =
+    isRecord(payload) && typeof payload.version === "string"
+      ? payload.version.trim()
+      : "";
+  if (!version || !parseDesktopVersion(version)) {
+    throw new Error("Production desktop update metadata has no valid version.");
+  }
+  return version;
+}
+
+async function checkProductionVersionFromDevelopmentBuild(): Promise<void> {
+  const currentVersion = app.getVersion();
+  if (!parseDesktopVersion(currentVersion)) {
+    throw new Error(`Local desktop version is invalid: ${currentVersion}`);
+  }
+
+  broadcastUpdateStatus({ state: "checking" });
+  const productionVersion = await fetchLatestProductionVersion();
+  if (compareDesktopVersions(productionVersion, currentVersion) > 0) {
+    broadcastUpdateStatus({
+      state: "restart-required",
+      version: productionVersion,
+      currentVersion,
+    });
+    return;
+  }
+
+  broadcastUpdateStatus({ state: "not-available", currentVersion });
+}
+
 /** Triggers (or awaits an in-flight) update check. */
 export async function checkForAppUpdates(
   options: UpdateCheckOptions = {},
 ): Promise<UpdateStatus> {
-  if (IS_DEV_BUILD) return currentUpdateStatus;
   if (hasUpdateReadyToInstall()) return currentUpdateStatus;
 
   if (!updateCheckInFlight) {
     lastUpdateCheckStartedAt = Date.now();
     updateCheckInFlight = withUpdateCheckTimeout(
-      (async () => {
-        const result = await autoUpdater.checkForUpdates();
-        await waitForDownloadedUpdate(result?.downloadPromise);
-      })(),
+      IS_DEV_BUILD
+        ? checkProductionVersionFromDevelopmentBuild()
+        : (async () => {
+            const result = await autoUpdater.checkForUpdates();
+            await waitForDownloadedUpdate(result?.downloadPromise);
+          })(),
     )
       .catch((err) => {
         pendingDownloadedUpdate = null;
@@ -156,7 +298,6 @@ export async function checkForAppUpdates(
 }
 
 function maybeCheckForAppUpdates() {
-  if (IS_DEV_BUILD) return;
   if (hasUpdateReadyToInstall()) return;
   if (
     updateCheckInFlight ||
@@ -196,7 +337,12 @@ function showUpdateCheckResultNotification(status: UpdateStatus) {
             title: "Could not check for Agent Native updates",
             body: status.message,
           })
-        : null;
+        : status.state === "restart-required"
+          ? new Notification({
+              title: "Agent Native update available",
+              body: `Production version ${status.version} is newer than this local version. Restart Agent Native to update.`,
+            })
+          : null;
 
   if (!notification) return;
   notification.on("click", () => getDeps().focusMainWindow());
@@ -270,22 +416,22 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
         message: err?.message ?? String(err),
       });
     });
-
-    app.whenReady().then(() => {
-      void checkForAppUpdates();
-      let checkRunning = false;
-      setInterval(() => {
-        if (checkRunning) return;
-        checkRunning = true;
-        void checkForAppUpdates().finally(() => {
-          checkRunning = false;
-        });
-      }, UPDATE_CHECK_INTERVAL_MS);
-    });
-
-    app.on("browser-window-focus", maybeCheckForAppUpdates);
-    app.on("activate", maybeCheckForAppUpdates);
   }
+
+  app.whenReady().then(() => {
+    void checkForAppUpdates();
+    let checkRunning = false;
+    setInterval(() => {
+      if (checkRunning) return;
+      checkRunning = true;
+      void checkForAppUpdates().finally(() => {
+        checkRunning = false;
+      });
+    }, UPDATE_CHECK_INTERVAL_MS);
+  });
+
+  app.on("browser-window-focus", maybeCheckForAppUpdates);
+  app.on("activate", maybeCheckForAppUpdates);
 
   ipcMain.handle(
     IPC.UPDATE_GET_STATUS,
@@ -311,7 +457,12 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   });
 
   ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-    if (IS_DEV_BUILD) return;
+    if (IS_DEV_BUILD) {
+      if (currentUpdateStatus.state !== "restart-required") return;
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
     // isSilent=false so any installer UI shows; isForceRunAfter=true so the
     // app relaunches after the update completes.
     autoUpdater.quitAndInstall(false, true);

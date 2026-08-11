@@ -127,7 +127,7 @@ Slack 應用程式有一個事件 API 請求 URL。如果同一個 Slack 應用�
 
 ### 提示
 
-- **頻道提及** - 使用 @mention 開始工作。只有同一對話串仍有進行中的任務時，未提及機器人的回覆才會繼續任務。
+- **頻道提及** - 使用 @mention 開始工作。代理要處理的每則頻道訊息都必須明確提及代理；一般對話串回覆和一般頻道聊天不會呼叫代理。
 - **私訊** — 已接受的個人私訊屬於私密對話，並要求已驗證的組織成員或已連結的 Slack 身分。
 - **身分** — 私訊可把驗證過的 Slack 電子郵件對應至同一應用使用者；受管理頻道使用自己的服務身分和政策。
 - **正式環境允許清單** — 設定 `SLACK_ALLOWED_TEAM_IDS`，對於共用 Slack 應用，設定 `SLACK_ALLOWED_API_APP_IDS`，以便有效的簽名金鑰無法被意外的工作區重複使用。
@@ -169,8 +169,7 @@ Event Subscriptions Request URL 設為
 `https://your-app.example.com/_agent-native/integrations/slack/webhook`，
 Interactivity Request URL 設為
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`。
-訂閱 `app_home_opened`、`app_context_changed`、`app_mention`、
-`message.channels`、`message.groups`、`message.im` 和 `message.mpim`。
+訂閱 `app_home_opened`、`app_context_changed`、`app_mention` 和 `message.im`。
 設定 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和
 `SLACK_SIGNING_SECRET` 後，在**設定 → 訊息**中點選 **Add to Slack**。
 每個安裝使用獨立的加密權杖，並依工作區、應用、頻道和對話串隔離會話鍵。
@@ -184,7 +183,7 @@ Interactivity Request URL 設為
 個人 Slack 私訊只接受已驗證的 Agent Native 組織成員，或已連結到該成員的 Slack
 身分。頻道服務主體的政策與預算會和個人身分分開管理。
 
-未提及機器人的回覆只會繼續進行中的對話串；一般頻道聊天不會呼叫代理。有限內容
+代理要處理的每則頻道訊息都必須明確提及代理；一般對話串回覆和一般頻道聊天不會呼叫代理。有限內容
 包含反應和檔案參照，原生任務卡顯示計畫、進度、取消與核准/拒絕。私訊使用個人
 身分；受管理頻道使用明確的服務身分，以及訪客、Slack Connect 和模型政策。
 頻道記憶只在明確要求時儲存或刪除，絕不自動記憶。在頻道中建立的例程會把結果
@@ -362,7 +361,7 @@ export default defineAction({
 | `notion credential not configured. Tried: NOTION_API_KEY` | 步驟 3。金鑰放在 `.env`，或以 **Personal** 存在與實際執行帳號不同的帳號下。請改存為 **Workspace**。         |
 | Notion 回傳 `404`                                         | 步驟 4。資料庫從未分享給該整合。                                                                            |
 | Notion 針對屬性回傳 `400`                                 | 操作中的屬性名稱或型別與資料庫欄位不一致。                                                                  |
-| 成功過一次，之後對話串的回覆被忽略                        | 這是預期行為。沒有提及的對話串回覆，只在該對話串有進行中的工作時才會抵達代理 —— 請重新 @mention。           |
+| 成功過一次，之後對話串的回覆被忽略                        | 這是預期行為。代理要處理的每則訊息都必須明確提及代理 —— 請重新 @mention。                                      |
 
 ## 設定 Telegram {#telegram}
 

@@ -587,6 +587,43 @@ async function drain(iterable: AsyncIterable<unknown>) {
 }
 
 describe("SSE replay render pacing", () => {
+  it("marks an explicit done frame terminal without treating EOF as success", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "complete" }, { type: "done" }]),
+        [],
+        { value: 0 },
+        "tab-terminal-frame",
+        undefined,
+        undefined,
+        { markTerminalResults: true },
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+    });
+
+    const abruptEof = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    await expect(
+      drain(
+        readSSEStream(
+          abruptEof,
+          [],
+          { value: 0 },
+          "tab-abrupt-eof",
+          undefined,
+          undefined,
+          { markTerminalResults: true },
+        ),
+      ),
+    ).rejects.toMatchObject({ reason: "stream_ended" });
+  });
+
   it("yields to the browser event loop during a dense replay burst", async () => {
     const textEvents = Array.from({ length: 60 }, (_, index) => ({
       type: "text",

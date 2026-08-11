@@ -127,7 +127,7 @@ et les événements `link_shared` vers le gestionnaire de déploiement des clips
 
 ### Conseils
 
-- **Mentions de canal** : utilisez une @mention pour démarrer le travail. Les réponses sans mention ne continuent que tant que ce fil précis contient un travail actif.
+- **Mentions de canal** : utilisez une @mention pour démarrer le travail. Chaque message du canal à traiter doit mentionner explicitement l’agent ; les réponses ordinaires dans un fil et les discussions générales du canal ne le déclenchent pas.
 - **Messages directs** — les messages directs personnels acceptés restent privés et exigent un membre vérifié de l’organisation ou une identité Slack associée.
 - **Identité** — les DM peuvent associer un e-mail Slack vérifié au même utilisateur de l'application ; les canaux gérés utilisent leur identité de service et leur règle.
 - **Listes autorisées de production** : définissez `SLACK_ALLOWED_TEAM_IDS` et, pour les applications Slack partagées, `SLACK_ALLOWED_API_APP_IDS` afin qu'un secret de signature valide ne puisse pas être réutilisé par un espace de travail inattendu.
@@ -173,7 +173,7 @@ Event Subscriptions Request URL sur
 Interactivity Request URL sur
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`.
 Abonnez-vous à `app_home_opened`, `app_context_changed`, `app_mention`,
-`message.channels`, `message.groups`, `message.im` et `message.mpim`.
+`message.im`.
 Configurez `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` et
 `SLACK_SIGNING_SECRET`, puis cliquez sur **Add to Slack** dans
 **Paramètres → Messagerie**. Chaque installation conserve son jeton chiffré et
@@ -192,8 +192,8 @@ Les messages directs Slack personnels ne sont acceptés que pour un membre
 vérifié de l’organisation Agent Native ou une identité Slack déjà associée.
 Les règles et budgets du principal de service d’un canal restent distincts.
 
-Les réponses sans mention ne pilotent qu'un fil dont la tâche est active ; les
-autres messages du canal n'appellent pas l'agent. Un contexte borné charge les
+Chaque message du canal doit mentionner explicitement l'agent ; les réponses
+ordinaires dans un fil et les autres messages du canal ne l'appellent pas. Un contexte borné charge les
 réactions et références de fichiers, tandis qu'une carte native affiche plan,
 progression, annulation et approbation/refus. Les DM utilisent l'identité personnelle ;
 les canaux gérés utilisent une identité de service explicite et des règles pour
@@ -375,7 +375,7 @@ Quand cela ne marche pas :
 | `notion credential not configured. Tried: NOTION_API_KEY`                     | Étape 3. La clé est dans `.env`, ou enregistrée en **Personal** pour un compte différent de celui qui exécute la tâche. Enregistrez-la en **Workspace**.       |
 | Notion répond `404`                                                           | Étape 4. La base de données n'a jamais été partagée avec l'intégration.                                                                                        |
 | Notion répond `400` à propos des propriétés                                   | Les noms ou types de propriétés de l'action ne correspondent pas aux colonnes de la base.                                                                      |
-| Cela a marché une fois, puis une réponse ultérieure dans le fil a été ignorée | C'est normal. Les réponses de fil sans mention n'atteignent l'agent que tant que ce fil a un travail actif — refaites une @mention.                            |
+| Cela a marché une fois, puis une réponse ultérieure dans le fil a été ignorée | C'est normal. Chaque message que l'agent doit traiter doit le mentionner explicitement — refaites une @mention.                          |
 
 ## Configurer Telegram {#telegram}
 

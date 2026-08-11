@@ -306,6 +306,8 @@ export interface SSEStreamOptions {
   noProgressTimeoutMs?: number;
   /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
   actionPreparationStallTimeoutMs?: number;
+  /** Mark the adapter's final `done` snapshot terminal before it is yielded. */
+  markTerminalResults?: boolean;
   /**
    * Optional caller-owned preparation watchdog state. Passing the same object
    * across reconnect reads keeps a stuck action preparation from getting a
@@ -2132,9 +2134,22 @@ export async function* readSSEStream(
           processEventState,
         );
 
-        if (result) {
+        const terminalResult =
+          result &&
+          options?.markTerminalResults === true &&
+          action === "done" &&
+          result.status == null
+            ? {
+                ...result,
+                status: {
+                  type: "complete" as const,
+                  reason: "stop" as const,
+                },
+              }
+            : result;
+        if (terminalResult) {
           await paceRenderUpdate();
-          yield withStreamMetadata(result);
+          yield withStreamMetadata(terminalResult);
         }
         if (
           hasStalledPreparingAction(

@@ -8,8 +8,6 @@ actions and application state.
 
 Read the relevant skill before deeper work:
 
-- `content-product-development` — accepted product contracts, roadmap context,
-  dependency records, and proof boundaries for any Content change.
 - `content` — Markdown/MDX authoring, local folder sources, databases, intake
   forms, and Slack/A2A artifact replies.
 - `document-editing` — document and comment actions, screen context and IDs,
@@ -18,13 +16,6 @@ Read the relevant skill before deeper work:
   API path.
 - `creative-context` — cross-app source reuse, pinned packs, provenance, and
   context opt-out.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
 
 ## Core Rules
 

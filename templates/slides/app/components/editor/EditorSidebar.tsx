@@ -445,7 +445,7 @@ export default function EditorSidebar({
   }, [slides, activeSlideId, onSelectSlide]);
 
   return (
-    <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col border-r border-border/70 bg-background/95 sm:w-52">
+    <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
       <div
         ref={thumbScrollRef}
         className="relative min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2"

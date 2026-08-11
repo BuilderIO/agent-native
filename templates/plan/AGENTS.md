@@ -5,11 +5,6 @@ agents: it turns agent plans into editable rich blocks, diagrams, wireframes,
 prototype options, annotations, and comments a person reviews before code
 changes happen.
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
-
 ## Skills
 
 The plan skills own all planning behavior. Read the matching SKILL.md before
@@ -31,16 +26,10 @@ generating or editing a plan.
 - `plan-review-recaps` — recap comparison blocks and PR recap CI.
 - `plan-events` — plan lifecycle events and automations.
 
-Root skills to read before implementation: `adding-a-feature`, `actions`,
-`storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
-`frontend-design`, `shadcn-ui`, `self-modifying-code`.
-
 ## Core Rules
 
 - Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
-- Use actions for app operations and keep frontend/API parity.
-- Keep database code provider-agnostic and additive.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
   base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
@@ -50,8 +39,6 @@ Root skills to read before implementation: `adding-a-feature`, `actions`,
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use `view-screen` or application state when the active page/selection is
   unclear.
-- For new features, update UI, actions, skills/instructions, and application
-  state when applicable.
 - Default to structured visual artifacts over long Markdown. Text is one block
   type, not the whole plan.
 - Before edits, read pending feedback with `get-plan-feedback`.

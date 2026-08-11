@@ -146,7 +146,7 @@ describe("PromptPopover import mode", () => {
   it("takes over the popover with a Google Slides URL form", () => {
     renderPopover(vi.fn());
 
-    expect(screen.getByText("or import from")).toBeTruthy();
+    expect(screen.getByText("Or import from")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Slides" }));
 
     expect(

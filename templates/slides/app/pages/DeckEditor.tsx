@@ -187,6 +187,8 @@ export default function DeckEditor() {
   );
   const [contextToolbarSlot, setContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
+  const [wideContextToolbarSlot, setWideContextToolbarSlot] =
+    useState<HTMLDivElement | null>(null);
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
@@ -1013,7 +1015,7 @@ export default function DeckEditor() {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      className="deck-editor-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-background"
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
@@ -1035,6 +1037,7 @@ export default function DeckEditor() {
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
+        onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
@@ -1119,9 +1122,13 @@ export default function DeckEditor() {
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
        * slide rail as well as the canvas, matching the deck toolbar above it. */}
-      <div ref={setContextToolbarSlot} className="shrink-0" />
+      <div
+        ref={setContextToolbarSlot}
+        data-context-toolbar-host="narrow"
+        className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
+      />
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-xl bg-background">
         {sidebarOpen && (
           <>
             <div
@@ -1181,7 +1188,7 @@ export default function DeckEditor() {
         )}
 
         {generatingSlideSelected && generatingSlideVisible && (
-          <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+          <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
             <div className="m-auto w-full max-w-6xl">
               <GeneratingSlidePreview
                 content={streamedGeneratingSlideContent}
@@ -1197,7 +1204,7 @@ export default function DeckEditor() {
           generatingSlideVisible &&
           deck.slides.length === 0 &&
           !showQuestionFlow && (
-            <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+            <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--slides-editor-surface)] p-4 md:p-8">
               <div className="m-auto w-full max-w-6xl">
                 <GeneratingSlidePreview
                   content={streamedGeneratingSlideContent}
@@ -1215,6 +1222,7 @@ export default function DeckEditor() {
             deckId={id}
             readOnly={!canEdit}
             contextToolbarSlot={contextToolbarSlot}
+            wideContextToolbarSlot={wideContextToolbarSlot}
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
@@ -1264,7 +1272,6 @@ export default function DeckEditor() {
             onDropImageUrl={dropImageUrlOnSlide}
             onToggleObjectFit={toggleObjectFit}
             slideIndex={currentIndex >= 0 ? currentIndex : 0}
-            slideCount={deck.slides.length}
             designSystem={designSystem}
             aspectRatio={deck.aspectRatio}
             collabUser={

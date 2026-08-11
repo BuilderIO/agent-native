@@ -13,9 +13,11 @@ import type {
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
+  getActiveRun,
   setActiveRun,
   updateActiveRunSeq,
   clearActiveRun,
+  clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
@@ -160,6 +162,12 @@ function dispatchTerminalChatUiCleanup(tabId: string | undefined): void {
   );
   window.dispatchEvent(
     new CustomEvent("agent-chat:stream-progress", { detail: { tabId } }),
+  );
+}
+
+function isTerminalChatModelRunResult(result: ChatModelRunResult): boolean {
+  return (
+    result.status?.type === "complete" || result.status?.type === "incomplete"
   );
 }
 
@@ -1832,6 +1840,26 @@ export function createAgentChatAdapter(
       if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
+      const settleTerminalChatRun = () => {
+        const activeRun = getActiveRun();
+        const ownsActiveRun =
+          !threadId ||
+          !runId ||
+          (activeRun?.threadId === threadId && activeRun.runId === runId);
+        if (!ownsActiveRun) return;
+        if (threadId && runId) {
+          clearActiveRunIfMatches(threadId, runId);
+        } else {
+          clearActiveRun();
+        }
+        if (typeof window === "undefined") return;
+        dispatchTerminalChatUiCleanup(tabId);
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId },
+          }),
+        );
+      };
       const seenRunSeqs = new Map<string, number>();
       const preparingActionStatesByRun = new Map<
         string,
@@ -2118,6 +2146,7 @@ export function createAgentChatAdapter(
           "noProgressTimeoutMs" | "actionPreparationStallTimeoutMs"
         > = {},
       ): SSEStreamOptions => ({
+        markTerminalResults: true,
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
         ...(runId
@@ -2259,7 +2288,11 @@ export function createAgentChatAdapter(
                 runId,
                 currentSSEOptions(),
               )) {
-                yield withRequestModeMetadata(result);
+                const nextResult = withRequestModeMetadata(result);
+                if (isTerminalChatModelRunResult(nextResult)) {
+                  settleTerminalChatRun();
+                }
+                yield nextResult;
               }
               clearActiveRun();
               return true;
@@ -2287,11 +2320,9 @@ export function createAgentChatAdapter(
           return false;
         };
 
-        const reconnectActiveRunForThread = async function* (): AsyncGenerator<
-          ChatModelRunResult,
-          boolean,
-          unknown
-        > {
+        const reconnectActiveRunForThread = async function* (options?: {
+          requireCurrentTurn?: boolean;
+        }): AsyncGenerator<ChatModelRunResult, boolean, unknown> {
           if (!threadId) return false;
           let lastActiveRunError: unknown = null;
           for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
@@ -2321,6 +2352,9 @@ export function createAgentChatAdapter(
                 const activeRunId = String(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
+                if (options?.requireCurrentTurn && activeTurnId !== turnId) {
+                  return false;
+                }
                 if (!canAttachRun(activeRunId, activeTurnId)) {
                   return false;
                 }
@@ -2471,6 +2505,7 @@ export function createAgentChatAdapter(
             type: "text",
             text: formatChatErrorText(args.message, undefined, args.errorCode),
           });
+          settleTerminalChatRun();
           yield {
             content: [...content],
             status: { type: "incomplete" as const, reason: "error" as const },
@@ -2545,6 +2580,7 @@ export function createAgentChatAdapter(
               includeActivity: true,
             });
             const runWarning = appendMissingFinalResponseWarning(content);
+            settleTerminalChatRun();
             yield {
               content: [...content],
               status: { type: "complete" as const, reason: "stop" as const },
@@ -2628,7 +2664,11 @@ export function createAgentChatAdapter(
                   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
               }),
             )) {
-              yield withRequestModeMetadata(result);
+              const nextResult = withRequestModeMetadata(result);
+              if (isTerminalChatModelRunResult(nextResult)) {
+                settleTerminalChatRun();
+              }
+              yield nextResult;
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
@@ -3588,12 +3628,10 @@ export function createAgentChatAdapter(
                 // internal continuation is only adoptable after /runs/active
                 // proves it carries this turnId; a bare 409 run id is not
                 // enough ownership evidence.
-                if (
-                  activeRunId !== null &&
-                  internalContinuationRequest &&
-                  !attemptedRunIds.includes(activeRunId)
-                ) {
-                  const reconnected = yield* reconnectActiveRunForThread();
+                if (activeRunId !== null && internalContinuationRequest) {
+                  const reconnected = yield* reconnectActiveRunForThread({
+                    requireCurrentTurn: true,
+                  });
                   if (reconnected) return;
                 }
                 const shouldRetryConflictingActiveRun = activeRunId !== null;
@@ -3637,6 +3675,7 @@ export function createAgentChatAdapter(
                     type: "text",
                     text: `Something went wrong: ${message}`,
                   });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3659,6 +3698,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: authErrorText("auth-required"),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3680,6 +3720,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: authErrorText("session-expired"),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3704,6 +3745,7 @@ export function createAgentChatAdapter(
                     type: "text",
                     text: authErrorText(reason, body),
                   });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3724,6 +3766,7 @@ export function createAgentChatAdapter(
                     );
                   }
                   content.push({ type: "text", text: failure.text });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3787,7 +3830,11 @@ export function createAgentChatAdapter(
               runId,
               currentSSEOptions(),
             )) {
-              yield withRequestModeMetadata(result);
+              const nextResult = withRequestModeMetadata(result);
+              if (isTerminalChatModelRunResult(nextResult)) {
+                settleTerminalChatRun();
+              }
+              yield nextResult;
             }
 
             // Run completed normally — clear active run state
@@ -3841,6 +3888,7 @@ export function createAgentChatAdapter(
                     continuation.completedToolName,
                   );
                   content.push({ type: "text", text: message });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3909,6 +3957,7 @@ export function createAgentChatAdapter(
                     preservedError ? errorCode : undefined,
                   ),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3985,6 +4034,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: `Something went wrong: ${normalized.message}`,
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4014,6 +4064,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: authErrorText(reason, errMsg),
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4036,6 +4087,7 @@ export function createAgentChatAdapter(
                 );
               }
               content.push({ type: "text", text: failure.text });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4099,6 +4151,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: `Something went wrong: ${message}`,
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4123,6 +4176,7 @@ export function createAgentChatAdapter(
                     continuation.completedToolName,
                   );
                   content.push({ type: "text", text: message });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -4166,6 +4220,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: `Something went wrong: ${message}`,
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -4231,6 +4286,7 @@ export function createAgentChatAdapter(
                 ? errMsg
                 : `Something went wrong: ${normalized.message}`,
             });
+            settleTerminalChatRun();
             yield {
               content: [...content],
               status: {

@@ -55,11 +55,12 @@ generate-image-api { prompt, deckId, slideId, slideContent }
 
 For direct insertion, add `insertIntoSlide: true`. This requires both IDs and
 only returns `inserted: true` after Slides writes the transformed HTML through
-`update-slide` and re-reads it through `get-deck` to find the image source.
+`update-slide` and re-reads it through `get-deck` with `compact=false` to find
+the image source.
 Never say the image was added based on `url`, `previewUrl`, or a completed
 Assets reply alone. For preview-only variations, leave `insertIntoSlide` false;
 after choosing one, use `update-slide` and verify the persisted source with
-`get-deck` before claiming insertion.
+`get-deck` with `compact=false` before claiming insertion.
 
 Do **not** reach for the generic `call-agent` tool to ask Assets for an image.
 It talks to the same app, so it looks equivalent, but it skips the slide

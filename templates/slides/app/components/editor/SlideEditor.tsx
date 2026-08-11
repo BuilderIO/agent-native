@@ -532,6 +532,8 @@ interface SlideEditorProps {
    *  shell above the slide rail. Selection state lives here, so the toolbar is
    *  portaled out rather than lifted. Falls back to rendering in place. */
   contextToolbarSlot?: HTMLElement | null;
+  /** Wide editor-shell host for the toolbar's top-row placement. */
+  wideContextToolbarSlot?: HTMLElement | null;
   /** Selection-independent actions for the head of the contextual toolbar. */
   contextToolbarLeading?: ReactNode;
   onGenerateImage: () => void;
@@ -564,8 +566,6 @@ interface SlideEditorProps {
   onComment?: (quotedText: string) => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
-  /** Total number of slides in the deck */
-  slideCount?: number;
   /** Design system to inject as CSS custom properties on the slide */
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
@@ -993,6 +993,7 @@ export default function SlideEditor({
   onUpdateSlide,
   readOnly = false,
   contextToolbarSlot,
+  wideContextToolbarSlot,
   contextToolbarLeading,
   onGenerateImage,
   onOpenAssetLibrary,
@@ -1004,7 +1005,6 @@ export default function SlideEditor({
   onToggleObjectFit,
   agentActive,
   slideIndex = 0,
-  slideCount = 1,
   designSystem,
   aspectRatio,
   drawMode,
@@ -4198,6 +4198,7 @@ export default function SlideEditor({
       // the button's onClick runs, so partial-text formatting would silently
       // apply to the whole object.
       data-slide-inline-edit-surface="true"
+      data-slide-context-toolbar-placement="row"
       onPointerDownCapture={preserveRichTextSelection}
     >
       <SlideContextToolbar
@@ -4213,11 +4214,35 @@ export default function SlideEditor({
     </div>
   ) : null;
 
+  const wideContextToolbar = !readOnly ? (
+    <div
+      className="shrink-0"
+      data-slide-inline-edit-surface="true"
+      data-slide-context-toolbar-placement="top"
+      onPointerDownCapture={preserveRichTextSelection}
+    >
+      <SlideContextToolbar
+        snapshot={selectedStyleSnapshot}
+        background={slide.background}
+        designSystem={designSystem}
+        leading={contextToolbarLeading}
+        onChange={applySelectedStylePatch}
+        onBackgroundChange={applySlideBackground}
+        onArrange={handleArrangeSelected}
+        onToggleList={handleToggleList}
+        className="slide-context-toolbar--top-row"
+      />
+    </div>
+  ) : null;
+
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-[var(--slides-editor-surface)]"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
+      {!readOnly && wideContextToolbarSlot
+        ? createPortal(wideContextToolbar, wideContextToolbarSlot)
+        : null}
       {contextToolbarSlot
         ? createPortal(contextToolbar, contextToolbarSlot)
         : contextToolbar}
@@ -4225,7 +4250,7 @@ export default function SlideEditor({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
-            <div className="relative h-full bg-background">
+            <div className="relative h-full bg-[var(--slides-editor-surface)]">
               {!readOnly && (
                 <ExcalidrawExitButton
                   // JSON.stringify drops `undefined` properties before the patch
@@ -4245,7 +4270,7 @@ export default function SlideEditor({
               />
             </div>
           ) : (
-            <div className="relative h-full bg-background">
+            <div className="relative h-full bg-[var(--slides-editor-surface)]">
               <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -4385,8 +4410,6 @@ export default function SlideEditor({
       <SpeakerNotesPanel
         notes={slide.notes}
         onChange={(notes) => onUpdateSlide({ notes })}
-        slideIndex={slideIndex}
-        slideCount={slideCount}
         readOnly={readOnly}
       />
 

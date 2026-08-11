@@ -92,6 +92,7 @@ import {
   type MultiFrontierNotice,
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
+import { UpdateIndicator } from "./UpdateIndicator.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -1790,15 +1791,24 @@ export default function CodeAgentsHub({
             ) : undefined
           }
           railFooterSlot={
-            chatFirstMode && onOpenSettings ? (
-              <button
-                type="button"
-                className="code-agents-nav-link"
-                onClick={onOpenSettings}
-              >
-                <IconSettings size={15} strokeWidth={1.8} aria-hidden="true" />
-                <span>Settings</span>
-              </button>
+            chatFirstMode ? (
+              <>
+                <UpdateIndicator variant="rail" />
+                {onOpenSettings ? (
+                  <button
+                    type="button"
+                    className="code-agents-nav-link"
+                    onClick={onOpenSettings}
+                  >
+                    <IconSettings
+                      size={15}
+                      strokeWidth={1.8}
+                      aria-hidden="true"
+                    />
+                    <span>Settings</span>
+                  </button>
+                ) : null}
+              </>
             ) : undefined
           }
           newSessionExtension={multiFrontierExtension}

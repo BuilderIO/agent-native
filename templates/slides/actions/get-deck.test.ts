@@ -45,7 +45,10 @@ describe("get-deck", () => {
   });
 
   it("returns 1-based slideNumber fields before internal zero-based indexes", async () => {
-    const result = (await action.run({ id: "deck-1" })) as any;
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "cli" },
+    )) as any;
 
     expect(result.slideNumbering).toContain("1-based");
     expect(result.slides[0]).toMatchObject({
@@ -59,6 +62,43 @@ describe("get-deck", () => {
       id: "slide-b",
     });
     expect(result.slides[0]).not.toHaveProperty("index");
+  });
+
+  it("defaults agent calls to compact output so full slide HTML is not retransmitted", async () => {
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.slides[0]).toMatchObject({
+      id: "slide-a",
+      textPreview: "Opening",
+    });
+    expect(result.slides[0]).not.toHaveProperty("content");
+  });
+
+  it("lets agent calls opt into full slide HTML", async () => {
+    const result = (await action.run(
+      { id: "deck-1", compact: "false" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.slides[0]).toMatchObject({
+      id: "slide-a",
+      content: "<h1>Opening</h1>",
+    });
+  });
+
+  it("keeps full slide HTML for frontend callers", async () => {
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "frontend" },
+    )) as any;
+
+    expect(result.slides[0]).toMatchObject({
+      id: "slide-a",
+      content: "<h1>Opening</h1>",
+    });
   });
 
   it("uses the same numbering contract for compact output", async () => {

@@ -1,4 +1,5 @@
 import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/use-db-sync";
+import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -288,6 +289,7 @@ describe("DeckContext deck creation persistence", () => {
         noDefaultSlides: true,
       }).id;
     });
+    expect(result.current.getDeck(deckId)?.title).toBe(DEFAULT_DECK_TITLE);
 
     let settled = false;
     const persisted = result.current

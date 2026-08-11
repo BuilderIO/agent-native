@@ -3,8 +3,6 @@
 Mail is an agent-native inbox: read and triage messages, draft and queue
 replies, and update mail state through actions and application state.
 
-Prompt cap ~6,000 chars; put detail in `.agents/skills/*`.
-
 ## Skills
 
 Read the relevant skill before deeper work:
@@ -18,10 +16,6 @@ Read the relevant skill before deeper work:
 - `mail-backends` for real Gmail vs synthetic local fallback.
 - `inbox-automations` for automation rules and Gmail-native filters.
 - `provider-api-scans` for raw provider API calls and staged large scans.
-- Before building common workspace or agent UI, read `agent-native-toolkit`;
-  use `customizing-agent-native` for the configure → compose → eject ladder.
-- `actions`, `storing-data`, `real-time-sync`, `security`, `frontend-design`,
-  and `shadcn-ui` for framework work.
 
 ## Core Rules
 

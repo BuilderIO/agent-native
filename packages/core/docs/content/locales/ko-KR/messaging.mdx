@@ -127,7 +127,7 @@ Slack 앱에는 하나의 이벤트 API 요청 URL가 있습니다. 동일한 Sl
 
 ### 팁
 
-- **채널 멘션** — 작업을 시작할 때 @mention을 사용합니다. 멘션 없는 답글은 같은 스레드에 활성 작업이 있을 때만 이어집니다.
+- **채널 멘션** — 작업을 시작할 때 @mention을 사용합니다. 에이전트가 처리할 각 채널 메시지에는 명시적인 멘션이 필요하며, 일반 스레드 답글과 채널 대화는 에이전트를 실행하지 않습니다.
 - **DM** — 허용되는 개인 DM은 비공개 대화이며 확인된 조직 구성원 또는 연결된 Slack 신원이 필요합니다.
 - **신원** — DM은 확인된 Slack 이메일을 같은 앱 사용자에 연결할 수 있으며 관리 채널은 자체 서비스 신원과 정책을 사용합니다.
 - **프로덕션 허용 목록** — `SLACK_ALLOWED_TEAM_IDS`를 설정하고 공유 Slack 앱의 경우 `SLACK_ALLOWED_API_APP_IDS`를 설정하여 예상치 못한 작업 공간에서 유효한 서명 비밀을 재사용할 수 없도록 합니다.
@@ -169,8 +169,7 @@ Event Subscriptions Request URL은
 `https://your-app.example.com/_agent-native/integrations/slack/webhook`,
 Interactivity Request URL은
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`로 설정합니다.
-`app_home_opened`, `app_context_changed`, `app_mention`, `message.channels`,
-`message.groups`, `message.im`, `message.mpim`을 구독하세요.
+`app_home_opened`, `app_context_changed`, `app_mention`, `message.im`을 구독하세요.
 `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`을
 설정한 뒤 **설정 → 메시징**에서 **Add to Slack**을 선택합니다. 설치별 토큰은
 암호화되고 대화 키는 작업 공간, 앱, 채널, 스레드별로 분리됩니다.
@@ -184,8 +183,8 @@ Slack 컨텍스트를 제공하며, `message.im`은 DM을 전달합니다. Slack
 개인 Slack DM은 확인된 Agent Native 조직 구성원이나 이미 연결된 Slack 신원에서만
 허용됩니다. 채널 서비스 주체의 정책과 예산은 이 개인 신원과 별도로 적용됩니다.
 
-멘션 없는 답글은 실행 중인 같은 스레드만 이어가며 일반 채널 대화는 에이전트를
-실행하지 않습니다. 제한된 컨텍스트에는 리액션과 파일 참조가 포함되고 네이티브
+각 채널 메시지에는 에이전트에 대한 명시적인 멘션이 필요하며, 일반 스레드 답글과
+채널 대화는 에이전트를 실행하지 않습니다. 제한된 컨텍스트에는 리액션과 파일 참조가 포함되고 네이티브
 카드는 계획, 진행률, 취소, 승인/거부를 표시합니다. DM은 개인 ID를, 관리 채널은
 명시적인 서비스 ID와 게스트, Slack Connect, 모델 정책을 사용합니다. 채널 메모리는
 명시적인 요청으로만 저장하거나 삭제되며 자동 저장되지 않습니다. 채널에서 만든
@@ -204,7 +203,7 @@ Slack 멘션이 동작하기 시작하면 거의 항상 나오는 다음 요청�
 Notion을 건드리기 전에 [Slack 설정](#slack)을 마치고 채널에서 `@mention`에 답변이 오는지 확인하세요. 이후 단계에서는 두 가지 동작이 중요합니다.
 
 - `@mention`이 포함된 메시지가 호출이며, 그 텍스트가 에이전트에게 전달됩니다.
-- 같은 스레드에 나중에 남긴 일반 답글은 **해당 스레드에 아직 실행 중인 작업이 있을 때만** 에이전트에 도달합니다. 실행이 끝났다면 후속 메시지는 무시되므로, 에이전트가 계속 듣고 있다고 가정하지 말고 다시 @mention하세요.
+- 같은 스레드에 나중에 남기는 각 메시지에도 에이전트에 대한 명시적인 멘션이 필요합니다. 일반 답글은 도달하지 않으므로 새 요청마다 다시 @mention하세요.
 
 #### 2. 공급자 API 액션 노출하기
 
@@ -364,7 +363,7 @@ export default defineAction({
 | `notion credential not configured. Tried: NOTION_API_KEY` | 3단계. 키가 `.env`에 있거나 실행 주체와 다른 계정의 **Personal**로 저장되어 있습니다. **Workspace**로 저장하세요.            |
 | Notion이 `404`를 반환                                     | 4단계. 데이터베이스가 통합과 공유되지 않았습니다.                                                                            |
 | Notion이 속성 관련 `400`을 반환                           | 액션의 속성 이름이나 유형이 데이터베이스 열과 일치하지 않습니다.                                                             |
-| 한 번은 됐는데 이후 스레드 답글이 무시됨                  | 정상 동작입니다. 멘션 없는 스레드 답글은 그 스레드에 활성 작업이 있는 동안에만 에이전트에 도달합니다. 다시 @mention하세요.   |
+| 한 번은 됐는데 이후 스레드 답글이 무시됨                  | 정상 동작입니다. 에이전트가 처리할 각 메시지에는 명시적인 멘션이 필요합니다. 다시 @mention하세요.                              |
 
 ## 텔레그램 설정 {#telegram}
 

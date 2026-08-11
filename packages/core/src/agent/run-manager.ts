@@ -964,6 +964,30 @@ export function startRun(
   // emits nothing for minutes and carries its own 12-min timeout.
   let lastRealProgressAt = Date.now();
   let inFlightWorkCount = 0;
+  let inFlightMarkerSince: number | null = null;
+  let inFlightMarkerWrite = Promise.resolve();
+  const mirrorInFlightMarker = (inFlight: boolean) => {
+    const markerSince = inFlight ? Date.now() : inFlightMarkerSince;
+    if (inFlight) {
+      inFlightMarkerSince = markerSince;
+    } else {
+      inFlightMarkerSince = null;
+    }
+    // Preserve transition order: a delayed clear must not erase the marker
+    // written for the next tool that starts before the clear reaches SQL.
+    inFlightMarkerWrite = inFlightMarkerWrite
+      .catch(() => {})
+      .then(() =>
+        setRunInFlightMarker(runId, inFlight, markerSince ?? undefined),
+      )
+      .catch((error: unknown) => {
+        console.error(
+          `[run-manager] failed to mirror in-flight marker (${inFlight ? "set" : "clear"})`,
+          runId,
+          error instanceof Error ? error.message : error,
+        );
+      });
+  };
   const trackInFlightWork = (event: AgentChatEvent) => {
     const wasIdle = inFlightWorkCount === 0;
     if (event.type === "tool_start") {
@@ -985,14 +1009,14 @@ export function startRun(
     // grant this demonstrably-alive run a bounded grace even when THIS
     // isolate's own heartbeat write is failing (e.g. Neon pooler saturation)
     // — `inFlightWorkCount` itself is in-memory and invisible to those other
-    // isolates. Fire-and-forget: never block event emission on this write,
-    // and a write failure here is no worse than today's behavior (the row
-    // just gets no grace). See `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS`
-    // in run-store.ts for the full reasoning and the bounded-grace derivation.
+    // isolates. Fire-and-forget: never block event emission on this write, but
+    // keep failures observable and preserve transition order. See
+    // `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS` in run-store.ts
+    // for the full reasoning and bounded-grace derivation.
     if (wasIdle && inFlightWorkCount > 0) {
-      setRunInFlightMarker(runId, true).catch(() => {});
+      mirrorInFlightMarker(true);
     } else if (!wasIdle && inFlightWorkCount === 0) {
-      setRunInFlightMarker(runId, false).catch(() => {});
+      mirrorInFlightMarker(false);
     }
   };
   // Make a chunk boundary durable at the instant it is decided. The terminal
@@ -1489,6 +1513,13 @@ export function startRun(
       // 4. Stop the heartbeat — all liveness writes are done.
       clearInterval(heartbeatTimer);
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+      // A tool can throw before its matching event is emitted, or the process
+      // can reach terminal cleanup with an in-flight call still open. Do not
+      // leave the SQL grace marker attached to a terminal run.
+      if (inFlightWorkCount > 0 || inFlightMarkerSince !== null) {
+        inFlightWorkCount = 0;
+        mirrorInFlightMarker(false);
+      }
 
       // 5. Persist final status to SQL. Use the conditional write so a zombie
       //    run (reaped or displaced while executing) cannot clobber the newer
