@@ -22,6 +22,38 @@ describe("ChatFirstSurfaceTabs", () => {
     container.remove();
   });
 
+  it("keeps the complete workspace app list available in the picker", () => {
+    const apps = Array.from({ length: 16 }, (_, index) => ({
+      id: `app-${index}`,
+      name: `App ${index}`,
+    }));
+
+    act(() => {
+      root.render(
+        <ChatFirstSurfaceTabs
+          tabs={[]}
+          activeTabId={null}
+          onActivate={vi.fn()}
+          onClose={vi.fn()}
+          onCloseOthers={vi.fn()}
+          onCloseToRight={vi.fn()}
+          onCloseAll={vi.fn()}
+          onOpenSurface={vi.fn()}
+          apps={apps}
+          onOpenApp={vi.fn()}
+        />,
+      );
+    });
+
+    const emptyState = container.querySelector<HTMLElement>(
+      "[data-surface-empty-state]",
+    );
+    expect(emptyState?.className).toContain("overflow-y-auto");
+    expect(
+      container.querySelectorAll("[data-chat-first-surface-app]"),
+    ).toHaveLength(apps.length);
+  });
+
   it("keeps tab semantics and activation on the keyboard focus target", () => {
     const tabs = [
       {

@@ -172,7 +172,7 @@ export function ChatFirstSurfaceTabs({
           </div>
         ) : (
           <div
-            className="flex flex-col px-2 py-1"
+            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-2 py-1"
             data-surface-empty-state
             aria-label={copy("openSideSurfaces")}
           >
