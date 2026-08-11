@@ -487,7 +487,7 @@ describe("exact Content database block actions", () => {
     expect(stored?.content).toBe("Editor won\nSibling");
   });
 
-  it("rejects a stale additional-field write without overwriting the newer whole-field value", async () => {
+  it("rejects stale existing and absent additional-field writes without clobbering", async () => {
     const state = await fixture("Primary stays");
     const added = await asOwner(() =>
       configureProperty.run({
@@ -555,5 +555,56 @@ describe("exact Content database block actions", () => {
         ),
       );
     expect(stored?.content).toBe("UI won\nSibling");
+
+    const addedAbsent = await asOwner(() =>
+      configureProperty.run({
+        documentId: state.databaseDocumentId,
+        databaseId: state.databaseId,
+        name: "Concurrent insert",
+        type: "blocks",
+      }),
+    );
+    const absent = addedAbsent.properties.find(
+      (property) => property.definition.name === "Concurrent insert",
+    )!;
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: absent.definition.id,
+        value: "UI created this",
+        expectedBlocksFieldRevision: 0,
+      }),
+    );
+
+    await expect(
+      compareAndSwapAdditionalBlocksField({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: state.target.rowDocumentId,
+        propertyId: absent.definition.id,
+        expectedContent: "",
+        expectedExists: false,
+        content: "Agent insert",
+        now: new Date().toISOString(),
+      }),
+    ).rejects.toMatchObject({ errorCode: "FIELD_REVISION_CONFLICT" });
+
+    const [insertedByUi] = await getDb()
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(
+            schema.documentBlockFieldContents.documentId,
+            state.target.rowDocumentId,
+          ),
+          eq(
+            schema.documentBlockFieldContents.propertyId,
+            absent.definition.id,
+          ),
+        ),
+      );
+    expect(insertedByUi?.content).toBe("UI created this");
   });
 });
