@@ -10,6 +10,8 @@ import type { MultiFrontierIpcEvent } from "../../../shared/multi-frontier-ipc.j
 import {
   chatFirstAppSurfaceTab,
   chatFirstPreviewPartitionKey,
+  dispatchControlPlaneUrlParams,
+  isDispatchControlPlanePath,
   isChatFirstSurfaceTabActive,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
@@ -288,6 +290,23 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       appId: "calendar",
       path: "/events/42?mode=week#details",
       view: "event",
+    });
+  });
+
+  it("opens Dispatch control-plane pages without nested navigation chrome", () => {
+    expect(isDispatchControlPlanePath("/integrations")).toBe(true);
+    expect(isDispatchControlPlanePath("/admin/automations?view=all")).toBe(
+      true,
+    );
+    expect(isDispatchControlPlanePath("/overview")).toBe(false);
+    expect(dispatchControlPlaneUrlParams("/automations")).toEqual({
+      embedded: "1",
+      chatFirst: null,
+      electron: "1",
+    });
+    expect(dispatchControlPlaneUrlParams("/apps")).toEqual({
+      embedded: "1",
+      chatFirst: "1",
     });
   });
 

@@ -92,11 +92,12 @@ describe("submitForm pageUrl pass-through", () => {
     sendEmail.mockClear();
   });
 
-  it("persists the page URL and client surface forwarded in _meta", async () => {
+  it("persists UTM context while scrubbing sensitive page URL metadata", async () => {
     const res = await submit({
       data: { msg: "love it" },
       _meta: {
-        pageUrl: "https://clips.agent-native.com/library?ref=clip_share",
+        pageUrl:
+          "https://clips.agent-native.com/library?utm_source=slack&token=example-token&share_token=example-share-token",
         submitterEmail: "user@example.com",
         clientSurface: "tauri",
       },
@@ -105,7 +106,7 @@ describe("submitForm pageUrl pass-through", () => {
     expect(res).toMatchObject({ success: true });
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.pageUrl).toBe(
-      "https://clips.agent-native.com/library?ref=clip_share",
+      "https://clips.agent-native.com/library?utm_source=slack&token=%3Credacted%3E&share_token=%3Credacted%3E",
     );
     expect(state.inserted[0]!.submitterEmail).toBe("user@example.com");
     expect(state.inserted[0]!.clientSurface).toBe("tauri");

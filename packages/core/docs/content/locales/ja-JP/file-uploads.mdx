@@ -1,6 +1,6 @@
 ---
 title: "ファイルのアップロード"
-description: "ファイル アップロード ストレージを構成します — 開発用の SQL フォールバック、本番用の Builder.io またはカスタム プロバイダー。"
+description: "ファイルアップロード用の永続オブジェクトストレージを構成します — Builder.io またはカスタム S3 互換プロバイダー。"
 ---
 
 # ファイルのアップロード
@@ -15,9 +15,9 @@ description: "ファイル アップロード ストレージを構成します 
 
 1. **ユーザー登録プロバイダー** — `registerFileUploadProvider()` 経由で登録されたカスタムプロバイダー
 2. **Builder.io プロバイダー**（無料プランあり）— 組み込み、Builder.io が接続されると自動的にアクティブ化されます
-3. **SQL フォールバック** — ファイルをデータベースに Base64 として保存します (開発には問題ありませんが、運用には問題ありません)
+3. **ストレージが必要** — プロバイダーがない場合、アップロードは安全に拒否され設定カードが表示されます。バイナリデータは SQL に保存されません
 
-<Diagram id="doc-block-1bqg825" title={"プロバイダーの解決順序"} summary={"UploadFile() は、最初に構成されたプロバイダーを順番に選択します。 SQL フォールバックは常に存在するため、アップロードはセットアップなしで機能します。"}>
+<Diagram id="doc-block-1bqg825" title={"プロバイダーの解決順序"} summary={"uploadFile() は、最初に構成されたプロバイダーを順番に選択します。プロバイダーがない場合、アップロードは安全に拒否され設定カードが表示されます。"}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ description: "ファイル アップロード ストレージを構成します 
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        SQL フォールバック<br /><small class="diagram-muted"
-          >DB 内 base64 — 開発専用</small
+        ストレージが必要<br /><small class="diagram-muted"
+          >Builder.io または S3 互換ストレージを構成</small
         >
       </div>
     </div>
@@ -94,11 +94,11 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## デフォルト: SQL フォールバック {#sql-fallback}
+## 永続的なアップロードにはストレージが必要 {#storage-required}
 
-プロバイダーが構成されていない場合、ファイルはリソース システムを介して SQL データベースに Base64 データとして保存されます。これは、ローカル開発ではそのまま使用できますが、運用環境では推奨されません。ファイルが大きいとデータベースが肥大化し、CDN がありません。
+プロバイダーが構成されていない場合、アップロードは安全に拒否され、Builder.io または S3 互換プロバイダーを構成するカードが表示されます。バイナリデータは Base64 として SQL に保存されません。
 
-フォールバックが使用されると、1 回限りの警告がログに記録されます。
+バイトは現在のリクエストでのみ使用でき、チャット履歴には保存されません。ストレージを構成すると、後続のターンで再利用できる安定した公開 URL が返されます。
 
 ## Builder.io ホスティング {#builder-hosting}
 
@@ -174,6 +174,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL フォールバック yourself, or skip
+  // ストレージを構成するか、アップロードをスキップします
 }
 ```

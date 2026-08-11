@@ -80,13 +80,14 @@ Each response is stored in the `responses` SQL table:
 `submitterEmail` may come from the logged-in Forms session or from trusted
 feedback clients that pass the logged-in user email as submission metadata.
 
-`pageUrl` and `clientSurface` are hidden pass-through fields: trusted embeds
-(e.g. the framework FeedbackButton) forward the URL of the page the respondent
-was on and the runtime shell they were in (`web`, `electron`, or `tauri`) as
-submission metadata, so owners can see which screen and which app feedback came
-from. Both are null for direct fills that send no context, and `clientSurface`
-is allowlisted server-side (unknown values are dropped). The responses table
-surfaces them as "Page" and "Source" columns when any response carries them.
+`pageUrl` and `clientSurface` are hidden pass-through fields. Direct public
+fills record the current form URL, while trusted embeds (e.g. the framework
+FeedbackButton) forward the respondent's source page and runtime shell (`web`,
+`electron`, or `tauri`) so owners can see which screen and app feedback came
+from. Sensitive URL query keys are scrubbed before persistence, `clientSurface`
+is allowlisted server-side (unknown values are dropped), and anonymous forms
+suppress both fields. The responses table surfaces them as "Page" and "Source"
+columns when any response carries them.
 
 The `data` JSON maps field IDs to values:
 

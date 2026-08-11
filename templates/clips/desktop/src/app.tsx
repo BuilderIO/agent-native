@@ -2,8 +2,6 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCalendarEvent,
-  IconChevronDown,
-  IconChevronRight,
   IconCircleCheck,
   IconCopy,
   IconDownload,
@@ -973,10 +971,6 @@ export function App() {
   const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
     "recorder" | "settings"
   >("recorder");
-  const [homeScreenMemoryStatus, setHomeScreenMemoryStatus] =
-    useState<ScreenMemoryStatus | null>(null);
-  const [homeScreenMemoryBusy, setHomeScreenMemoryBusy] = useState(false);
-  const homeScreenMemoryRefreshVersionRef = useRef(0);
   const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
@@ -1002,7 +996,6 @@ export function App() {
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
-  const [rewindHomeOpen, setRewindHomeOpen] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const recordingStartAbortRef = useRef<AbortController | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
@@ -1036,57 +1029,6 @@ export function App() {
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
-  const homeRewindPresentation = getRewindStatusPresentation({
-    status: homeScreenMemoryStatus,
-    config: featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG,
-    clipRecordingActive: isRecording || recordingFlowActive,
-  });
-  const homeRewindOn =
-    featureConfig?.screenMemory?.enabled === true &&
-    featureConfig.screenMemory.paused !== true;
-  const refreshHomeScreenMemoryStatus = useCallback(() => {
-    const version = ++homeScreenMemoryRefreshVersionRef.current;
-    invoke<ScreenMemoryStatus>("screen_memory_status")
-      .then((status) => {
-        if (version === homeScreenMemoryRefreshVersionRef.current) {
-          setHomeScreenMemoryStatus(status);
-        }
-      })
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    if (featureConfig?.screenMemory?.enabled !== true) {
-      homeScreenMemoryRefreshVersionRef.current += 1;
-      setHomeScreenMemoryStatus(null);
-      return;
-    }
-    let cancelled = false;
-    const refresh = () => {
-      if (!cancelled) refreshHomeScreenMemoryStatus();
-    };
-    refresh();
-    const timer = window.setInterval(refresh, popoverVisible ? 5_000 : 30_000);
-    let unlisten: (() => void) | undefined;
-    listen("clips:screen-memory-changed", refresh)
-      .then((stopListening) => {
-        if (cancelled) {
-          stopListening();
-          return;
-        }
-        unlisten = stopListening;
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      homeScreenMemoryRefreshVersionRef.current += 1;
-      window.clearInterval(timer);
-      unlisten?.();
-    };
-  }, [
-    featureConfig?.screenMemory?.enabled,
-    popoverVisible,
-    refreshHomeScreenMemoryStatus,
-  ]);
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
   const handleStartRecordingRef = useRef<
     (options?: {
@@ -3576,47 +3518,6 @@ export function App() {
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
-  async function setHomeRewindRemembering(remembering: boolean) {
-    if (homeScreenMemoryBusy) return;
-    if (remembering && featureConfig?.screenMemory?.enabled !== true) {
-      setRewindSettingsReturnView("recorder");
-      setPromptRewindEnable(true);
-      setPopoverView("rewind-settings");
-      return;
-    }
-    setHomeScreenMemoryBusy(true);
-    try {
-      const current = await invoke<FeatureConfig>("get_feature_config");
-      await invoke("set_feature_config", {
-        config: {
-          ...current,
-          screenMemory: {
-            ...DEFAULT_SCREEN_MEMORY_CONFIG,
-            ...current.screenMemory,
-            // Once Rewind has been set up, the everyday Home switch is a
-            // pause/resume control. Full disable and capture permissions live
-            // in Rewind Settings, so an accidental Home click never tears
-            // down the configured memory system or asks for consent again.
-            enabled: true,
-            paused: !remembering,
-          },
-        },
-      });
-      // The native producer can take a moment to finish pausing. Do not keep
-      // the Home switch locked while that status request waits; the existing
-      // change event and bounded poll will reconcile it, and this best-effort
-      // refresh can do the same without blocking the next resume action.
-      refreshHomeScreenMemoryStatus();
-    } catch (err) {
-      console.error(
-        "[clips-tray] update Rewind remembering state failed:",
-        err,
-      );
-    } finally {
-      setHomeScreenMemoryBusy(false);
-    }
-  }
-
   const pendingUploadBanner = recordingStopFinalizing ? (
     <FinalizingUploadBanner />
   ) : pendingUploads.length > 0 ? (
@@ -3831,6 +3732,9 @@ export function App() {
             setServerUrl(url.replace(/\/+$/, ""));
             setPopoverView("recorder");
           }}
+          rewindAgentPromptCopied={rewindAgentPromptCopied}
+          onCopyRewindAgentPrompt={copyRewindAgentPrompt}
+          onOpenRewindDocs={openRewindDocs}
           onOpenRewind={() => setPopoverView("rewind-settings")}
           onOpenMemory={() => setPopoverView("memory")}
           onCancel={() => {
@@ -3877,6 +3781,9 @@ export function App() {
             setServerUrl(url.replace(/\/+$/, ""));
             setPopoverView("recorder");
           }}
+          rewindAgentPromptCopied={rewindAgentPromptCopied}
+          onCopyRewindAgentPrompt={copyRewindAgentPrompt}
+          onOpenRewindDocs={openRewindDocs}
           onOpenRewind={() => {
             setPromptRewindEnable(false);
             setRewindSettingsReturnView("settings");
@@ -4093,83 +4000,6 @@ export function App() {
             onOpenChange={updateReadinessOpen}
             onOpenPermission={openPrivacySettings}
           />
-
-          <section className="rewind-home-card" aria-label="Rewind">
-            <button
-              type="button"
-              className="rewind-home-summary"
-              aria-expanded={rewindHomeOpen}
-              onClick={() => setRewindHomeOpen((open) => !open)}
-            >
-              <span className="rewind-home-title">Rewind</span>
-              <span className="rewind-home-state">
-                {homeRewindOn ? "On" : "Off"}
-                {rewindHomeOpen ? (
-                  <IconChevronDown size={11} stroke={2} />
-                ) : (
-                  <IconChevronRight size={11} stroke={2} />
-                )}
-              </span>
-            </button>
-            {rewindHomeOpen ? (
-              <div className="rewind-home-details">
-                <p>{homeRewindPresentation.detail}</p>
-                <div className="rewind-home-detail-actions">
-                  <button
-                    type="button"
-                    className="rewind-docs-link"
-                    onClick={openRewindDocs}
-                  >
-                    Learn about Rewind
-                    <IconExternalLink size={13} stroke={1.9} />
-                  </button>
-                  <div className="rewind-home-controls">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="rewind-agent-prompt-copy"
-                          onClick={() => void copyRewindAgentPrompt()}
-                          aria-label={
-                            rewindAgentPromptCopied
-                              ? "Setup prompt copied — paste it into your agent once"
-                              : "Copy setup prompt for your agent"
-                          }
-                        >
-                          {rewindAgentPromptCopied ? (
-                            <IconCircleCheck size={15} stroke={2} />
-                          ) : (
-                            <IconCopy size={15} stroke={1.9} />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {rewindAgentPromptCopied
-                          ? "Setup prompt copied"
-                          : "Copy setup prompt for your agent"}
-                      </TooltipContent>
-                    </Tooltip>
-                    <Switch
-                      on={homeRewindOn}
-                      disabled={
-                        homeScreenMemoryBusy ||
-                        isRecording ||
-                        recordingFlowActive
-                      }
-                      onChange={(remembering) =>
-                        void setHomeRewindRemembering(remembering)
-                      }
-                      label={
-                        featureConfig?.screenMemory?.enabled === true
-                          ? "Remember with Rewind"
-                          : "Set up Rewind"
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </section>
         </div>
 
         {!isRecording ? (
@@ -5445,6 +5275,9 @@ function Setup({
   onVoiceProviderChange,
   onVoiceInstructionsChange,
   onConnect,
+  rewindAgentPromptCopied,
+  onCopyRewindAgentPrompt,
+  onOpenRewindDocs,
   onOpenRewind,
   onOpenMemory,
   onCancel,
@@ -5472,6 +5305,9 @@ function Setup({
   onVoiceProviderChange: (value: VoiceProvider) => void;
   onVoiceInstructionsChange: (value: string) => void;
   onConnect: (url: string) => void;
+  rewindAgentPromptCopied: boolean;
+  onCopyRewindAgentPrompt: () => void;
+  onOpenRewindDocs: () => void;
   onOpenRewind?: () => void;
   onOpenMemory?: () => void;
   onCancel?: () => void;
@@ -6669,6 +6505,26 @@ function Setup({
                   Rewind's reusable instructions and repairs the local
                   connection, so later you can simply say “Look at Rewind.”
                 </p>
+                <div className="setup-button-row">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onCopyRewindAgentPrompt}
+                  >
+                    <IconCopy size={14} stroke={1.9} />
+                    {rewindAgentPromptCopied
+                      ? "Setup prompt copied"
+                      : "Copy setup prompt"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onOpenRewindDocs}
+                  >
+                    <IconExternalLink size={14} stroke={1.9} />
+                    Learn about Rewind
+                  </button>
+                </div>
               </div>
             </div>
             <details className="setup-advanced rewind-agent-repair">

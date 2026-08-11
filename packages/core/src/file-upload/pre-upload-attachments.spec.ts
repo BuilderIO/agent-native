@@ -224,6 +224,25 @@ describe("preUploadAttachments", () => {
     );
   });
 
+  it("rehydrates URL-only image attachments without re-uploading", async () => {
+    const att = makeImageAtt({
+      data: undefined,
+      url: "https://cdn.example.com/history.png",
+      uploadProvider: "builder",
+    });
+
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).not.toHaveBeenCalled();
+    expect(result.uploaded).toMatchObject([
+      { url: "https://cdn.example.com/history.png", provider: "builder" },
+    ]);
+    expect(result.injectedText).toContain("history.png");
+  });
+
   it("normalizes existing image-typed SVG URLs as reference-only file uploads", async () => {
     const att = makeImageAtt({
       name: "already.svg",
@@ -248,7 +267,7 @@ describe("preUploadAttachments", () => {
     expect((att as any).referenceOnly).toBe(true);
   });
 
-  it("sets providerMissing=true and injects an error hint when uploadFile returns null for image", async () => {
+  it("sets providerMissing=true and injects an error hint when uploadFile returns null", async () => {
     uploadFileMock.mockResolvedValue(null);
 
     const att = makeImageAtt();
@@ -258,12 +277,58 @@ describe("preUploadAttachments", () => {
     });
 
     expect(result.providerMissing).toBe(true);
-    expect(result.injectedText).toContain("no file-upload provider");
-    expect(result.injectedText).toContain("connect-builder");
-    expect(result.injectedText).not.toContain("Settings");
+    expect(result.injectedText).toContain("durable object storage");
+    expect(result.injectedText).toContain("connect-file-storage");
+    expect(att.storageRequired).toBe(true);
   });
 
-  it("does not crash when uploadFile throws; keeps base64 for that attachment", async () => {
+  it("marks file attachments as needing storage when no provider is configured", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const att = makeFileAtt();
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.providerMissing).toBe(true);
+    expect(result.uploadedFiles).toHaveLength(0);
+    expect(att.storageRequired).toBe(true);
+    expect(result.injectedText).toContain("images or files");
+  });
+
+  it("uploads decoded text attachments so their URL survives the thread", async () => {
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.com/notes.txt",
+      provider: "builder",
+    });
+
+    const att = makeFileAtt({
+      data: undefined,
+      name: "notes.txt",
+      contentType: "text/plain",
+      text: "hello from the uploaded file",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "notes.txt",
+        mimeType: "text/plain",
+      }),
+    );
+    expect(result.uploadedFiles[0]?.url).toBe(
+      "https://cdn.example.com/notes.txt",
+    );
+    expect(att.url).toBe("https://cdn.example.com/notes.txt");
+  });
+
+  it("does not crash when uploadFile throws; keeps bytes only for this turn", async () => {
     uploadFileMock.mockRejectedValue(new Error("network error"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 

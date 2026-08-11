@@ -257,7 +257,7 @@ button[title="Open agent sidebar"] {
 
 .deck-editor-context-toolbar-host {
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .deck-editor-context-toolbar-host--wide {

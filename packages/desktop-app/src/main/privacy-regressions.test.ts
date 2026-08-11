@@ -97,7 +97,7 @@ describe("desktop passive-access regressions", () => {
 
     expect(runDetail).toContain("<TranscriptPanel");
     expect(runDetail).toContain("Approval pending");
-    expect(runDetail).toContain('secondaryActionLabel="API keys"');
+    expect(runDetail).toContain('secondaryActionLabel="Custom keys"');
     expect(runDetail).not.toContain("Task paused");
     expect(runDetail).not.toContain("code-agents-session-details");
     expect(runDetail).not.toContain("TokenUsageMeter");
@@ -168,6 +168,26 @@ describe("desktop passive-access regressions", () => {
     expect(providerCheck).toContain(
       "hasRuntimeNonCodexCodeAgentLlmProvider(providerEnv)",
     );
+  });
+
+  it("keeps desktop app creation visible while provider setup is incomplete", () => {
+    const main = source("./index.ts");
+    const createRun = between(
+      main,
+      "async function createCodeAgentRun(",
+      "async function rerunCodeAgentRun(",
+    );
+    const runner = between(
+      main,
+      "async function spawnCodeAgentRunner(",
+      "function spawnCodeAgentApprovalRunner(",
+    );
+
+    expect(createRun).toContain(
+      'const isDesktopAppCreation = userMetadata.kind === "desktop-create-app"',
+    );
+    expect(createRun).toContain("if (!provider.ok && !isDesktopAppCreation)");
+    expect(runner).toContain('phase: "missing-credentials"');
   });
 
   it("only marks the local Codex provider configured after authentication", () => {

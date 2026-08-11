@@ -45,7 +45,8 @@ const messages = {
   },
   agent: {
     emptyState: "可以询问我任何关于演示文稿的问题",
-    thisDeck: "此幻灯片",
+    thisSlide: "此幻灯片",
+    currentSelection: "当前选择",
     suggestionPitch: "根据这份文档制作 10 页推介幻灯片",
     suggestionBrand: "将我们的品牌应用到这份幻灯片",
     suggestionHero: "为这页幻灯片生成主视觉图片",
@@ -430,6 +431,10 @@ const messages = {
     order: "顺序",
     bringToFront: "置于顶层",
     sendToBack: "置于底层",
+    copyStyle: "复制样式",
+    pasteStyle: "粘贴样式",
+    copy: "复制",
+    paste: "粘贴",
   },
   animations: {
     appear: "出现",

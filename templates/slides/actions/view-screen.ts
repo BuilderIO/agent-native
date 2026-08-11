@@ -162,12 +162,12 @@ export default defineAction({
           style?: Record<string, unknown>;
         }>;
       } | null;
-      if (
-        selection &&
-        (!selection.slideId || selection.slideId === currentSlide?.id)
-      ) {
+      if (selection && currentSlide && selection.slideId === currentSlide.id) {
         lines.push(``);
         lines.push(`### Current visual selection`);
+        lines.push(
+          `selectionSlideId: ${selection.slideId}   (matches currentSlideId)`,
+        );
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {

@@ -825,10 +825,15 @@ function CapabilityList({
   compact?: boolean;
   className?: string;
 }) {
-  const visibleCapabilities = useMemo(
-    () => (compact ? capabilities.slice(0, 4) : capabilities),
-    [capabilities, compact],
-  );
+  const visibleCapabilities = useMemo(() => {
+    if (!compact) return capabilities;
+    const suggested = capabilities.filter((capability) => capability.suggested);
+    const leading = capabilities.filter((capability) => !capability.suggested);
+    return [
+      ...leading.slice(0, Math.max(0, 4 - suggested.length)),
+      ...suggested,
+    ].slice(0, 4);
+  }, [capabilities, compact]);
 
   return (
     <div className={cn("grid", className)}>
@@ -936,10 +941,16 @@ function CapabilityRow({
       <span
         className={cn(
           "shrink-0 text-[10px] uppercase tracking-[0.08em]",
-          capability.required ? "text-primary" : "text-muted-foreground",
+          capability.required || capability.suggested
+            ? "text-primary"
+            : "text-muted-foreground",
         )}
       >
-        {capability.required ? "Required" : "Optional"}
+        {capability.required
+          ? "Required"
+          : capability.suggested
+            ? "Suggested"
+            : "Optional"}
       </span>
     </div>
   );

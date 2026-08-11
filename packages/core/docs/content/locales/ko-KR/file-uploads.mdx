@@ -1,6 +1,6 @@
 ---
 title: "파일 업로드"
-description: "파일 업로드 저장소 구성 - 개발용 SQL 대체, 프로덕션용 Builder.io 또는 사용자 지정 공급자"
+description: "파일 업로드를 위한 영구 객체 스토리지 구성 - Builder.io 또는 사용자 지정 S3 호환 공급자"
 ---
 
 # 파일 업로드
@@ -15,9 +15,9 @@ description: "파일 업로드 저장소 구성 - 개발용 SQL 대체, 프로�
 
 1. **사용자 등록 공급자** — `registerFileUploadProvider()`를 통해 등록된 맞춤형 공급자
 2. **Builder.io 공급자**(무료 요금제 제공) — 내장, Builder.io가 연결되면 자동으로 활성화됨
-3. **SQL 대체** — 파일을 데이터베이스에 base64로 저장합니다(프로덕션이 아닌 개발에 적합)
+3. **스토리지 필요** — 공급자가 없으면 업로드가 안전하게 거부되고 설정 카드가 표시됩니다. 바이너리 데이터는 SQL에 저장되지 않습니다
 
-<Diagram id="doc-block-uady1j" title={"공급자 해결 순서"} summary={"uploadFile()은 첫 번째로 구성된 공급자를 순서대로 선택합니다. SQL 대체는 항상 존재하므로 업로드는 설정 없이 작동합니다."}>
+<Diagram id="doc-block-uady1j" title={"공급자 해결 순서"} summary={"uploadFile()은 첫 번째로 구성된 공급자를 순서대로 선택합니다. 공급자가 없으면 업로드가 안전하게 거부되고 설정 카드가 표시됩니다."}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ description: "파일 업로드 저장소 구성 - 개발용 SQL 대체, 프로�
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        SQL 폴백<br /><small class="diagram-muted"
-          >DB의 base64 — 개발 전용</small
+        스토리지 필요<br /><small class="diagram-muted"
+          >Builder.io 또는 S3 호환 스토리지 구성</small
         >
       </div>
     </div>
@@ -94,11 +94,11 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## 기본값: SQL 대체 {#sql-fallback}
+## 영구 업로드에는 스토리지가 필요합니다 {#storage-required}
 
-구성된 공급자가 없으면 파일은 리소스 시스템을 통해 SQL 데이터베이스에 base64 데이터로 저장됩니다. 이는 로컬 개발에서는 기본적으로 작동하지만 프로덕션에서는 권장되지 않습니다. 대용량 파일은 데이터베이스를 부풀리고 CDN가 없습니다.
+구성된 공급자가 없으면 업로드가 안전하게 거부되고 Builder.io 또는 S3 호환 공급자를 구성하는 카드가 표시됩니다. 바이너리 데이터는 base64로 SQL에 저장되지 않습니다.
 
-대체를 사용할 때 일회성 경고가 기록됩니다.
+바이트는 현재 요청에서만 사용할 수 있으며 채팅 기록에 저장되지 않습니다. 스토리지를 구성하면 이후 턴에서 재사용할 수 있는 안정적인 공개 URL이 업로드 결과로 반환됩니다.
 
 ## Builder.io 호스팅 {#builder-hosting}
 
@@ -174,6 +174,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL 폴백 yourself, or skip
+  // 스토리지를 구성하거나 업로드를 건너뜁니다
 }
 ```

@@ -41,8 +41,8 @@ export function listFileUploadProviders(): FileUploadProvider[] {
 /**
  * Returns the first configured provider, checking user-registered ones first
  * and falling back to the built-in Builder.io provider when its env is set.
- * Returns `null` when nothing is configured — callers should then use the
- * SQL fallback.
+ * Returns `null` when nothing is configured. Callers must fail closed rather
+ * than persisting the original binary payload in SQL.
  */
 export function getActiveFileUploadProvider(): FileUploadProvider | null {
   for (const provider of providers.values()) {
@@ -83,9 +83,8 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
 
 /**
  * Upload a file via the active provider, or `null` if no provider is
- * configured. Callers use `null` as the signal to fall back to SQL
- * storage. On the first fallback we log a one-time warning because
- * storing files in SQL is not optimal for production.
+ * configured. `null` is an explicit storage-setup state: callers must not
+ * turn the input into a base64 SQL fallback.
  */
 export async function uploadFile(
   input: FileUploadInput,
@@ -109,7 +108,7 @@ export async function uploadFile(
     builderKey = await resolveBuilderPrivateKey();
   } catch (err) {
     // DB unavailable or credential store not ready — can't resolve key.
-    // Log and fall through to the SQL fallback below.
+    // Return an unavailable-provider state below; never fall back to SQL.
     console.warn(
       "[agent-native] Builder credential check failed:",
       err instanceof Error ? err.message : String(err),

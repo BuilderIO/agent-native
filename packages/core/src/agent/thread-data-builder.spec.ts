@@ -1839,15 +1839,14 @@ describe("upsertUserMessage", () => {
     });
   });
 
-  it("caps base64 image data larger than 2 MB when no URL exists", () => {
-    // Generate a fake base64 string that's clearly over 2 MB of decoded bytes.
-    // 2 MB = 2097152 bytes; base64 is 4/3 of that ≈ 2796203 chars.
+  it("does not persist base64 image data when storage is required", () => {
     const bigB64 = "A".repeat(3_000_000);
     const att = {
       type: "image",
       name: "big.png",
       contentType: "image/png",
       data: `data:image/png;base64,${bigB64}`,
+      storageRequired: true,
     };
 
     const message = buildUserMessage({
@@ -1858,9 +1857,11 @@ describe("upsertUserMessage", () => {
 
     const storedAtt = message.attachments?.[0];
     expect(storedAtt).toBeDefined();
-    const img = storedAtt.content[0].image as string;
-    // The stored value must NOT contain the raw big base64.
-    expect(img).not.toContain("A".repeat(100));
-    expect(img).toContain("[base64 truncated");
+    expect(storedAtt.content[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("connect object storage"),
+    });
+    expect(JSON.stringify(storedAtt)).not.toContain("A".repeat(100));
+    expect(storedAtt.metadata).toEqual({ storageRequired: true });
   });
 });

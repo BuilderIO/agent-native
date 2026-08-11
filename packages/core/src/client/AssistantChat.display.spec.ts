@@ -1980,12 +1980,26 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("resetRunningActivity()");
     expect(helperSource).toContain("includeActivity: true");
     expect(helperSource).toContain("settleVisibleInterruptedTools()");
+    expect(helperSource).toContain("markVisibleRunStopped()");
     expect(
       helperSource.indexOf("settleVisibleInterruptedTools()"),
     ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
+    expect(helperSource.indexOf("markVisibleRunStopped()")).toBeLessThan(
+      helperSource.indexOf("threadRuntime.cancelRun()"),
+    );
     expect(helperSource).toContain("getPendingTurn(threadId)");
     expect(helperSource).toContain("clearPendingTurnIfMatches(");
     expect(helperSource).toContain("/runs/turn/${encodeURIComponent(");
+  });
+
+  it("keeps queued follow-ups when the Stop response button is pressed", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /stopActiveRun\(\{\s*preserveQueuedMessages: true,\s*\}\)/,
+    );
   });
 
   it("wakes the dequeue loop after its startup guard expires", () => {

@@ -1348,10 +1348,18 @@ export function createAgentChatPlugin(
       const corpusToolNames = loadCorpusToolsInitially
         ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
         : [];
-      const effectiveInitialToolNames =
-        corpusToolNames.length > 0
-          ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
-          : templateInitialToolNames;
+      const effectiveInitialToolNames = [
+        ...new Set([
+          ...templateInitialToolNames,
+          ...corpusToolNames,
+          // Attachment setup is a recovery action, but it must be available on
+          // the first request so a missing provider renders the CTA immediately
+          // instead of spending another turn in tool-search.
+          ...(browserTools["connect-file-storage"]
+            ? ["connect-file-storage"]
+            : []),
+        ]),
+      ];
 
       const resolveExtraContext = async (
         event: any,

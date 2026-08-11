@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "Posez-moi vos questions sur vos présentations",
-    thisDeck: "Ce deck",
+    thisSlide: "Cette diapositive",
+    currentSelection: "Sélection actuelle",
     suggestionPitch: "Créer un pitch de 10 diapositives à partir de ce doc",
     suggestionBrand: "Appliquer notre marque à ce deck",
     suggestionHero: "Générer une image héro pour cette diapositive",
@@ -447,6 +448,10 @@ const messages = {
     order: "Ordre",
     bringToFront: "Mettre au premier plan",
     sendToBack: "Mettre à l'arrière-plan",
+    copyStyle: "Copier le style",
+    pasteStyle: "Coller le style",
+    copy: "Copier",
+    paste: "Coller",
   },
   animations: {
     appear: "Aparecer",

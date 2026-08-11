@@ -358,6 +358,49 @@ export default function App() {
     [],
   );
 
+  const handleAppRemoval = useCallback(
+    async (appId: string) => {
+      const api = window.electronAPI?.appConfig;
+      const app = apps.find((candidate) => candidate.id === appId);
+      if (!api || !app) return;
+
+      const updated = app.isBuiltIn
+        ? await api.update(appId, { enabled: false })
+        : await api.remove(appId);
+      setApps(updated);
+      setAppTabs((current) => {
+        if (!(appId in current)) return current;
+        const next = { ...current };
+        delete next[appId];
+        return next;
+      });
+      setMountedAppIds((current) => {
+        if (!current.has(appId)) return current;
+        const next = new Set(current);
+        next.delete(appId);
+        return next;
+      });
+      setActiveChatFirstAppId((current) => (current === appId ? "" : current));
+      setChatFirstPreviewRequest((current) =>
+        current?.appId === appId ? undefined : current,
+      );
+      setChatFirstPreviewStatus((current) =>
+        current?.appId === appId ? undefined : current,
+      );
+      setActiveSidebarAppId((current) => {
+        if (current !== appId) return current;
+        if (showCodeAgentsTab && chatFirstMode) {
+          return CODE_AGENTS_SURFACE_ID;
+        }
+        return (
+          updated.find((candidate) => candidate.enabled)?.id ??
+          CODE_AGENTS_SURFACE_ID
+        );
+      });
+    },
+    [apps, chatFirstMode, showCodeAgentsTab],
+  );
+
   const handleSidebarAppContextMenu = useCallback(
     async (appId: string) => {
       const api = window.electronAPI?.appConfig;
@@ -376,14 +419,9 @@ export default function App() {
         setApps(updated);
         return;
       }
-      const app = apps.find((candidate) => candidate.id === appId);
-      if (!app) return;
-      const updated = app.isBuiltIn
-        ? await api.update(appId, { enabled: false })
-        : await api.remove(appId);
-      setApps(updated);
+      await handleAppRemoval(appId);
     },
-    [apps],
+    [apps, handleAppRemoval],
   );
 
   const handleSidebarAppSave = useCallback(async (app: AppConfig) => {
@@ -1121,6 +1159,9 @@ export default function App() {
                 onOpenSettings={() => setShowSettings(true)}
                 onCreateApp={() => setShowAddApp(true)}
                 onChatFirstAppCreated={handleChatFirstAppCreated}
+                onChatFirstAppRemove={(app) => {
+                  void handleAppRemoval(app.id);
+                }}
                 onChatFirstAppSelectionChange={
                   handleChatFirstAppSelectionChange
                 }

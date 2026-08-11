@@ -187,7 +187,7 @@ describe("file-upload registry", () => {
       uploadSpy.mockRestore();
     });
 
-    it("returns null (SQL fallback signal) when no creds resolve", async () => {
+    it("returns null when no object-storage credentials resolve", async () => {
       resolveBuilderPrivateKeyMock.mockResolvedValue(null);
       const result = await uploadFile({ data: new Uint8Array([1]) });
       expect(result).toBeNull();

@@ -9,6 +9,7 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   isReconcileLeadClient,
@@ -24254,7 +24255,10 @@ function DesignEditor() {
       return;
     }
     try {
-      await navigator.clipboard.writeText(text);
+      if (!(await writeClipboardText(text))) {
+        toast.error(t("designEditor.toasts.clipboardBlocked"));
+        return;
+      }
       toast.success(t("designEditor.toasts.codingHandoffCopied"));
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));
@@ -24264,7 +24268,10 @@ function DesignEditor() {
   const handleCopyShareLink = useCallback(async () => {
     if (!editorShareUrl) return;
     try {
-      await navigator.clipboard.writeText(editorShareUrl);
+      if (!(await writeClipboardText(editorShareUrl))) {
+        toast.error(t("designEditor.toasts.clipboardBlocked"));
+        return;
+      }
       setShareLinkCopied(true);
       if (shareLinkCopiedResetRef.current !== null) {
         window.clearTimeout(shareLinkCopiedResetRef.current);
@@ -24677,7 +24684,10 @@ function DesignEditor() {
       return;
     }
     try {
-      await navigator.clipboard.writeText(pendingVisualStylePrompt);
+      if (!(await writeClipboardText(pendingVisualStylePrompt))) {
+        toast.error(t("designEditor.toasts.clipboardBlocked"));
+        return;
+      }
       toast.success(t("designEditor.pendingVisualStyles.copiedToast"));
     } catch {
       toast.error(t("designEditor.toasts.clipboardBlocked"));

@@ -124,6 +124,7 @@ import {
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppProductionUrl } from "./app-url.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -600,6 +601,29 @@ export function isDevEnvironment(): boolean {
  */
 export function safeReturnPath(raw: string | null | undefined): string {
   return normalizeAppPath(raw) ?? "/";
+}
+
+// Better Auth's relative callback validator is stricter than normalizeAppPath:
+// query values such as UTM labels may contain characters that are safe here but
+// invalid as a Better Auth relative callback. Promote those paths to the
+// canonical app origin so the callback remains same-origin and valid there.
+const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
+  /^\/(?!\/|\\|%2f|%5c)[\w\-.\+/@]*(?:\?[\w\-.\+/=&%@]*)?$/i;
+
+function betterAuthCallbackURL(
+  raw: string | null | undefined,
+  forceAbsolute = false,
+): string {
+  const safePath = safeReturnPath(raw);
+  if (!forceAbsolute && BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE.test(safePath)) {
+    return safePath;
+  }
+
+  try {
+    return new URL(safePath, getAppProductionUrl()).toString();
+  } catch {
+    return "/";
+  }
 }
 
 /**
@@ -3807,6 +3831,7 @@ async function mountBetterAuthRoutes(
   // need for a separate "Connect Google" page.
   const betterAuthConfig: BetterAuthConfig = {
     ...(options.betterAuth ?? {}),
+    ...(options.maxAge !== undefined ? { sessionMaxAge: options.maxAge } : {}),
     ...(options.googleScopes ? { googleScopes: options.googleScopes } : {}),
   };
   const auth = await getBetterAuth(betterAuthConfig);
@@ -3901,10 +3926,15 @@ async function mountBetterAuthRoutes(
       }
 
       // The signup wrapper sanitizes callbackURL before calling Better Auth,
-      // but the resend endpoint is exposed directly so users can request a
-      // fresh link while unauthenticated. Keep that path equally strict:
-      // only same-origin relative return paths survive into the email.
-      if (isSendVerificationEmail || isMagicLinkRequest) {
+      // but the direct email and magic-link endpoints are also reachable from
+      // the browser. Keep every callback path valid for Better Auth's own
+      // stricter relative URL validator before it is embedded in an email.
+      if (
+        isSendVerificationEmail ||
+        isMagicLinkRequest ||
+        reqPath.includes("/sign-up/email") ||
+        reqPath.includes("/sign-in/email")
+      ) {
         try {
           const body = (await authRequest
             .clone()
@@ -3918,7 +3948,7 @@ async function mountBetterAuthRoutes(
             let changed = false;
             for (const key of callbackKeys) {
               if (typeof body[key] !== "string") continue;
-              const callbackURL = safeReturnPath(body[key]);
+              const callbackURL = betterAuthCallbackURL(body[key]);
               if (callbackURL !== body[key]) {
                 sanitizedBody[key] = callbackURL;
                 changed = true;
@@ -4163,7 +4193,7 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
       const rawEmail = typeof body?.email === "string" ? body.email : "";
       const email = normalizeAuthEmail(rawEmail);
-      let callbackURL =
+      let callbackPath =
         typeof body?.callbackURL === "string"
           ? safeReturnPath(body.callbackURL)
           : "/";
@@ -4180,15 +4210,20 @@ async function mountBetterAuthRoutes(
       }
 
       try {
-        if (isDesktopMagicLinkCallbackPath(callbackURL)) {
+        if (isDesktopMagicLinkCallbackPath(callbackPath)) {
           desktopFlow = await issueDesktopMagicLinkFlow();
-          callbackURL = withDesktopMagicLinkFlow(callbackURL, desktopFlow);
+          callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
+        const callbackURL = betterAuthCallbackURL(callbackPath);
+        const newUserCallbackPath = `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`;
         await auth.api.signInMagicLink({
           body: {
             email,
             callbackURL,
-            newUserCallbackURL: `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackURL)}`,
+            newUserCallbackURL: betterAuthCallbackURL(
+              newUserCallbackPath,
+              callbackURL !== callbackPath,
+            ),
           },
           headers: event.headers,
         });
@@ -4222,7 +4257,7 @@ async function mountBetterAuthRoutes(
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
-          ? safeReturnPath(body.callbackURL)
+          ? betterAuthCallbackURL(body.callbackURL)
           : "/";
 
       if (!email) {

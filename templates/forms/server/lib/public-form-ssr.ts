@@ -10,6 +10,7 @@ import {
 import { eq } from "drizzle-orm";
 import { getMethod, getRequestURL, type H3Event } from "h3";
 
+import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import {
   toPublicFormSettings,
   type FormField,
@@ -200,6 +201,10 @@ function renderField(field: FormField): string {
     ? ` data-cond-field="${escapeHtml(field.conditional.fieldId)}" data-cond-op="${escapeHtml(field.conditional.operator)}" data-cond-val="${escapeHtml(field.conditional.value)}"`
     : "";
   const widthClass = field.width === "half" ? " field-half" : "";
+  const initiallyVisible = isConditionalFieldVisible(field, {});
+  const initialVisibility = initiallyVisible
+    ? ""
+    : ' style="display:none" data-hidden="1"';
 
   let input = "";
 
@@ -265,7 +270,7 @@ function renderField(field: FormField): string {
       break;
   }
 
-  return `<div class="field${widthClass}" data-field-id="${id}"${cond}>
+  return `<div class="field${widthClass}" data-field-id="${id}"${cond}${initialVisibility}>
     <label class="field-label">${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ""}</label>
     ${desc}${input}</div>`;
 }
@@ -435,6 +440,43 @@ function renderFormPage(
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
+  var SENSITIVE_QUERY_PARAMS = ${JSON.stringify([
+    "password",
+    "p",
+    "token",
+    "state",
+    "code",
+    "share",
+    "share_token",
+    "bridge",
+  ])};
+
+  function scrubPageUrl(value) {
+    try {
+      var url = new URL(value);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      url.username = "";
+      url.password = "";
+      scrubParams(url.searchParams);
+      if (url.hash.indexOf("=") >= 0) {
+        var hashParams = new URLSearchParams(url.hash.slice(1));
+        scrubParams(hashParams);
+        url.hash = hashParams.toString();
+      }
+      return url.toString();
+    // coercion-ok: an invalid browser URL is absent page context, not a valid submission value
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function scrubParams(params) {
+    Array.from(params.keys()).forEach(function(key) {
+      if (SENSITIVE_QUERY_PARAMS.indexOf(key.toLowerCase()) >= 0) {
+        params.set(key, "<redacted>");
+      }
+    });
+  }
 
   function revalidateFormVersion() {
     fetch(PUBLIC_FORM_API, { cache: "no-store" })
@@ -631,11 +673,12 @@ function renderFormPage(
     btn.textContent = "Submitting...";
     btn.disabled = true;
     var hp = (document.getElementById("_hp") || {}).value || "";
+    var pageUrl = scrubPageUrl(window.location.href);
 
     fetch(${JSON.stringify(submitPath)} + FORM_ID, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T }),
+      body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
     })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {

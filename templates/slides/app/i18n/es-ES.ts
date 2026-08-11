@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "Pregúntame cualquier cosa sobre tus presentaciones",
-    thisDeck: "Este deck",
+    thisSlide: "Esta diapositiva",
+    currentSelection: "Selección actual",
     suggestionPitch: "Crea un pitch de 10 diapositivas desde este doc",
     suggestionBrand: "Aplica nuestra marca a este deck",
     suggestionHero: "Genera una imagen principal para esta diapositiva",
@@ -443,6 +444,10 @@ const messages = {
     order: "Orden",
     bringToFront: "Traer al frente",
     sendToBack: "Enviar al fondo",
+    copyStyle: "Copiar estilo",
+    pasteStyle: "Pegar estilo",
+    copy: "Copiar",
+    paste: "Pegar",
   },
   animations: {
     appear: "Aparecer",
