@@ -681,6 +681,7 @@ const messages = {
       "डिफ़ॉल्ट डिज़ाइन सिस्टम और रेफरेंस डेक रखें, जब तक आप उन्हें हटाना न चाहें। कोई दूसरा डेक खोजें, फ़ाइल इंपोर्ट करें या तैयार होने पर आगे बढ़ें।",
     chooseAnotherDeck: "दूसरा डेक चुनें",
     noMatchingDecks: "कोई मिलता-जुलता डेक नहीं मिला।",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google Slides डेक",
     googleSlidesReferenceConnect:
       "Slides डेक इंपोर्ट करने के लिए Google Drive कनेक्ट करें।",

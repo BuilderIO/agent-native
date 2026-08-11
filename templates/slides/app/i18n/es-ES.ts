@@ -708,6 +708,7 @@ const messages = {
       "Mantén el sistema de diseño y el deck de referencia predeterminados salvo que los quites. Busca otro deck, importa un archivo o continúa cuando estés listo.",
     chooseAnotherDeck: "Elegir otro deck",
     noMatchingDecks: "No se encontraron decks coincidentes.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Decks de Google Slides",
     googleSlidesReferenceConnect:
       "Conecta Google Drive para importar un deck de Slides.",

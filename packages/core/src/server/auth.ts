@@ -1598,6 +1598,7 @@ function isDesktopMagicLinkCallbackPath(value: string): boolean {
       "/_agent-native/auth/magic-link/desktop-callback",
     );
   } catch {
+    // coercion-ok: malformed callback URLs are treated as non-desktop callbacks.
     return false;
   }
 }
@@ -1738,6 +1739,7 @@ async function consumeDesktopExchangeFromDB(
     if (!packed) return null;
     return parseDesktopExchangeStoredEntry(packed);
   } catch {
+    // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
     return null;
   }
 }
@@ -1804,6 +1806,7 @@ async function claimDesktopMagicLinkFlow(
     });
     return rows.length > 0;
   } catch {
+    // coercion-ok: a failed DB claim must not issue a native session token.
     return false;
   }
 }

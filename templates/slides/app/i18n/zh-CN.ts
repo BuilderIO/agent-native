@@ -668,6 +668,7 @@ const messages = {
       "除非移除，否则保留默认设计系统和参考幻灯片。搜索其他幻灯片、导入文件，或准备好后继续。",
     chooseAnotherDeck: "选择其他幻灯片",
     noMatchingDecks: "未找到匹配的幻灯片。",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google Slides 幻灯片",
     googleSlidesReferenceConnect: "连接 Google Drive 以导入 Slides 幻灯片。",
     googleSlidesReferenceChoose: "选择 Google Slides 幻灯片",

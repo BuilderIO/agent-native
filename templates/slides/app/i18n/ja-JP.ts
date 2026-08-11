@@ -686,6 +686,7 @@ const messages = {
       "削除しない限り、デフォルトのデザインシステムとリファレンスデッキを使用します。別のデッキを検索するか、ファイルをインポートして、準備ができたら続行してください。",
     chooseAnotherDeck: "別のデッキを選択",
     noMatchingDecks: "一致するデッキが見つかりません。",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google Slides デッキ",
     googleSlidesReferenceConnect:
       "Slides デッキをインポートするには Google Drive に接続してください。",
