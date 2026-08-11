@@ -46,7 +46,8 @@ const COMPARISON_ROWS = [
     feature: "Does it know your brand?",
     google: "No",
     gamma: "If you pay.",
-    slides: "Yes - feed in your design system or riff off an old deck.",
+    slides:
+      "Yes. Import design systems.\nOr ask the agent to riff an old deck.",
   },
   {
     feature: "AI control",
@@ -405,7 +406,9 @@ export default function SlidesTemplate() {
                   </td>
                   <td className="px-5 py-4">{row.google}</td>
                   <td className="px-5 py-4">{row.gamma}</td>
-                  <td className="px-5 py-4 text-[var(--fg)]">{row.slides}</td>
+                  <td className="whitespace-pre-line px-5 py-4 text-[var(--fg)]">
+                    {row.slides}
+                  </td>
                 </tr>
               ))}
               <tr>
