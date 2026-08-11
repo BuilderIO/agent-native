@@ -1370,7 +1370,9 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("requestMissingKeySetup");
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
-    expect(source).toContain("willQueue={engineSetupRequired || isRunning}");
+    expect(source).toMatch(
+      /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
+    );
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain("showInlineMissingKeySetup");
     expect(source).toContain("Connect AI above to start chatting...");

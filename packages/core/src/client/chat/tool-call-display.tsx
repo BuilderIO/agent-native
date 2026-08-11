@@ -775,9 +775,7 @@ function ToolCallDisplayGeneric({
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
 }) {
-  const suppressInlineOpenApp = React.useContext(
-    SuppressInlineOpenAppContext,
-  );
+  const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
   const isRawCallAgent = toolName === "call-agent";
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
   const [expanded, setExpanded] = useState(isAgentCall);

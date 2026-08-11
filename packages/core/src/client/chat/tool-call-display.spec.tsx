@@ -1061,7 +1061,11 @@ describe("ToolCallDisplay native renderers", () => {
             toolName="open_app"
             args={{}}
             result={JSON.stringify({ ok: true })}
-            mcpApp={{ ...mcpApp, toolName: "open_app", originalToolName: "open_app" }}
+            mcpApp={{
+              ...mcpApp,
+              toolName: "open_app",
+              originalToolName: "open_app",
+            }}
             isRunning={false}
           />
         </SuppressInlineOpenAppContext.Provider>,
@@ -1078,7 +1082,11 @@ describe("ToolCallDisplay native renderers", () => {
           toolName="open_app"
           args={{}}
           result={JSON.stringify({ ok: true })}
-          mcpApp={{ ...mcpApp, toolName: "open_app", originalToolName: "open_app" }}
+          mcpApp={{
+            ...mcpApp,
+            toolName: "open_app",
+            originalToolName: "open_app",
+          }}
           isRunning={false}
         />,
       );

@@ -325,10 +325,7 @@ async function exchangeIdentityCode(
     const body = (await response.json().catch((error) => {
       void error;
       return null;
-    })) as Record<
-      string,
-      unknown
-    > | null;
+    })) as Record<string, unknown> | null;
     return typeof body?.assertion === "string" ? body.assertion : null;
   } catch (error) {
     void error;
@@ -338,14 +335,14 @@ async function exchangeIdentityCode(
 
 async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
   const adapter = await getBetterAuthInternalAdapter();
-    let existing = adapter
-      ? await adapter
-          .findUserByEmail(identity.email, { includeAccounts: true })
-          .catch((error) => {
-            void error;
-            return null;
-          })
-      : null;
+  let existing = adapter
+    ? await adapter
+        .findUserByEmail(identity.email, { includeAccounts: true })
+        .catch((error) => {
+          void error;
+          return null;
+        })
+    : null;
 
   if (!existing) {
     const auth = await getBetterAuth();
