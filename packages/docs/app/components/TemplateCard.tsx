@@ -373,8 +373,22 @@ export function TemplateCard({ template }: { template: Template }) {
   const { locale } = useLocale();
   const t = useT();
   const templatePath = sitePathForLocale(`/apps/${template.slug}`, locale);
-  const replaces = t(`templates.${template.slug}.replaces`);
-  const description = t(`templates.${template.slug}.description`);
+  const heroCopy =
+    template.slug === "clips"
+      ? {
+          replaces: t("templateLanding.clips.s007"),
+          description: t("templateLanding.clips.s008"),
+        }
+      : template.slug === "slides"
+        ? {
+            replaces: t("templateLanding.slides.s006"),
+            description: t("templateLanding.slides.s007"),
+          }
+        : null;
+  const replaces =
+    heroCopy?.replaces ?? t(`templates.${template.slug}.replaces`);
+  const description =
+    heroCopy?.description ?? t(`templates.${template.slug}.description`);
 
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
