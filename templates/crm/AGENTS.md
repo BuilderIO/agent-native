@@ -7,12 +7,6 @@ HubSpot/Salesforce lens; UI and agent share actions.
 
 - `crm` — read before CRM work: provider/credential boundaries, lists,
   enrichment, signals, dashboards, and Clips evidence.
-- Before building common workspace or agent UI, read `agent-native-toolkit`;
-  read `customizing-agent-native` when extending shared framework capabilities.
-
-Source of truth: `shared/crm-contract.ts` (vocabulary, field and write policy),
-`shared/crm-attributes.ts` (types), `server/lib/record-fields.ts` (the only
-sanctioned field-value write).
 
 ## Core model
 

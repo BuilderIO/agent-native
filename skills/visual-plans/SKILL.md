@@ -1,9 +1,9 @@
 ---
 name: visual-plan
 description: >-
-  Turn ordinary text plans into rich interactive visual plans with diagrams,
-  file maps, annotated code, open questions, and UI/prototype review when
-  useful.
+  Turn a text plan for upcoming work into a rich interactive visual plan —
+  diagrams, file maps, annotated code, open questions. Use when proposing a
+  change before coding it, so the user can review the direction first.
 metadata:
   visibility: exported
 ---

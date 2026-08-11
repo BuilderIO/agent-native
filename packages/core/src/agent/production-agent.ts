@@ -5760,8 +5760,8 @@ export async function runAgentLoop(opts: {
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
-        toolDoneEmitted = true;
         send(event);
+        toolDoneEmitted = true;
       };
 
       // Every tool_start must have exactly one matching tool_done. Keeping the

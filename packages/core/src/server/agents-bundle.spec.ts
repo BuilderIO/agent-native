@@ -537,10 +537,8 @@ describe("readAgentsBundleFromFs", () => {
     const promptBlock = generateSkillsPromptBlock(bundle);
     expect(promptBlock).toContain("Generate or refine complete interactive");
     expect(promptBlock).toContain("Export Design work");
-    expect(promptBlock).toContain(
-      'docs-search --slug "skill-design-generation"',
-    );
-    expect(promptBlock).toContain('docs-search --slug "skill-visual-edit"');
+    expect(promptBlock).toContain("[skill-design-generation]");
+    expect(promptBlock).toContain("[skill-visual-edit]");
   });
 
   it("exposes workflow packaging skills to the app runtime skill picker", () => {

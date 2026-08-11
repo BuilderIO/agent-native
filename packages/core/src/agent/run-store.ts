@@ -1539,10 +1539,11 @@ export async function bumpRunProgress(runId: string): Promise<void> {
  * run manager serializes marker writes and supplies this token so a delayed
  * clear from one tool cannot erase a newer tool's marker.
  *
- * Best-effort: callers fire-and-forget (`.catch(() => {})`) so a write
- * failure here never blocks event emission or aborts the run. If this write
- * itself fails (the same DB pressure that could be starving the heartbeat),
- * the row simply gets no grace — never worse than today's behavior.
+ * Best-effort: callers fire-and-forget so a write failure here never blocks
+ * event emission or aborts the run. The run manager logs marker-write failures
+ * while preserving transition order. If this write itself fails (the same DB
+ * pressure that could be starving the heartbeat), the row simply gets no grace
+ * - never worse than today's behavior.
  */
 export async function setRunInFlightMarker(
   runId: string,

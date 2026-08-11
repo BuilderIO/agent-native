@@ -976,7 +976,7 @@ export function startRun(
     // Preserve transition order: a delayed clear must not erase the marker
     // written for the next tool that starts before the clear reaches SQL.
     inFlightMarkerWrite = inFlightMarkerWrite
-      .catch(() => {})
+      .catch(() => undefined)
       .then(() =>
         setRunInFlightMarker(runId, inFlight, markerSince ?? undefined),
       )
