@@ -12,7 +12,10 @@ export {
   ChatFirstSurfacePanel,
   type ChatFirstSurfacePanelProps,
 } from "./surface-panel.js";
-export { ChatFirstPrimaryNavigation } from "./primary-nav.js";
+export {
+  ChatFirstPrimaryNavigation,
+  type ChatFirstPrimaryTab,
+} from "./primary-nav.js";
 export {
   emitChatFirstOpenApp,
   resolveChatFirstAppTarget,

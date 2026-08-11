@@ -31,6 +31,18 @@ export function workspaceAppRoute(appId: string): string {
   return `/apps/${encodeURIComponent(appId)}`;
 }
 
+export function workspaceAppIdFromRoute(pathname: string): string | null {
+  const match = pathname.match(/^\/apps\/([^/]+)(?:\/|$)/);
+  if (!match) return null;
+  try {
+    const appId = decodeURIComponent(match[1]).trim();
+    return appId || null;
+  } catch {
+    // coercion-ok: malformed app routes are inactive, not app ids.
+    return null;
+  }
+}
+
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   if (app.status === "pending") {
     return app.builderUrl

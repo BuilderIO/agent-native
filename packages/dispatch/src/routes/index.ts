@@ -44,7 +44,7 @@ export const dispatchRoutes: RouteConfig = [
     route("automations", "./pages/automations.js"),
     route("approvals", "./pages/approvals.js"),
     route("destinations", "./pages/destinations.js"),
-    route("integrations", "./pages/integrations.js"),
+    route("integrations", "./pages/agent-integrations.js"),
     route("transactional-email", "./pages/transactional-email.js"),
     route(
       "transactional-email/:appId/:id",

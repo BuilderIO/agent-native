@@ -1,10 +1,10 @@
-import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import "../register-secrets.js";
 
@@ -48,12 +48,21 @@ export default createAgentChatPlugin({
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Drive endpoint.
   codeExecution: { production: "sandboxed" },
-  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  // Upload routes and action routes must use the same session/org resolver.
+  // Reading getOrgContext directly here skipped the upload route's session
+  // fallback and could reject a freshly uploaded reference after a transient
+  // org lookup or active-org transition.
+  resolveOrgId: async (event) => {
+    const authContext = await resolveSlidesRequestAuthContext(event);
+    return authContext.orgId === undefined ? null : authContext.orgId;
+  },
   prepareRequest: prepareSlidesChatAttachments,
   systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. For a newly created presentation, use create-deck with slides: [] only when you are creating the deck yourself, then add-slide sequentially with full rendered HTML. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow.
 
 When the user asks to improve, beautify, restyle, or make an uploaded/existing deck on-brand, treat it as an in-place source-preserving edit unless the user explicitly asks to rewrite the story or change slide count. First call view-screen when the active deck is unclear, then get-deck with compact=true for deck orientation. If you need slide markup, call get-deck with compact=false explicitly and only when the edit requires the full HTML. If get-deck.sourceImport exists, preserve its slide count, order, IDs, factual copy, notes, images, charts, tables, diagrams, freeform objects, and source aspect ratio. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true and one patch-slide operation with fields.content for every source slide ID; the action rejects partial coverage. Do not split a full-deck restyle into arbitrary batches or use one-by-one update-slide calls - reserve update-slide for targeted one-slide edits. After the patch succeeds, verify with get-deck using compact=true so the verification does not retransmit every slide's HTML. Do not claim a partial or initial pass. Do not use add-slide, delete, reorder, or replace source imagery with generic cards for this workflow. If sourceImport.fidelity is partial or imagesSkipped is nonzero, stop and report the exact fidelity warning instead of claiming a reliable improvement.
-For a targeted one-slide edit, prefer get-deck with the stable slideId from view-screen or compact get-deck. It returns only that slide's full HTML by default, so do not load the full deck when one slide is enough. Pass compact=true when you only need a lightweight check of that slide.
+For a targeted one-slide edit, prefer get-deck with the stable slideId from view-screen or compact get-deck. It returns only that slide's full HTML by default, so do not load the full deck when one slide is enough. For code-style edits, request compact=false and format=true, then call update-slide with that slide's contentHash as baseContentHash and an ordered edits list. Use exact replace, insert-before/after, replace-between, or regex-replace edits; include expectedMatches for ambiguous markers. The action applies the whole list atomically under the deck lock, so a failed required match writes nothing. Set format=true on update-slide when readable line breaks should be persisted. Use fullContent only for an intentional full rewrite. Pass compact=true when you only need a lightweight check of that slide.
+
+For click-to-reveal animations, keep the slide HTML as the visual source and store reveals only in the slide's animations metadata. Read the target slide's full HTML, preserve its existing structure, and patch the complete ordered animations list with elementPath values from that final HTML. Leave labels and headings visible by omitting them from the list. Never simulate reveals by adding duplicate elements, visibility:hidden, fmd-layout-spacer, fmd-freeform-object, absolute positioning, transforms, or placeholder markup. If content and reveals both change, send them together in one patch-deck patch-slide operation. If a user asks to remove or revert reveals, send the existing content with animations: [], then re-read the slide; do not use a simplified replacement or rely on update-slide text alone.
 
 When the active Slides editor is already showing the deck you just changed, do not include an "Open the updated deck" or similar link in the final response. The deck is already open and the action updated it in place; say that plainly instead. Only provide an open-deck link when the user is elsewhere, the active deck is different, or the user explicitly asks for a link.
 
