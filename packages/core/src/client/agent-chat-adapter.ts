@@ -1840,13 +1840,18 @@ export function createAgentChatAdapter(
       if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
-      const settleTerminalChatRun = () => {
+      const ownsActiveRunState = () => {
         const activeRun = getActiveRun();
-        const ownsActiveRun =
-          !threadId ||
-          !runId ||
-          (activeRun?.threadId === threadId && activeRun.runId === runId);
-        if (!ownsActiveRun) return;
+        return (
+          !activeRun ||
+          (!!threadId &&
+            !!runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId)
+        );
+      };
+      const settleTerminalChatRun = () => {
+        if (!ownsActiveRunState()) return;
         if (threadId && runId) {
           clearActiveRunIfMatches(threadId, runId);
         } else {
@@ -2281,9 +2286,9 @@ export function createAgentChatAdapter(
                 content,
                 toolCallCounter,
                 tabId,
-                (seq) => {
+                (seq, isProgress) => {
                   rememberRunSeq(seq);
-                  if (threadId) updateActiveRunSeq(seq);
+                  if (threadId) updateActiveRunSeq(seq, isProgress);
                 },
                 runId,
                 currentSSEOptions(),
@@ -2653,9 +2658,9 @@ export function createAgentChatAdapter(
               content,
               toolCallCounter,
               tabId,
-              (seq) => {
+              (seq, isProgress) => {
                 rememberRunSeq(seq);
-                if (threadId) updateActiveRunSeq(seq);
+                if (threadId) updateActiveRunSeq(seq, isProgress);
               },
               runId,
               currentSSEOptions({
@@ -3684,7 +3689,6 @@ export function createAgentChatAdapter(
                     },
                     metadata: { custom: { runError } },
                   } as ChatModelRunResult;
-                  clearActiveRun();
                   return;
                 }
               }
@@ -3821,10 +3825,10 @@ export function createAgentChatAdapter(
               content,
               toolCallCounter,
               tabId,
-              (seq) => {
+              (seq, isProgress) => {
                 rememberRunSeq(seq);
                 if (runId && threadId) {
-                  updateActiveRunSeq(seq);
+                  updateActiveRunSeq(seq, isProgress);
                 }
               },
               runId,
@@ -4299,7 +4303,7 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && ownsActiveRunState()) {
           dispatchTerminalChatUiCleanup(tabId);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {

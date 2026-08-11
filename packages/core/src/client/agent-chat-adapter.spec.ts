@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPendingTurn } from "./active-run-state.js";
+import {
+  getActiveRun,
+  getPendingTurn,
+  setActiveRun,
+} from "./active-run-state.js";
 import {
   activeRunLooksAlive,
   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
@@ -2241,6 +2245,7 @@ describe("createAgentChatAdapter", () => {
   it("fails a normal conflicting send after retry exhaustion instead of replaying the old run", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
     vi.stubGlobal(
       "CustomEvent",
       class CustomEvent {
@@ -2252,6 +2257,11 @@ describe("createAgentChatAdapter", () => {
         }
       },
     );
+    setActiveRun({
+      threadId: "thread-normal-conflict-exhausted",
+      runId: "run-old",
+      lastSeq: 7,
+    });
 
     let postCount = 0;
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
@@ -2301,6 +2311,11 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "previous response is still finishing",
     );
+    expect(getActiveRun()).toEqual({
+      threadId: "thread-normal-conflict-exhausted",
+      runId: "run-old",
+      lastSeq: 7,
+    });
   });
 
   it("settles pending activity when a continuation conflict exhausts retries", async () => {

@@ -8,8 +8,7 @@
 // installs queued updates automatically on quit.
 //
 // In development and local packaged builds, autoUpdater cannot install a
-// release, so we compare the local version against the production manifest and
-// surface a restart affordance when the local checkout is behind.
+// release, so update checks remain explicitly unsupported.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
@@ -31,15 +30,10 @@ const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
   "https://agent-native.com/api/desktop-updates";
-const DEFAULT_DESKTOP_LATEST_VERSION_URL =
-  "https://agent-native.com/api/desktop-latest.json";
 const DESKTOP_UPDATE_FEED_URL = (
   process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
   DEFAULT_DESKTOP_UPDATE_FEED_URL
 ).replace(/\/+$/, "");
-const DESKTOP_LATEST_VERSION_URL =
-  process.env.AGENT_NATIVE_DESKTOP_LATEST_VERSION_URL ||
-  DEFAULT_DESKTOP_LATEST_VERSION_URL;
 
 let currentUpdateStatus: UpdateStatus = IS_DEV_BUILD
   ? { state: "unsupported", reason: "Auto-update is disabled in development" }
@@ -207,59 +201,11 @@ export function compareDesktopVersions(left: string, right: string): number {
   return 0;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function fetchLatestProductionVersion(): Promise<string> {
-  const response = await fetch(DESKTOP_LATEST_VERSION_URL, {
-    headers: {
-      accept: "application/json",
-      "user-agent": "agent-native-desktop-dev-update-check",
-    },
-    signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS),
+async function checkDevelopmentUpdateSupport(): Promise<void> {
+  broadcastUpdateStatus({
+    state: "unsupported",
+    reason: "Auto-update is disabled in development",
   });
-  if (!response.ok) {
-    throw new Error(
-      `Production desktop update check failed (${response.status})`,
-    );
-  }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error("Production desktop update metadata was not valid JSON.");
-  }
-
-  const version =
-    isRecord(payload) && typeof payload.version === "string"
-      ? payload.version.trim()
-      : "";
-  if (!version || !parseDesktopVersion(version)) {
-    throw new Error("Production desktop update metadata has no valid version.");
-  }
-  return version;
-}
-
-async function checkProductionVersionFromDevelopmentBuild(): Promise<void> {
-  const currentVersion = app.getVersion();
-  if (!parseDesktopVersion(currentVersion)) {
-    throw new Error(`Local desktop version is invalid: ${currentVersion}`);
-  }
-
-  broadcastUpdateStatus({ state: "checking" });
-  const productionVersion = await fetchLatestProductionVersion();
-  if (compareDesktopVersions(productionVersion, currentVersion) > 0) {
-    broadcastUpdateStatus({
-      state: "restart-required",
-      version: productionVersion,
-      currentVersion,
-    });
-    return;
-  }
-
-  broadcastUpdateStatus({ state: "not-available", currentVersion });
 }
 
 /** Triggers (or awaits an in-flight) update check. */
@@ -272,7 +218,7 @@ export async function checkForAppUpdates(
     lastUpdateCheckStartedAt = Date.now();
     updateCheckInFlight = withUpdateCheckTimeout(
       IS_DEV_BUILD
-        ? checkProductionVersionFromDevelopmentBuild()
+        ? checkDevelopmentUpdateSupport()
         : (async () => {
             const result = await autoUpdater.checkForUpdates();
             await waitForDownloadedUpdate(result?.downloadPromise);

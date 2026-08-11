@@ -190,16 +190,8 @@ describe("desktop updates", () => {
     expect(refreshApplicationMenu).not.toHaveBeenCalled();
   });
 
-  it("compares a local development build with the production version", async () => {
+  it("keeps development updates explicitly unsupported", async () => {
     vi.stubGlobal("__AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__", "dev");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({ version: "1.1.0" }),
-      }),
-    );
     vi.resetModules();
     const updates = await import("./updates.js");
 
@@ -216,18 +208,9 @@ describe("desktop updates", () => {
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
 
     await expect(updates.checkForAppUpdates()).resolves.toEqual({
-      state: "restart-required",
-      version: "1.1.0",
-      currentVersion: "1.0.0",
+      state: "unsupported",
+      reason: "Auto-update is disabled in development",
     });
-    expect(fetch).toHaveBeenCalledWith(
-      "https://agent-native.com/api/desktop-latest.json",
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          accept: "application/json",
-        }),
-      }),
-    );
     expect(updaterState.setFeedURL).not.toHaveBeenCalled();
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
 
@@ -236,8 +219,8 @@ describe("desktop updates", () => {
     );
     expect(installHandler).toBeDefined();
     installHandler?.();
-    expect(electronState.app.relaunch).toHaveBeenCalledTimes(1);
-    expect(electronState.app.exit).toHaveBeenCalledWith(0);
+    expect(electronState.app.relaunch).not.toHaveBeenCalled();
+    expect(electronState.app.exit).not.toHaveBeenCalled();
   });
 
   it("orders stable and prerelease desktop versions", () => {
