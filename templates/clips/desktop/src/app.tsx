@@ -1022,13 +1022,17 @@ export function App() {
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
-  const [signInPending, setSignInPending] = useState(false);
+  const [signInPending, setSignInPending] = useState<
+    "google" | "magic-link" | null
+  >(null);
+  const [magicLinkEmail, setMagicLinkEmail] = useState<string | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
-  // Ref-based lock so two fast clicks cannot both enter signInExternal()
+  // Ref-based lock so two fast clicks cannot start competing desktop auth
   // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const signInVisibilityRef = useRef<(() => void) | null>(null);
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
@@ -2038,37 +2042,129 @@ export function App() {
     selectedMicLabel,
   });
 
-  // OAuth (Google) opens in the system browser — the popover WebView can't
-  // share a cookie jar with a separate Tauri WebviewWindow, and the old
-  // approach of opening a WebView at the server root produced a blank window.
-  // Instead: fetch the Google auth URL, open it externally, then poll a
-  // server-side exchange endpoint for the session token.
+  type DesktopAuthKind = "google" | "magic-link";
+
+  function stopDesktopAuthPolling() {
+    if (pollIntervalRef.current !== null) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (signInVisibilityRef.current) {
+      document.removeEventListener(
+        "visibilitychange",
+        signInVisibilityRef.current,
+      );
+      signInVisibilityRef.current = null;
+    }
+  }
+
+  function finishDesktopAuthWithError(kind: DesktopAuthKind, message: string) {
+    stopDesktopAuthPolling();
+    signInInflightRef.current = false;
+    setSignInPending(null);
+    if (kind === "magic-link") setMagicLinkEmail(null);
+    setSignInError(message);
+  }
+
+  function startDesktopAuthExchange(
+    flowId: string,
+    kind: DesktopAuthKind,
+    verifier?: string,
+  ) {
+    let tickInFlight = false;
+    const base = serverUrl.replace(/\/+$/, "");
+    const start = Date.now();
+    const TIMEOUT_MS = 5 * 60 * 1000;
+    const POLL_ABORT_MS = Math.max(10_000, 1500 * 4);
+    const timeoutMessage =
+      kind === "magic-link"
+        ? "The sign-in link timed out. Please request a new one."
+        : "Google sign-in timed out. Please try again.";
+    const exchangeErrorMessage =
+      kind === "magic-link"
+        ? "We couldn't complete sign-in with that link. Please request a new one."
+        : "Google sign-in failed. Please try again.";
+
+    const tick = async () => {
+      if (document.hidden || tickInFlight) return;
+      tickInFlight = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
+      try {
+        const exchangeParams = new URLSearchParams({ flow_id: flowId });
+        if (verifier) exchangeParams.set("verifier", verifier);
+        const xr = await fetch(
+          `${base}/_agent-native/auth/desktop-exchange?${exchangeParams.toString()}`,
+          { credentials: "include", signal: controller.signal },
+        );
+        if (!xr.ok) {
+          if (Date.now() - start > TIMEOUT_MS) {
+            finishDesktopAuthWithError(kind, timeoutMessage);
+          }
+          return;
+        }
+        const xd = (await xr.json()) as {
+          error?: string;
+          message?: string;
+          token?: string;
+        } | null;
+        if (xd?.error) {
+          finishDesktopAuthWithError(
+            kind,
+            typeof xd.message === "string"
+              ? xd.message
+              : typeof xd.error === "string"
+                ? xd.error
+                : exchangeErrorMessage,
+          );
+          return;
+        }
+        if (xd?.token) {
+          stopDesktopAuthPolling();
+          saveDesktopAuthToken(base, String(xd.token));
+          // The exchange response sets the WebView cookie. The bearer token
+          // above is the reliable desktop auth path and avoids putting it in a
+          // follow-up URL.
+          signInInflightRef.current = false;
+          setSignInPending(null);
+          setMagicLinkEmail(null);
+          const ok = await checkAuth();
+          if (!ok) {
+            setSignInError(
+              kind === "magic-link"
+                ? "Sign-in completed, but Clips could not save the session. Please try again."
+                : "Google sign-in completed, but Clips could not save the session. Please try again.",
+            );
+          }
+        } else if (Date.now() - start > TIMEOUT_MS) {
+          finishDesktopAuthWithError(kind, timeoutMessage);
+        }
+      } catch {
+        if (Date.now() - start > TIMEOUT_MS) {
+          finishDesktopAuthWithError(kind, timeoutMessage);
+        }
+      } finally {
+        clearTimeout(abortTimer);
+        tickInFlight = false;
+      }
+    };
+
+    stopDesktopAuthPolling();
+    pollIntervalRef.current = setInterval(() => void tick(), 1500);
+    const onVisibilityChange = () => {
+      if (!document.hidden) void tick();
+    };
+    signInVisibilityRef.current = onVisibilityChange;
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void tick();
+  }
+
+  // Google and magic-link verification open in the system browser because
+  // the Tauri WebView has its own cookie jar. Both flows return through the
+  // same short-lived server-side exchange.
   async function signInExternal() {
-    // Synchronous ref guard — prevents a double-click from opening two OAuth
-    // tabs. State updates are async so `signInPending` alone isn't sufficient.
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
-
-    let tickInFlight = false;
-    let onVisibilityChange: (() => void) | null = null;
-
-    function stopPolling() {
-      if (pollIntervalRef.current !== null) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      if (onVisibilityChange) {
-        document.removeEventListener("visibilitychange", onVisibilityChange);
-        onVisibilityChange = null;
-      }
-    }
-
-    function finishWithError(message: string) {
-      stopPolling();
-      signInInflightRef.current = false;
-      setSignInPending(false);
-      setSignInError(message);
-    }
 
     try {
       setSignInError(null);
@@ -2077,90 +2173,70 @@ export function App() {
         Math.random().toString(36).slice(2) + Date.now().toString(36);
       const base = serverUrl.replace(/\/+$/, "");
 
-      // Open directly in the system browser — the server redirects (302)
-      // to Google's OAuth page, avoiding any cross-origin fetch from
-      // the Tauri WebView.
       await openExternal(
         `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
       );
-
-      setSignInPending(true);
-
-      // Poll the exchange endpoint for the session token.
-      const start = Date.now();
-      const TIMEOUT_MS = 180_000; // 3 minutes
-      const POLL_ABORT_MS = Math.max(10_000, 1500 * 4);
-      const tick = async () => {
-        if (document.hidden || tickInFlight) return;
-        tickInFlight = true;
-        const controller = new AbortController();
-        const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
-        try {
-          const xr = await fetch(
-            `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-            { credentials: "include", signal: controller.signal },
-          );
-          if (!xr.ok) {
-            if (Date.now() - start > TIMEOUT_MS) {
-              stopPolling();
-              signInInflightRef.current = false;
-              setSignInPending(false);
-            }
-            return;
-          }
-          const xd = await xr.json();
-          if (xd?.error) {
-            finishWithError(
-              typeof xd.error === "string"
-                ? xd.error
-                : "Google sign-in failed. Please try again.",
-            );
-            return;
-          }
-          if (xd?.token) {
-            stopPolling();
-            saveDesktopAuthToken(base, String(xd.token));
-            // Establish the session cookie when the WebView accepts it; the
-            // bearer token above is the reliable desktop auth path.
-            await fetch(
-              `${base}/_agent-native/auth/session?_session=${xd.token}`,
-              { credentials: "include", signal: controller.signal },
-            );
-            signInInflightRef.current = false;
-            setSignInPending(false);
-            const ok = await checkAuth();
-            if (!ok) {
-              setSignInError(
-                "Google sign-in completed, but Clips could not save the session. Please try again.",
-              );
-            }
-          } else if (Date.now() - start > TIMEOUT_MS) {
-            finishWithError("Google sign-in timed out. Please try again.");
-          }
-        } catch {
-          if (Date.now() - start > TIMEOUT_MS) {
-            finishWithError("Google sign-in timed out. Please try again.");
-          }
-        } finally {
-          clearTimeout(abortTimer);
-          tickInFlight = false;
-        }
-      };
-      pollIntervalRef.current = setInterval(() => void tick(), 1500);
-      onVisibilityChange = () => {
-        if (!document.hidden) void tick();
-      };
-      document.addEventListener("visibilitychange", onVisibilityChange);
+      setSignInPending("google");
+      startDesktopAuthExchange(flowId, "google");
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;
-      setSignInPending(false);
+      setSignInPending(null);
       setSignInError(
         err instanceof Error
           ? err.message
           : "Could not open Google sign-in. Please try again.",
       );
     }
+  }
+
+  async function requestMagicLink(email: string) {
+    if (signInInflightRef.current) return;
+    signInInflightRef.current = true;
+    const base = serverUrl.replace(/\/+$/, "");
+    try {
+      setSignInError(null);
+      const res = await fetch(`${base}/_agent-native/auth/magic-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+        credentials: "include",
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        flowId?: string;
+        verifier?: string;
+      } | null;
+      if (!res.ok) {
+        throw new Error(
+          json?.error || `Could not send sign-in link (${res.status})`,
+        );
+      }
+      if (!json?.flowId || !json.verifier) {
+        throw new Error(
+          "The sign-in flow was not initialized. Please request a new link.",
+        );
+      }
+      setMagicLinkEmail(email.trim());
+      setSignInPending("magic-link");
+      startDesktopAuthExchange(json.flowId, "magic-link", json.verifier);
+    } catch (err) {
+      signInInflightRef.current = false;
+      setSignInPending(null);
+      setMagicLinkEmail(null);
+      throw err;
+    }
+  }
+
+  function cancelSignIn() {
+    stopDesktopAuthPolling();
+    signInInflightRef.current = false;
+    setSignInPending(null);
+    setMagicLinkEmail(null);
+    setSignInError(null);
   }
 
   // Sign out via the framework's logout endpoint. The cookie clears in the
@@ -3863,8 +3939,8 @@ export function App() {
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // OAuth (Google / Apple) still needs a browser, so we offer that as a
-  // secondary link via signInExternal().
+  // Google and magic-link verification use the system browser, while the
+  // password fallback stays inline in this WebView.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
@@ -3875,22 +3951,14 @@ export function App() {
         />
         <UpdateBanner />
         {pendingUploadBanner}
-        {signInPending ? (
+        {signInPending === "google" ? (
           <div className="signin-pending">
             <div className="signin-pending-spinner" />
             <p className="signin-pending-text">Waiting for browser sign-in…</p>
             <button
               type="button"
               className="signin-pending-cancel"
-              onClick={() => {
-                if (pollIntervalRef.current !== null) {
-                  clearInterval(pollIntervalRef.current);
-                  pollIntervalRef.current = null;
-                }
-                signInInflightRef.current = false;
-                setSignInPending(false);
-                setSignInError(null);
-              }}
+              onClick={cancelSignIn}
             >
               Cancel
             </button>
@@ -3907,6 +3975,11 @@ export function App() {
                 await checkAuth();
               }}
               onUseBrowser={signInExternal}
+              onMagicLink={requestMagicLink}
+              magicLinkSentEmail={
+                signInPending === "magic-link" ? magicLinkEmail : null
+              }
+              onMagicLinkBack={cancelSignIn}
             />
           </>
         )}
@@ -4779,19 +4852,28 @@ function SignInForm({
   serverUrl,
   onSignedIn,
   onUseBrowser,
+  onMagicLink,
+  magicLinkSentEmail,
+  onMagicLinkBack,
 }: {
   serverUrl: string;
   onSignedIn: () => Promise<void> | void;
-  onUseBrowser: () => void;
+  onUseBrowser: () => void | Promise<void>;
+  onMagicLink: (email: string) => Promise<void>;
+  magicLinkSentEmail: string | null;
+  onMagicLinkBack: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"magic-link" | "password">(
+    "magic-link",
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    emailRef.current?.focus();
-  }, []);
+    if (!magicLinkSentEmail) emailRef.current?.focus();
+  }, [magicLinkSentEmail]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -4799,6 +4881,10 @@ function SignInForm({
     setError(null);
     setSubmitting(true);
     try {
+      if (authMode === "magic-link") {
+        await onMagicLink(email.trim());
+        return;
+      }
       // Post to the framework's Better Auth-backed email/password endpoint.
       // Production Tauri builds cannot rely on cross-origin cookies sticking,
       // so the desktop fetch interceptor stores the returned session token and
@@ -4828,37 +4914,30 @@ function SignInForm({
     }
   }
 
+  if (magicLinkSentEmail) {
+    return (
+      <div className="signin signin-success" aria-live="polite">
+        <div className="signin-title">Check your email</div>
+        <p className="signin-success-copy">
+          {"We sent a secure sign-in link to "}
+          <strong>{magicLinkSentEmail}</strong>
+          {"."}
+        </p>
+        <button
+          type="button"
+          className="signin-alt signin-mode-link"
+          onClick={onMagicLinkBack}
+        >
+          Back
+        </button>
+      </div>
+    );
+  }
+
   return (
     <form className="signin" onSubmit={onSubmit}>
-      <div className="signin-title">Sign in to Clips</div>
-      <input
-        ref={emailRef}
-        type="email"
-        autoComplete="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <input
-        type="password"
-        autoComplete="current-password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      {error ? <div className="error-banner">{error}</div> : null}
-      <button
-        type="submit"
-        className="primary start"
-        disabled={submitting || !email || !password}
-      >
-        {submitting ? "Signing in…" : "Sign in"}
-      </button>
-      <div className="signin-divider">
-        <span>or</span>
-      </div>
+      <div className="signin-title">Welcome</div>
+      <div className="signin-subtitle">Create an account or sign in</div>
       <button
         type="button"
         className="signin-google"
@@ -4866,7 +4945,65 @@ function SignInForm({
         title="Opens your default browser to complete Google sign-in"
       >
         <GoogleIcon />
-        Continue with Google
+        Sign in with Google
+      </button>
+      <div className="signin-divider">
+        <span>or</span>
+      </div>
+      <input
+        ref={emailRef}
+        type="email"
+        autoComplete="email"
+        placeholder="you@example.com"
+        value={email}
+        onChange={(e) => {
+          setEmail(e.target.value);
+          setError(null);
+        }}
+        required
+      />
+      {authMode === "password" ? (
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            setError(null);
+          }}
+          required
+        />
+      ) : null}
+      {error ? <div className="error-banner">{error}</div> : null}
+      <button
+        type="submit"
+        className="primary start"
+        disabled={
+          submitting || !email || (authMode === "password" && !password)
+        }
+      >
+        {submitting
+          ? authMode === "magic-link"
+            ? "Sending…"
+            : "Signing in…"
+          : authMode === "magic-link"
+            ? "Continue"
+            : "Sign in"}
+      </button>
+      <button
+        type="button"
+        className="signin-alt signin-mode-link"
+        onClick={() => {
+          setError(null);
+          setAuthMode((current) =>
+            current === "magic-link" ? "password" : "magic-link",
+          );
+        }}
+      >
+        {authMode === "magic-link"
+          ? "Use a password instead"
+          : "Use a sign-in link instead"}
       </button>
     </form>
   );

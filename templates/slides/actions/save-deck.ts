@@ -20,6 +20,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import {
+  assertHumanReadableDeckTitle,
+  repairGeneratedDeckTitle,
+} from "../shared/deck-title.js";
+import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
   deckDesignSystemId,
@@ -71,7 +75,7 @@ export default defineAction({
 
       deck.id = deckId;
       deck.updatedAt = now;
-      const title = deckTitle(deck);
+      const requestedTitle = deckTitle(deck);
       const nextDesignSystemId = deckDesignSystemId(deck);
 
       // Resolve access first — this loads the row AND tells us the caller's
@@ -88,6 +92,11 @@ export default defineAction({
         if (!ownerEmail) {
           throw deckHttpError(403, "Sign in to create a deck");
         }
+        const title =
+          repairGeneratedDeckTitle(requestedTitle, firstSlideContent(deck)) ??
+          requestedTitle;
+        assertHumanReadableDeckTitle(title);
+        deck.title = title;
         await assertDesignSystemReadable(nextDesignSystemId);
         try {
           await db.insert(schema.decks).values({
@@ -110,6 +119,14 @@ export default defineAction({
         access.role === "admin" ||
         access.role === "editor"
       ) {
+        const title =
+          repairGeneratedDeckTitle(
+            requestedTitle,
+            firstSlideContent(deck),
+            access.resource.title,
+          ) ?? requestedTitle;
+        assertHumanReadableDeckTitle(title);
+        deck.title = title;
         await assertDesignSystemReadable(nextDesignSystemId);
         if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
           await createDeckVersionSnapshot(
@@ -142,3 +159,9 @@ export default defineAction({
       return deck;
     }),
 });
+
+function firstSlideContent(deck: DeckPayload): string | null {
+  const slides = Array.isArray(deck.slides) ? deck.slides : [];
+  const content = slides[0] && (slides[0] as Record<string, unknown>).content;
+  return typeof content === "string" ? content : null;
+}

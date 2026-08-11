@@ -310,10 +310,10 @@ describe("ToolCallDisplay native renderers", () => {
 
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBeNull();
-    expect(row?.className).not.toContain("agent-tool-call--entering");
+    expect(row?.className).toBe("agent-tool-call");
   });
 
-  it("animates and shimmers a resolved tool that is the active chat tail", () => {
+  it("shimmers a resolved tool that is the active chat tail without entry motion", () => {
     act(() => {
       root.render(
         <ToolCallDisplay
@@ -329,11 +329,11 @@ describe("ToolCallDisplay native renderers", () => {
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBeNull();
     expect(row?.getAttribute("data-active-tail")).toBeNull();
-    expect(row?.className).toContain("agent-tool-call--entering");
+    expect(row?.className).toBe("agent-tool-call");
     expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
   });
 
-  it("animates a tool row that mounts running", () => {
+  it("does not animate a tool row that mounts running", () => {
     act(() => {
       root.render(
         <ToolCallDisplay toolName="read-file" args={{}} isRunning={true} />,
@@ -342,7 +342,7 @@ describe("ToolCallDisplay native renderers", () => {
 
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBe("true");
-    expect(row?.className).toContain("agent-tool-call--entering");
+    expect(row?.className).toBe("agent-tool-call");
   });
 
   it("does not replay the entry when an existing row becomes the active tail", () => {
@@ -356,9 +356,9 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
-    expect(
-      container.querySelector(".agent-tool-call")?.className,
-    ).not.toContain("agent-tool-call--entering");
+    expect(container.querySelector(".agent-tool-call")?.className).toBe(
+      "agent-tool-call",
+    );
 
     act(() => {
       root.render(
@@ -370,9 +370,9 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
-    expect(
-      container.querySelector(".agent-tool-call")?.className,
-    ).not.toContain("agent-tool-call--entering");
+    expect(container.querySelector(".agent-tool-call")?.className).toBe(
+      "agent-tool-call",
+    );
   });
 
   it("shimmers only the newest running reconnect tool", () => {
@@ -2001,45 +2001,17 @@ describe("ToolCallStackMotion", () => {
     const retainedRowAnimation = animations.find(
       ({ element }) => element.dataset.agentToolCallId === "tool-b",
     );
-    expect(retainedRowAnimation?.keyframes[0]?.transform).toBe(
-      "translate3d(0px, -24px, 0)",
-    );
-    expect(retainedRowAnimation?.keyframes[1]?.transform).toBe(
-      "translate3d(0, 0, 0)",
-    );
-    expect(
-      container.querySelector('[data-agent-tool-call-id="tool-d"]')?.classList,
-    ).toContain("agent-tool-call--stack-entering");
-    expect(
-      container.querySelector("[data-agent-tool-summary]")?.classList,
-    ).not.toContain("agent-tool-summary--entering");
-    expect(
-      animations.some(
-        ({ element }) => element.dataset.agentToolSummary !== undefined,
-      ),
-    ).toBe(false);
-    expect(
-      document.querySelector(".agent-tool-call-stack__exit"),
-    ).not.toBeNull();
-
-    const exitAnimation = animations.find(({ element }) =>
-      element.classList.contains("agent-tool-call-stack__exit"),
-    );
-    expect(exitAnimation).toBeDefined();
-    exitAnimation?.animation.onfinish?.();
-    expect(document.querySelector(".agent-tool-call-stack__exit")).toBeNull();
+    expect(retainedRowAnimation).toBeUndefined();
+    expect(animations).toHaveLength(0);
   });
 
-  it("does not animate again when an entry class is removed", () => {
+  it("does not animate when the stack rows change", () => {
     const layout = new Map<string, number>([["tool-a", 24]]);
     Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
       configurable: true,
       value(this: HTMLElement) {
         const key = this.dataset.agentToolCallId ?? "";
-        const entryOffset = this.classList.contains("agent-tool-call--entering")
-          ? 6
-          : 0;
-        const top = (layout.get(key) ?? 0) + entryOffset;
+        const top = layout.get(key) ?? 0;
         return {
           top,
           left: 0,
@@ -2067,17 +2039,14 @@ describe("ToolCallStackMotion", () => {
       },
     });
 
-    const render = (entering: boolean) => (
+    const render = () => (
       <ToolCallStackMotion>
-        <div
-          className={entering ? "agent-tool-call--entering" : "agent-tool-call"}
-          data-agent-tool-call-id="tool-a"
-        />
+        <div className="agent-tool-call" data-agent-tool-call-id="tool-a" />
       </ToolCallStackMotion>
     );
 
-    act(() => root.render(render(true)));
-    act(() => root.render(render(false)));
+    act(() => root.render(render()));
+    act(() => root.render(render()));
 
     expect(animations).toHaveLength(0);
   });

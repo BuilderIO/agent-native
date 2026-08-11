@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPendingTurn } from "./active-run-state.js";
+import {
+  getActiveRun,
+  getPendingTurn,
+  setActiveRun,
+} from "./active-run-state.js";
 import {
   activeRunLooksAlive,
   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
@@ -429,6 +433,47 @@ describe("createAgentChatAdapter", () => {
       engine: "anthropic",
       effort: "high",
     });
+  });
+
+  it("posts approval grants on the continuation turn", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-approval",
+      threadId: "thread-approval",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolName: "create-builder-branch",
+                toolCallId: "call-1",
+                args: {},
+                result: "Awaiting human approval.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Approved. Go ahead." }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { approvedToolCalls: ["create-builder-branch:{}"] },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.approvedToolCalls).toEqual(["create-builder-branch:{}"]);
   });
 
   it("falls back to the live picker for queue entries without a model snapshot", async () => {
@@ -2200,6 +2245,7 @@ describe("createAgentChatAdapter", () => {
   it("fails a normal conflicting send after retry exhaustion instead of replaying the old run", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
     vi.stubGlobal(
       "CustomEvent",
       class CustomEvent {
@@ -2211,6 +2257,11 @@ describe("createAgentChatAdapter", () => {
         }
       },
     );
+    setActiveRun({
+      threadId: "thread-normal-conflict-exhausted",
+      runId: "run-old",
+      lastSeq: 7,
+    });
 
     let postCount = 0;
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
@@ -2260,6 +2311,11 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "previous response is still finishing",
     );
+    expect(getActiveRun()).toEqual({
+      threadId: "thread-normal-conflict-exhausted",
+      runId: "run-old",
+      lastSeq: 7,
+    });
   });
 
   it("settles pending activity when a continuation conflict exhausts retries", async () => {
@@ -3570,7 +3626,7 @@ describe("createAgentChatAdapter", () => {
       }),
     );
     const last = results.at(-1) as any;
-    expect(last.status).toBeUndefined();
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
     expect(last.content.at(-1).text).toBe(
       "saved variants after inspecting state",
     );
@@ -3644,7 +3700,7 @@ describe("createAgentChatAdapter", () => {
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
     const last = results.at(-1) as any;
-    expect(last.status).toBeUndefined();
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
     expect(last.content.at(-1).text).toBe("started after retry");
   });
 
@@ -5346,6 +5402,18 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
+      }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "chat-completed-side-effect" },
+      }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:stream-progress",
+        detail: { tabId: "chat-completed-side-effect" },
       }),
     );
     const last = results.at(-1) as any;
@@ -7396,6 +7464,86 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working continued");
   });
 
+  it("reattaches an internal continuation when 409 confirms the same turn", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let chatPostCount = 0;
+    let turnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        chatPostCount += 1;
+        turnId = JSON.parse(init.body as string).turnId;
+        if (chatPostCount === 1) {
+          return sseResponse(
+            [
+              { type: "text", text: "Working" },
+              { type: "auto_continue", reason: "no_progress" },
+            ],
+            "run-first",
+          );
+        }
+        return jsonResponse({ activeRunId: "run-first" }, 409);
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-first",
+          threadId: "thread-same-turn-conflict",
+          turnId,
+          status: "running",
+        });
+      }
+      if (url.includes("/runs/run-first/events")) {
+        return sseResponse(
+          [{ type: "text", text: " recovered continuation" }, { type: "done" }],
+          "run-first",
+        );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-same-turn-conflict",
+      threadId: "thread-same-turn-conflict",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "continue after quiet stream" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const results = await promise;
+
+    expect(chatPostCount).toBe(2);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/runs/run-first/events"),
+      expect.any(Object),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain("recovered continuation");
+  });
+
   it("gives up quickly when the model repeats the same narration without finishing", async () => {
     // A degenerate model loop re-streams the same sentence every continuation
     // and never starts or finishes a tool (the create-extension-with-a-huge-
@@ -8083,11 +8231,30 @@ describe("activeRunLooksAlive", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("trusts the server's running status and fails safe on lookup errors", async () => {
+  it("requires server in-flight work and fails safe on lookup errors", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         jsonResponse({ active: true, runId: "run-1", status: "running" }),
+      ),
+    );
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+      }),
+    ).resolves.toBe(false);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          active: true,
+          runId: "run-1",
+          status: "running",
+          hasInFlightWork: true,
+        }),
       ),
     );
     await expect(
@@ -8123,6 +8290,37 @@ describe("activeRunLooksAlive", () => {
         runId: "run-1",
       }),
     ).resolves.toBe(true);
+  });
+
+  it("does not treat an activity-only tool placeholder as in-flight work", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-1",
+        status: "running",
+        hasInFlightWork: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "activity-only",
+            toolName: "patch-deck",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ] as any,
+      }),
+    ).resolves.toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 

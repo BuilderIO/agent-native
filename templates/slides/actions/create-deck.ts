@@ -20,6 +20,10 @@ import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import {
+  assertHumanReadableDeckTitle,
+  repairGeneratedDeckTitle,
+} from "../shared/deck-title.js";
 import { getDeckUrl } from "./_app-url.js";
 
 const ReuseLabelSchema = z
@@ -216,6 +220,9 @@ export default defineAction({
       ...s,
       content: normalizeSlidePadding(s.content),
     }));
+    const firstSlideContent = slides[0]?.content;
+    const resolvedTitle =
+      repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
 
     if (deckId) {
       if (designSystemId) {
@@ -231,6 +238,10 @@ export default defineAction({
       if (!existing[0]) {
         throw new Error(`Deck not found: ${deckId}`);
       }
+      const existingDeckTitle =
+        repairGeneratedDeckTitle(title, firstSlideContent, existing[0].title) ??
+        resolvedTitle;
+      assertHumanReadableDeckTitle(existingDeckTitle);
       await createDeckVersionSnapshot(
         {
           id: existing[0].id,
@@ -242,7 +253,7 @@ export default defineAction({
       );
       const prevData = existing[0] ? JSON.parse(existing[0].data) : {};
       const data = {
-        title,
+        title: existingDeckTitle,
         slides,
         updatedAt: now,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
@@ -252,7 +263,7 @@ export default defineAction({
       await db
         .update(schema.decks)
         .set({
-          title,
+          title: existingDeckTitle,
           data: JSON.stringify(data),
           designSystemId: designSystemId ?? existing[0]?.designSystemId ?? null,
           updatedAt: now,
@@ -271,7 +282,7 @@ export default defineAction({
       });
       return {
         id: deckId,
-        title,
+        title: existingDeckTitle,
         slideCount: slides.length,
         url: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
@@ -282,6 +293,7 @@ export default defineAction({
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    assertHumanReadableDeckTitle(resolvedTitle);
 
     let resolvedDesignSystemId = designSystemId;
     if (resolvedDesignSystemId) {
@@ -293,7 +305,7 @@ export default defineAction({
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const data: Record<string, unknown> = {
-      title,
+      title: resolvedTitle,
       slides,
       createdAt: now,
       updatedAt: now,
@@ -303,7 +315,7 @@ export default defineAction({
     data.creativeContext = creativeContextProvenance;
     await db.insert(schema.decks).values({
       id,
-      title,
+      title: resolvedTitle,
       data: JSON.stringify(data),
       designSystemId: resolvedDesignSystemId ?? null,
       ownerEmail,
@@ -323,7 +335,7 @@ export default defineAction({
     });
     return {
       id,
-      title,
+      title: resolvedTitle,
       slideCount: slides.length,
       url: getDeckUrl(id),
       deepLink: deckDeepLink(id),

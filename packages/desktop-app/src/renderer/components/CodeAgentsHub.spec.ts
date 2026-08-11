@@ -205,6 +205,15 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
+  it("keeps the chat-first composer narrower than its apps grid", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toContain("width: min(100%, 750px) !important;");
+    expect(shellCss).toMatch(
+      /\.desktop-apps-grid\s*\{[\s\S]*?max-width: 1000px;/,
+    );
+  });
+
   it("keeps full-page settings on the shared query and theme contracts", () => {
     const settingsSource = readFileSync(
       "src/renderer/components/AppSettings.tsx",
@@ -280,6 +289,30 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       path: "/events/42?mode=week#details",
       view: "event",
     });
+  });
+
+  it("records whether an app was opened from the rail or the agent", () => {
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "analytics", name: "Analytics" },
+        "/adhoc/q2",
+        undefined,
+        "side",
+      ),
+    ).toMatchObject({
+      kind: "app",
+      appId: "analytics",
+      placement: "side",
+      path: "/adhoc/q2",
+    });
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "analytics", name: "Analytics" },
+        "/",
+        undefined,
+        "main",
+      ).placement,
+    ).toBe("main");
   });
 
   it("renders a live provider update in the subscription usage popover", async () => {

@@ -26,6 +26,7 @@
   --accent-foreground: 0 0% 15%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
+  --update-accent: 217 91% 60%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
   --ring: 0 0% 40%;
@@ -651,8 +652,20 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail {
+  position: relative;
   border-right: 0;
   padding-top: 36px;
+}
+
+/* Keep the blank rail strip beside the native traffic lights available for
+   moving the frameless desktop window without covering rail controls. */
+.desktop-chat-first-hub .code-agents-window-drag-region {
+  position: absolute;
+  top: 20px;
+  right: 0;
+  left: var(--macos-traffic-light-safe-area);
+  height: 16px;
+  -webkit-app-region: drag;
 }
 
 .desktop-chat-first-hub .code-agents-nav-list,
@@ -667,13 +680,21 @@ body {
   box-sizing: border-box;
 }
 
-.desktop-chat-first-hub .code-agents-start > .code-agents-standard-composer {
+.desktop-chat-first-hub .code-agents-start .code-agents-standard-composer {
   align-self: center;
+  margin-inline: auto;
   width: min(100%, 750px) !important;
+  inline-size: min(100%, 750px) !important;
+  max-width: 750px !important;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-project-picker--bar {
+  align-self: center;
+  width: min(100%, 750px);
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
-  display: none;
+  flex: 1 1 auto;
 }
 
 .desktop-apps-grid {
@@ -829,8 +850,22 @@ body {
 }
 
 .code-agents-rail-footer {
+  display: grid;
+  gap: 1px;
   border-top: 1px solid hsl(var(--sidebar-border));
   padding: 8px;
+}
+
+.desktop-chat-first-hub .code-agents-rail-footer .update-indicator--pending,
+.desktop-chat-first-hub
+  .code-agents-rail-footer
+  .update-indicator--downloading {
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-chat-first-hub .code-agents-rail-footer .update-indicator--ready {
+  color: hsl(var(--update-accent));
+  font-weight: 600;
 }
 
 .code-agents-embedded-app-surface {

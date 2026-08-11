@@ -11,6 +11,12 @@ export const MAX_DECLARED_STARTER_TOOLS = 40;
 // including its entire "answer this in one bounded call" workflow section.
 export const MAX_AGENT_INSTRUCTION_CHARS = 6_000;
 
+// Mirrors the rubric in .agents/skills/writing-agent-instructions/SKILL.md
+// ("Keep files under ~5,500 so ordinary edits don't tip them over"). Warn-only
+// — files already sit right up against the hard cap, so this cannot fail the
+// build without breaking every one of them at once.
+export const WARN_AGENT_INSTRUCTION_CHARS = 5_500;
+
 export type AgentChatContextPolicy = {
   file: string;
   leanPrompt: boolean;
@@ -151,11 +157,16 @@ export function discoverAgentChatPlugins(repoRoot: string): string[] {
 
 export function discoverAgentInstructionFiles(repoRoot: string): string[] {
   const files: string[] = [];
-  const templatesDir = path.join(repoRoot, "templates");
-  if (existsSync(templatesDir)) {
-    for (const entry of readdirSync(templatesDir, { withFileTypes: true })) {
+  // "apps" carries the same production-injected, compact-prompt-sliced
+  // AGENTS.md as "templates" — both are scanned identically. (workspace-root's
+  // AGENTS.md is deliberately excluded: it only ever becomes a scaffolded
+  // monorepo's dev-facing root file, never a runtime-injected prompt resource.)
+  for (const parent of ["templates", "apps"]) {
+    const parentDir = path.join(repoRoot, parent);
+    if (!existsSync(parentDir)) continue;
+    for (const entry of readdirSync(parentDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const candidate = path.join(templatesDir, entry.name, "AGENTS.md");
+      const candidate = path.join(parentDir, entry.name, "AGENTS.md");
       if (existsSync(candidate)) files.push(candidate);
     }
   }
@@ -172,24 +183,43 @@ export function discoverAgentInstructionFiles(repoRoot: string): string[] {
 }
 
 export function checkAgentInstructionSizes(repoRoot: string): {
-  sizes: Array<{ file: string; chars: number; overCap: boolean }>;
+  sizes: Array<{
+    file: string;
+    chars: number;
+    overCap: boolean;
+    nearCap: boolean;
+  }>;
   errors: string[];
+  warnings: string[];
 } {
-  const sizes: Array<{ file: string; chars: number; overCap: boolean }> = [];
+  const sizes: Array<{
+    file: string;
+    chars: number;
+    overCap: boolean;
+    nearCap: boolean;
+  }> = [];
   const errors: string[] = [];
+  const warnings: string[] = [];
   for (const file of discoverAgentInstructionFiles(repoRoot)) {
     const chars = readFileSync(file, "utf8").trim().length;
     const relative = path.relative(repoRoot, file);
     const overCap = chars > MAX_AGENT_INSTRUCTION_CHARS;
-    sizes.push({ file: relative, chars, overCap });
-    if (!overCap) continue;
+    const nearCap = !overCap && chars > WARN_AGENT_INSTRUCTION_CHARS;
+    sizes.push({ file: relative, chars, overCap, nearCap });
 
-    const dropped = chars - MAX_AGENT_INSTRUCTION_CHARS;
-    errors.push(
-      `${relative}: ${chars} characters exceeds the ${MAX_AGENT_INSTRUCTION_CHARS}-character compact-prompt cap; the last ${dropped} characters are silently dropped before the model sees them. Move detail into .agents/skills/* and point at it from the skills list.`,
-    );
+    if (overCap) {
+      const dropped = chars - MAX_AGENT_INSTRUCTION_CHARS;
+      errors.push(
+        `${relative}: ${chars} characters exceeds the ${MAX_AGENT_INSTRUCTION_CHARS}-character compact-prompt cap; the last ${dropped} characters are silently dropped before the model sees them. Move detail into .agents/skills/* and point at it from the skills list.`,
+      );
+    } else if (nearCap) {
+      const headroom = MAX_AGENT_INSTRUCTION_CHARS - chars;
+      warnings.push(
+        `${relative}: ${chars} characters is over the ${WARN_AGENT_INSTRUCTION_CHARS}-character soft limit — only ${headroom} characters of headroom before the ${MAX_AGENT_INSTRUCTION_CHARS}-character hard cap starts dropping content. Move detail into .agents/skills/* now.`,
+      );
+    }
   }
-  return { sizes, errors };
+  return { sizes, errors, warnings };
 }
 
 export function checkAgentChatContextPolicies(repoRoot: string): {
@@ -213,11 +243,21 @@ function main(): void {
   const result = checkAgentChatContextPolicies(repoRoot);
   const instructions = checkAgentInstructionSizes(repoRoot);
   for (const entry of instructions.sizes) {
+    const status = entry.overCap
+      ? " (OVER CAP)"
+      : entry.nearCap
+        ? " (WARN: approaching cap)"
+        : "";
     console.log(
-      `[guard:agent-chat-context] ${entry.file}: ${entry.chars}/${MAX_AGENT_INSTRUCTION_CHARS} instruction chars${entry.overCap ? " (OVER CAP)" : ""}`,
+      `[guard:agent-chat-context] ${entry.file}: ${entry.chars}/${MAX_AGENT_INSTRUCTION_CHARS} instruction chars${status}`,
     );
   }
   result.errors.push(...instructions.errors);
+  if (instructions.warnings.length > 0) {
+    console.warn(
+      `[guard:agent-chat-context] WARNING: ${instructions.warnings.length} file(s) over the ${WARN_AGENT_INSTRUCTION_CHARS}-character soft limit (does not fail the build):\n${instructions.warnings.map((warning) => `- ${warning}`).join("\n")}`,
+    );
+  }
   for (const policy of result.policies) {
     const count =
       policy.starterToolCount === null

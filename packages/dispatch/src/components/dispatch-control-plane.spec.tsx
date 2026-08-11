@@ -124,6 +124,8 @@ describe("DispatchControlPlane", () => {
     });
 
     expect(container.textContent).toContain("Chat across your apps");
+    expect(container.querySelector('[class*="max-w-[750px]"]')).not.toBeNull();
+    expect(container.querySelector('[class*="max-w-[1000px]"]')).not.toBeNull();
     expect(container.textContent).not.toContain("Open chat");
     expect(container.textContent).not.toContain("Also");
     expect(container.textContent).not.toContain("active");

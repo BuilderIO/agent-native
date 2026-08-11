@@ -514,6 +514,8 @@ type PanelConfig = Record<string, unknown> & {
   // Series to plot against a second, right-hand y-axis. See "Dual-Axis Charts".
   rightYKeys?: string[];
   rightYFormatter?: "number" | "currency" | "percent";
+  // Exact series-key to display-label aliases for legends and tooltips.
+  seriesLabels?: Record<string, string>;
 };
 
 type PanelPatch = {

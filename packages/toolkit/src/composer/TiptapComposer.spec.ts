@@ -44,7 +44,7 @@ describe("createTiptapComposerExtensions", () => {
     }).not.toThrow();
   });
 
-  it("offers explicit reasoning levels without legacy Auto", () => {
+  it("offers explicit effort levels without legacy Auto", () => {
     expect(getComposerReasoningEffortOptions("auto")).toEqual([
       "low",
       "medium",

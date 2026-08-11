@@ -720,6 +720,10 @@ function copyNetlifyFunctionIntoWorkspace(
  * Emit the per-app Netlify Scheduled Function that hands one recurring-job
  * sweep to that app's durable background worker. The worker owns the actual
  * scan so scheduled-function timeouts cannot strand the automation runner.
+ *
+ * The entry imports `node:crypto`, so `includedFiles: ["**"]` must stay: the
+ * deploy packager only accepts an omitted `includedFiles` for scheduled
+ * functions whose entry file has no import/require edge at all.
  */
 function emitNetlifyRecurringJobsFunction(
   workspaceRoot: string,
@@ -787,6 +791,7 @@ export const config = {
   generator: "agent-native workspace deploy",
   schedule: "* * * * *",
   nodeBundler: "none",
+  includedFiles: ["**"],
 };
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);

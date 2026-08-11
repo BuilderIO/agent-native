@@ -5,6 +5,8 @@ import {
   getSlideAnimationTargetKey,
   getSlideAnimationTargetPreview,
   parseSlideAnimationElements,
+  resolveSlideAnimationElement,
+  resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
 
 const contentSlide = `<div class="fmd-slide" style="padding: 80px 110px; justify-content: center;">
@@ -80,6 +82,47 @@ describe("slide animation element parsing", () => {
         elementPath: [1, 0],
       }),
     ).toBe("1.0");
+  });
+
+  it("does not fall back to a different element when a preferred path is stale", () => {
+    const doc = new DOMParser().parseFromString(contentSlide, "text/html");
+    const root = doc.querySelector(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    expect(
+      resolveSlideAnimationElement(root, {
+        elementIndex: 0,
+        elementPath: [99],
+      }),
+    ).toBeNull();
+    expect(
+      resolveSlideAnimationTargets(root, [
+        { elementIndex: 0, elementPath: [2, 0] },
+        { elementIndex: 1, elementPath: [99] },
+      ]),
+    ).toBeNull();
+  });
+
+  it("resolves every ordered target exactly once", () => {
+    const doc = new DOMParser().parseFromString(contentSlide, "text/html");
+    const root = doc.querySelector(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const elements = parseSlideAnimationElements(contentSlide);
+    const targets = elements.map((element) => ({
+      elementIndex: element.index,
+      elementPath: element.path,
+    }));
+    const resolved = resolveSlideAnimationTargets(root, targets);
+
+    expect(resolved?.map((entry) => entry.key)).toEqual(
+      elements.map((element) => element.path.join(".")),
+    );
+    expect(
+      resolveSlideAnimationTargets(root, [targets[0]!, targets[0]!]),
+    ).toBeNull();
   });
 
   it("includes empty styled shapes without exposing styled layout wrappers", () => {
