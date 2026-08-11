@@ -32,6 +32,7 @@ export {
 export {
   buildOpenRouteLink,
   buildOpenRoutePath,
+  buildLegacyAgentSettingsRoute,
   buildResourceRoute,
   buildSettingsRoute,
   buildStandardAppRoute,

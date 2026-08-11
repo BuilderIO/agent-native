@@ -770,6 +770,7 @@ const messages = {
     tools: {
       move: "移動",
       frame: "畫框",
+      screen: "畫面",
       rect: "矩形",
       line: "線條",
       arrow: "箭頭",
@@ -1198,6 +1199,9 @@ const messages = {
     newDesign: "新Design",
     newDesignLower: "新設計",
     createDesignProject: "建立一個設計專案",
+    createdBy: "建立者",
+    allAuthors: "所有作者",
+    me: "我",
     openingDesign: "正在開啟設計...",
     skipToEditor: "直接進入編輯器",
     failedToCreateDesign: "無法建立設計",

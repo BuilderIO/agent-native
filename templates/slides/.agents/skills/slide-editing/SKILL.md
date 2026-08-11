@@ -63,6 +63,9 @@ To edit a slide's content:
 
 1. **Inspect the current context**: call `view-screen` to get the active deck,
    slide ID, HTML, and any `slides-selection` style/edit target.
+   For a targeted persisted read, pass that stable `slideId` to `get-deck` so
+   only the target slide is returned; use `compact=false` when you need its
+   full HTML.
 2. **Retrieve before generating**: when the edit changes facts, brand language,
    or layout, follow the `creative-context` skill and query those roles
    separately. Respect opt-out, pinned packs, and the exact reuse ladder.

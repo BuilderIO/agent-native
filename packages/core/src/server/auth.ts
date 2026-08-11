@@ -94,6 +94,8 @@ import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH_MESSAGE,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
 import {
@@ -166,6 +168,7 @@ import {
   decodeOAuthState,
   createOAuthSession,
   oauthCallbackResponse,
+  oauthDesktopExchangePage,
   oauthErrorPage,
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
@@ -887,6 +890,21 @@ function verifyEmailRedirectHasError(
   }
 }
 
+function sanitizeVerificationErrorRedirect(
+  location: string,
+  requestUrl: string,
+): string {
+  try {
+    const parsed = new URL(location, requestUrl);
+    parsed.searchParams.set("error", "verification_link_invalid");
+    return /^[a-z][a-z\d+.-]*:/i.test(location)
+      ? parsed.toString()
+      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return location;
+  }
+}
+
 function appendVerifiedParamToLocation(location: string): string {
   const hashIndex = location.indexOf("#");
   const beforeHash = hashIndex >= 0 ? location.slice(0, hashIndex) : location;
@@ -951,6 +969,68 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
 const VALID_AUTH_EMAIL_MESSAGE =
   "Enter a valid email address, like you@example.com.";
 const AUTH_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AUTH_CREDENTIALS_REQUIRED_MESSAGE = "Enter your email and password.";
+const AUTH_EMAIL_NOT_VERIFIED_MESSAGE =
+  "Your email isn't verified yet. Check your inbox for a verification link.";
+const AUTH_ACCOUNT_EXISTS_MESSAGE =
+  "An account with this email already exists. Sign in instead or reset your password.";
+const AUTH_PASSWORD_REQUIRED_MESSAGE = "Enter a password.";
+const AUTH_LOGIN_FALLBACK =
+  "We couldn't sign you in right now. Please try again.";
+const AUTH_MAGIC_LINK_FALLBACK =
+  "We couldn't send a sign-in link right now. Please try again.";
+const AUTH_SIGNUP_FALLBACK =
+  "We couldn't create your account right now. Please try again.";
+const AUTH_VERIFICATION_LINK_FALLBACK =
+  "This verification link is invalid or expired. Request a new one.";
+const AUTH_RESET_PASSWORD_FALLBACK =
+  "We couldn't update your password. The link may have expired; request a new one.";
+const AUTH_RESET_EMAIL_FALLBACK =
+  "We couldn't send a password reset email. Check your email and try again.";
+const AUTH_GENERIC_FALLBACK =
+  "We couldn't complete that request right now. Please try again.";
+const AUTH_GOOGLE_FALLBACK =
+  "We couldn't sign you in with Google right now. Please try again.";
+const AUTH_GOOGLE_CANCELLED =
+  "Google sign-in was cancelled. Try again when you're ready.";
+const AUTH_GOOGLE_START_FALLBACK =
+  "We couldn't start Google sign-in. Please try again.";
+
+function isTechnicalAuthErrorMessage(message: string): boolean {
+  return /failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(
+    message,
+  );
+}
+
+function isAuthPasswordTooShortMessage(message: string): boolean {
+  return /password.*(?:at least|minimum|min(?:imum)?|too short)/i.test(message);
+}
+
+function isAuthPasswordTooLongMessage(message: string): boolean {
+  return /password.*(?:at most|maximum|max(?:imum)?|too long)/i.test(message);
+}
+
+function isAuthPasswordRequiredMessage(message: string): boolean {
+  return /password.*(?:required|missing)/i.test(message);
+}
+
+function isAuthEmailNotVerifiedMessage(message: string): boolean {
+  return /(?:email|account).*(?:not verified|unverified)|not verified/i.test(
+    message,
+  );
+}
+
+function isAuthAccountExistsMessage(message: string): boolean {
+  return /(?:already exists|already registered|already in use|user exists|user already|duplicate key|unique constraint|unique.*(?:email|constraint))/i.test(
+    message,
+  );
+}
+
+function isAuthInvalidCredentialsMessage(message: string): boolean {
+  return /(?:invalid|incorrect|wrong).*?(?:email|password|credentials)|(?:email|password|credentials).*?(?:invalid|incorrect|wrong)/i.test(
+    message,
+  );
+}
 
 function normalizeAuthEmail(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -962,14 +1042,125 @@ function publicAuthError(
   error: unknown,
   fallback: string,
 ): { message: string; statusCode?: number } {
-  const message = (error as { message?: unknown })?.message;
-  if (typeof message === "string") {
-    if (isAuthEmailValidationMessage(message)) {
-      return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
-    }
-    if (message.trim()) return { message };
+  const authError = error as { code?: unknown; message?: unknown };
+  const message =
+    typeof authError?.message === "string" ? authError.message : "";
+  const code = typeof authError?.code === "string" ? authError.code : "";
+  const details = `${code} ${message}`.trim();
+
+  if (
+    isAuthEmailValidationMessage(details) ||
+    /invalid[_ -]?email/i.test(code)
+  ) {
+    return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
+  }
+  if (
+    isAuthPasswordTooShortMessage(details) ||
+    /password[_ -]?(too[_ -]?short|minimum)/i.test(code)
+  ) {
+    return { message: PASSWORD_MIN_LENGTH_MESSAGE, statusCode: 400 };
+  }
+  if (
+    isAuthPasswordTooLongMessage(details) ||
+    /password[_ -]?(too[_ -]?long|maximum)/i.test(code)
+  ) {
+    return { message: PASSWORD_MAX_LENGTH_MESSAGE, statusCode: 400 };
+  }
+  if (isAuthPasswordRequiredMessage(details)) {
+    return { message: AUTH_PASSWORD_REQUIRED_MESSAGE, statusCode: 400 };
+  }
+  if (isAuthEmailNotVerifiedMessage(details)) {
+    return { message: AUTH_EMAIL_NOT_VERIFIED_MESSAGE, statusCode: 403 };
+  }
+  if (
+    isAuthAccountExistsMessage(details) ||
+    /user[_ -]?already[_ -]?exists/i.test(code)
+  ) {
+    return { message: AUTH_ACCOUNT_EXISTS_MESSAGE, statusCode: 409 };
+  }
+  if (isAuthInvalidCredentialsMessage(details)) {
+    return { message: "The email or password is incorrect.", statusCode: 401 };
+  }
+  // Better Auth adapters can include the underlying SQL statement in an
+  // Error.message. That detail is useful in server logs, but it is neither a
+  // recovery path nor a safe public response. Map it to the route-specific
+  // fallback and keep the diagnostic in captureAuthError() above. Account
+  // conflicts are classified above so a unique constraint error stays useful.
+  if (isTechnicalAuthErrorMessage(details)) {
+    return { message: fallback, statusCode: 500 };
   }
   return { message: fallback };
+}
+
+function publicAuthErrorFromPayload(
+  payload: Record<string, unknown>,
+  fallback: string,
+): { message: string; statusCode?: number } {
+  const payloadError =
+    typeof payload.error === "string" ? payload.error : undefined;
+  const code =
+    typeof payload.code === "string"
+      ? payload.code
+      : typeof payload.errorCode === "string"
+        ? payload.errorCode
+        : payloadError && /^[A-Z0-9_ -]+$/.test(payloadError)
+          ? payloadError
+          : undefined;
+  const message =
+    typeof payload.message === "string"
+      ? payload.message
+      : payloadError && code !== payloadError
+        ? payloadError
+        : undefined;
+  return publicAuthError({ code, message }, fallback);
+}
+
+function betterAuthErrorFallback(path: string): string {
+  if (path.includes("reset-password")) return AUTH_RESET_PASSWORD_FALLBACK;
+  if (path.includes("request-password-reset")) return AUTH_RESET_EMAIL_FALLBACK;
+  if (path.includes("verify-email")) return AUTH_VERIFICATION_LINK_FALLBACK;
+  if (path.includes("send-verification-email")) {
+    return "We couldn't resend the verification email. Please try again.";
+  }
+  if (path.includes("sign-in/magic-link")) return AUTH_MAGIC_LINK_FALLBACK;
+  if (path.includes("sign-in/email")) {
+    return "The email or password is incorrect.";
+  }
+  if (path.includes("sign-up/email")) return AUTH_SIGNUP_FALLBACK;
+  return AUTH_GENERIC_FALLBACK;
+}
+
+async function sanitizeBetterAuthErrorResponse(
+  response: Response,
+  fallback: string,
+): Promise<Response> {
+  if (response.status < 400) return response;
+  const payload = await response
+    .clone()
+    .json()
+    .catch(() => undefined);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return response;
+  }
+
+  const authError = publicAuthErrorFromPayload(
+    payload as Record<string, unknown>,
+    fallback,
+  );
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  headers.set("content-type", "application/json");
+  return new Response(
+    JSON.stringify({ error: authError.message, message: authError.message }),
+    {
+      status:
+        authError.message === fallback
+          ? response.status
+          : (authError.statusCode ?? response.status),
+      statusText: response.statusText,
+      headers,
+    },
+  );
 }
 
 function isAuthEmailValidationMessage(message: string): boolean {
@@ -1311,14 +1502,23 @@ export interface DesktopExchangeErrorPayload {
 }
 
 type DesktopExchangeEntry =
-  | { token: string; email: string; expiresAt: number }
+  | { challenge: true; verifierHash: string; expiresAt: number }
+  | {
+      token: string;
+      email: string;
+      expiresAt: number;
+      verifierHash?: string;
+    }
   | { error: DesktopExchangeErrorPayload; expiresAt: number };
 type DesktopExchangeStoredEntry =
-  | { token: string; email: string }
+  | { challenge: true; verifierHash: string }
+  | { token: string; email: string; verifierHash?: string }
   | { error: DesktopExchangeErrorPayload };
 
 const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
+const DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX = "__magic-link-challenge__::";
+const DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX = "__magic-link-exchange__::";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
@@ -1328,6 +1528,121 @@ const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
 
 // 5-minute TTL for exchange entries (short — single-use tokens).
 const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
+
+function normalizeDesktopFlowId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const flowId = value.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(flowId) ? flowId : null;
+}
+
+function normalizeDesktopFlowVerifier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const verifier = value.trim();
+  return /^[A-Za-z0-9_-]{32,128}$/.test(verifier) ? verifier : null;
+}
+
+function desktopFlowVerifierHash(verifier: string): string {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+function matchesDesktopFlowVerifier(
+  verifier: string,
+  expectedHash: string,
+): boolean {
+  const actual = Buffer.from(desktopFlowVerifierHash(verifier));
+  const expected = Buffer.from(expectedHash);
+  return (
+    actual.length === expected.length &&
+    crypto.timingSafeEqual(actual, expected)
+  );
+}
+
+function parseDesktopExchangeStoredEntry(
+  packed: string,
+): DesktopExchangeStoredEntry | null {
+  if (packed.startsWith(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX)) {
+    const verifierHash = packed.slice(
+      DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX.length,
+    );
+    return verifierHash ? { challenge: true, verifierHash } : null;
+  }
+  if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
+    const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
+    return {
+      error: JSON.parse(Buffer.from(raw, "base64url").toString()),
+    };
+  }
+  const isMagicLinkExchange = packed.startsWith(
+    DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX,
+  );
+  const encoded = isMagicLinkExchange
+    ? packed.slice(DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX.length)
+    : packed;
+  const verifierSeparator = isMagicLinkExchange ? encoded.indexOf("::") : -1;
+  const verifierHash =
+    verifierSeparator >= 0 ? encoded.slice(0, verifierSeparator) : undefined;
+  const tokenAndEmail =
+    verifierSeparator >= 0 ? encoded.slice(verifierSeparator + 2) : encoded;
+  const sepIdx = tokenAndEmail.indexOf("::");
+  if (sepIdx === -1) return null;
+  return {
+    token: tokenAndEmail.slice(0, sepIdx),
+    email: tokenAndEmail.slice(sepIdx + 2),
+    ...(verifierHash ? { verifierHash } : {}),
+  };
+}
+
+function isDesktopMagicLinkCallbackPath(value: string): boolean {
+  try {
+    return new URL(value, "http://agent-native.invalid").pathname.endsWith(
+      "/_agent-native/auth/magic-link/desktop-callback",
+    );
+  } catch {
+    // coercion-ok: malformed callback URLs are treated as non-desktop callbacks.
+    return false;
+  }
+}
+
+function withDesktopMagicLinkFlow(
+  callbackURL: string,
+  flow: { flowId: string; verifier: string },
+): string {
+  const url = new URL(callbackURL, "http://agent-native.invalid");
+  url.searchParams.set("flow_id", flow.flowId);
+  url.searchParams.set("verifier", flow.verifier);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+async function persistDesktopMagicLinkChallenge(
+  flowId: string,
+  verifierHash: string,
+): Promise<void> {
+  await addSession(
+    `dex:${flowId}`,
+    `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+  );
+}
+
+async function issueDesktopMagicLinkFlow(): Promise<{
+  flowId: string;
+  verifier: string;
+}> {
+  const flowId = crypto.randomBytes(32).toString("base64url");
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const verifierHash = desktopFlowVerifierHash(verifier);
+  _desktopExchanges.set(flowId, {
+    challenge: true,
+    verifierHash,
+    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+  });
+  try {
+    await persistDesktopMagicLinkChallenge(flowId, verifierHash);
+  } catch (error) {
+    _desktopExchanges.delete(flowId);
+    throw error;
+  }
+  return { flowId, verifier };
+}
 
 export function setDesktopExchange(
   flowId: string,
@@ -1368,9 +1683,13 @@ async function persistDesktopExchangeToDB(
   flowId: string,
   token: string,
   email: string,
+  verifierHash?: string,
 ): Promise<void> {
   try {
-    await addSession(`dex:${flowId}`, `${token}::${email}`);
+    const packed = verifierHash
+      ? `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`
+      : `${token}::${email}`;
+    await addSession(`dex:${flowId}`, packed);
   } catch {
     // non-fatal — in-memory Map is the primary path
   }
@@ -1407,24 +1726,88 @@ async function consumeDesktopExchangeFromDB(
     // redeemed with the session table's default 30-day TTL.
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
-      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? AND email NOT LIKE ? RETURNING email`,
+      args: [
+        `dex:${flowId}`,
+        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
+        `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}%`,
+      ],
     });
     forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
-    if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
-      const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
-      return {
-        error: JSON.parse(Buffer.from(raw, "base64url").toString()),
-      };
-    }
-    const sepIdx = packed.indexOf("::");
-    if (sepIdx === -1) return null;
-    return { token: packed.slice(0, sepIdx), email: packed.slice(sepIdx + 2) };
+    return parseDesktopExchangeStoredEntry(packed);
+  } catch {
+    // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
+    return null;
+  }
+}
+
+async function readDesktopMagicLinkChallengeFromDB(
+  flowId: string,
+): Promise<{ verifierHash: string } | null> {
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT email FROM sessions WHERE token = ? AND created_at > ? LIMIT 1`,
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+    });
+    if (rows.length === 0) return null;
+    const packed = (rows[0].email ?? rows[0][0]) as string | null;
+    if (!packed) return null;
+    const entry = parseDesktopExchangeStoredEntry(packed);
+    return entry && "challenge" in entry
+      ? { verifierHash: entry.verifierHash }
+      : null;
   } catch {
     return null;
+  }
+}
+
+async function claimDesktopMagicLinkFlow(
+  flowId: string,
+  verifier: string,
+  token: string,
+  email: string,
+): Promise<boolean> {
+  const verifierHash = desktopFlowVerifierHash(verifier);
+  const entry = _desktopExchanges.get(flowId);
+  if (entry) {
+    if (
+      !("challenge" in entry) ||
+      entry.expiresAt < Date.now() ||
+      !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+    ) {
+      return false;
+    }
+    _desktopExchanges.set(flowId, {
+      token,
+      email,
+      verifierHash,
+      expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+    });
+    await persistDesktopExchangeToDB(flowId, token, email, verifierHash);
+    return true;
+  }
+
+  try {
+    const client = getDbExec();
+    const packed = `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`;
+    const { rows } = await client.execute({
+      sql: `UPDATE sessions SET email = ?, created_at = ? WHERE token = ? AND created_at > ? AND email = ? RETURNING email`,
+      args: [
+        packed,
+        Date.now(),
+        `dex:${flowId}`,
+        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
+        `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+      ],
+    });
+    return rows.length > 0;
+  } catch {
+    // coercion-ok: a failed DB claim must not issue a native session token.
+    return false;
   }
 }
 
@@ -1859,6 +2242,14 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
+    // through the durable background function and authenticate with the same
+    // short-lived HMAC token as the other internal processors. They do not
+    // carry a browser session, so let the route perform its own token check.
+    if (p === "/_agent-native/jobs/_process-sweep") {
+      return;
+    }
+
     // Agent Teams durable sub-agent processor. Self-fired by `spawnTask` to run
     // a queued sub-agent in a fresh function invocation; authenticity is
     // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
@@ -2261,12 +2652,34 @@ function isHostedPreviewRequest(event: H3Event): boolean {
   const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
   return (
     host.endsWith(".agent-native.com") ||
+    isBuilderPreviewHost(host) ||
+    host.includes("deploy-preview")
+  );
+}
+
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewHost(host: string): boolean {
+  return (
     host.endsWith(".builderio.xyz") ||
     host.endsWith(".builderio.dev") ||
     host.endsWith(".builder.codes") ||
-    host.endsWith(".builder.my") ||
-    host.includes("deploy-preview")
+    host.endsWith(".builder.my")
   );
+}
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function isBuilderPreviewLocalDevRequest(event: H3Event): boolean {
+  if (!isBuilderPreviewLocalDevEnabled()) return false;
+  const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
+  return isBuilderPreviewHost(host);
 }
 
 export function isLocalDevAuthAllowed(event: H3Event): boolean {
@@ -2277,8 +2690,8 @@ export function isLocalDevAuthAllowed(event: H3Event): boolean {
     !deployPreview &&
     !isAuthDisabled() &&
     process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT !== "1" &&
-    !isHostedPreviewRequest(event) &&
-    isLoopbackRequest(event)
+    ((!isHostedPreviewRequest(event) && isLoopbackRequest(event)) ||
+      isBuilderPreviewLocalDevRequest(event))
   );
 }
 
@@ -2935,7 +3348,7 @@ async function mountBetterAuthRoutes(
         const redirectUri = resolveOAuthRedirectUri(event);
         if (redirectUri === null) {
           setResponseStatus(event, 400);
-          return { error: "Invalid redirect_uri" };
+          return { error: AUTH_GOOGLE_START_FALLBACK };
         }
         const q = getQuery(event);
         const desktop =
@@ -3054,22 +3467,22 @@ async function mountBetterAuthRoutes(
                 ? query.error_description
                 : undefined;
             const msg =
-              providerDescription ||
-              providerError ||
-              "Missing authorization code";
+              providerError === "access_denied"
+                ? AUTH_GOOGLE_CANCELLED
+                : AUTH_GOOGLE_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {
-                message: `Google sign-in failed: ${msg}`,
+                message: msg,
                 code: providerError || "missing_authorization_code",
               });
             }
             logGoogleOAuthDebug(event, "callback-error", {
               flowId,
               desktop,
-              message: msg,
+              message: providerDescription || providerError || msg,
               code: providerError,
             });
-            return oauthErrorPage(`Connection failed: ${msg}`);
+            return oauthErrorPage(msg);
           }
           // Defence in depth: the state is HMAC-signed, but if the signing
           // key ever leaked an attacker could mint state with their own
@@ -3077,8 +3490,7 @@ async function mountBetterAuthRoutes(
           // auth-url time so the token exchange is always sent to a URI we
           // own.
           if (!isAllowedOAuthRedirectUri(redirectUri, event)) {
-            const msg =
-              "Invalid Google OAuth redirect URI in state. Restart sign-in from this app.";
+            const msg = AUTH_GOOGLE_START_FALLBACK;
             if (flowId) {
               setDesktopExchangeError(flowId, {
                 message: msg,
@@ -3090,7 +3502,7 @@ async function mountBetterAuthRoutes(
               desktop,
               message: msg,
             });
-            return oauthErrorPage(`Connection failed: ${msg}`);
+            return oauthErrorPage(msg);
           }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -3178,15 +3590,7 @@ async function mountBetterAuthRoutes(
           });
 
           if (flowId && sessionToken) {
-            _desktopExchanges.set(flowId, {
-              token: sessionToken,
-              email,
-              expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
-            });
-            // Also persist to DB for cross-instance durability (Cloudflare
-            // Workers, multi-region). Fire-and-forget — in-memory Map is
-            // still the primary fast path for same-instance requests.
-            void persistDesktopExchangeToDB(flowId, sessionToken, email);
+            setDesktopExchange(flowId, sessionToken, email);
             logGoogleOAuthDebug(event, "callback-exchange-stored", {
               flowId,
               desktop,
@@ -3203,7 +3607,7 @@ async function mountBetterAuthRoutes(
           const msg = error.message || "Unknown error";
           if (callbackFlowId) {
             setDesktopExchangeError(callbackFlowId, {
-              message: `Google sign-in failed: ${msg}`,
+              message: AUTH_GOOGLE_FALLBACK,
               code: "callback_error",
             });
           }
@@ -3212,7 +3616,7 @@ async function mountBetterAuthRoutes(
             desktop: callbackDesktop,
             message: msg,
           });
-          return oauthErrorPage(`Connection failed: ${msg}`);
+          return oauthErrorPage(AUTH_GOOGLE_FALLBACK);
         }
       }),
     );
@@ -3229,13 +3633,25 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const query = getQuery(event);
-      const flowId = query.flow_id as string | undefined;
+      const flowId = normalizeDesktopFlowId(query.flow_id);
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
+      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
       let entry = _desktopExchanges.get(flowId);
       if (!entry || entry.expiresAt < Date.now()) {
+        const challenge = await readDesktopMagicLinkChallengeFromDB(flowId);
+        if (challenge) {
+          if (
+            !verifier ||
+            !matchesDesktopFlowVerifier(verifier, challenge.verifierHash)
+          ) {
+            setResponseStatus(event, 403);
+            return { error: "Invalid desktop exchange verifier." };
+          }
+          return { pending: true, flow: oauthDebugFlowId(flowId) };
+        }
         // In-memory miss — fall back to the DB-persisted entry. This handles
         // cross-instance routing (Cloudflare Workers, multi-region) where the
         // OAuth callback and the polling request may hit different isolates.
@@ -3251,11 +3667,39 @@ async function mountBetterAuthRoutes(
         entry =
           "error" in fromDb
             ? { error: fromDb.error, expiresAt: Date.now() + 1 }
-            : {
-                token: fromDb.token,
-                email: fromDb.email,
-                expiresAt: Date.now() + 1,
-              };
+            : "challenge" in fromDb
+              ? {
+                  challenge: true,
+                  verifierHash: fromDb.verifierHash,
+                  expiresAt: Date.now() + 1,
+                }
+              : {
+                  token: fromDb.token,
+                  email: fromDb.email,
+                  ...(fromDb.verifierHash
+                    ? { verifierHash: fromDb.verifierHash }
+                    : {}),
+                  expiresAt: Date.now() + 1,
+                };
+      }
+      if ("challenge" in entry) {
+        if (
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Invalid desktop exchange verifier." };
+        }
+        return { pending: true, flow: oauthDebugFlowId(flowId) };
+      }
+      if ("token" in entry && entry.verifierHash) {
+        if (
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Invalid desktop exchange verifier." };
+        }
       }
       _desktopExchanges.delete(flowId);
       // Also wipe the DB-persisted entry so it cannot be replayed via the
@@ -3280,12 +3724,80 @@ async function mountBetterAuthRoutes(
       // still make a follow-up /auth/session?_session=... request, but the
       // OAuth handoff should not depend on that second request succeeding.
       setFrameworkSessionCookie(event, entry.token);
+      if (isElectronRequest(event)) {
+        await writeDesktopSso({
+          email: entry.email,
+          token: entry.token,
+          expiresAt: Date.now() + sessionMaxAge * 1000,
+        });
+      }
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
       logGoogleOAuthDebug(event, "exchange-success", {
         flowId,
         emailDomain: entry.email.split("@")[1] || "",
       });
       return { token: entry.token, email: entry.email };
+    }),
+  );
+
+  // Magic-link verification happens in the system browser, so native shells
+  // need the verified browser session copied into the same one-time exchange
+  // used by Google OAuth before they can establish their own WebView session.
+  app.use(
+    "/_agent-native/auth/magic-link/desktop-callback",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const flowId = normalizeDesktopFlowId(getQuery(event).flow_id);
+      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
+      if (!flowId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing flow_id" };
+      }
+      if (!verifier) {
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
+      const session = await getSession(event);
+      if (!session?.email || !session.token) {
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "callback_error",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
+      try {
+        // Better Auth owns the browser cookie, while native clients resolve
+        // the exchanged token through the framework session table.
+        await addSession(session.token, session.email);
+      } catch (error) {
+        captureAuthError(error, {
+          route: "magic-link",
+          email: session.email,
+        });
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "callback_error",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
+      if (
+        !(await claimDesktopMagicLinkFlow(
+          flowId,
+          verifier,
+          session.token,
+          session.email,
+        ))
+      ) {
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+      return oauthDesktopExchangePage(
+        "Sign-in complete. You can return to the app.",
+      );
     }),
   );
 
@@ -3430,11 +3942,21 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      const response = await auth.handler(requestForAuth);
+      let response = await auth.handler(requestForAuth);
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
+
+      if (isResponse && (response as Response).status >= 400) {
+        // The direct Better Auth surface is also reachable from the browser,
+        // so wrapper-route sanitization alone is not enough to keep adapter
+        // SQL and provider internals out of the auth UI.
+        response = await sanitizeBetterAuthErrorResponse(
+          response as Response,
+          betterAuthErrorFallback(reqPath),
+        );
+      }
 
       // After email verification, add ?verified=1 to the redirect so the
       // login page can show "Email verified!". MUTATE the response in
@@ -3451,11 +3973,12 @@ async function mountBetterAuthRoutes(
         (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
-        if (
-          loc &&
-          !/[?&]verified=/.test(loc) &&
-          !verifyEmailRedirectHasError(loc, authRequest.url)
-        ) {
+        if (loc && verifyEmailRedirectHasError(loc, authRequest.url)) {
+          response.headers.set(
+            "location",
+            sanitizeVerificationErrorRedirect(loc, authRequest.url),
+          );
+        } else if (loc && !/[?&]verified=/.test(loc)) {
           await ensureEmailVerifiedForRedirect(
             authRequest,
             response as Response,
@@ -3584,7 +4107,7 @@ async function mountBetterAuthRoutes(
 
       if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
-        return { error: "Email and password are required" };
+        return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
       }
       if (!email) {
         setResponseStatus(event, 400);
@@ -3616,15 +4139,12 @@ async function mountBetterAuthRoutes(
         // email isn't verified yet. Don't return { ok: true } without a
         // session or the frontend will reload into a dead end.
         setResponseStatus(event, 403);
-        return {
-          error:
-            "Email not verified. Check your inbox for a verification link.",
-        };
+        return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        const authError = publicAuthError(e, "Invalid email or password");
+        const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
         return { error: authError.message };
       }
@@ -3643,10 +4163,11 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
       const rawEmail = typeof body?.email === "string" ? body.email : "";
       const email = normalizeAuthEmail(rawEmail);
-      const callbackURL =
+      let callbackURL =
         typeof body?.callbackURL === "string"
           ? safeReturnPath(body.callbackURL)
           : "/";
+      let desktopFlow: { flowId: string; verifier: string } | undefined;
 
       if (!email) {
         setResponseStatus(event, 400);
@@ -3659,6 +4180,10 @@ async function mountBetterAuthRoutes(
       }
 
       try {
+        if (isDesktopMagicLinkCallbackPath(callbackURL)) {
+          desktopFlow = await issueDesktopMagicLinkFlow();
+          callbackURL = withDesktopMagicLinkFlow(callbackURL, desktopFlow);
+        }
         await auth.api.signInMagicLink({
           body: {
             email,
@@ -3667,12 +4192,15 @@ async function mountBetterAuthRoutes(
           },
           headers: event.headers,
         });
-        return { ok: true };
+        return {
+          ok: true,
+          ...(desktopFlow ?? {}),
+        };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "magic-link", email });
         }
-        const authError = publicAuthError(e, "Unable to send sign-in link");
+        const authError = publicAuthError(e, AUTH_MAGIC_LINK_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 400);
         return { error: authError.message };
       }
@@ -3701,13 +4229,17 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (
-        !password ||
-        typeof password !== "string" ||
-        password.length < PASSWORD_MIN_LENGTH
-      ) {
+      if (!password || typeof password !== "string") {
+        setResponseStatus(event, 400);
+        return { error: AUTH_PASSWORD_REQUIRED_MESSAGE };
+      }
+      if (password.length < PASSWORD_MIN_LENGTH) {
         setResponseStatus(event, 400);
         return { error: PASSWORD_MIN_LENGTH_MESSAGE };
+      }
+      if (password.length > PASSWORD_MAX_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3726,7 +4258,7 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        const authError = publicAuthError(e, "Registration failed");
+        const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 409);
         return { error: authError.message };
       }
@@ -3927,7 +4459,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
-        return { error: "Email and password are required" };
+        return { error: AUTH_CREDENTIALS_REQUIRED_MESSAGE };
       }
       if (!email) {
         setResponseStatus(event, 400);
@@ -3957,15 +4489,12 @@ function mountAuthFallbackRoutes(app: H3App): void {
           return authLoginResponse(event, result.token, email);
         }
         setResponseStatus(event, 403);
-        return {
-          error:
-            "Email not verified. Check your inbox for a verification link.",
-        };
+        return { error: AUTH_EMAIL_NOT_VERIFIED_MESSAGE };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        const authError = publicAuthError(e, "Invalid email or password");
+        const authError = publicAuthError(e, AUTH_LOGIN_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 401);
         return { error: authError.message };
       }
@@ -3989,13 +4518,17 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (
-        !password ||
-        typeof password !== "string" ||
-        password.length < PASSWORD_MIN_LENGTH
-      ) {
+      if (!password || typeof password !== "string") {
+        setResponseStatus(event, 400);
+        return { error: AUTH_PASSWORD_REQUIRED_MESSAGE };
+      }
+      if (password.length < PASSWORD_MIN_LENGTH) {
         setResponseStatus(event, 400);
         return { error: PASSWORD_MIN_LENGTH_MESSAGE };
+      }
+      if (password.length > PASSWORD_MAX_LENGTH) {
+        setResponseStatus(event, 400);
+        return { error: PASSWORD_MAX_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -4015,7 +4548,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        const authError = publicAuthError(e, "Registration failed");
+        const authError = publicAuthError(e, AUTH_SIGNUP_FALLBACK);
         setResponseStatus(event, authError.statusCode ?? 409);
         return { error: authError.message };
       }

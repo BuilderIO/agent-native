@@ -142,11 +142,11 @@ export default defineAction({
       .set(updates)
       .where(eq(schema.forms.id, args.id));
 
-    const [row] = await db
-      .select()
-      .from(schema.forms)
-      .where(eq(schema.forms.id, args.id))
-      .limit(1);
+    // Do not re-read after the write. On pooled Postgres a follow-up SELECT
+    // can land on a lagging replica and return the pre-update field array,
+    // which makes the agent report stale state and can overwrite a later edit
+    // with that stale snapshot. The values written above are already validated.
+    const row = { ...existing, ...updates } as typeof existing;
 
     invalidatePublicFormCache(existing, row);
 

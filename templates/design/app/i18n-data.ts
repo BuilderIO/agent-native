@@ -730,6 +730,7 @@ const enUS = {
     tools: {
       move: "Move",
       frame: "Frame",
+      screen: "Screen",
       rect: "Rectangle",
       line: "Line",
       arrow: "Arrow",
@@ -1353,6 +1354,9 @@ const enUS = {
     newDesign: "New Design",
     newDesignLower: "New design",
     createDesignProject: "Create a design project",
+    createdBy: "Created by",
+    allAuthors: "All authors",
+    me: "Me",
     openingDesign: "Opening design...",
     skipToEditor: "Skip to editor",
     failedToCreateDesign: "Failed to create design",
@@ -15375,6 +15379,72 @@ const designComponentSourceOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
 
+const designAuthorFilterOverrides = {
+  "zh-CN": {
+    home: {
+      createdBy: "创建者",
+      allAuthors: "所有作者",
+      me: "我",
+    },
+  },
+  "es-ES": {
+    home: {
+      createdBy: "Creado por",
+      allAuthors: "Todos los autores",
+      me: "Yo",
+    },
+  },
+  "fr-FR": {
+    home: {
+      createdBy: "Créé par",
+      allAuthors: "Tous les auteurs",
+      me: "Moi",
+    },
+  },
+  "de-DE": {
+    home: {
+      createdBy: "Erstellt von",
+      allAuthors: "Alle Autoren",
+      me: "Ich",
+    },
+  },
+  "ja-JP": {
+    home: {
+      createdBy: "作成者",
+      allAuthors: "すべての作成者",
+      me: "自分",
+    },
+  },
+  "ko-KR": {
+    home: {
+      createdBy: "만든 사람",
+      allAuthors: "모든 작성자",
+      me: "나",
+    },
+  },
+  "pt-BR": {
+    home: {
+      createdBy: "Criado por",
+      allAuthors: "Todos os autores",
+      me: "Eu",
+    },
+  },
+  "hi-IN": {
+    home: {
+      createdBy: "द्वारा बनाया गया",
+      allAuthors: "सभी लेखक",
+      me: "मैं",
+    },
+  },
+  "ar-SA": {
+    home: {
+      createdBy: "أنشأه",
+      allAuthors: "جميع المؤلفين",
+      me: "أنا",
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US" | "zh-TW">, PartialMessages>;
+
 export const messagesByLocale = {
   "en-US": enUS,
   "zh-TW": mergeLocalizedMessages(
@@ -15429,6 +15499,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["zh-CN"],
       designComponentInstanceOverrides["zh-CN"],
       designComponentSourceOverrides["zh-CN"],
+      designAuthorFilterOverrides["zh-CN"],
       {
         root: {
           commandActions: "操作",
@@ -15508,6 +15579,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["es-ES"],
       designComponentInstanceOverrides["es-ES"],
       designComponentSourceOverrides["es-ES"],
+      designAuthorFilterOverrides["es-ES"],
       {
         root: {
           commandActions: "Acciones",
@@ -15589,6 +15661,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["fr-FR"],
       designComponentInstanceOverrides["fr-FR"],
       designComponentSourceOverrides["fr-FR"],
+      designAuthorFilterOverrides["fr-FR"],
       {
         root: {
           commandActions: "Actions",
@@ -15670,6 +15743,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["de-DE"],
       designComponentInstanceOverrides["de-DE"],
       designComponentSourceOverrides["de-DE"],
+      designAuthorFilterOverrides["de-DE"],
       {
         root: {
           commandActions: "Aktionen",
@@ -15751,6 +15825,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["ja-JP"],
       designComponentInstanceOverrides["ja-JP"],
       designComponentSourceOverrides["ja-JP"],
+      designAuthorFilterOverrides["ja-JP"],
       {
         root: {
           commandActions: "操作",
@@ -15833,6 +15908,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["ko-KR"],
       designComponentInstanceOverrides["ko-KR"],
       designComponentSourceOverrides["ko-KR"],
+      designAuthorFilterOverrides["ko-KR"],
       {
         root: {
           commandActions: "작업",
@@ -15913,6 +15989,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["pt-BR"],
       designComponentInstanceOverrides["pt-BR"],
       designComponentSourceOverrides["pt-BR"],
+      designAuthorFilterOverrides["pt-BR"],
       {
         root: {
           commandActions: "Ações",
@@ -15994,6 +16071,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["hi-IN"],
       designComponentInstanceOverrides["hi-IN"],
       designComponentSourceOverrides["hi-IN"],
+      designAuthorFilterOverrides["hi-IN"],
       {
         root: {
           commandActions: "क्रियाएं",
@@ -16075,6 +16153,7 @@ export const messagesByLocale = {
       designRuntimeIdentityAndBridgeOverrides["ar-SA"],
       designComponentInstanceOverrides["ar-SA"],
       designComponentSourceOverrides["ar-SA"],
+      designAuthorFilterOverrides["ar-SA"],
       {
         root: {
           commandActions: "الإجراءات",

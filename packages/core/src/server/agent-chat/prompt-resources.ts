@@ -25,7 +25,10 @@ import type {
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import { getRequestOrgId } from "../request-context.js";
-import { parseSkillFrontmatter } from "./skill-frontmatter.js";
+import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "./skill-frontmatter.js";
 
 // ---------------------------------------------------------------------------
 // System-prompt resource loading: AGENTS.md, instructions/*.md, skills
@@ -722,7 +725,7 @@ async function loadResourceSkillsPromptBlock(
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
       if (meta.userInvocable === false) continue;
-      if (meta.scope === "dev") continue;
+      if (!isRuntimeVisibleScope(meta.scope)) continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -872,13 +875,14 @@ export async function loadResourcesForPrompt(
       addSection(block, "required");
     }
 
-    // 2. Template AGENTS.md — always included (critical template instructions).
-    if (bundle.agentsMd.trim()) {
+    // 2. Runtime instruction file — always included when configured.
+    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+    if (runtimeAgentsMd.trim()) {
       const block = promptResourceBlock({
         name: "AGENTS.md",
         scope: "template",
         path: "AGENTS.md",
-        content: bundle.agentsMd,
+        content: runtimeAgentsMd,
         maxChars: promptResourceMaxChars,
         readHint:
           'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
@@ -1107,7 +1111,7 @@ export async function loadResourcesForPrompt(
       // which peer apps exist, so this block is not droppable: without it the
       // agent reports cross-app work as impossible instead of delegating.
       addSection(
-        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nWhen another app owns the work or data, use \`call-agent\` with the app id and a natural-language message. The receiving specialist owns source selection, schema interpretation, queries, joins, and use of its local tools. Direct action invocation is optional for an exact bounded read with a fully known schema; never use it to compensate for unreliable delegation.\n\nThese one-liners are the only cross-app detail in this prompt. Before building a capability another app may already own, before telling the user what is or is not possible across apps, and whenever the user asks which app to use, call \`describe-workspace-apps\` - it reads each peer's live agent card for current purpose and optional capability details. Never hand-maintain a list of workspace apps in code or docs; it goes stale silently.\n</available-apps>`,
+        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nWhen another app owns the work or data, use \`call-agent\` with the app id and a natural-language message. The receiving specialist owns source selection, schema interpretation, queries, joins, and use of its local tools. Direct action invocation is only for an explicitly read-only bounded action with a fully known schema. Never put creates, updates, deletes, sends, saves, publishes, or other side effects in direct action mode; put those objectives in the natural-language message.\n\nThese one-liners are the only cross-app detail in this prompt. Before building a capability another app may already own, before telling the user what is or is not possible across apps, and whenever the user asks which app to use, call \`describe-workspace-apps\` - it reads each peer's live agent card for current purpose and optional capability details. Never hand-maintain a list of workspace apps in code or docs; it goes stale silently.\n</available-apps>`,
         "required",
       );
     }

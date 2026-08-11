@@ -5,6 +5,7 @@ import {
   IconBrandGoogleDrive,
   IconLoader2,
   IconPlugConnected,
+  IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -13,6 +14,7 @@ import { Button } from "../ui/button";
 interface GoogleDocsStatus {
   configured: boolean;
   connected: boolean;
+  googleSlidesUrlImportReady?: boolean;
   error?: string;
   message?: string;
 }
@@ -64,6 +66,7 @@ export function GoogleDriveConnectionCta({
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
   const refreshStatus =
     useCallback(async (): Promise<GoogleDocsStatus | null> => {
@@ -96,6 +99,12 @@ export function GoogleDriveConnectionCta({
   useEffect(() => {
     void refreshStatus();
   }, [refreshStatus]);
+
+  const needsReconnect =
+    status?.connected === true && status.googleSlidesUrlImportReady === false;
+  const requiresUrlImportAccess =
+    status?.connected === true ||
+    status?.googleSlidesUrlImportReady !== undefined;
 
   const connect = useCallback(async () => {
     if (connecting) return;
@@ -138,23 +147,29 @@ export function GoogleDriveConnectionCta({
       while (Date.now() < deadline && !popup.closed) {
         await new Promise((resolve) => window.setTimeout(resolve, 1_200));
         const next = await refreshStatus();
-        if (next?.connected) {
+        const nextHasUrlImportAccess =
+          next?.googleSlidesUrlImportReady ?? !requiresUrlImportAccess;
+        if (next?.connected && nextHasUrlImportAccess) {
           popup.close();
           onConnected?.();
           return;
         }
       }
       const next = await refreshStatus();
-      if (next?.connected) onConnected?.();
+      const nextHasUrlImportAccess =
+        next?.googleSlidesUrlImportReady ?? !requiresUrlImportAccess;
+      if (next?.connected && nextHasUrlImportAccess) onConnected?.();
     } catch (caught) {
       popup?.close();
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setConnecting(false);
     }
-  }, [connecting, onConnected, refreshStatus]);
+  }, [connecting, onConnected, refreshStatus, requiresUrlImportAccess]);
 
-  if (loading || status?.connected) return null;
+  if (dismissed || loading || (status?.connected && !needsReconnect)) {
+    return null;
+  }
 
   const displayStatus = status ?? { configured: false, connected: false };
 
@@ -197,6 +212,14 @@ export function GoogleDriveConnectionCta({
             : t("editorExport.connectGoogle")}
         </Button>
       )}
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={t("comments.close")}
+      >
+        <IconX className="size-3.5" />
+      </button>
     </div>
   );
 }

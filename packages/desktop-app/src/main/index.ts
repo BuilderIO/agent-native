@@ -1,5 +1,10 @@
 import fs from "fs";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   createServer,
@@ -12,6 +17,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { buildChatFirstAppCreationPrompt } from "@agent-native/core/shared";
 import {
   FRAME_PORT,
   getDesktopTemplateGatewayAppUrl,
@@ -19,6 +25,7 @@ import {
   isDefaultDesktopTemplateDevTarget,
 } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
+import { desktopRemoteMcpUnavailable } from "@shared/chat-first-mcp";
 import {
   CODE_AGENTS_SURFACE_ID,
   CODE_AGENT_GOALS,
@@ -111,6 +118,7 @@ import {
   ipcMain,
   Menu,
   Notification,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -139,6 +147,10 @@ import {
   type BackgroundAgentRun,
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
+import {
+  loadMcpConfig,
+  type McpServerConfig,
+} from "../../../core/src/mcp-client/config.js";
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import {
@@ -146,6 +158,8 @@ import {
   installBrowserNativeHost,
   parseAdditionalChromeExtensionIds,
 } from "./browser-control/native-host";
+import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
+import { cachedCliStatus, createCliStatusCache } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
@@ -175,6 +189,7 @@ import {
   getLogFilePath,
 } from "./desktop-logger";
 import { registerAppsIpc } from "./ipc/apps";
+import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
 import { registerFrameIpc } from "./ipc/frame";
@@ -193,10 +208,15 @@ import {
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
 import {
+  registerQuickPromptIpc,
+  registerQuickPromptShortcut,
+} from "./quick-prompt";
+import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { installWindowDragController } from "./window-drag";
 
 initializeDesktopSentry();
 initializeDesktopLogger();
@@ -234,7 +254,16 @@ if (IS_DEV) {
   // Keep local electron-vite runs out of the packaged app's Chromium profile.
   // Sharing the same userData directory lets dev and prod processes fight over
   // persisted webview storage (notably IndexedDB LevelDB LOCK files).
-  const devUserDataPath = path.join(app.getPath("appData"), "Agent Native Dev");
+  // An explicit Electron --user-data-dir remains authoritative so scripted
+  // desktop smoke tests can isolate state without touching a developer's
+  // normal profile.
+  const requestedUserDataPath = process.argv
+    .find((argument) => argument.startsWith("--user-data-dir="))
+    ?.slice("--user-data-dir=".length)
+    .trim();
+  const devUserDataPath = requestedUserDataPath
+    ? path.resolve(requestedUserDataPath)
+    : path.join(app.getPath("appData"), "Agent Native Dev");
   try {
     fs.mkdirSync(devUserDataPath, { recursive: true });
     app.setPath("userData", devUserDataPath);
@@ -281,6 +310,7 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 ];
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
+const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 export {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -1006,12 +1036,18 @@ function createWindow(): BrowserWindow {
   installSentryWebContentsInstrumentation(win.webContents, {
     role: "shell-renderer",
   });
+  const disposeWindowDragController = installWindowDragController(win, {
+    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
+  });
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
   win.webContents.on("did-finish-load", () => {
+    // A reloaded renderer has no status yet, so the dedup cache must not
+    // suppress the next send as an unchanged repeat.
+    lastDesktopAppRuntimeStatus.clear();
     flushPendingOpenRequests(win);
     flushPendingDesktopShortcutActivations(win);
   });
@@ -1026,6 +1062,7 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();
     desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;
@@ -1037,6 +1074,7 @@ function createWindow(): BrowserWindow {
 // ---------- DevTools: target the active app webview ----------
 
 let activeAppId = "";
+let chatFirstPreviewAppId: string | null = null;
 let activeWebviewContentsId: number | undefined;
 let desktopShortcutRegistrations = new Map<
   string,
@@ -1123,7 +1161,7 @@ async function invokeRendererDesktopShortcutActivation(
       typeof (result as { appId?: unknown }).appId === "string"
         ? (result as { appId: string }).appId
         : "";
-    if (handled && appId) activeAppId = appId;
+    if (handled && appId) setDesktopActiveAppId(appId);
     debugDesktopShortcut("activation bridge result", {
       requestId: request.requestId,
       app: request.app,
@@ -1185,7 +1223,7 @@ function scheduleDesktopShortcutActivationRetry(requestId: string) {
 }
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
-  activeAppId = appId;
+  setDesktopActiveAppId(appId);
   if (appId !== "design") desktopDesignPreviewManager?.clearOwner();
   void ensureManagedDesktopAppRunning(appId);
 });
@@ -1200,7 +1238,7 @@ ipcMain.on(
       typeof payload?.requestId === "string" ? payload.requestId : "";
     const appId = typeof payload?.appId === "string" ? payload.appId : "";
     if (!requestId) return;
-    if (appId) activeAppId = appId;
+    if (appId) setDesktopActiveAppId(appId);
     debugDesktopShortcut("activation acknowledged", {
       requestId,
       app: appId || undefined,
@@ -1220,7 +1258,7 @@ ipcMain.on(
       }
       return;
     }
-    activeAppId = target.appId;
+    setDesktopActiveAppId(target.appId);
     activeWebviewContentsId = target.webContentsId;
     setSentryWebContentsMetadata(target.webContentsId, {
       role: "app-webview",
@@ -3087,6 +3125,7 @@ const activeCodeAgentProcesses = new Map<
     permissionMode: CodeAgentPermissionMode;
   }
 >();
+const startingCodeAgentRuns = new Set<string>();
 
 function desktopComputerHelperPath(): string {
   return app.isPackaged
@@ -3217,6 +3256,89 @@ function remoteConnectorComputerEnv(): NodeJS.ProcessEnv {
   }
 }
 
+function desktopCodeAgentMcpServerId(appId: string): string {
+  return `desktop_app_${appId.replace(/[^A-Za-z0-9_]/g, "_")}`;
+}
+
+function desktopAppMcpUrl(baseUrl: string): string {
+  const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return new URL("mcp", base).toString();
+}
+
+async function resolveDesktopMcpHost(): Promise<{
+  baseUrl: string;
+  session: Electron.Session;
+} | null> {
+  const appConfig = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === "dispatch" && candidate.enabled !== false,
+  );
+  if (!appConfig) return null;
+  const baseUrl = resolveAppBaseUrl(appConfig);
+  if (!baseUrl) return null;
+  return { baseUrl, session: findRemoteRelaySession(baseUrl) };
+}
+
+interface DesktopCodeAgentMcpEnvironment {
+  env: NodeJS.ProcessEnv;
+  remoteConfig:
+    | { state: "loaded"; serverCount: number }
+    | { state: "unavailable"; error: string };
+}
+
+/**
+ * Give each local coding run the same workspace app MCP servers shown in its
+ * rail, while retaining local/plugin config. Remote settings credentials stay
+ * server-side until a capability broker can deliver them to this process.
+ */
+async function desktopCodeAgentMcpEnvironment(
+  cwd: string,
+): Promise<DesktopCodeAgentMcpEnvironment> {
+  const workspaceRoot = resolveCodeAgentsTerminalCwd({});
+  const workspaceConfig = loadMcpConfig(workspaceRoot);
+  const localConfig = loadMcpConfig(cwd);
+  const servers: Record<string, McpServerConfig> = {
+    ...(workspaceConfig?.servers ?? {}),
+    ...(localConfig?.servers ?? {}),
+  };
+  const allowlist = new Set(Object.keys(servers));
+  const appIds: string[] = [];
+  const remoteConfig: DesktopCodeAgentMcpEnvironment["remoteConfig"] =
+    desktopRemoteMcpUnavailable();
+
+  for (const appConfig of loadAppsForAuthContext()) {
+    if (appConfig.enabled === false) continue;
+    const baseUrl = resolveAppBaseUrl(appConfig);
+    if (!baseUrl) continue;
+    const serverId = desktopCodeAgentMcpServerId(appConfig.id);
+    const appMcpUrl = desktopAppMcpUrl(baseUrl);
+    const appSession = session.fromPartition(`persist:app-${appConfig.id}`);
+    const cookieHeader = await cookieHeaderForRelay(appSession, appMcpUrl);
+    servers[serverId] = {
+      type: "http",
+      url: appMcpUrl,
+      ...(cookieHeader ? { headers: { Cookie: cookieHeader } } : {}),
+      description: `${appConfig.name} workspace app tools`,
+    };
+    allowlist.add(serverId);
+    appIds.push(appConfig.id);
+  }
+
+  return {
+    env: {
+      MCP_SERVERS: JSON.stringify({ servers }),
+      AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST:
+        [...allowlist].join(",") || "__none__",
+      AGENT_NATIVE_CODE_AGENT_MCP_APP_IDS: JSON.stringify(appIds),
+      AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT: path.join(
+        workspaceRoot,
+        ".agents",
+        "skills",
+      ),
+    },
+    remoteConfig,
+  };
+}
+
 function revokeRemoteConnectorComputerControl(): void {
   revokeDesktopComputerRun("__remote_connector__");
 }
@@ -3280,12 +3402,15 @@ function persistCodeAgentChildEvent(
   guardCodeAgentPersistence({ runId, source }, persist);
 }
 
-function spawnCodeAgentRunner(
+async function spawnCodeAgentRunner(
   runId: string,
   cwd: string,
   permissionMode?: CodeAgentPermissionMode,
-): void {
-  if (activeCodeAgentProcesses.has(runId)) return;
+): Promise<void> {
+  if (activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId)) {
+    return;
+  }
+  startingCodeAgentRuns.add(runId);
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok) {
     appendCodeAgentStatusEvent(
@@ -3304,6 +3429,7 @@ function spawnCodeAgentRunner(
         runnerError: provider.error,
       },
     });
+    startingCodeAgentRuns.delete(runId);
     return;
   }
   const repoRoot = resolveRepositoryRoot(cwd);
@@ -3325,6 +3451,17 @@ function spawnCodeAgentRunner(
   );
   const { command, args } = invocation;
   try {
+    const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd);
+    if (mcpEnvironment.remoteConfig.state === "unavailable") {
+      appendCodeAgentStatusEvent(
+        runId,
+        "Connected MCP settings could not be loaded for this chat.",
+        {
+          source: "desktop-mcp-config",
+          error: mcpEnvironment.remoteConfig.error,
+        },
+      );
+    }
     const computerEnv = desktopComputerChildEnv(
       runId,
       normalizedPermissionMode,
@@ -3338,6 +3475,7 @@ function spawnCodeAgentRunner(
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
         ...invocation.env,
+        ...mcpEnvironment.env,
         ...computerEnv,
       },
     });
@@ -3350,6 +3488,7 @@ function spawnCodeAgentRunner(
       startedAt: runnerStartedAt,
       permissionMode: normalizedPermissionMode,
     });
+    startingCodeAgentRuns.delete(runId);
     touchCodeAgentRunRecord(runId, {
       status: "running",
       phase: "executing",
@@ -3434,6 +3573,7 @@ function spawnCodeAgentRunner(
     });
     child.unref();
   } catch (err) {
+    startingCodeAgentRuns.delete(runId);
     revokeDesktopComputerRun(runId);
     persistCodeAgentChildEvent(runId, "runner-start-error-status", () => {
       appendCodeAgentStatusEvent(
@@ -5009,6 +5149,85 @@ const managedDesktopAppRetryTimers = new Map<
 >();
 const managedDesktopAppStarts = new Set<string>();
 const managedDesktopAppStartAttempts = new Map<string, number>();
+type ManagedDesktopAppDemandSource = "active-app" | "chat-first-preview";
+const managedDesktopAppDemand = new Map<
+  string,
+  Set<ManagedDesktopAppDemandSource>
+>();
+
+function hasManagedDesktopAppDemand(appId: string): boolean {
+  return (managedDesktopAppDemand.get(appId)?.size ?? 0) > 0;
+}
+
+function stopManagedDesktopAppProcess(appId: string): void {
+  const child = managedDesktopAppProcesses.get(appId);
+  if (!child) return;
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
+  } else {
+    child.kill("SIGTERM");
+  }
+  managedDesktopAppProcesses.delete(appId);
+}
+
+function setManagedDesktopAppDemand(
+  appId: string,
+  source: ManagedDesktopAppDemandSource,
+  demanded: boolean,
+): void {
+  if (!appId) return;
+  const sources = managedDesktopAppDemand.get(appId) ?? new Set();
+  if (demanded) {
+    if (!AppStore.isDesktopManagedApp(appId)) return;
+    sources.add(source);
+    managedDesktopAppDemand.set(appId, sources);
+    if (!managedDesktopAppProcesses.get(appId)?.pid) {
+      scheduleManagedDesktopAppStart(appId);
+    }
+    return;
+  }
+
+  sources.delete(source);
+  if (sources.size > 0) {
+    managedDesktopAppDemand.set(appId, sources);
+    return;
+  }
+  managedDesktopAppDemand.delete(appId);
+  clearManagedDesktopAppRetry(appId);
+  managedDesktopAppStartAttempts.delete(appId);
+  stopManagedDesktopAppProcess(appId);
+}
+
+function setDesktopActiveAppId(appId: string): void {
+  const nextAppId = appId.trim();
+  if (activeAppId === nextAppId) return;
+
+  const previousAppId = activeAppId;
+  if (previousAppId) {
+    setManagedDesktopAppDemand(previousAppId, "active-app", false);
+    if (previousAppId === CODE_AGENTS_SURFACE_ID && chatFirstPreviewAppId) {
+      setManagedDesktopAppDemand(
+        chatFirstPreviewAppId,
+        "chat-first-preview",
+        false,
+      );
+    }
+  }
+
+  activeAppId = nextAppId;
+  if (nextAppId) setManagedDesktopAppDemand(nextAppId, "active-app", true);
+  if (nextAppId === CODE_AGENTS_SURFACE_ID && chatFirstPreviewAppId) {
+    setManagedDesktopAppDemand(
+      chatFirstPreviewAppId,
+      "chat-first-preview",
+      true,
+    );
+  }
+}
 
 function desktopAppCreationSettings(): DesktopAppCreationSettings {
   return {
@@ -5080,14 +5299,20 @@ function buildDesktopCreateAppAgentPrompt(input: {
   targetPath: string;
   port: number;
 }): string {
-  return `${input.userPrompt.trim()}
-
-Build this as a polished, working Agent Native app at ${input.targetPath}.
-
-Start by running this non-interactive scaffold command from the current directory:
-npx --yes @agent-native/core@latest create ${input.folderName} --template chat
-
-Then work only inside ${input.targetPath}. Follow the generated AGENTS.md and the Agent Native architecture contract: actions are the shared UI/agent operation surface, app state describes navigation and selection, and all AI work goes through the agent chat. Implement the requested UI and behavior, install dependencies, and run the relevant typecheck/tests. The Desktop shell will run the app on port ${input.port}; do not leave a long-running dev server running yourself.`;
+  return buildChatFirstAppCreationPrompt({
+    appId: input.folderName,
+    prompt: input.userPrompt,
+    selectedKeys: [],
+    selectedResources: [],
+    vaultAccessMode: "all-apps",
+    appRoot: input.targetPath,
+    mountPath: "/",
+    scaffoldCommand: `Run this non-interactive scaffold command from the current directory, then work only inside ${input.targetPath}:\nnpx --yes @agent-native/core@latest create ${input.folderName} --template chat`,
+    additionalInstructions: [
+      `The Desktop shell will run the app on port ${input.port}; do not leave a long-running dev server running yourself.`,
+      "Use production-quality behavior by default. Keep local development conveniences out of the shipped app unless the user is actively editing it.",
+    ],
+  });
 }
 
 async function createDesktopAppFromPrompt(
@@ -5189,7 +5414,15 @@ async function createDesktopAppFromPrompt(
   };
   const apps = AppStore.addApp(appConfig);
   AppStore.markDesktopManagedApp(appId, appsRoot);
-  scheduleManagedDesktopAppStart(appId, 1_500);
+  if (chatFirstPreviewAppId && chatFirstPreviewAppId !== appId) {
+    setManagedDesktopAppDemand(
+      chatFirstPreviewAppId,
+      "chat-first-preview",
+      false,
+    );
+  }
+  chatFirstPreviewAppId = appId;
+  setManagedDesktopAppDemand(appId, "chat-first-preview", true);
   refreshDesktopShortcutBindings();
   return {
     ok: true,
@@ -5200,8 +5433,20 @@ async function createDesktopAppFromPrompt(
   };
 }
 
+const lastDesktopAppRuntimeStatus = new Map<string, string>();
+
+/**
+ * This is a state, not an event stream: a managed dev server emits a stdout
+ * chunk per HMR update and per transform, and each one re-sends the identical
+ * "running / Preview updated." status. Forwarding every one floods the renderer
+ * with IPC and re-renders for a status that has not changed. Send only on an
+ * actual transition.
+ */
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  const signature = `${status.state} ${status.message ?? ""}`;
+  if (lastDesktopAppRuntimeStatus.get(status.appId) === signature) return;
+  lastDesktopAppRuntimeStatus.set(status.appId, signature);
   mainWindow.webContents.send(IPC.APP_STATUS, status);
 }
 
@@ -5225,7 +5470,7 @@ function clearManagedDesktopAppRetry(appId: string): void {
 }
 
 function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
-  if (appIsQuitting || activeAppId !== appId) return;
+  if (appIsQuitting || !hasManagedDesktopAppDemand(appId)) return;
   clearManagedDesktopAppRetry(appId);
   managedDesktopAppRetryTimers.set(
     appId,
@@ -5239,6 +5484,7 @@ function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
 async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
   if (
     appIsQuitting ||
+    !hasManagedDesktopAppDemand(appId) ||
     !AppStore.isDesktopManagedApp(appId) ||
     managedDesktopAppStarts.has(appId)
   ) {
@@ -5258,7 +5504,11 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
   managedDesktopAppStarts.add(appId);
   try {
     if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
-      emitDesktopAppRuntimeStatus({ appId, state: "running" });
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "running",
+        message: "Preview ready.",
+      });
       return;
     }
     if (
@@ -5274,6 +5524,7 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
       return;
     }
 
+    if (!hasManagedDesktopAppDemand(appId)) return;
     emitDesktopAppRuntimeStatus({
       appId,
       state: "starting",
@@ -5296,23 +5547,37 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
     managedDesktopAppProcesses.set(appId, child);
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString().trim();
-      if (text) console.log(`[desktop-app:${appId}] ${text}`);
+      if (!text) return;
+      console.log(`[desktop-app:${appId}] ${text}`);
+      emitDesktopAppRuntimeStatus({
+        appId,
+        state: "running",
+        message: "Preview updated.",
+      });
     });
     child.stderr?.on("data", (chunk) => {
       const text = chunk.toString().trim();
-      if (text) console.error(`[desktop-app:${appId}] ${text}`);
+      if (!text) return;
+      console.error(`[desktop-app:${appId}] ${text}`);
+      if (/\b(error|failed|fatal|compile|syntaxerror)\b/i.test(text)) {
+        emitDesktopAppRuntimeStatus({
+          appId,
+          state: "error",
+          message: "The local preview reported a build error.",
+        });
+      }
     });
-    child.once("error", (err) => {
+    child.once("error", () => {
       if (managedDesktopAppProcesses.get(appId) === child) {
         managedDesktopAppProcesses.delete(appId);
       }
       emitDesktopAppRuntimeStatus({
         appId,
         state: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: "The local preview could not start.",
       });
     });
-    child.once("exit", (code, signal) => {
+    child.once("exit", (code) => {
       if (managedDesktopAppProcesses.get(appId) === child) {
         managedDesktopAppProcesses.delete(appId);
       }
@@ -5323,30 +5588,40 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
         message:
           code === 0
             ? `${appConfig.name} stopped.`
-            : `${appConfig.name} exited (${signal ?? code ?? "unknown"}).`,
+            : "The local preview process exited unexpectedly.",
       });
-      if (
-        activeAppId === appId &&
-        (managedDesktopAppStartAttempts.get(appId) ?? 0) < 20
-      ) {
+      if ((managedDesktopAppStartAttempts.get(appId) ?? 0) < 20) {
         scheduleManagedDesktopAppStart(appId, 3_000);
       }
     });
 
     for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (!hasManagedDesktopAppDemand(appId)) {
+        stopManagedDesktopAppProcess(appId);
+        return;
+      }
       if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
         managedDesktopAppStartAttempts.delete(appId);
-        emitDesktopAppRuntimeStatus({ appId, state: "running" });
+        emitDesktopAppRuntimeStatus({
+          appId,
+          state: "running",
+          message: "Preview ready.",
+        });
         return;
       }
       if (child.exitCode !== null || child.killed) return;
       await new Promise((resolve) => setTimeout(resolve, 750));
     }
-  } catch (err) {
     emitDesktopAppRuntimeStatus({
       appId,
       state: "error",
-      message: err instanceof Error ? err.message : String(err),
+      message: "The local preview did not become ready.",
+    });
+  } catch {
+    emitDesktopAppRuntimeStatus({
+      appId,
+      state: "error",
+      message: "The local preview could not start.",
     });
   } finally {
     managedDesktopAppStarts.delete(appId);
@@ -5354,20 +5629,11 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
 }
 
 function stopManagedDesktopApp(appId: string): void {
+  managedDesktopAppDemand.delete(appId);
+  if (chatFirstPreviewAppId === appId) chatFirstPreviewAppId = null;
   clearManagedDesktopAppRetry(appId);
   managedDesktopAppStartAttempts.delete(appId);
-  const child = managedDesktopAppProcesses.get(appId);
-  if (!child) return;
-  if (process.platform !== "win32" && child.pid) {
-    try {
-      process.kill(-child.pid, "SIGTERM");
-    } catch {
-      child.kill("SIGTERM");
-    }
-  } else {
-    child.kill("SIGTERM");
-  }
-  managedDesktopAppProcesses.delete(appId);
+  stopManagedDesktopAppProcess(appId);
 }
 
 function showDesktopAppContextMenu(
@@ -7071,12 +7337,14 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
   const codex = getLocalCodexCliStatus();
+  const claude = getLocalClaudeCliStatus();
   const configuredCredentialKeys = new Set(
     settings.providers.flatMap((provider) => provider.configuredKeys),
   );
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
     ...(codex.authenticated ? [codex.label] : []),
+    ...(claude.authenticated ? [claude.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -7093,6 +7361,7 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
 function hasRuntimeCodeAgentLlmProvider(): boolean {
   if (hasRuntimeNonCodexCodeAgentLlmProvider()) return true;
   if (getLocalCodexCliStatus().authenticated) return true;
+  if (getLocalClaudeCliStatus().authenticated) return true;
   return false;
 }
 
@@ -7119,6 +7388,12 @@ function normalizeCodeAgentRequestedEngine(
     getLocalCodexCliStatus().authenticated
   ) {
     return CODEX_CLI_ENGINE_NAME;
+  }
+  if (
+    !hasRuntimeNonCodexCodeAgentLlmProvider() &&
+    getLocalClaudeCliStatus().authenticated
+  ) {
+    return CLAUDE_CLI_ENGINE_NAME;
   }
   return undefined;
 }
@@ -7149,37 +7424,107 @@ function ensureCodeAgentLlmProvider(): {
   return {
     ok: false,
     error:
-      "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, Builder credentials, or run `codex login` for Codex CLI.",
+      "Connect Builder.io, run `codex login` or `claude auth login --claudeai`, or add an API key.",
   };
 }
 
-function getLocalCodexCliStatus(): {
+const CLI_PROBE_TIMEOUT_MS = 1500;
+
+interface CliRun {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: NodeJS.ErrnoException;
+}
+
+function runCliSync(command: string, args: string[]): CliRun {
+  const result = spawnSync(command, args, {
+    encoding: "utf-8",
+    timeout: CLI_PROBE_TIMEOUT_MS,
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: (result.error as NodeJS.ErrnoException | undefined) ?? undefined,
+  };
+}
+
+function runCliAsync(command: string, args: string[]): Promise<CliRun> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
+      (error, stdout, stderr) => {
+        const errno = error as NodeJS.ErrnoException | null;
+        // A non-zero exit is an answer ("not logged in"), not a probe failure —
+        // only a failure to run the binary at all is reported as `error`.
+        const spawnFailed = Boolean(errno && typeof errno.code === "string");
+        resolve({
+          status: errno
+            ? typeof errno.code === "number"
+              ? errno.code
+              : null
+            : 0,
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
+          error: spawnFailed ? (errno ?? undefined) : undefined,
+        });
+      },
+    );
+  });
+}
+
+interface LocalCodexCliStatus {
   available: boolean;
   authenticated: boolean;
   label: string;
   authMode?: string;
   version?: string;
+  model?: string;
   error?: string;
-} {
-  const versionResult = spawnSync("codex", ["--version"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
-  if (versionResult.error) {
+}
+
+const localCodexCliStatusCache = createCliStatusCache<LocalCodexCliStatus>();
+
+function getLocalCodexCliStatus(): LocalCodexCliStatus {
+  return cachedCliStatus(
+    localCodexCliStatusCache,
+    () => {
+      const version = runCliSync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        runCliSync("codex", ["login", "status"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        await runCliAsync("codex", ["login", "status"]),
+      );
+    },
+  );
+}
+
+function parseLocalCodexCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalCodexCliStatus {
+  if (versionResult.error || !statusResult) {
     return {
       available: false,
       authenticated: false,
       label: "Codex CLI",
       error:
-        (versionResult.error as NodeJS.ErrnoException).code === "ENOENT"
+        versionResult.error?.code === "ENOENT"
           ? "Codex CLI was not found."
-          : versionResult.error.message,
+          : versionResult.error?.message,
     };
   }
-  const statusResult = spawnSync("codex", ["login", "status"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
   const statusText =
     `${statusResult.stdout ?? ""}\n${statusResult.stderr ?? ""}`.trim();
   const authMode = /using\s+(.+)$/i.exec(statusText)?.[1]?.trim();
@@ -7190,9 +7535,113 @@ function getLocalCodexCliStatus(): {
     label: authenticated && authMode ? `Codex CLI (${authMode})` : "Codex CLI",
     authMode,
     version: (versionResult.stdout ?? versionResult.stderr ?? "").trim(),
+    model: readConfiguredCodexModel(),
     error: authenticated
       ? undefined
       : statusText || "Codex CLI is not logged in.",
+  };
+}
+
+function readConfiguredCodexModel(): string | undefined {
+  const codexHomes = new Set(
+    [
+      process.env.CODEX_HOME?.trim(),
+      path.join(getHomeDirectory(), ".codex"),
+      path.join(os.homedir(), ".codex"),
+    ].filter((value): value is string => Boolean(value)),
+  );
+  for (const codexHome of codexHomes) {
+    try {
+      const config = fs.readFileSync(
+        path.join(codexHome, "config.toml"),
+        "utf-8",
+      );
+      const model = /^\s*model\s*=\s*["']([^"']+)["']\s*$/m
+        .exec(config)?.[1]
+        ?.trim();
+      if (model) return model;
+    } catch (error) {
+      // Try the next known Codex config location.
+      if (error instanceof Error) continue;
+      throw error;
+    }
+  }
+  return undefined;
+}
+
+interface LocalClaudeCliStatus {
+  available: boolean;
+  authenticated: boolean;
+  label: string;
+  version?: string;
+  error?: string;
+}
+
+const localClaudeCliStatusCache = createCliStatusCache<LocalClaudeCliStatus>();
+
+function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
+  return cachedCliStatus(
+    localClaudeCliStatusCache,
+    () => {
+      const version = runCliSync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        runCliSync("claude", ["auth", "status", "--json"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        await runCliAsync("claude", ["auth", "status", "--json"]),
+      );
+    },
+  );
+}
+
+function parseLocalClaudeCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalClaudeCliStatus {
+  if (versionResult.error || !statusResult) {
+    return {
+      available: false,
+      authenticated: false,
+      label: "Claude Code",
+      error:
+        versionResult.error?.code === "ENOENT"
+          ? "Claude Code CLI was not found."
+          : versionResult.error?.message,
+    };
+  }
+
+  let status: Record<string, unknown> | null = null;
+  try {
+    const parsed = JSON.parse(statusResult.stdout ?? "") as unknown;
+    status = isObject(parsed) ? parsed : null;
+  } catch {
+    status = null;
+  }
+  const authenticated = Boolean(
+    statusResult.status === 0 &&
+    status?.loggedIn === true &&
+    isClaudeSubscriptionAuthMethod(
+      typeof status?.authMethod === "string" ? status.authMethod : undefined,
+    ) &&
+    status?.apiProvider === "firstParty" &&
+    typeof status?.subscriptionType === "string" &&
+    status.subscriptionType.trim(),
+  );
+  return {
+    available: true,
+    authenticated,
+    label: "Claude subscription",
+    version: (versionResult.stdout ?? versionResult.stderr ?? "").trim(),
+    error: authenticated
+      ? undefined
+      : "Claude Code is not signed in with a Claude subscription.",
   };
 }
 
@@ -7277,6 +7726,8 @@ function pushCodeAgentModelOptions(
     engineLabel: string;
     supportedModels: readonly string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   },
 ): void {
   for (const model of options.supportedModels) {
@@ -7286,6 +7737,8 @@ function pushCodeAgentModelOptions(
       model,
       label: model,
       configured: options.configured,
+      ...(options.statusLabel ? { statusLabel: options.statusLabel } : {}),
+      ...(options.isSubscription ? { isSubscription: true } : {}),
     });
   }
 }
@@ -7293,24 +7746,21 @@ function pushCodeAgentModelOptions(
 function getCodeAgentModelList(): CodeAgentModelListResult {
   try {
     const settings = AppStore.getCodeAgentProviderSettingsStatus();
-    const models: CodeAgentModelOption[] = [
-      {
-        engine: "auto",
-        engineLabel: "Auto",
-        model: "auto",
-        label: "Default model",
-        description: "Use the connected provider and saved default.",
-        configured: true,
-      },
-    ];
+    const models: CodeAgentModelOption[] = [];
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
     const codex = getLocalCodexCliStatus();
-    const apiProviderConfigured =
-      Boolean(providerStatusById(settings, "anthropic")?.configured) ||
-      Boolean(providerStatusById(settings, "openai")?.configured) ||
-      Boolean(providerStatusById(settings, "google")?.configured);
+    const claude = getLocalClaudeCliStatus();
+    const anthropicConfigured = Boolean(
+      providerStatusById(settings, "anthropic")?.configured,
+    );
+    const openAiConfigured = Boolean(
+      providerStatusById(settings, "openai")?.configured,
+    );
+    const googleConfigured = Boolean(
+      providerStatusById(settings, "google")?.configured,
+    );
     const customEngine = process.env.AGENT_ENGINE?.trim();
     const customModel = process.env.AGENT_MODEL?.trim();
 
@@ -7331,61 +7781,76 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
         supportedModels: BUILDER_MODEL_CONFIG.supportedModels,
         configured: true,
       });
-    } else {
-      if (codex.available) {
-        models.push({
-          engine: CODEX_CLI_ENGINE_NAME,
-          engineLabel: "This computer",
-          model: CODEX_CLI_DEFAULT_MODEL,
-          label: "Codex CLI default",
-          description:
-            "Run locally through your signed-in ChatGPT subscription.",
-          configured: codex.authenticated,
-        });
-      }
+    }
+    if (codex.available) {
+      models.push({
+        engine: CODEX_CLI_ENGINE_NAME,
+        engineLabel: "OpenAI",
+        model: codex.model || CODEX_CLI_DEFAULT_MODEL,
+        label: codex.model || "Codex",
+        description: "Run locally through your signed-in ChatGPT subscription.",
+        configured: codex.authenticated,
+        ...(codex.authenticated
+          ? { statusLabel: "ChatGPT subscription", isSubscription: true }
+          : {}),
+      });
+    }
+    if (claude.available) {
+      models.push({
+        engine: CLAUDE_CLI_ENGINE_NAME,
+        engineLabel: "Anthropic",
+        model: ANTHROPIC_MODEL_CONFIG.defaultModel,
+        label: ANTHROPIC_MODEL_CONFIG.defaultModel,
+        description: "Run locally through your signed-in Claude subscription.",
+        configured: claude.authenticated,
+        ...(claude.authenticated
+          ? { statusLabel: "Claude subscription", isSubscription: true }
+          : {}),
+      });
+    }
+    if (!claude.authenticated) {
       pushCodeAgentModelOptions(models, {
         engine: "anthropic",
         engineLabel: "Anthropic",
         supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
-        configured: Boolean(
-          providerStatusById(settings, "anthropic")?.configured,
-        ),
+        configured: anthropicConfigured,
       });
+    }
+    if (!codex.authenticated) {
       pushCodeAgentModelOptions(models, {
         engine: "ai-sdk:openai",
         engineLabel: "OpenAI",
         supportedModels: AI_SDK_MODEL_CONFIG.openai.supportedModels,
-        configured: Boolean(providerStatusById(settings, "openai")?.configured),
-      });
-      pushCodeAgentModelOptions(models, {
-        engine: "ai-sdk:google",
-        engineLabel: "Gemini",
-        supportedModels: AI_SDK_MODEL_CONFIG.google.supportedModels,
-        configured: Boolean(providerStatusById(settings, "google")?.configured),
+        configured: openAiConfigured,
       });
     }
+    pushCodeAgentModelOptions(models, {
+      engine: "ai-sdk:google",
+      engineLabel: "Gemini",
+      supportedModels: AI_SDK_MODEL_CONFIG.google.supportedModels,
+      configured: googleConfigured,
+    });
 
     const selected = customEngine
       ? {
           engine: customEngine,
           model: customModel || BUILDER_MODEL_CONFIG.defaultModel,
         }
-      : builderConfigured
-        ? {
-            engine: "builder",
-            model: BUILDER_MODEL_CONFIG.defaultModel,
-          }
-        : codex.authenticated && !apiProviderConfigured
-          ? {
-              engine: CODEX_CLI_ENGINE_NAME,
-              model: CODEX_CLI_DEFAULT_MODEL,
-            }
-          : { engine: "auto", model: "auto" };
+      : (models.find(
+          (option) =>
+            option.configured &&
+            (option.engine === CODEX_CLI_ENGINE_NAME ||
+              option.engine === CLAUDE_CLI_ENGINE_NAME),
+        ) ??
+        models.find((option) => option.configured) ??
+        models[0]);
 
     return {
       status: "ok",
       models,
-      selected,
+      ...(selected
+        ? { selected: { engine: selected.engine, model: selected.model } }
+        : {}),
     };
   } catch (err) {
     return {
@@ -7752,6 +8217,11 @@ registerCodeAgentsIpc({
   pairRemoteCodeAgentConnector,
 });
 
+registerQuickPromptIpc({
+  createCodeAgentRun,
+  sendOpenRequestToRenderer,
+});
+
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
 // so add the useful browser/editing actions for both the shell and app webviews.
@@ -7969,6 +8439,11 @@ registerAppsIpc({
   normalizeDesktopAppsRoot,
   createDesktopAppFromPrompt,
   showDesktopAppContextMenu,
+});
+
+registerChatFirstMcpIpc({
+  resolveMcpHost: resolveDesktopMcpHost,
+  codeAgentWorkspaceRoot: () => resolveCodeAgentsTerminalCwd({}),
 });
 
 // See main/ipc/plan-files.ts.
@@ -8920,6 +9395,8 @@ app.on("web-contents-created", (_event, contents) => {
 // ---------- App lifecycle ----------
 
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
+  const currentUpdateStatus = getCurrentUpdateStatus();
+
   if (IS_DEV) {
     return {
       label: "Check for Updates...",
@@ -8927,7 +9404,12 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
     };
   }
 
-  const currentUpdateStatus = getCurrentUpdateStatus();
+  if (currentUpdateStatus.state === "unsupported") {
+    return {
+      label: "Check for Updates...",
+      enabled: false,
+    };
+  }
 
   if (currentUpdateStatus.state === "downloaded") {
     return {
@@ -9292,6 +9774,7 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
+  registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.
   remoteConnectorEnabled = false;

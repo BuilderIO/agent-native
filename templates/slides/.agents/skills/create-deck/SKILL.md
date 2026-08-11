@@ -89,8 +89,8 @@ produces a deck with the wrong shape for its own content. Instead:
    color, and markup conventions rather than bending content to a near-miss.
 
 The block deliberately omits the reference deck's slide sequence. Call
-`get-deck --id <reference deck id>` if you need to see how that deck handled a
-case the patterns do not cover.
+`get-deck --id <reference deck id> --compact false` only if you need full slide
+HTML to see how that deck handled a case the patterns do not cover.
 
 A reference deck and a design system are independent: the design system wins on
 tokens (color, type, spacing, imagery, and slide defaults), the reference deck

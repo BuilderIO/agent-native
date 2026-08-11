@@ -9,6 +9,16 @@ export type ImportedSourceDeck = {
   imagesSkipped: number;
 };
 
+/**
+ * PDF/PPTX import renders every page (image extraction, per-page fidelity
+ * parsing) and can run well past the client's default 60s action timeout on
+ * large or image-heavy files. A timeout here only aborts the client's wait —
+ * the server keeps importing and the deck still ends up with slides — so the
+ * default made the editor silently fail on a deck that had, or was about to
+ * have, real content.
+ */
+export const IMPORT_ACTION_TIMEOUT_MS = 5 * 60 * 1000;
+
 function sourceFormat(file: UploadedFile): "pdf" | "pptx" | null {
   const name = file.originalName.toLowerCase();
   if (name.endsWith(".pptx")) return "pptx";
@@ -57,6 +67,7 @@ export async function importUploadedDeckIntoDeck(
             deckId,
             importIntoDeck: true,
           },
+      { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
     ),
   );
   if (result.imported !== true || result.deckId !== deckId) {

@@ -17,7 +17,12 @@ import {
 } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
-import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import {
+  IconMaximize,
+  IconX,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
 import {
   useState,
   useCallback,
@@ -114,6 +119,8 @@ import {
   getSlideTextBoxDefaultColor,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  findPersistedImageObject,
+  isDeletableFlowImage,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   type CopiedSlideObjects,
@@ -135,6 +142,25 @@ import {
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
+
+function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg"
+          onClick={props.onExit}
+          aria-label={props.label}
+        >
+          <IconX className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{props.label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
@@ -506,6 +532,8 @@ interface SlideEditorProps {
    *  shell above the slide rail. Selection state lives here, so the toolbar is
    *  portaled out rather than lifted. Falls back to rendering in place. */
   contextToolbarSlot?: HTMLElement | null;
+  /** Wide editor-shell host for the toolbar's top-row placement. */
+  wideContextToolbarSlot?: HTMLElement | null;
   /** Selection-independent actions for the head of the contextual toolbar. */
   contextToolbarLeading?: ReactNode;
   onGenerateImage: () => void;
@@ -538,8 +566,6 @@ interface SlideEditorProps {
   onComment?: (quotedText: string) => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
-  /** Total number of slides in the deck */
-  slideCount?: number;
   /** Design system to inject as CSS custom properties on the slide */
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
@@ -621,12 +647,17 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
   if (users.length === 0) return null;
   const visible = users.slice(0, 3);
   const overflow = users.length - visible.length;
+  const agentIsPresent = users.some(
+    (user) => user.email.trim().toLowerCase() === "agent@system",
+  );
   const label =
-    users.length === 1
-      ? `${users[0].name} is here`
-      : `${users.length} others here`;
+    agentIsPresent && users.length === 1
+      ? "AI editing"
+      : users.length === 1
+        ? `${users[0].name} is here`
+        : `${users.length} others here`;
   return (
-    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg backdrop-blur">
+    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg">
       <div className="flex items-center">
         {visible.map((u) => (
           <SamePresenceAvatar key={u.email} user={u} />
@@ -967,6 +998,7 @@ export default function SlideEditor({
   onUpdateSlide,
   readOnly = false,
   contextToolbarSlot,
+  wideContextToolbarSlot,
   contextToolbarLeading,
   onGenerateImage,
   onOpenAssetLibrary,
@@ -978,7 +1010,6 @@ export default function SlideEditor({
   onToggleObjectFit,
   agentActive,
   slideIndex = 0,
-  slideCount = 1,
   designSystem,
   aspectRatio,
   drawMode,
@@ -2380,9 +2411,24 @@ export default function SlideEditor({
         clearMultiSelection();
       } else {
         const element = resolveSelectedElement();
-        if (!element || !isPersistedFreeformObject(element)) return;
-        e.preventDefault();
-        removeSlideObjectAndLayoutSpacer(element);
+        if (!element) return;
+        if (isPersistedFreeformObject(element)) {
+          e.preventDefault();
+          removeSlideObjectAndLayoutSpacer(element);
+        } else if (isDeletableFlowImage(element)) {
+          e.preventDefault();
+          // An imported PPTX/PDF image is an <img> (or placeholder) nested in
+          // an absolutely positioned wrapper that carries the persisted object
+          // id. Removing only the inner node would leave that wrapper and its
+          // durable metadata behind as an invisible ghost object.
+          const owner = findPersistedImageObject(element, slideContent);
+          if (owner) removeSlideObjectAndLayoutSpacer(owner);
+          else element.remove();
+          setSelectedImg(null);
+          setImageOverlay(null);
+        } else {
+          return;
+        }
         clearSelectedElement();
       }
 
@@ -4157,6 +4203,7 @@ export default function SlideEditor({
       // the button's onClick runs, so partial-text formatting would silently
       // apply to the whole object.
       data-slide-inline-edit-surface="true"
+      data-slide-context-toolbar-placement="row"
       onPointerDownCapture={preserveRichTextSelection}
     >
       <SlideContextToolbar
@@ -4172,11 +4219,35 @@ export default function SlideEditor({
     </div>
   ) : null;
 
+  const wideContextToolbar = !readOnly ? (
+    <div
+      className="shrink-0"
+      data-slide-inline-edit-surface="true"
+      data-slide-context-toolbar-placement="top"
+      onPointerDownCapture={preserveRichTextSelection}
+    >
+      <SlideContextToolbar
+        snapshot={selectedStyleSnapshot}
+        background={slide.background}
+        designSystem={designSystem}
+        leading={contextToolbarLeading}
+        onChange={applySelectedStylePatch}
+        onBackgroundChange={applySlideBackground}
+        onArrange={handleArrangeSelected}
+        onToggleList={handleToggleList}
+        className="slide-context-toolbar--top-row"
+      />
+    </div>
+  ) : null;
+
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)]"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
+      {!readOnly && wideContextToolbarSlot
+        ? createPortal(wideContextToolbar, wideContextToolbarSlot)
+        : null}
       {contextToolbarSlot
         ? createPortal(contextToolbar, contextToolbarSlot)
         : contextToolbar}
@@ -4184,15 +4255,28 @@ export default function SlideEditor({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
-            <div className="h-full bg-background">
+            <div className="relative h-full bg-[var(--slides-editor-surface)]">
+              {!readOnly && (
+                <ExcalidrawExitButton
+                  // JSON.stringify drops `undefined` properties before the patch
+                  // reaches the network request, so the server's
+                  // `fields.excalidrawData !== undefined` merge check never sees
+                  // the clear — the canvas would reappear after reload. "" is a
+                  // serializable value that survives the round trip and is
+                  // already treated as "no data" everywhere excalidrawData is read.
+                  onExit={() => onUpdateSlide({ excalidrawData: "" })}
+                  label={t("raw.exitExcalidrawCanvas")}
+                />
+              )}
               <ExcalidrawSlide
                 initialData={slide.excalidrawData}
                 onChange={(data) => onUpdateSlide({ excalidrawData: data })}
+                readOnly={readOnly}
               />
             </div>
           ) : (
-            <div className="relative h-full bg-background">
-              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
+            <div className="relative h-full bg-[var(--slides-editor-surface)]">
+              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md bg-popover/95 px-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -4291,6 +4375,7 @@ export default function SlideEditor({
                           edits={activeSlideEdits}
                           resolveRect={resolveCanvasRect}
                           containerRef={slideCanvasRef}
+                          outlineOnly
                         />
                       )}
                       {(agentActive || passivePresentUsers.length > 0) && (
@@ -4330,8 +4415,6 @@ export default function SlideEditor({
       <SpeakerNotesPanel
         notes={slide.notes}
         onChange={(notes) => onUpdateSlide({ notes })}
-        slideIndex={slideIndex}
-        slideCount={slideCount}
         readOnly={readOnly}
       />
 
@@ -4375,7 +4458,12 @@ export default function SlideEditor({
         onSendToAgent={sendSelectionToAgent}
       />
 
-      <BlockBubbleMenu editingEl={editingEl} />
+      <BlockBubbleMenu
+        editingEl={editingEl}
+        slideId={slide.id}
+        deckId={deckId}
+        onCommitInlineEdit={exitInlineEdit}
+      />
 
       {pendingUpdateCount > 0 && (
         <div className="absolute top-4 right-4 z-50">
@@ -4409,6 +4497,7 @@ export default function SlideEditor({
 
       <DrawOverlay
         visible={!!drawMode}
+        scopeKey={slideId || slide.id}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
           const summary = annotations

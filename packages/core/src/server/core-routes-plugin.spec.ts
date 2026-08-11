@@ -23,6 +23,7 @@ import {
   getFrameworkRouteRequestUrl,
   getFrameworkEnvKeys,
   readLegacyCoreRouteInitSettings,
+  shouldRunCoreRouteBootDatabaseWork,
 } from "./core-routes-plugin.js";
 
 describe("readLegacyCoreRouteInitSettings", () => {
@@ -47,6 +48,33 @@ describe("readLegacyCoreRouteInitSettings", () => {
       persistedEnvVars: { OTHER_KEY: "value" },
       builderDisconnected: null,
     });
+  });
+});
+
+describe("shouldRunCoreRouteBootDatabaseWork", () => {
+  it("skips request-time database warmups in production serverless runtimes", () => {
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps boot database work for local production and development", () => {
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        NETLIFY_LOCAL: "true",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunCoreRouteBootDatabaseWork({
+        NODE_ENV: "development",
+        NETLIFY: "true",
+      }),
+    ).toBe(true);
   });
 });
 

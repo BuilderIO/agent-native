@@ -166,7 +166,7 @@ function MacrosCommandMenu({
           {t("root.search")}
         </CommandMenu.Item>
         <CommandMenu.Item
-          onSelect={() => navigate("/agent")}
+          onSelect={() => navigate("/settings/agent")}
           keywords={["agent", "context", "connections", "jobs", "access"]}
         >
           <IconHierarchy2 size={16} />

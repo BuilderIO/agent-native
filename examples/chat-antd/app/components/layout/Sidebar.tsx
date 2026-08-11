@@ -39,7 +39,7 @@ const bottomNavItems = [
   {
     icon: IconHierarchy2,
     labelKey: "settings.agentTitle",
-    href: "/agent",
+    href: "/settings/agent",
     view: "agent",
   },
   {

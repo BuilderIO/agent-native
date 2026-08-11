@@ -189,6 +189,28 @@ describe("CreateAppFlow", () => {
       connectButton.click();
     });
     expect(builderConnectFlowState.start).toHaveBeenCalledTimes(1);
+    const localLink = container.querySelector<HTMLAnchorElement>(
+      "[data-create-app-local-link]",
+    );
+    expect(localLink?.textContent).toContain("Create locally");
+    expect(localLink?.href).toBe(
+      "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app",
+    );
+  });
+
+  it("sends the shared scaffold prompt to Builder when already in Builder", async () => {
+    frameState.inBuilderFrame = true;
+    await renderAndSubmit("Build a quality dashboard");
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({ submit: true, type: "code" }),
+    );
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).includes("start-workspace-app-creation"),
+      ),
+    ).toBe(false);
   });
 
   it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {

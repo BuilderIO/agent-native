@@ -452,12 +452,21 @@ export function AgentJobsTab({
                         </div>
                       ) : null}
                       {resource.lastError ? (
-                        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-destructive">
+                        <div className="mt-2 flex items-start gap-1.5 text-[11px] text-destructive">
                           <IconAlertTriangle className="mt-px size-3 shrink-0" />
                           <span className="min-w-0 break-words">
                             {resource.lastError}
                           </span>
-                        </p>
+                          <button
+                            type="button"
+                            className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+                            onClick={() => setDetailsTarget(entry)}
+                          >
+                            {t("jobs.viewDetails", {
+                              defaultValue: "View details",
+                            })}
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">

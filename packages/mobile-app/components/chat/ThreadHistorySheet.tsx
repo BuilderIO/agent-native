@@ -195,7 +195,7 @@ export function ThreadHistorySheet({
 
         {loading && threads.length === 0 ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#c7f36b" />
+            <ActivityIndicator color="#d4d4d8" />
           </View>
         ) : loadError ? (
           <View className="flex-1 items-center justify-center px-8 gap-3">

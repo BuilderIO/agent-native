@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AgentChatSurface,
+  getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
   normalizeAgentPanelModeForSurface,
@@ -199,6 +200,12 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "chat")).toBe(false);
   });
 
+  it("hides the full-view action when the sidebar is already on that route", () => {
+    expect(
+      shouldShowAgentPanelFullViewAction("/agent", "chat", true, "/agent"),
+    ).toBe(false);
+  });
+
   it("hides the full-view action for CLI or a missing page href", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "cli")).toBe(false);
     expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
@@ -207,6 +214,23 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
       false,
     );
+  });
+});
+
+describe("AgentPanel shortcut hints", () => {
+  it("uses compact modifier glyphs on every platform", () => {
+    expect(getAgentPanelShortcutHints(true)).toEqual({
+      closeTab: "⌃W",
+      closeAllTabs: "⌃⌥W",
+      toggleSidebar: "⌘\\",
+      widenChat: "⌘⇧\\",
+    });
+    expect(getAgentPanelShortcutHints(false)).toEqual({
+      closeTab: "⌥W",
+      closeAllTabs: "^⌥W",
+      toggleSidebar: "^\\",
+      widenChat: "^⇧\\",
+    });
   });
 });
 
@@ -233,10 +257,26 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain(
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
+    expect(overflowMenu).toContain("setTimeout(() => toggleHistory(), 0)");
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
-    expect(overflowMenu).toContain(
-      "<DropdownMenuShortcut>{fullscreenHint}</DropdownMenuShortcut>",
+    expect(overflowMenu).not.toContain("fullscreenHint");
+    expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
+  });
+});
+
+describe("AgentSidebar wide drawer layout", () => {
+  it("does not reserve the drawer placeholder after the panel closes", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const placeholderStart = source.indexOf("const drawerPlaceholder");
+    const placeholderEnd = source.indexOf("return (", placeholderStart);
+    const placeholder = source.slice(placeholderStart, placeholderEnd);
+
+    expect(placeholder).toContain(
+      "wideDrawerEnabled && !presentationMode && panelOpen ? (",
     );
+    expect(placeholder).not.toContain("shouldRenderPanel");
   });
 });
 

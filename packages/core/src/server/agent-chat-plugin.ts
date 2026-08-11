@@ -138,7 +138,10 @@ import {
 } from "../chat-threads/store.js";
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { isTransientDatabaseError } from "../db/client.js";
+import {
+  isProductionServerlessFunctionRuntime,
+  isTransientDatabaseError,
+} from "../db/client.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -154,8 +157,6 @@ import {
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import {
   McpClientManager,
-  loadMcpConfig,
-  autoDetectMcpConfig,
   mcpToolsToActionEntries,
   syncMcpActionEntries,
   mountMcpServersRoutes,
@@ -355,7 +356,10 @@ import {
   createDocsScriptEntries,
   createResourceScriptEntries,
 } from "./agent-chat/script-entries.js";
-import { parseSkillFrontmatter } from "./agent-chat/skill-frontmatter.js";
+import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "./agent-chat/skill-frontmatter.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
@@ -610,43 +614,47 @@ export function createAgentChatPlugin(
       const mcpActionEntries: Record<string, ActionEntry> = {};
       let mcpInitializationPromise: Promise<void> | null = null;
       const initializeMcpManager = async (): Promise<void> => {
-        let mcpConfig = await buildMergedConfig().catch((err) => {
-          console.warn(
-            `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-          );
-          return null;
-        });
-        if (!mcpConfig) {
-          mcpConfig = loadMcpConfig() ?? autoDetectMcpConfig();
-          if (mcpConfig?.source) {
-            console.log(
-              `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
-            );
-          } else if (process.env.DEBUG) {
-            console.log(
-              "[mcp-client] no configured MCP servers — skipping MCP tools",
-            );
-          }
-        } else if (mcpConfig.source) {
+        const mcpConfig = await buildMergedConfig();
+        if (mcpConfig?.source) {
           console.log(
             `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
           );
-        }
-        try {
-          await mcpManager.reconfigure(mcpConfig);
-        } catch (err: any) {
-          console.warn(
-            `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+        } else if (process.env.DEBUG) {
+          console.log(
+            "[mcp-client] no configured MCP servers — skipping MCP tools",
           );
-        } finally {
-          startMcpConfigRefresh(mcpManager);
         }
+        await mcpManager.reconfigure(mcpConfig);
+        startMcpConfigRefresh(mcpManager);
       };
-      const getJobMcpActionEntries = (
+      /**
+       * Start MCP initialization at most once, and return the run in flight.
+       *
+       * On a serverless function nothing kicks this off at boot (see the
+       * `isProductionServerlessFunctionRuntime` gate below), so every surface
+       * that actually consumes MCP tools must await this or the manager stays
+       * empty for the life of the container.
+       */
+      const ensureMcpInitialized = (): Promise<void> => {
+        if (!mcpInitializationPromise) {
+          mcpInitializationPromise = initializeMcpManager().catch((err) => {
+            // Do not cache a settings outage as a successful empty manager;
+            // the next MCP-consuming request must retry the configuration read.
+            mcpInitializationPromise = null;
+            throw err;
+          });
+        }
+        return mcpInitializationPromise;
+      };
+      const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
-      ): Record<string, ActionEntry> => {
+      ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
         if (requested.length === 0) return {};
+        // Background action suppliers may be async so event-triggered and
+        // scheduled runs can await lazy MCP hydration on serverless cold
+        // starts. Runs without requested MCP tools still skip this work.
+        await ensureMcpInitialized();
         const entries = mcpToolsToActionEntries(mcpManager, {
           toolNames: requested,
         });
@@ -665,7 +673,7 @@ export function createAgentChatPlugin(
       mountMcpServersRoutes(nitroApp, mcpManager, {
         // Serialize an unusually early settings mutation behind the initial
         // config snapshot so stale startup data cannot overwrite the write.
-        waitUntilReady: () => mcpInitializationPromise ?? Promise.resolve(),
+        waitUntilReady: ensureMcpInitialized,
       });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
@@ -1021,8 +1029,9 @@ export function createAgentChatPlugin(
         if (automationGroupEnabled) {
           const { createAutomationToolEntries } =
             await import("../triggers/actions.js");
-          automationTools = createAutomationToolEntries(() =>
-            requireCurrentRunOwner("manage automations"),
+          automationTools = createAutomationToolEntries(
+            () => requireCurrentRunOwner("manage automations"),
+            options?.appId,
           );
         }
       } catch {}
@@ -1204,27 +1213,30 @@ export function createAgentChatPlugin(
       // background surface. Interactive-only tools stay out of it, while
       // shared capabilities such as call-agent and core-send-email cannot
       // drift independently between the two background entry points.
-      const getBackgroundActionEntries = (
+      const getBackgroundActionEntries = async (
         automation?: RecurringJobContext,
-      ): Record<string, ActionEntry> => ({
-        ...templateScripts,
-        ...resourceScripts,
-        ...docsScripts,
-        ...(lazyContext ? frameworkContextTool : {}),
-        ...urlTools,
-        ...chatScripts,
-        ...callAgentScript,
-        ...jobTools,
-        ...automationTools,
-        ...notificationTools,
-        ...progressTools,
-        ...fetchTool,
-        ...webSearchTool,
-        ...toolActions,
-        ...backgroundCoreEmailTools,
-        ...coreAttachmentTools,
-        ...getJobMcpActionEntries(automation),
-      });
+      ): Promise<Record<string, ActionEntry>> => {
+        const mcpActions = await getJobMcpActionEntries(automation);
+        return {
+          ...templateScripts,
+          ...resourceScripts,
+          ...docsScripts,
+          ...(lazyContext ? frameworkContextTool : {}),
+          ...urlTools,
+          ...chatScripts,
+          ...callAgentScript,
+          ...jobTools,
+          ...automationTools,
+          ...notificationTools,
+          ...progressTools,
+          ...fetchTool,
+          ...webSearchTool,
+          ...toolActions,
+          ...backgroundCoreEmailTools,
+          ...coreAttachmentTools,
+          ...mcpActions,
+        };
+      };
 
       // -----------------------------------------------------------------------
       // Production code-execution mode resolution.
@@ -1250,12 +1262,12 @@ export function createAgentChatPlugin(
               ? "off"
               : (options?.codeExecution?.production ?? "off");
 
-      // Forward-declaration for the production run-code bridge supplier.
-      // Must come before createRunCodeEntry so the closure can capture it.
+      // Forward-declaration for the production code-execution bridge supplier.
+      // Must come before the code entries are created so their closures can capture it.
       let prodRunCodeToolActions: Record<string, ActionEntry> = {};
       let leanRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Sandboxed run-code tool (+ its get-code-execution poll companion):
+      // Sandboxed run-code, bounded tool-orchestration, and get-code-execution:
       // available in "sandboxed" or "trusted" prod modes and always in dev
       // mode. See loadRunCodeToolEntries for the registration contract.
       const runCodeTool: Record<string, ActionEntry> =
@@ -1298,7 +1310,7 @@ export function createAgentChatPlugin(
       // Must be declared before devRunCodeTool so the closure can close over it.
       let devRunCodeToolActions: Record<string, ActionEntry> = {};
 
-      // Always register run-code (+ get-code-execution) in dev mode (when the
+      // Always register code execution (+ get-code-execution) in dev mode (when the
       // coding module loads). devActions is not yet defined at this point; we
       // use a late-binding supplier so devRunCodeTool can reference the
       // devActions registry once it is built below (see devHandler block).
@@ -1483,7 +1495,8 @@ export function createAgentChatPlugin(
           if (!entry) {
             return {
               status: "failed" as const,
-              output: "Unknown or unavailable read-only action",
+              output:
+                "Unknown or unavailable read-only action. Direct cross-app action mode only accepts explicitly exposed read-only operations; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
             };
           }
 
@@ -2461,6 +2474,7 @@ export function createAgentChatPlugin(
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
           getUserNameFromEvent,
+          appId: options?.appId,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
         });
@@ -2873,7 +2887,7 @@ export function createAgentChatPlugin(
       try {
         if (automationGroupEnabled) {
           const { createJobTools } = await import("../jobs/tools.js");
-          jobTools = createJobTools();
+          jobTools = createJobTools(options?.appId);
         }
       } catch {}
 
@@ -3209,8 +3223,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const prodCodeExecPromptNote =
         !canToggle && resolvedProdCodeExec !== "off"
           ? resolvedProdCodeExec === "trusted"
-            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
-            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. The run-code tool lets you execute isolated JavaScript (ESM, top-level await) to fetch, aggregate, and reduce data. Use providerFetch(), providerFetchAll(), providerRequest(), webRead(), and webFetch() inside run-code for authenticated provider calls and compact web/document reduction.</code-execution-mode>"
+            ? "\n\n<code-execution-mode>Full shell access is enabled (trusted mode). You have bash, read, edit, write, and run-code tools available. Use bash for file discovery, running tests and builds, and project CLIs. Use run-code for sandboxed JavaScript data processing: provider/API pagination, joins, classification, aggregation, and large-response reduction. Use tool-orchestration for short bounded fan-out or reduction over read-only tools. Use `pnpm action <name>` in bash to invoke registered app actions from the shell.</code-execution-mode>"
+            : "\n\n<code-execution-mode>Sandboxed code execution is enabled. Use tool-orchestration for short bounded fan-out, joins, and reduction over read-only tools. Use run-code when you need its broader provider/web helpers, workspace staging, or durable background execution. In either tool, authenticated calls go through the provided host globals and results should be reduced before printing.</code-execution-mode>"
           : "";
 
       const prodHandler = createProductionAgentHandler({
@@ -4239,7 +4253,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     const content = _fs.readFileSync(skillFilePath, "utf-8");
                     const fm = parseSkillFrontmatter(content);
                     if (fm.userInvocable === false) continue;
-                    if (fm.scope === "dev") continue;
+                    if (!isRuntimeVisibleScope(fm.scope)) continue;
                     const skillName =
                       fm.name || entry.name.replace(/\.md$/, "");
                     if (!seenNames.has(skillName)) {
@@ -4323,7 +4337,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 );
                 if (full) {
                   const fm = parseSkillFrontmatter(full.content);
-                  if (fm.scope === "dev") continue;
+                  if (!isRuntimeVisibleScope(fm.scope)) continue;
                   if (fm.name) skillName = fm.name;
                   description = fm.description;
                   userInvocable = fm.userInvocable;
@@ -5650,6 +5664,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // the background worker), so both go through identical context + handler
       // selection.
       const invokeAgentChatHandler = async (event: any) => {
+        // Chat is the main MCP consumer, and on serverless nothing hydrated the
+        // manager at boot. Awaiting here trades first-chat latency for tools
+        // that are actually present instead of a silently MCP-less run.
+        await ensureMcpInitialized();
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
 
@@ -6077,6 +6095,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
             try {
+              // Jobs may request MCP tools, and `getActions` is synchronous —
+              // hydrate before the sweep so a serverless container that never
+              // eagerly initialized still resolves them.
+              await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
               return { ok: true };
             } catch (error) {
@@ -6121,10 +6143,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       }
 
-      // A non-Netlify self-dispatch only waits for the request to leave the
-      // current invocation. Keep the durable history row as a retryable queue
-      // so a frozen serverless handoff is recovered on the next sweep.
-      if (!isBackgroundRuntime && !sweepsDisabled) {
+      // A synchronous self-dispatch only waits for the request to leave the
+      // current invocation. Long-lived runtimes keep this retryable-queue
+      // backstop; serverless runtimes use their durable scheduler instead.
+      if (
+        !isBackgroundRuntime &&
+        !disableRecurringJobsRuntime &&
+        !sweepsDisabled
+      ) {
         (() => {
           let inFlight = false;
           const sweep = async () => {
@@ -6148,12 +6174,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         })();
       }
 
-      mcpInitializationPromise = initializeMcpManager().catch((err) => {
-        console.warn(
-          `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
-        );
-      });
-      void mcpInitializationPromise;
+      // Long-lived runtimes hydrate MCP once at boot. Serverless functions must
+      // not: nothing awaits this, so a settings scan plus third-party MCP
+      // handshakes run on EVERY cold start of every app — including requests
+      // that never touch MCP — and outlive the response on a runtime that
+      // freezes after responding. There, `ensureMcpInitialized()` is driven by
+      // the surfaces that consume MCP tools instead.
+      if (!isProductionServerlessFunctionRuntime()) {
+        void ensureMcpInitialized().catch((err) => {
+          console.warn(
+            `[mcp-client] eager initialization failed: ${err?.message ?? err}`,
+          );
+        });
+      }
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the

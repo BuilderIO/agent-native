@@ -232,7 +232,9 @@ function ServerStatus({ server }: { server: McpServer }) {
   );
 }
 
-function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
+export function ConnectionsTab({
+  canManageOrg,
+}: Partial<AgentPageTabProps> = {}) {
   const t = useT();
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
@@ -242,8 +244,10 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const data = serversQuery.data;
+  const resolvedCanManageOrg =
+    canManageOrg ?? (data?.role === "owner" || data?.role === "admin");
   const hasOrg = Boolean(data?.orgId);
-  const canCreateOrgMcp = hasOrg && canManageOrg;
+  const canCreateOrgMcp = hasOrg && resolvedCanManageOrg;
 
   const onCreateMcpServer = useCallback(
     async (args: {
@@ -286,7 +290,7 @@ function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
 
   const renderServer = (server: McpServer) => {
     const key = `${server.scope}:${server.id}`;
-    const canDelete = server.scope === "user" || canManageOrg;
+    const canDelete = server.scope === "user" || resolvedCanManageOrg;
     const selected =
       selectedServer?.id === server.id && selectedServer.scope === server.scope;
     return (

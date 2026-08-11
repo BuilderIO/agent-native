@@ -121,7 +121,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
           "Summarize this account",
           "Which opportunities need attention?",
         ]}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
       >
         {shell}
       </AgentSidebar>

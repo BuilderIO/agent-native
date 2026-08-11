@@ -29,6 +29,7 @@ export function AppOpenActions({
   rel,
   labels: labelOverrides,
   onAddApp,
+  onOpenInline,
   showInlineOption = false,
   showNewTabOption = false,
 }: {
@@ -38,6 +39,7 @@ export function AppOpenActions({
   rel?: string;
   labels?: Partial<AppOpenActionLabels>;
   onAddApp?: () => void;
+  onOpenInline?: () => void;
   showInlineOption?: boolean;
   showNewTabOption?: boolean;
 }) {
@@ -92,8 +94,8 @@ export function AppOpenActions({
               </DropdownMenuItem>
             ) : null}
             {showInlineOption && href ? (
-              <DropdownMenuItem asChild>
-                <a href={href}>{labels.openInline}</a>
+              <DropdownMenuItem onSelect={onOpenInline}>
+                {labels.openInline}
               </DropdownMenuItem>
             ) : null}
             {showNewTabOption && href ? (

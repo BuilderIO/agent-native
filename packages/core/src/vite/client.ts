@@ -3,7 +3,7 @@ import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { fileURLToPath } from "url";
 
 import {
   renderDesignSystemThemeCss,
@@ -25,7 +25,6 @@ import {
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
   mergeAgentNativeConfigs,
-  normalizeAgentNativeConfig,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
   type AgentNativeConfigContext,
@@ -59,6 +58,11 @@ import {
   getRuntimeConfigReport,
 } from "../shared/runtime-config.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
+import {
+  createAgentNativeConfigContext,
+  loadAgentNativeConfigFile,
+  readAgentNativeJsonConfig,
+} from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 const require = createRequire(import.meta.url);
@@ -1649,8 +1653,10 @@ export interface ClientConfigOptions {
   define?: UserConfig["define"];
   /**
    * Public app behavior from `agent-native.json` or an optional typed
-   * `agent-native.ts` file. Explicit Vite options win over the JSON file,
-   * while the file remains the default project-level source of truth.
+   * `agent-native.config.ts` file. Explicit Vite options win over the JSON
+   * file, while the typed file remains the default project-level source of
+   * truth. `agent-native.ts`, `.mts`, and `agent-native.config.mts` remain
+   * compatibility aliases.
    */
   agentNativeConfig?: AgentNativeConfigInput;
   /**
@@ -3046,9 +3052,19 @@ function createNitroDevPlugin(
   options: Pick<ClientConfigOptions, "nitro">,
   appBasePath: string,
 ) {
+  const nitroOptions = options.nitro ?? {};
   return nitroVitePlugin({
     serverDir: "./server",
-    ...(options.nitro ?? {}),
+    ...nitroOptions,
+    replace: {
+      ...(nitroOptions as { replace?: Record<string, string> }).replace,
+      // Netlify's netlify.toml environment is available to the build but not
+      // injected into deployed Functions. Nitro is a separate server build,
+      // so it needs the release ownership decision in its own replacement map.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+    },
     // Never auto-load test files as server handlers/plugins/middleware.
     // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
     // *.spec.ts would otherwise be loaded at runtime and crash the server
@@ -3193,7 +3209,12 @@ const DEFAULT_VITE_WATCH_IGNORES = [
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
-  return { ...pluginOrPreset, apply: "serve" };
+  return {
+    ...pluginOrPreset,
+    apply: (_config: UserConfig, configEnv: ConfigEnv) =>
+      configEnv.command === "serve" &&
+      !(configEnv.isPreview && process.env.IS_RR_BUILD_REQUEST === "yes"),
+  };
 }
 
 function nitroPresetMarkerPlugin(
@@ -3241,7 +3262,7 @@ function createAgentNativePlugins(
     ...userPlugins,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
-    agentsBundlePlugin(),
+    agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
@@ -3286,66 +3307,6 @@ function resolveAgentNativeTemplate(cwd: string): string {
       ?.trim()
       .toLowerCase() ?? ""
   );
-}
-
-function createAgentNativeConfigContext(
-  command: AgentNativeViteCommand | undefined,
-  mode: string,
-): AgentNativeConfigContext {
-  const resolvedCommand = command === "build" ? "build" : "serve";
-  return {
-    command: resolvedCommand,
-    mode,
-    isDev: resolvedCommand === "serve",
-    isBuild: resolvedCommand === "build",
-  };
-}
-
-function readAgentNativeJsonConfig(cwd: string): AgentNativeConfig {
-  const configPath = path.join(cwd, "agent-native.json");
-  if (!fs.existsSync(configPath)) return {};
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  } catch (error) {
-    throw new Error(
-      `Could not read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  return normalizeAgentNativeConfig(parsed, configPath);
-}
-
-async function loadAgentNativeConfigFile(
-  cwd: string,
-): Promise<AgentNativeConfigInput | undefined> {
-  const candidates = [
-    "agent-native.ts",
-    "agent-native.mts",
-    "agent-native.config.ts",
-    "agent-native.config.mts",
-  ];
-  const configPath = candidates
-    .map((filename) => path.join(cwd, filename))
-    .find((candidate) => fs.existsSync(candidate));
-  if (!configPath) return undefined;
-
-  try {
-    const module = (await import(pathToFileURL(configPath).href)) as {
-      default?: unknown;
-      agentNativeConfig?: unknown;
-    };
-    const config = module.default ?? module.agentNativeConfig;
-    if (typeof config !== "object" && typeof config !== "function") {
-      throw new Error("the default export must be an object or function");
-    }
-    return config as AgentNativeConfigInput;
-  } catch (error) {
-    throw new Error(
-      `Could not load ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
 }
 
 function reportRuntimeConfigDiagnostics(
@@ -3518,6 +3479,12 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      // The release migration owner is configured at build time. Netlify's
+      // netlify.toml environment is available to the build but not injected
+      // into deployed Functions, so embed the decision in the server bundle.
+      "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
       __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
         process.env.GTM_CONTAINER_ID?.trim() || "",

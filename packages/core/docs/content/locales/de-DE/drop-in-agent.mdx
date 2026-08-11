@@ -9,7 +9,7 @@ description: "Mounten Sie den Agenten-Chat + Agent-Ressourcen mit <AgentPanel>, 
 
 Sie müssen den Agent-nativen Ansatz nicht von Grund auf neu erstellen. Der Agenten-Chat, die Registerkarte „Agent-Ressourcen“, das CLI-Terminal, die Spracheingabe und die gesamte zugehörige Infrastruktur werden als eine Handvoll React-Komponenten geliefert, die Sie in jede App einfügen können.
 
-> **Voraussetzung:** Auf dem Server muss `agent-chat-plugin` ausgeführt werden (es wird in jeder Vorlage automatisch gemountet). Wenn Sie bei Null anfangen, lesen Sie [Server](/docs/server).
+> **Voraussetzung:** Auf dem Server muss `agent-chat-plugin` ausgeführt werden (es wird in jeder Vorlage automatisch gemountet). Wenn Sie bei Null anfangen, lesen Sie [Server](/docs/server-overview).
 >
 > Benötigen Sie die öffentliche API-Karte anstelle eines Tutorials? Siehe [Component API](/docs/components).
 
@@ -136,11 +136,11 @@ Kinder bleiben im Haupt-App-Bereich. Der Agenten-Chat ist der Seitenbereich.
   ]}
 />
 
-Das ist es. Der Benutzer hat jetzt auf jeder Seite einen umschaltbaren Agenten – mit Chat-Verlauf, Agent-Ressourcen-Tab, CLI-Terminal, Spracheingabe und einem Vollbildmodus. Der Status bleibt über Neuladevorgänge über `localStorage` hinweg bestehen.
+Das ist es. Der Benutzer hat jetzt auf jeder Seite einen umschaltbaren Agenten – mit Chat-Verlauf, Agent-Ressourcen-Tab, CLI-Terminal, Spracheingabe und einem breiteren Drawer. Der Status bleibt über Neuladevorgänge über `localStorage` hinweg bestehen.
 
 ### Requisiten
 
-- **`children`** – das normale Layout und die Routen Ihrer App. Im Hauptbereich gerendert; Das Agentenfeld wird auf dem Desktop daneben und auf Mobilgeräten/im Vollbildmodus darüber angezeigt.
+- **`children`** – das normale Layout und die Routen Ihrer App. Im Hauptbereich gerendert; Das Agentenfeld wird auf dem Desktop daneben und auf Mobilgeräten darüber angezeigt.
 - **`emptyStateText`** – Begrüßung, die angezeigt wird, wenn der Chat keine Nachrichten enthält. Standard: `"How can I help you?"`.
 - **`suggestions`** – Starter-Eingabeaufforderungen werden als anklickbare Chips gerendert, wenn sie leer sind.
 - **`dynamicSuggestions`** – kontextsensitive Eingabeaufforderungs-Chips, zusammengeführt mit `suggestions`. Standardmäßig aktiviert; Übergeben Sie `false`, um nur statische Vorschläge anzuzeigen, oder `{ max, includeStatic, getSuggestions }`, um es anzupassen.
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** – `"chat"` oder `"cli"`. Standard: `"chat"`.
 - **`className`** – CSS-Klasse für den äußeren Container.
 - **`onCollapse`** – sofern vorhanden, erscheint in der Kopfzeile eine Schaltfläche zum Ausblenden.
-- **`isFullscreen`** / **`onToggleFullscreen`** – verknüpfen Sie den externen Vollbildstatus, wenn Sie eine zentrierte Spalte im Claude-Stil wünschen.
+- **`isFullscreen`** – setzen Sie diese Option für eine zentrierte Spalte im Claude-Stil auf einer Seite oder in einem benutzerdefinierten Panel. Die Seitenleiste verwendet stattdessen den breiteren Drawer.
 - **`storageKey`** – Namespace für `localStorage`-Schlüssel. Nützlich, wenn Sie mehrere Panels (verschiedene App-Instanzen oder Arbeitsbereiche) auf derselben Seite rendern.
 
 Vollständige Requisiten: `AgentPanelProps` in `@agent-native/core/client`.

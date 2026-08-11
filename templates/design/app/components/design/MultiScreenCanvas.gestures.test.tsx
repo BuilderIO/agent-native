@@ -385,6 +385,167 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
   });
 
+  it("leaves Cmd+D for the layer hotkey when no frame is selected", async () => {
+    const onDuplicate = vi.fn();
+    const rendered = (selectedScreenIds: string[]) => (
+      <MultiScreenCanvas
+        screens={[
+          {
+            id: "screen-a",
+            filename: "screen-a.html",
+            content: "<!doctype html><html><body></body></html>",
+          },
+        ]}
+        zoom={100}
+        activeTool="move"
+        selectedScreenIds={selectedScreenIds}
+        geometryById={{ "screen-a": { x: 0, y: 0, width: 320, height: 640 } }}
+        onDuplicate={onDuplicate}
+        onPick={() => {}}
+      />
+    );
+    const pressDuplicate = () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "d",
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      return event;
+    };
+
+    await act(async () => {
+      root.render(rendered([]));
+    });
+    let event = await act(async () => pressDuplicate());
+    // The shared hotkey hook drops anything already defaultPrevented, so
+    // claiming the event here would silently swallow layer duplication.
+    expect(event.defaultPrevented).toBe(false);
+    expect(onDuplicate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(rendered(["screen-a"]));
+    });
+    event = await act(async () => pressDuplicate());
+    expect(event.defaultPrevented).toBe(true);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+    expect(onDuplicate.mock.calls[0]![0]).toBe("screen-a");
+  });
+
+  it("copies a selected frame on alt-drag from its selection outline instead of moving it", async () => {
+    const onDuplicate = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          activeId="screen-a"
+          selectedScreenIds={["screen-a"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          onDuplicate={onDuplicate}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const frame = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(frame).not.toBeNull();
+    expect(dragSurface).not.toBeNull();
+    const before = { left: frame!.style.left, top: frame!.style.top };
+
+    await act(async () => {
+      dispatchMouseAlt(dragSurface!, "mousedown", 320, 400);
+      dispatchMouseAlt(window, "mousemove", 400, 460);
+      await nextAnimationFrame();
+      dispatchMouseAlt(window, "mouseup", 400, 460);
+    });
+
+    expect(frame!.style.left).toBe(before.left);
+    expect(frame!.style.top).toBe(before.top);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+    const [duplicatedId, request] = onDuplicate.mock.calls[0]!;
+    expect(duplicatedId).toBe("screen-a");
+    expect(request.mode).toBe("alt-drag");
+    expect(request.canvasPosition.x).toBeGreaterThan(0);
+    expect(request.canvasPosition.y).toBeGreaterThan(0);
+  });
+
+  it("copies every frame in a multi-selection on alt-drag, keeping their relative layout", async () => {
+    const onDuplicate = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+            {
+              id: "screen-b",
+              filename: "screen-b.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          selectedScreenIds={["screen-a", "screen-b"]}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+            "screen-b": { x: 420, y: 100, width: 320, height: 640 },
+          }}
+          onDuplicate={onDuplicate}
+          onPick={() => {}}
+        />,
+      );
+    });
+    const frameA = container.querySelector<HTMLElement>(
+      '[data-frame-id="screen-a"]',
+    );
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    );
+    expect(frameA).not.toBeNull();
+    expect(dragSurface).not.toBeNull();
+    const beforeA = { left: frameA!.style.left, top: frameA!.style.top };
+
+    await act(async () => {
+      dispatchMouseAlt(dragSurface!, "mousedown", 450, 450);
+      dispatchMouseAlt(window, "mousemove", 490, 480);
+      await nextAnimationFrame();
+      dispatchMouseAlt(window, "mouseup", 490, 480);
+    });
+
+    expect(frameA!.style.left).toBe(beforeA.left);
+    expect(frameA!.style.top).toBe(beforeA.top);
+    expect(onDuplicate).toHaveBeenCalledTimes(2);
+    const placed = new Map<string, { x: number; y: number }>(
+      onDuplicate.mock.calls.map(([duplicatedId, request]) => [
+        duplicatedId,
+        request.canvasPosition,
+      ]),
+    );
+    const placedA = placed.get("screen-a")!;
+    const placedB = placed.get("screen-b")!;
+    expect(placedA.x).toBeGreaterThan(0);
+    expect(placedB.x - placedA.x).toBeCloseTo(420);
+    expect(placedB.y - placedA.y).toBeCloseTo(100);
+  });
+
   it("keeps pending review discoverable in constant-size frame chrome", async () => {
     const onReviewPendingScreen = vi.fn();
     await act(async () => {

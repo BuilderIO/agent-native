@@ -43,8 +43,14 @@
   border-radius: 999px;
   background: hsl(var(--popover));
   color: hsl(var(--foreground));
-  box-shadow: 0 10px 30px hsl(var(--background) / 0.28);
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: 0 10px 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
   cursor: pointer;
+}
+
+.dark .agent-conversation__scroll-bottom {
+  --agent-shadow-o: 0.08;
 }
 
 .agent-conversation-message {
@@ -638,6 +644,17 @@
   font-size: 0.875em;
 }
 
+.agent-markdown-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.agent-markdown-table-wrap > table {
+  min-width: 100%;
+  width: max-content;
+}
+
 .agent-markdown th,
 .agent-markdown td {
   border: 1px solid hsl(var(--border, 0 0% 20%));
@@ -653,7 +670,7 @@
 
 /* Streaming caret appended after last non-code paragraph while text is live. */
 .agent-markdown[data-streaming="true"]
-  > :last-child:not(pre):not(table)::after {
+  > :last-child:not(pre):not(table):not(.agent-markdown-table-wrap)::after {
   content: "";
   display: inline-block;
   width: 0.42em;
@@ -678,7 +695,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .agent-markdown[data-streaming="true"]
-    > :last-child:not(pre):not(table)::after {
+    > :last-child:not(pre):not(table):not(.agent-markdown-table-wrap)::after {
     animation: none;
     opacity: 0.28;
   }

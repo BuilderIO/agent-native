@@ -33,7 +33,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently.
-const runSlidesMigrations = runMigrations(
+export const runSlidesMigrations = runMigrations(
   [
     {
       version: 1,
@@ -229,6 +229,11 @@ const runSlidesMigrations = runMigrations(
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS uploaded_assets_owner_created_idx ON uploaded_assets (owner_email, created_at)`,
+    },
+    {
+      version: 21,
+      name: "slides-share-design-system-snapshot",
+      sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_data TEXT`,
     },
   ],
   { table: "slides_migrations" },

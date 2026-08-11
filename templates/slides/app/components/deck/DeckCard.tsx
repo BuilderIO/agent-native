@@ -7,7 +7,6 @@ import {
   IconTrash,
   IconCopy,
   IconPencil,
-  IconPalette,
   IconPlus,
   IconStar,
   IconStarFilled,
@@ -33,7 +32,6 @@ interface DeckCardProps {
   onRename: (id: string, newTitle: string) => void;
   onDuplicate: (id: string) => void;
   onToggleStar: (id: string, starred: boolean) => void;
-  designSystemTitle?: string | null;
   isWorkspaceDefault?: boolean;
   canSetWorkspaceDefault?: boolean;
   onSetWorkspaceDefault?: (id: string, isDefault: boolean) => void;
@@ -45,7 +43,6 @@ export default function DeckCard({
   onRename,
   onDuplicate,
   onToggleStar,
-  designSystemTitle,
   isWorkspaceDefault = false,
   canSetWorkspaceDefault = false,
   onSetWorkspaceDefault,
@@ -59,6 +56,7 @@ export default function DeckCard({
   const [contextOpen, setContextOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
+  const pendingDeleteRef = useRef(false);
   const pendingWorkspaceDefaultRef = useRef(false);
 
   useEffect(() => {
@@ -100,7 +98,7 @@ export default function DeckCard({
     <div className="group relative">
       <Link
         to={`/deck/${deck.id}`}
-        className="block rounded-xl border border-border bg-card hover:border-border transition-all duration-200 overflow-hidden hover:shadow-lg hover:shadow-[#609FF8]/5"
+        className="block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
         onClick={(e) => {
           if (isRenaming) e.preventDefault();
         }}
@@ -142,25 +140,6 @@ export default function DeckCard({
               </h3>
             )}
             <VisibilityBadge visibility={deck.visibility} />
-          </div>
-          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-            <span className="shrink-0 whitespace-nowrap">
-              {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
-            </span>
-            {isWorkspaceDefault && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-[#609FF8]/40 px-1.5 py-0.5 text-[10px] text-[#609FF8]">
-                <IconBuildingCommunity className="h-3 w-3 shrink-0" />
-                {t("home.workspaceDefaultBadge")}
-              </span>
-            )}
-            {deck.designSystemId && (
-              <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
-                <IconPalette className="h-3 w-3 shrink-0 text-[#609FF8]" />
-                <span className="max-w-28 truncate">
-                  {designSystemTitle || "Design system"}
-                </span>
-              </span>
-            )}
           </div>
         </div>
       </Link>
@@ -227,6 +206,11 @@ export default function DeckCard({
                 pendingWorkspaceDefaultRef.current = false;
                 onSetWorkspaceDefault?.(deck.id, !isWorkspaceDefault);
               }
+              if (pendingDeleteRef.current) {
+                e.preventDefault();
+                pendingDeleteRef.current = false;
+                setTimeout(() => onDelete(deck.id), 0);
+              }
             }}
           >
             <DropdownMenuItem
@@ -268,8 +252,10 @@ export default function DeckCard({
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onSelect={() => {
-                onDelete(deck.id);
+              onSelect={(event) => {
+                event.preventDefault();
+                pendingDeleteRef.current = true;
+                setMenuOpen(false);
               }}
               className="text-red-400 focus:text-red-400"
             >

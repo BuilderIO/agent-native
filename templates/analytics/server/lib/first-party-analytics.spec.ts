@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
@@ -19,9 +21,12 @@ const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
 }));
 const analyticsDbMocks = vi.hoisted(() => {
+  const getDb = vi.fn();
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
+  const insertOnConflictDoNothing = vi.fn();
   const updateWhere = vi.fn();
+  const updateReturning = vi.fn();
   const db: Record<string, any> = {};
   db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
     callback(db),
@@ -31,14 +36,28 @@ const analyticsDbMocks = vi.hoisted(() => {
       where: vi.fn(() => ({ limit: selectLimit })),
     })),
   }));
-  db.insert = vi.fn(() => ({ values: insertValues }));
-  db.update = vi.fn(() => ({
-    set: vi.fn(() => ({ where: updateWhere })),
+  db.insert = vi.fn(() => ({
+    values: (...args: unknown[]) => {
+      insertValues(...args);
+      return { onConflictDoNothing: insertOnConflictDoNothing };
+    },
   }));
+  db.update = vi.fn(() => ({
+    set: vi.fn(() => ({
+      where: (...args: unknown[]) => {
+        updateWhere(...args);
+        return { returning: updateReturning };
+      },
+    })),
+  }));
+  getDb.mockReturnValue(db);
   return {
+    getDb,
     selectLimit,
     insertValues,
+    insertOnConflictDoNothing,
     updateWhere,
+    updateReturning,
     db,
   };
 });
@@ -49,7 +68,7 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
 }));
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
-  getDb: () => analyticsDbMocks.db,
+  getDb: analyticsDbMocks.getDb,
 }));
 vi.mock("./first-party-analytics-rollups.js", () => ({
   upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
@@ -77,19 +96,28 @@ import {
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
+  touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
 
 beforeEach(() => {
   execute.mockReset();
+  analyticsDbMocks.getDb.mockReset();
+  analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
+  analyticsDbMocks.insertOnConflictDoNothing.mockReset();
   analyticsDbMocks.updateWhere.mockReset();
+  analyticsDbMocks.updateReturning.mockReset();
   analyticsDbMocks.selectLimit.mockResolvedValue([
     { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
   ]);
   analyticsDbMocks.insertValues.mockResolvedValue(undefined);
+  analyticsDbMocks.insertOnConflictDoNothing.mockResolvedValue(undefined);
   analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
+  analyticsDbMocks.updateReturning.mockResolvedValue([
+    { eventCount: 1, eventLimit: 1_000_000 },
+  ]);
   rollupMocks.upsert.mockReset();
   rollupMocks.upsert.mockResolvedValue({
     eventCount: 1,
@@ -123,6 +151,61 @@ beforeEach(() => {
     schema: [{ name: "events", type: "number" }],
   });
   exceptionMocks.ingest.mockResolvedValue(undefined);
+});
+
+describe("public-key last-used stamp", () => {
+  // Production outage 2026-08-07: this UPDATE ran inside the ingest
+  // transaction, so every concurrent request for one public key took an
+  // exclusive row lock on that key and held it through the rollup upsert.
+  // 36 writers stacked on three hot rows waiting 38-57s, the connection pool
+  // starved, and Analytics stopped loading for everyone.
+  const source = readFileSync(
+    new URL("./first-party-analytics.ts", import.meta.url),
+    "utf8",
+  );
+
+  it("never writes the stamp inside a transaction", () => {
+    // Everything between `db.transaction(` and its closing `});` must be free
+    // of the stamp write, whatever else the transaction grows to do.
+    const start = source.indexOf("db.transaction(");
+    expect(start).toBeGreaterThan(0);
+    const body = source.slice(start, source.indexOf("\n  }", start));
+    expect(body).not.toContain("analyticsPublicKeys");
+    expect(body).not.toContain("lastUsedAt");
+  });
+
+  it("throttles the stamp in SQL, not in the caller", () => {
+    // A JS-side check would still let every racing request issue its own
+    // unconditional write. The predicate must be in the statement so Postgres
+    // matches — and therefore locks — zero rows for a freshly stamped key.
+    const fn = source.slice(source.indexOf("touchPublicKeyLastUsedAt("));
+    const update = fn.slice(fn.indexOf(".update(schema.analyticsPublicKeys)"));
+    const where = update.slice(0, update.indexOf("} catch"));
+    expect(where).toContain("isNull(schema.analyticsPublicKeys.lastUsedAt)");
+    expect(where).toContain("lt(schema.analyticsPublicKeys.lastUsedAt");
+    expect(where).toContain("staleBefore");
+  });
+
+  it("routes every stamp write through the throttled helper", () => {
+    // Two call sites drifted apart once already; a third unconditional write
+    // anywhere re-creates the convoy on its own.
+    // Exactly one place may set the stamp: the throttled helper. Other writes
+    // to this table (revocation) are rare admin actions and not the convoy.
+    let stampWrites = 0;
+    for (const file of ["first-party-analytics.ts", "session-replay.ts"]) {
+      const text = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+      stampWrites += (text.match(/\.set\(\{\s*lastUsedAt:/g) ?? []).length;
+    }
+    expect(stampWrites).toBe(1);
+  });
+
+  it("does not reject when acquiring the stamp database fails", async () => {
+    analyticsDbMocks.getDb.mockRejectedValueOnce(new Error("db unavailable"));
+
+    await expect(
+      touchPublicKeyLastUsedAt("apk_123", "2026-08-07T17:00:00.000Z"),
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
@@ -287,6 +370,31 @@ describe("recordAnalyticsEvents", () => {
     expect(rollupMocks.upsert).not.toHaveBeenCalled();
   });
 
+  it("enforces the Postgres volume limit during dual writes", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "dual",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: false,
+    });
+    analyticsDbMocks.selectLimit
+      .mockResolvedValueOnce([
+        { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
+      ])
+      .mockResolvedValueOnce([
+        { eventCount: 1_000_000, eventLimit: 1_000_000 },
+      ]);
+    analyticsDbMocks.updateReturning.mockResolvedValueOnce([]);
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("volume limit reached");
+
+    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledTimes(1);
+    expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
   it("keeps derived exception issues in SQL after the event cutover", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
@@ -311,6 +419,36 @@ describe("recordAnalyticsEvents", () => {
       },
       [expect.objectContaining({ derived: expect.any(Object) })],
     );
+  });
+
+  it("preserves SQL exception issues when BigQuery fails after cutover", async () => {
+    const warehouseError = new Error("warehouse unavailable");
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+    backendMocks.insert.mockRejectedValueOnce(warehouseError);
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [
+        {
+          event: "$exception",
+          properties: { error: "boom", app: "analytics" },
+        },
+      ]),
+    ).rejects.toBe(warehouseError);
+
+    expect(exceptionMocks.ingest).toHaveBeenCalledWith(
+      {
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        publicKeyId: "apk_123",
+      },
+      [expect.objectContaining({ derived: expect.any(Object) })],
+    );
+    expect(analyticsDbMocks.updateWhere).toHaveBeenCalled();
   });
 });
 

@@ -128,7 +128,7 @@ const COMPACT_SWITCHER_BUTTON_CLASS =
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings/organization";
 const DEFAULT_PROFILE_PATH = "/settings/account";
-const DEFAULT_AGENT_PATH = "/agent";
+const DEFAULT_AGENT_PATH = "/settings/agent";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,

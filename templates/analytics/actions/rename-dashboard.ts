@@ -1,15 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
-import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { upsertDashboardWithRetry } from "../server/lib/dashboards-store";
 
 function resolveScope() {
@@ -17,24 +13,6 @@ function resolveScope() {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
   return { orgId, email };
-}
-
-async function syncToCollab(
-  dashboardId: string,
-  config: Record<string, unknown>,
-  requestSource?: string,
-): Promise<void> {
-  const docId = `dash-${dashboardId}`;
-  const configStr = JSON.stringify(config);
-  try {
-    if (await hasCollabState(docId)) {
-      await applyText(docId, configStr, "content", requestSource);
-    } else {
-      await seedFromText(docId, configStr);
-    }
-  } catch {
-    // Best-effort: SQL remains the source of truth.
-  }
 }
 
 export default defineAction({
@@ -54,7 +32,7 @@ export default defineAction({
     const updated = await upsertDashboardWithRetry(args.id, ctx, (existing) => {
       return { kind: existing.kind, body: { ...existing.config, name } };
     });
-    await syncToCollab(
+    queueDashboardCollabSync(
       args.id,
       updated.config,
       actionContext?.caller === "frontend" ? undefined : "agent",

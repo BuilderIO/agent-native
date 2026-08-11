@@ -12,6 +12,7 @@ name: PR Visual Recap (reusable)
 #       secrets:
 #         PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
 #         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+#         CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 #
 # IMPORTANT: callers must trigger on the same pull_request event types as this
 # file declares in its on.workflow_call section (opened, synchronize, reopened,
@@ -107,8 +108,11 @@ on:
       # publishing the recap plan and the screenshot upload.
       PLAN_RECAP_TOKEN:
         required: true
-      # Required for the default claude backend; optional when agent=codex.
+      # Provide this or CLAUDE_CODE_OAUTH_TOKEN for the default claude backend.
       ANTHROPIC_API_KEY:
+        required: false
+      # Optional Claude Code subscription auth. Provide this or ANTHROPIC_API_KEY.
+      CLAUDE_CODE_OAUTH_TOKEN:
         required: false
       # Required when agent=codex; ignored otherwise.
       OPENAI_API_KEY:
@@ -152,6 +156,7 @@ jobs:
           # Presence-only signals — never expose secret VALUES to the gate.
           HAS_PLAN: ${{ secrets.PLAN_RECAP_TOKEN != '' }}
           HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
           HAS_COMPATIBLE: ${{ secrets.VISUAL_RECAP_API_KEY != '' }}
           AGENT: ${{ inputs.agent }}
@@ -230,7 +235,7 @@ jobs:
             } else if (agent === 'codex') {
               if (process.env.HAS_OPENAI !== 'true') reasons.push('OPENAI_API_KEY not configured (codex backend)');
             } else if (agent === 'claude') {
-              if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
+              if (process.env.HAS_ANTHROPIC !== 'true' && process.env.HAS_CLAUDE_CODE_OAUTH_TOKEN !== 'true') reasons.push('ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN not configured (claude backend)');
             } else {
               if (process.env.HAS_COMPATIBLE !== 'true') reasons.push('VISUAL_RECAP_API_KEY not configured (openai-compatible backend)');
               if (!(process.env.VISUAL_RECAP_MODEL || '').trim()) reasons.push('VISUAL_RECAP_MODEL is required (openai-compatible backend)');
@@ -588,6 +593,7 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
           CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
@@ -755,6 +761,7 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
           CLAUDE_ALLOWED_TOOLS="Read,Write"

@@ -41,7 +41,7 @@ export async function run(
     return formatCapabilityDetail(
       await loadCapabilities(agent),
       (appId) =>
-        `Ask this specialist with call-agent: agent="${appId}", message="<objective>". Use action + input only for an exact bounded read with a fully known schema.`,
+        `Ask this specialist with call-agent: agent="${appId}", message="<objective>". Use action + input only for an exact bounded read with a fully known schema; use message for creates, updates, deletes, sends, saves, publishes, or any other side effect.`,
     );
   }
 

@@ -276,6 +276,14 @@ export const markdownComponents = {
       </a>
     );
   },
+  table(props: React.TableHTMLAttributes<HTMLTableElement>) {
+    const { children, ...rest } = props;
+    return (
+      <div className="agent-markdown-table-wrap">
+        <table {...rest}>{children}</table>
+      </div>
+    );
+  },
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
     if (React.isValidElement(children)) {
@@ -429,6 +437,9 @@ function rememberStreamingText(
   if (oldestKey !== undefined) smoothStreamingTextCache.delete(oldestKey);
 }
 
+/** Stable placeholder so the grapheme ref stays `string[]` before it is seeded. */
+const EMPTY_GRAPHEMES: string[] = [];
+
 export function useSmoothStreamingText(
   targetText: string,
   streaming: boolean,
@@ -447,11 +458,19 @@ export function useSmoothStreamingText(
     );
   });
   const visibleTextRef = useRef(visibleText);
-  const visibleCountRef = useRef(
-    splitStreamingTextGraphemes(visibleText).length,
-  );
   const targetTextRef = useRef(targetText);
-  const targetGraphemesRef = useRef(splitStreamingTextGraphemes(targetText));
+  // `useRef(expr)` evaluates `expr` on EVERY render and throws it away after
+  // mount. Segmenting here therefore ran a full Intl.Segmenter pass per commit
+  // — up to 60Hz per streaming message — and, because `visibleText` is a strict
+  // prefix of `targetText`, that pass could never hit the incremental path and
+  // evicted the shared segmenter cache for every other live stream too. Seed
+  // once; the streaming effect below keeps both refs authoritative after that.
+  const visibleCountRef = useRef(-1);
+  const targetGraphemesRef = useRef<string[]>(EMPTY_GRAPHEMES);
+  if (visibleCountRef.current < 0) {
+    targetGraphemesRef.current = splitStreamingTextGraphemes(targetText);
+    visibleCountRef.current = splitStreamingTextGraphemes(visibleText).length;
+  }
   const frameRef = useRef<number | null>(null);
   const lastCommitAtRef = useRef(0);
   const pauseUntilRef = useRef(0);

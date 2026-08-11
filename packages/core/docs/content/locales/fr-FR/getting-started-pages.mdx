@@ -7,13 +7,15 @@ description: "Créez une route React qui appelle votre action et affiche son ré
 
 Cette page constitue la troisième partie de la série Premiers pas. Dans [Ajouter une action](/docs/getting-started-actions),
 vous avez créé `analyze-text`. Ici, vous allez appeler cette même action depuis
-une route. Aucune base de données n’est encore nécessaire : Chat inclut déjà
-l’environnement SQL lorsque vous devez conserver des données métier.
+une route. Cet exemple ne nécessite pas de nouvelle table de base de données. Chat
+stocke déjà l’historique des conversations dans SQL ; ajoutez vos propres tables
+lorsque vous devez conserver des données métier.
 
 ## Créer la route {#add-a-page}
 
-Les fichiers de route dans `app/routes/` sont détectés automatiquement. Créez
-`app/routes/text-analyses.tsx` ; elle sera disponible à l’adresse
+Le serveur de développement lit les fichiers de route au démarrage. Créez
+`app/routes/text-analyses.tsx`, puis redémarrez `pnpm dev` s’il est déjà en cours
+d’exécution. Elle sera disponible à l’adresse
 `http://localhost:8080/text-analyses`.
 
 ```tsx filename="app/routes/text-analyses.tsx"
@@ -73,6 +75,5 @@ consultez [Conscience du contexte](/docs/context-awareness).
 ## Pour continuer
 
 Vous avez créé une application Chat avec une action et une page qui appelle la
-même source de vérité. Poursuivez avec [Conserver les données dans SQL](/docs/getting-started-database)
-lorsque les résultats doivent être conservés, ou explorez [Concepts clés](/docs/key-concepts)
-et [Surfaces d’agent](/docs/agent-surfaces).
+même source de vérité. Explorez [Concepts clés](/docs/key-concepts) et
+[Surfaces d’agent](/docs/agent-surfaces).

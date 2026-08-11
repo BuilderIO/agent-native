@@ -89,7 +89,7 @@ Actions 是您的应用所做的任何事情的唯一事实来源。使用 `defi
 
 如果 UI 和代理都需要做某事，请采取行动 - 而不是自定义
 路线。对于何时路由型协议才是正确的调用，请参阅[首选 Actions
-对于应用程序操作](/docs/server#actions-first)。
+对于应用程序操作](/docs/server-overview#actions-first)。
 
 ## 从一个动作开始 {#hello-action}
 
@@ -376,12 +376,15 @@ export default defineAction({
   description: "Create a lead in the CRM.",
   schema: z.object({ name: z.string(), company: z.string() }),
   run: async ({ name, company }, ctx) => {
+    if (!ctx?.userEmail) {
+      throw new Error("An authenticated user is required.");
+    }
     const db = getDb();
     await db.insert(schema.leads).values({
       id: crypto.randomUUID(),
       name,
       company,
-      ownerEmail: ctx?.userEmail ?? "system",
+      ownerEmail: ctx.userEmail,
     });
     return { ok: true };
   },

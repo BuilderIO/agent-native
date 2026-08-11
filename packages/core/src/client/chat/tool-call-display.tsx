@@ -71,90 +71,15 @@ import {
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+export const ChatRunningRunIdContext = React.createContext<string | null>(null);
+export const ChatRunningTurnIdContext = React.createContext<string | null>(
+  null,
+);
 export const ChatRunDurationContext = React.createContext<number | null>(null);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
-const TOOL_CALL_ENTRY_DURATION_MS = 220;
-const TOOL_CALL_STACK_MOTION_DURATION_MS = 220;
-const TOOL_CALL_STACK_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-
-type ToolStackMotionSnapshot = {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-  clone: HTMLElement;
-};
-
-type ToolStackActiveMotion = {
-  element: HTMLElement;
-  animation: Animation;
-};
-
-function toolStackMotionKey(element: HTMLElement, index: number): string {
-  const toolCallId = element.dataset.agentToolCallId;
-  if (toolCallId) return `tool:${toolCallId}`;
-  const summaryId = element.dataset.agentToolSummary;
-  if (summaryId) return `summary:${summaryId}`;
-  return `anonymous:${index}`;
-}
-
-function prefersReducedMotionForToolStack(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-function startToolStackAnimation(
-  element: HTMLElement,
-  keyframes: Keyframe[],
-): Animation | null {
-  if (typeof element.animate !== "function") return null;
-  return element.animate(keyframes, {
-    duration: TOOL_CALL_STACK_MOTION_DURATION_MS,
-    easing: TOOL_CALL_STACK_EASING,
-    fill: "both",
-  });
-}
-
-function prepareToolStackExitClone(
-  clone: HTMLElement,
-  snapshot: ToolStackMotionSnapshot,
-): void {
-  clone.classList.remove(
-    "agent-tool-call--entering",
-    "agent-tool-call--stack-entering",
-  );
-  clone
-    .querySelectorAll<HTMLElement>(
-      ".agent-tool-call--entering, .agent-tool-call--stack-entering",
-    )
-    .forEach((element) => {
-      element.classList.remove(
-        "agent-tool-call--entering",
-        "agent-tool-call--stack-entering",
-      );
-    });
-  clone.classList.add("agent-tool-call-stack__exit");
-  clone.setAttribute("aria-hidden", "true");
-  clone.removeAttribute("data-agent-tool-call-id");
-  clone.removeAttribute("data-agent-tool-summary");
-  clone.removeAttribute("data-agent-tool-motion-token");
-  clone.style.left = `${snapshot.left}px`;
-  clone.style.top = `${snapshot.top}px`;
-  clone.style.width = `${snapshot.width}px`;
-  clone.style.height = `${snapshot.height}px`;
-  clone.style.transform = "translate3d(0, 0, 0)";
-  clone.style.transition = "none";
-  clone.style.animation = "none";
-  clone.style.opacity = "1";
-}
-
 /**
- * Keeps the visible tool stack spatially continuous as streaming calls change
- * which rows belong to the collapsed history bucket. The rendered data stays
- * untouched; this only animates the DOM's before/after positions.
+ * Keeps the tool-call stack layout-transparent. Tool-entry motion is disabled
+ * until it can stay stable while streaming calls are added and summarized.
  */
 export function ToolCallStackMotion({
   children,
@@ -163,163 +88,8 @@ export function ToolCallStackMotion({
   children: React.ReactNode;
   className?: string;
 }) {
-  const stackRef = useRef<HTMLDivElement>(null);
-  const previousRef = useRef<Map<string, ToolStackMotionSnapshot>>(new Map());
-  const activeMotionsRef = useRef<Map<string, ToolStackActiveMotion>>(
-    new Map(),
-  );
-  const exitAnimationsRef = useRef<Map<HTMLElement, Animation>>(new Map());
-
-  useLayoutEffect(() => {
-    const stack = stackRef.current;
-    if (!stack) return;
-
-    const previous = previousRef.current;
-    const visualPrevious = new Map(previous);
-    for (const [key, activeMotion] of activeMotionsRef.current) {
-      if (stack.contains(activeMotion.element)) {
-        const previousSnapshot = previous.get(key);
-        if (previousSnapshot) {
-          const rect = activeMotion.element.getBoundingClientRect();
-          visualPrevious.set(key, {
-            ...previousSnapshot,
-            top: rect.top,
-            left: rect.left,
-          });
-        }
-      }
-      activeMotion.animation.cancel();
-    }
-    activeMotionsRef.current.clear();
-
-    for (const [ghost, animation] of exitAnimationsRef.current) {
-      animation.cancel();
-      ghost.remove();
-    }
-    exitAnimationsRef.current.clear();
-
-    const elements = Array.from(
-      stack.querySelectorAll<HTMLElement>(
-        "[data-agent-tool-call-id], [data-agent-tool-summary]",
-      ),
-    );
-    const current = new Map<string, ToolStackMotionSnapshot>();
-    for (const [index, element] of elements.entries()) {
-      const rect = element.getBoundingClientRect();
-      current.set(toolStackMotionKey(element, index), {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        clone: element.cloneNode(true) as HTMLElement,
-      });
-    }
-
-    previousRef.current = current;
-    if (previous.size === 0 || prefersReducedMotionForToolStack()) return;
-
-    const summary = elements.find(
-      (element) => element.dataset.agentToolSummary !== undefined,
-    );
-    const summaryRect = summary?.getBoundingClientRect();
-    const elementsByKey = new Map(
-      elements.map((element, index) => [
-        toolStackMotionKey(element, index),
-        element,
-      ]),
-    );
-
-    for (const [key, after] of current.entries()) {
-      const before = visualPrevious.get(key);
-      if (!before) {
-        const node = elementsByKey.get(key);
-        if (!node) continue;
-        if (node.dataset.agentToolSummary !== undefined) continue;
-        if (
-          node.dataset.agentToolCallId !== undefined &&
-          !node.classList.contains("agent-tool-call--entering")
-        ) {
-          node.classList.add("agent-tool-call--stack-entering");
-          window.setTimeout(() => {
-            node.classList.remove("agent-tool-call--stack-entering");
-          }, TOOL_CALL_ENTRY_DURATION_MS);
-        }
-        continue;
-      }
-
-      const dx = before.left - after.left;
-      const dy = before.top - after.top;
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
-
-      const node = elementsByKey.get(key);
-      if (!node) continue;
-      if (node.dataset.agentToolSummary !== undefined) continue;
-      const animation = startToolStackAnimation(node, [
-        { transform: `translate3d(${dx}px, ${dy}px, 0)` },
-        { transform: "translate3d(0, 0, 0)" },
-      ]);
-      if (!animation) continue;
-      activeMotionsRef.current.set(key, { element: node, animation });
-      const clearMotion = () => {
-        if (activeMotionsRef.current.get(key)?.animation === animation) {
-          activeMotionsRef.current.delete(key);
-        }
-      };
-      animation.onfinish = clearMotion;
-      animation.oncancel = clearMotion;
-    }
-
-    for (const [key, before] of visualPrevious.entries()) {
-      if (current.has(key) || !key.startsWith("tool:")) continue;
-
-      const ghost = before.clone;
-      prepareToolStackExitClone(ghost, before);
-      document.body?.appendChild(ghost);
-      if (!ghost.isConnected) continue;
-
-      const targetTop = summaryRect?.top ?? before.top - 8;
-      const targetLeft = summaryRect?.left ?? before.left;
-      const animation = startToolStackAnimation(ghost, [
-        { transform: "translate3d(0, 0, 0)", opacity: 1 },
-        {
-          transform: `translate3d(${targetLeft - before.left}px, ${targetTop - before.top}px, 0)`,
-          opacity: 0,
-        },
-      ]);
-      if (!animation) {
-        ghost.remove();
-        continue;
-      }
-      exitAnimationsRef.current.set(ghost, animation);
-      const clearExit = () => {
-        if (exitAnimationsRef.current.get(ghost) === animation) {
-          exitAnimationsRef.current.delete(ghost);
-        }
-        ghost.remove();
-      };
-      animation.onfinish = clearExit;
-      animation.oncancel = clearExit;
-    }
-  });
-
-  useEffect(() => {
-    return () => {
-      for (const { animation } of activeMotionsRef.current.values()) {
-        animation.cancel();
-      }
-      activeMotionsRef.current.clear();
-      for (const [ghost, animation] of exitAnimationsRef.current) {
-        animation.cancel();
-        ghost.remove();
-      }
-      exitAnimationsRef.current.clear();
-    };
-  }, []);
-
   return (
-    <div ref={stackRef} className={cn("agent-tool-call-stack", className)}>
-      {children}
-    </div>
+    <div className={cn("agent-tool-call-stack", className)}>{children}</div>
   );
 }
 
@@ -331,9 +101,25 @@ export function ToolCallStackMotion({
  * provided, and "Always allow" only renders when `onAlwaysAllow` is provided
  * — both are additive so existing action-approval consumers are unaffected.
  */
+export type ApprovalResolution = "approved" | "denied";
+
 export type ApprovalContextValue = {
   /** Re-issue the turn so the server runs the approved call. */
   onApprove: (approvalKey: string) => void;
+  /**
+   * Keep the visible resolution stable while the chat repository refreshes or
+   * remounts the message containing this approval card.
+   */
+  onApprovalResolved?: (
+    approvalKey: string,
+    resolution: ApprovalResolution,
+    toolCallId?: string,
+  ) => void;
+  /** Read a resolution retained by the owning chat surface. */
+  getApprovalResolution?: (
+    approvalKey: string,
+    toolCallId?: string,
+  ) => ApprovalResolution | null;
   /**
    * Optional host hook invoked in addition to the local "denied" state, e.g.
    * so a Code session can also resolve its own pending approval as denied.
@@ -366,41 +152,17 @@ export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
 export function ToolActivityPresentation({
   toolName,
   isRunning,
-  isActiveTail,
   toolCallId,
   suppressLongRunningHint = false,
   children,
 }: {
   toolName: string;
   isRunning: boolean;
-  isActiveTail: boolean;
   toolCallId?: string;
   suppressLongRunningHint?: boolean;
   children: React.ReactNode;
 }) {
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
-  // A batched update can first reveal a tool with its result already attached.
-  // Presentation follows the active chat tail rather than execution state so
-  // that newly revealed completed tools still get their entrance motion.
-  const [animateEntry, setAnimateEntry] = useState(isActiveTail);
-  const previousActiveTailRef = useRef(isActiveTail);
-
-  useEffect(() => {
-    if (isActiveTail && !previousActiveTailRef.current) {
-      setAnimateEntry(true);
-    }
-    previousActiveTailRef.current = isActiveTail;
-  }, [isActiveTail]);
-
-  useEffect(() => {
-    if (!animateEntry) return;
-    const timeout = window.setTimeout(
-      () => setAnimateEntry(false),
-      TOOL_CALL_ENTRY_DURATION_MS,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [animateEntry]);
-
   useEffect(() => {
     if (!isRunning || suppressLongRunningHint) {
       setShowLongRunningHint(false);
@@ -415,10 +177,7 @@ export function ToolActivityPresentation({
 
   return (
     <div
-      className={cn(
-        "agent-tool-call",
-        animateEntry && "agent-tool-call--entering",
-      )}
+      className="agent-tool-call"
       data-agent-tool-call-id={toolCallId}
       data-running={isRunning ? "true" : undefined}
     >
@@ -778,18 +537,26 @@ export function AnimatedCollapse({
  */
 function ApprovalAffordance({
   toolName,
+  toolCallId,
   approval,
 }: {
   toolName: string;
+  toolCallId?: string;
   approval: { approvalKey: string; dismissed?: boolean };
 }) {
   const ctx = React.useContext(ApprovalContext);
-  const [approved, setApproved] = useState(false);
-  const [denied, setDenied] = useState(false);
+  const [localResolution, setLocalResolution] =
+    useState<ApprovalResolution | null>(null);
+  const retainedResolution =
+    ctx?.getApprovalResolution?.(approval.approvalKey, toolCallId) ?? null;
+  const resolution =
+    retainedResolution ??
+    localResolution ??
+    (approval.dismissed === true ? "denied" : null);
 
-  // Once approved, the turn is re-issued; collapse to a quiet note so the user
-  // can't double-fire the approval.
-  if (approved) {
+  // Once resolved, collapse to a quiet note so a repository refresh cannot
+  // restore the action buttons while the continuation is running.
+  if (resolution === "approved") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
         Approved. Re-running {toolName}...
@@ -799,7 +566,7 @@ function ApprovalAffordance({
   // Deny defaults to local-only (the action simply stays un-run). When the
   // host also provided `onDeny` (e.g. a Code session resolving its own
   // pending approval), it fires alongside the local state.
-  if (denied) {
+  if (resolution === "denied") {
     return (
       <div className="mt-1.5 text-xs text-muted-foreground">
         Denied. {toolName} did not run.
@@ -816,7 +583,12 @@ function ApprovalAffordance({
         <button
           type="button"
           onClick={() => {
-            setApproved(true);
+            setLocalResolution("approved");
+            ctx.onApprovalResolved?.(
+              approval.approvalKey,
+              "approved",
+              toolCallId,
+            );
             ctx.onApprove(approval.approvalKey);
           }}
           className={cn(
@@ -832,7 +604,12 @@ function ApprovalAffordance({
         <button
           type="button"
           onClick={() => {
-            setApproved(true);
+            setLocalResolution("approved");
+            ctx.onApprovalResolved?.(
+              approval.approvalKey,
+              "approved",
+              toolCallId,
+            );
             ctx.onAlwaysAllow?.(approval.approvalKey);
           }}
           title="Approve and always allow this exact command"
@@ -848,7 +625,8 @@ function ApprovalAffordance({
       <button
         type="button"
         onClick={() => {
-          setDenied(true);
+          setLocalResolution("denied");
+          ctx?.onApprovalResolved?.(approval.approvalKey, "denied", toolCallId);
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
@@ -908,7 +686,6 @@ export function ToolCallDisplay({
     <ToolActivityPresentation
       toolName={toolName}
       isRunning={isRunning}
-      isActiveTail={showActiveTail}
       toolCallId={toolCallId}
       suppressLongRunningHint={
         toolName === "call-agent" || toolName.startsWith("agent:")
@@ -951,6 +728,7 @@ export function ToolCallDisplay({
   return wrapToolDisplay(
     <ToolCallDisplayGeneric
       toolName={toolName}
+      toolCallId={toolCallId}
       argsText={argsText}
       args={args}
       result={result}
@@ -968,6 +746,7 @@ export function ToolCallDisplay({
 
 function ToolCallDisplayGeneric({
   toolName,
+  toolCallId,
   argsText,
   args,
   result,
@@ -981,6 +760,7 @@ function ToolCallDisplayGeneric({
   repeatCount,
 }: {
   toolName: string;
+  toolCallId?: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
@@ -1238,7 +1018,11 @@ function ToolCallDisplayGeneric({
         </p>
       )}
       {approval && (
-        <ApprovalAffordance toolName={toolName} approval={approval} />
+        <ApprovalAffordance
+          toolName={toolName}
+          toolCallId={toolCallId}
+          approval={approval}
+        />
       )}
     </div>
   );
@@ -1420,7 +1204,6 @@ function AgentActivityToolCallRow({
     <ToolActivityPresentation
       toolName={tool.name}
       isRunning={isRunning}
-      isActiveTail={isActiveTail}
       toolCallId={tool.id}
       suppressLongRunningHint
     >

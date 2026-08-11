@@ -43,9 +43,9 @@ A template `AGENTS.md` is injected into the runtime agent's system prompt and
 hard-sliced at `COMPACT_PROMPT_RESOURCE_MAX_CHARS` (6,000). Past that, the agent
 sees a truncation marker instead of your text, so the tail stops being
 always-on guidance and becomes something it has to go fetch. `pnpm
-the repository's `guard:agent-chat-context` check fails the build when a first-party
-file overflows; generated apps do not ship that repository-only guard. Keep files
-under ~5,500 so ordinary edits don't tip them over.
+guard:agent-chat-context` — the repository's own check — fails the build when a
+first-party file overflows; generated apps do not ship that repository-only
+guard. Keep files under ~5,500 so ordinary edits don't tip them over.
 
 Two consequences worth designing around:
 

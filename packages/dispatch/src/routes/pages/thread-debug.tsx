@@ -1,12 +1,16 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconActivity,
+  IconAdjustmentsHorizontal,
   IconAlertTriangle,
-  IconClock,
+  IconCopy,
   IconDatabase,
   IconFileSearch,
+  IconInfoCircle,
   IconRefresh,
   IconSearch,
+  IconTool,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -16,6 +20,11 @@ import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "../../components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -87,12 +96,37 @@ interface ThreadRun {
   lastProgressAt?: number | null;
   durationMs?: number | null;
   peakRssMb?: number | null;
+  inFlightSince?: number | null;
+  hasDispatchPayload?: boolean;
   events: Array<{ seq: number; event: any; rawEventData: string }>;
 }
 
 type ThreadDebugMode = "failures" | "threads";
 type FailureStatus = "all" | "errored" | "aborted" | "truncated";
+type FailureRegime = "all" | "interactive" | "scheduled";
 type FailureRange = "24h" | "7d" | "30d";
+
+interface FailureTaxonomy {
+  code: string;
+  label: string;
+  regime: "interactive" | "scheduled";
+  source: "error_code" | "error_detail" | "unknown";
+}
+
+interface RunFailureLike {
+  id?: string;
+  status?: string | null;
+  errorCode?: string | null;
+  errorDetail?: string | null;
+  terminalReason?: string | null;
+  abortReason?: string | null;
+  dispatchMode?: string | null;
+  diagStage?: string | null;
+  workerStage?: string | null;
+  durationMs?: number | null;
+  heartbeatAt?: number | null;
+  lastProgressAt?: number | null;
+}
 
 interface AgentRunFailure {
   id: string;
@@ -106,6 +140,7 @@ interface AgentRunFailure {
     databaseUrlEnv?: string | null;
   };
   ownerEmail: string;
+  turnId?: string | null;
   threadTitle: string;
   threadPreview: string;
   status: string;
@@ -113,12 +148,16 @@ interface AgentRunFailure {
   errorDetail: string | null;
   terminalReason: string | null;
   abortReason: string | null;
+  heartbeatAt?: number | null;
+  lastProgressAt?: number | null;
   dispatchMode: string | null;
   diagStage: string | null;
   workerStage?: string | null;
   startedAt: number;
   completedAt: number | null;
   durationMs: number | null;
+  regime?: "interactive" | "scheduled";
+  failureTaxonomy?: FailureTaxonomy;
 }
 
 interface AgentRunFailuresResponse {
@@ -175,6 +214,8 @@ const FAILURE_RANGE_HOURS: Record<FailureRange, number> = {
   "30d": 30 * 24,
 };
 
+const EMPTY_FAILURES: AgentRunFailure[] = [];
+
 function parseMode(value: string | null): ThreadDebugMode {
   return value === "threads" ? "threads" : "failures";
 }
@@ -183,6 +224,10 @@ function parseFailureStatus(value: string | null): FailureStatus {
   return value === "errored" || value === "aborted" || value === "truncated"
     ? value
     : "all";
+}
+
+function parseFailureRegime(value: string | null): FailureRegime {
+  return value === "interactive" || value === "scheduled" ? value : "all";
 }
 
 function parseFailureRange(value: string | null): FailureRange {
@@ -199,6 +244,39 @@ function failureSourceLabel(failure: AgentRunFailure): string {
   );
 }
 
+function isTechnicalIdentifier(value: string): boolean {
+  return /^(?:job|run|thread|turn|request|req)-[a-z0-9][a-z0-9_-]*$/i.test(
+    value.trim(),
+  );
+}
+
+function displayListTitle(
+  value: string | null | undefined,
+  fallbackValue: string | null | undefined,
+  fallbackLabel: string,
+): string {
+  const candidate = [value, fallbackValue]
+    .map((entry) => entry?.trim() || "")
+    .find((entry) => entry && !isTechnicalIdentifier(entry));
+  if (!candidate) return fallbackLabel;
+
+  const withoutDate = candidate
+    .replace(/\s+[—-]\s+\d{1,2}\/\d{1,2}\/\d{4}\s*$/, "")
+    .trim();
+  if (!withoutDate) return fallbackLabel;
+
+  if (/^job:/i.test(withoutDate)) {
+    return withoutDate
+      .replace(/^job:\s*/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase())
+      .trim();
+  }
+
+  return withoutDate;
+}
+
 function formatDate(value: number | string | null | undefined): string {
   if (value == null || value === "") return "n/a";
   const numeric = Number(value);
@@ -207,11 +285,150 @@ function formatDate(value: number | string | null | undefined): string {
   return date.toLocaleString();
 }
 
+function formatRelativeDate(value: number | string | null | undefined): string {
+  if (value == null || value === "") return "n/a";
+  const numeric = Number(value);
+  const timestamp = Number.isFinite(numeric)
+    ? numeric
+    : new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "n/a";
+  const elapsed = Date.now() - timestamp;
+  if (elapsed < 0) return "in a moment";
+  if (elapsed < 60_000) return "just now";
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
+  return `${Math.floor(elapsed / 86_400_000)}d ago`;
+}
+
 function formatDuration(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "n/a";
   if (value < 1_000) return `${Math.round(value)}ms`;
   if (value < 60_000) return `${(value / 1_000).toFixed(1)}s`;
   return `${(value / 60_000).toFixed(1)}m`;
+}
+
+function humanizeIdentifier(value: string | null | undefined): string {
+  if (!value) return "Unknown failure";
+  return value
+    .replace(/^(error:|failure:)/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function failureLabel(run: RunFailureLike): string {
+  const code = run.errorCode || run.terminalReason || run.abortReason;
+  const labels: Record<string, string> = {
+    stale_run: "Worker heartbeat stopped",
+    background_worker_never_started: "Background worker never started",
+    background_worker_failed: "Background worker setup failed",
+    builder_gateway_network_error: "Gateway stream ended early",
+    provider_timeout: "Provider timed out",
+    provider_network_error: "Provider connection dropped",
+    provider_config_error: "Provider configuration rejected",
+    authentication_error: "Provider authentication failed",
+    overloaded_error: "Provider was overloaded",
+    "aborted:user": "Stopped by user",
+  };
+  return (code && labels[code]) || humanizeIdentifier(code);
+}
+
+function runDiagnosis(run: RunFailureLike): {
+  title: string;
+  summary: string;
+  nextStep: string;
+  code: string;
+} {
+  const code =
+    run.errorCode || run.terminalReason || run.abortReason || "unknown";
+  if (code === "stale_run") {
+    const workerStarted = run.dispatchMode === "background-processing";
+    return {
+      title: "Worker stopped reporting",
+      summary: workerStarted
+        ? "The worker claimed this run, then stopped writing heartbeat or progress signals before it finished. This is a liveness failure, not proof that the provider failed."
+        : "The run stayed active until liveness recovery closed it. No completed result was recorded, so inspect the handoff and retained evidence before blaming a provider.",
+      nextStep: workerStarted
+        ? "Check the last worker stage and database heartbeat writes."
+        : "Check the scheduled background handoff and whether a worker claimed it.",
+      code,
+    };
+  }
+  if (code === "background_worker_never_started") {
+    return {
+      title: "Background worker never started",
+      summary:
+        "The handoff was acknowledged, but no background worker claimed the run.",
+      nextStep:
+        "Check the background route, authentication, and function logs.",
+      code,
+    };
+  }
+  if (code === "background_worker_failed") {
+    return {
+      title: "Background worker failed during setup",
+      summary:
+        "The worker claimed the run but stopped before it could start the turn.",
+      nextStep:
+        "Use the recorded setup stage and worker logs to find the first failure.",
+      code,
+    };
+  }
+  if (code === "builder_gateway_network_error") {
+    return {
+      title: "Gateway stream ended early",
+      summary:
+        run.errorDetail ||
+        "The model stream ended before the run emitted a terminal event.",
+      nextStep:
+        "Retry once; if it repeats, inspect gateway and provider transport health.",
+      code,
+    };
+  }
+  if (code === "aborted:user") {
+    return {
+      title: "Stopped by user",
+      summary: "This run was explicitly aborted and is not a system failure.",
+      nextStep: "No recovery action is required.",
+      code,
+    };
+  }
+  return {
+    title: failureLabel(run),
+    summary:
+      run.errorDetail || "The run ended without a more specific explanation.",
+    nextStep: "Open the timeline and inspect the last recorded stage or event.",
+    code,
+  };
+}
+
+function eventType(event: any): string {
+  return typeof event?.type === "string" ? event.type : "event";
+}
+
+function eventIsNoise(event: any): boolean {
+  return [
+    "thinking",
+    "text",
+    "tool_input_delta",
+    "stream_keepalive",
+    "activity",
+  ].includes(eventType(event));
+}
+
+function summarizeEvents(events: ThreadRun["events"]) {
+  const toolNames = new Map<string, number>();
+  let toolStarts = 0;
+  for (const entry of events) {
+    if (eventType(entry.event) !== "tool_start") continue;
+    toolStarts += 1;
+    const name = String(entry.event?.tool ?? "tool");
+    toolNames.set(name, (toolNames.get(name) ?? 0) + 1);
+  }
+  return {
+    toolStarts,
+    toolNames: [...toolNames.entries()],
+    meaningful: events.filter((entry) => !eventIsNoise(entry.event)).slice(-12),
+  };
 }
 
 function json(value: unknown): string {
@@ -278,14 +495,6 @@ function RawBlock({
   );
 }
 
-function SourceBadge({ source }: { source: ThreadDebugSource }) {
-  return (
-    <Badge variant={source.current ? "default" : "secondary"}>
-      {source.current ? "current" : source.kind}
-    </Badge>
-  );
-}
-
 function ResultCard({
   result,
   selected,
@@ -295,36 +504,36 @@ function ResultCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const title = displayListTitle(
+    result.title,
+    result.preview,
+    "Untitled thread",
+  );
+
   return (
     <button
       type="button"
       onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
       className={cn(
-        "w-full rounded-lg border px-3 py-3 text-left transition-colors",
-        selected
-          ? "border-foreground bg-muted"
-          : "bg-card hover:border-foreground/30 hover:bg-muted/40",
+        "group w-full border-b px-4 py-3 text-left transition-colors last:border-b-0",
+        selected ? "bg-accent/70" : "hover:bg-muted/50",
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">
-            {result.title || result.preview || result.id}
-          </div>
-          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-            {result.id}
+            {title}
           </div>
         </div>
         <Badge variant="outline" className="shrink-0">
-          {result.messageCount}
+          {result.messageCount}{" "}
+          {result.messageCount === 1 ? "message" : "messages"}
         </Badge>
       </div>
-      <div className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-        {result.snippet || result.preview || "No preview"}
-      </div>
       <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-        <span className="truncate">{result.ownerEmail}</span>
-        <span className="shrink-0">{formatDate(result.updatedAt)}</span>
+        <span className="min-w-0 truncate">{result.ownerEmail}</span>
+        <span className="shrink-0">{formatRelativeDate(result.updatedAt)}</span>
       </div>
     </button>
   );
@@ -340,11 +549,12 @@ function FailureCard({
   onSelect: () => void;
 }) {
   const t = useT();
-  const summary =
-    failure.errorCode ||
-    failure.terminalReason ||
-    failure.abortReason ||
-    failure.status;
+  const diagnosis = runDiagnosis(failure);
+  const title = displayListTitle(
+    failure.threadTitle,
+    failure.threadPreview,
+    "Agent run",
+  );
   const statusLabel =
     failure.status === "errored"
       ? t("dispatch.pages.threadDebugErrored", {
@@ -364,46 +574,51 @@ function FailureCard({
     <button
       type="button"
       onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
       className={cn(
-        "w-full rounded-lg border px-3 py-3 text-left transition-colors",
-        selected
-          ? "border-foreground bg-muted"
-          : "bg-card hover:border-foreground/30 hover:bg-muted/40",
+        "group w-full border-b px-4 py-3 text-left transition-[background-color,border-color] last:border-b-0",
+        selected ? "bg-accent/70" : "hover:bg-muted/50",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground">
-            {failure.threadTitle || failure.threadPreview || failure.threadId}
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-1.5 size-2 shrink-0 rounded-full",
+            failure.status === "aborted"
+              ? "bg-muted-foreground/50"
+              : "bg-destructive",
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground">
+                {title}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {failureSourceLabel(failure)}
+              </div>
+            </div>
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {formatRelativeDate(failure.completedAt ?? failure.startedAt)}
+            </span>
           </div>
-          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-            {failure.id}
+          <div className="mt-2 flex min-w-0 items-center gap-2 text-xs">
+            <span className="truncate font-medium text-foreground">
+              {diagnosis.title}
+            </span>
+            <span className="shrink-0 text-muted-foreground">·</span>
+            <span className="shrink-0 text-muted-foreground">
+              {statusLabel}
+            </span>
           </div>
+          {failure.durationMs == null ? null : (
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              {formatDuration(failure.durationMs)}
+            </div>
+          )}
         </div>
-        <Badge variant="outline" className="shrink-0">
-          {statusLabel}
-        </Badge>
-      </div>
-      <div className="mt-2 flex items-center gap-1.5 text-xs text-foreground">
-        <IconAlertTriangle className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="truncate">{summary}</span>
-      </div>
-      {failure.errorDetail ? (
-        <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {failure.errorDetail}
-        </div>
-      ) : null}
-      <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-        <span className="truncate">
-          {failureSourceLabel(failure)} · {failure.ownerEmail}
-        </span>
-        <span className="inline-flex shrink-0 items-center gap-1">
-          <IconClock className="size-3" />
-          {formatDate(failure.completedAt ?? failure.startedAt)}
-          {failure.durationMs == null
-            ? null
-            : ` · ${formatDuration(failure.durationMs)}`}
-        </span>
       </div>
       <span className="sr-only">
         {t("dispatch.pages.threadDebugInspectFailure", {
@@ -464,8 +679,209 @@ function MessageBlock({ message }: { message: ThreadMessage }) {
   );
 }
 
+function EvidenceStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate text-sm font-medium text-foreground">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function DiagnosisPanel({
+  run,
+  eventCount,
+  toolCount,
+}: {
+  run: ThreadRun;
+  eventCount: number;
+  toolCount: number;
+}) {
+  const diagnosis = runDiagnosis(run);
+  const isStoppedByUser = diagnosis.code === "aborted:user";
+  const isScheduled =
+    run.id?.startsWith("job-") || run.dispatchMode === "background-processing";
+  const workerClaimed = run.dispatchMode === "background-processing";
+  const staleThreshold = isScheduled
+    ? workerClaimed
+      ? "45s after claim"
+      : "90s before claim"
+    : "15s";
+  return (
+    <section
+      className={cn(
+        "border-b px-5 py-4",
+        isStoppedByUser ? "bg-muted/20" : "bg-destructive/[0.04]",
+      )}
+      aria-label="Run diagnosis"
+    >
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-1.5 size-2 shrink-0 rounded-full",
+            isStoppedByUser ? "bg-muted-foreground/50" : "bg-destructive",
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                {diagnosis.title}
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                {diagnosis.summary}
+              </p>
+            </div>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {diagnosis.code}
+            </span>
+          </div>
+          <div className="mt-3 flex items-start gap-2 text-xs text-foreground">
+            <IconInfoCircle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+            <span>
+              <span className="font-medium">Next check:</span>{" "}
+              {diagnosis.nextStep}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+        <EvidenceStat
+          label="Run type"
+          value={isScheduled ? "Scheduled job" : "Interactive chat"}
+        />
+        <EvidenceStat
+          label="Worker claim"
+          value={workerClaimed ? "Claimed" : "Not recorded"}
+        />
+        <EvidenceStat
+          label="Last heartbeat"
+          value={formatDate(run.heartbeatAt)}
+        />
+        <EvidenceStat
+          label="Last progress"
+          value={formatDate(run.lastProgressAt)}
+        />
+        <EvidenceStat label="Stale threshold" value={staleThreshold} />
+        <EvidenceStat
+          label="Recovery payload"
+          value={run.hasDispatchPayload ? "Retained" : "Not retained"}
+        />
+        <EvidenceStat
+          label="Worker stage"
+          value={
+            diagnosticStage(run.workerStage) ||
+            diagnosticStage(run.diagStage) ||
+            "Not recorded"
+          }
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span>
+          Evidence:{" "}
+          <span className="font-medium text-foreground">
+            {eventCount.toLocaleString()}
+          </span>{" "}
+          retained events
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>
+          <span className="font-medium text-foreground">
+            {toolCount.toLocaleString()}
+          </span>{" "}
+          tool starts
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>Liveness uses the newer heartbeat or progress timestamp.</span>
+      </div>
+    </section>
+  );
+}
+
+function RunTimeline({ run }: { run: ThreadRun }) {
+  const summary = summarizeEvents(run.events);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+        <div className="flex items-center gap-2">
+          <IconActivity className="size-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">
+            {run.events.length.toLocaleString()} events retained
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {summary.toolStarts} tool starts
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          Started {formatDate(run.startedAt)}
+        </span>
+      </div>
+
+      {summary.toolNames.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {summary.toolNames.map(([name, count]) => (
+            <span
+              key={name}
+              className="inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1 text-xs text-foreground"
+            >
+              <IconTool className="size-3.5 text-muted-foreground" />
+              {name} <span className="text-muted-foreground">×{count}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="divide-y rounded-lg border">
+        {summary.meaningful.length > 0 ? (
+          summary.meaningful.map((entry) => (
+            <div
+              key={`${run.id}-${entry.seq}`}
+              className="flex items-start gap-3 px-3 py-2.5 text-xs"
+            >
+              <span className="w-8 shrink-0 font-mono text-muted-foreground">
+                #{entry.seq}
+              </span>
+              <span className="min-w-0 flex-1 break-words text-foreground">
+                {eventLabel(entry.event)}
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="px-3 py-4 text-sm text-muted-foreground">
+            No summarized events were retained for this run.
+          </div>
+        )}
+      </div>
+
+      <details className="rounded-lg border">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs font-medium text-foreground">
+          <span>Show raw event stream</span>
+          <span className="font-normal text-muted-foreground">
+            {run.events.length.toLocaleString()} records
+          </span>
+        </summary>
+        <div className="space-y-2 border-t p-3">
+          {run.events.map((entry) => (
+            <details
+              key={`${run.id}-raw-${entry.seq}`}
+              className="rounded-md border bg-muted/20 px-3 py-2"
+            >
+              <summary className="cursor-pointer text-xs text-foreground">
+                #{entry.seq} {eventLabel(entry.event)}
+              </summary>
+              <RawBlock value={entry.event} className="mt-2 max-h-72" />
+            </details>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
-  const t = useT();
   const rawBundle = useMemo(
     () => ({
       thread: detail.thread,
@@ -482,39 +898,165 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
     }),
     [detail],
   );
+  const primaryRun =
+    detail.runs.find((run) => run.id === detail.lookup?.runId) ??
+    detail.runs[0] ??
+    null;
+  const eventCount = detail.runs.reduce(
+    (total, run) => total + run.events.length,
+    0,
+  );
+  const toolCount = detail.runs.reduce(
+    (total, run) => total + summarizeEvents(run.events).toolStarts,
+    0,
+  );
 
   return (
-    <div className="rounded-lg bg-card">
-      <div className="border-b px-4 py-3">
+    <div className="min-w-0">
+      <div className="border-b px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-base font-semibold text-foreground">
               {detail.thread.title || detail.thread.preview || detail.thread.id}
             </div>
-            <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
-              {detail.thread.id}
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <span className="truncate font-mono">
+                {detail.lookup?.runId || detail.thread.id}
+              </span>
+              {detail.lookup?.runId ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  title="Copy run ID"
+                  aria-label="Copy run ID"
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(
+                      detail.lookup?.runId ?? "",
+                    )
+                  }
+                >
+                  <IconCopy className="size-3.5" />
+                </Button>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{detail.messages.length} messages</Badge>
-            <Badge variant="secondary">{detail.runs.length} runs</Badge>
+            {primaryRun ? (
+              <Badge
+                variant={
+                  primaryRun.status === "errored" ? "destructive" : "secondary"
+                }
+              >
+                {primaryRun.status}
+              </Badge>
+            ) : null}
             <Badge variant="outline">{detail.source.label}</Badge>
           </div>
         </div>
-        <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-          <div className="truncate">Owner: {detail.thread.ownerEmail}</div>
-          <div>Created: {formatDate(detail.thread.createdAt)}</div>
-          <div>Updated: {formatDate(detail.thread.updatedAt)}</div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span className="truncate">{detail.thread.ownerEmail}</span>
+          <span aria-hidden="true">·</span>
+          <span>{detail.messages.length} messages</span>
+          <span aria-hidden="true">·</span>
+          <span>{detail.runs.length} runs</span>
+          <span aria-hidden="true">·</span>
+          <span>updated {formatDate(detail.thread.updatedAt)}</span>
         </div>
       </div>
 
-      <Tabs defaultValue="transcript" className="p-4">
-        <TabsList>
+      {primaryRun ? (
+        <DiagnosisPanel
+          run={primaryRun}
+          eventCount={eventCount}
+          toolCount={toolCount}
+        />
+      ) : null}
+
+      <Tabs defaultValue="overview" className="p-5">
+        <TabsList className="h-9">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="transcript">Transcript</TabsTrigger>
-          <TabsTrigger value="runs">Runs</TabsTrigger>
-          <TabsTrigger value="internals">Internals</TabsTrigger>
-          <TabsTrigger value="raw">Raw</TabsTrigger>
+          <TabsTrigger value="technical">Technical</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="overview" className="mt-4 space-y-4">
+          <div className="flex items-start gap-2 border-b pb-4 text-sm text-muted-foreground">
+            <IconInfoCircle className="mt-0.5 size-4 shrink-0" />
+            <p className="max-w-2xl leading-relaxed">
+              This is the compact readout. Open Timeline for the last meaningful
+              signals, Transcript for persisted messages and tool calls, or
+              Technical for raw records.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <EvidenceStat
+              label="Created"
+              value={formatDate(detail.thread.createdAt)}
+            />
+            <EvidenceStat
+              label="Updated"
+              value={formatDate(detail.thread.updatedAt)}
+            />
+            <EvidenceStat label="Source" value={detail.source.label} />
+            <EvidenceStat
+              label="Messages"
+              value={detail.messages.length.toLocaleString()}
+            />
+            <EvidenceStat
+              label="Retained events"
+              value={eventCount.toLocaleString()}
+            />
+            <EvidenceStat
+              label="Tool starts"
+              value={toolCount.toLocaleString()}
+            />
+          </div>
+          {detail.messages.length === 0 && eventCount > 0 ? (
+            <div className="flex items-start gap-2 rounded-lg border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+              <IconActivity className="mt-0.5 size-4 shrink-0" />
+              <span>
+                No persisted messages are available, but this run retained{" "}
+                {eventCount.toLocaleString()} execution events. The timeline is
+                the authoritative audit trail for this run.
+              </span>
+            </div>
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="timeline" className="mt-4 space-y-5">
+          {detail.runs.length > 0 ? (
+            detail.runs.map((run) => (
+              <section
+                key={run.id}
+                className="border-b pb-5 last:border-b-0 last:pb-0"
+              >
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={
+                      run.status === "errored" ? "destructive" : "outline"
+                    }
+                  >
+                    {run.status}
+                  </Badge>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {run.id}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDuration(run.durationMs)}
+                  </span>
+                </div>
+                <RunTimeline run={run} />
+              </section>
+            ))
+          ) : (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+              No retained runs.
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="transcript" className="mt-4 space-y-3">
           {detail.messages.length > 0 ? (
@@ -526,177 +1068,162 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
             ))
           ) : (
             <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              No persisted messages.
+              <div>No persisted messages.</div>
+              {eventCount > 0 ? (
+                <div className="mt-1">
+                  Open Timeline to audit the retained execution events.
+                </div>
+              ) : null}
             </div>
           )}
         </TabsContent>
 
-        <TabsContent value="runs" className="mt-4 space-y-3">
-          {detail.runs.length > 0 ? (
-            detail.runs.map((run) => (
-              <details key={run.id} className="rounded-lg bg-card">
-                <summary className="cursor-pointer px-4 py-3">
-                  <div className="inline-flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{run.status}</Badge>
-                    <span className="font-mono text-xs text-foreground">
-                      {run.id}
-                    </span>
-                    {run.errorCode ? (
-                      <span className="font-mono text-xs text-destructive">
-                        {run.errorCode}
+        <TabsContent value="technical" className="mt-4 space-y-3">
+          <details className="rounded-lg border">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-medium text-foreground">
+              <span>Run records</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                {detail.runs.length} {detail.runs.length === 1 ? "run" : "runs"}
+              </span>
+            </summary>
+            <div className="space-y-4 border-t p-3">
+              {detail.runs.length > 0 ? (
+                detail.runs.map((run) => (
+                  <div key={run.id} className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={
+                          run.status === "errored" ? "destructive" : "outline"
+                        }
+                      >
+                        {run.status}
+                      </Badge>
+                      <span className="break-all font-mono text-xs text-foreground">
+                        {run.id}
                       </span>
-                    ) : null}
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(run.startedAt)}
-                    </span>
-                  </div>
-                </summary>
-                <div className="space-y-3 border-t px-4 py-3">
-                  <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-3">
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dispatch.pages.threadDebugFailureCode", {
-                          defaultValue: "Failure code",
-                        })}
-                      </div>
-                      <div className="mt-0.5 break-words font-mono text-foreground">
-                        {run.errorCode || "n/a"}
-                      </div>
                     </div>
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dispatch.pages.threadDebugTerminalReason", {
-                          defaultValue: "Terminal reason",
-                        })}
-                      </div>
-                      <div className="mt-0.5 break-words font-mono text-foreground">
-                        {run.terminalReason || run.abortReason || "n/a"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dispatch.pages.threadDebugDispatchMode", {
-                          defaultValue: "Dispatch mode",
-                        })}
-                      </div>
-                      <div className="mt-0.5 break-words font-mono text-foreground">
-                        {run.dispatchMode || "foreground"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dispatch.pages.threadDebugLastStage", {
-                          defaultValue: "Last stage",
-                        })}
-                      </div>
-                      <div className="mt-0.5 break-words font-mono text-foreground">
-                        {diagnosticStage(run.workerStage) ||
+                    <div className="grid gap-3 text-xs sm:grid-cols-2 xl:grid-cols-3">
+                      <EvidenceStat
+                        label="Failure code"
+                        value={run.errorCode || "n/a"}
+                      />
+                      <EvidenceStat
+                        label="Terminal reason"
+                        value={run.terminalReason || run.abortReason || "n/a"}
+                      />
+                      <EvidenceStat
+                        label="Dispatch mode"
+                        value={run.dispatchMode || "foreground"}
+                      />
+                      <EvidenceStat
+                        label="Last stage"
+                        value={
+                          diagnosticStage(run.workerStage) ||
                           diagnosticStage(run.diagStage) ||
-                          "n/a"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dispatch.pages.threadDebugDuration", {
-                          defaultValue: "Duration",
-                        })}
-                      </div>
-                      <div className="mt-0.5 text-foreground">
-                        {formatDuration(
+                          "n/a"
+                        }
+                      />
+                      <EvidenceStat
+                        label="Duration"
+                        value={formatDuration(
                           run.durationMs ??
                             (run.completedAt == null
                               ? null
                               : run.completedAt - run.startedAt),
                         )}
-                      </div>
+                      />
+                      <EvidenceStat
+                        label="Last progress"
+                        value={formatDate(
+                          run.lastProgressAt ?? run.heartbeatAt,
+                        )}
+                      />
+                      <EvidenceStat
+                        label="In-flight marker"
+                        value={formatDate(run.inFlightSince)}
+                      />
+                      <EvidenceStat
+                        label="Recovery payload"
+                        value={
+                          run.hasDispatchPayload ? "retained" : "not retained"
+                        }
+                      />
                     </div>
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dispatch.pages.threadDebugLastProgress", {
-                          defaultValue: "Last progress",
-                        })}
+                    {run.errorDetail ? (
+                      <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive">
+                        {run.errorDetail}
                       </div>
-                      <div className="mt-0.5 text-foreground">
-                        {formatDate(run.lastProgressAt ?? run.heartbeatAt)}
-                      </div>
-                    </div>
+                    ) : null}
                   </div>
-                  {run.errorDetail ? (
-                    <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive">
-                      {run.errorDetail}
-                    </div>
-                  ) : null}
-                  {run.events.map((event) => (
-                    <details
-                      key={`${run.id}-${event.seq}`}
-                      className="rounded-md border bg-muted/30 px-3 py-2"
-                    >
-                      <summary className="cursor-pointer text-xs font-medium text-foreground">
-                        #{event.seq} {eventLabel(event.event)}
-                      </summary>
-                      <RawBlock value={event.event} className="mt-2 max-h-72" />
-                    </details>
-                  ))}
-                  {run.events.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      No retained run events.
-                    </div>
-                  ) : null}
+                ))
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No retained run records.
                 </div>
-              </details>
-            ))
-          ) : (
-            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              No retained runs.
+              )}
             </div>
-          )}
-        </TabsContent>
+          </details>
 
-        <TabsContent value="internals" className="mt-4 space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">
-                Debug Runs
+          <details className="rounded-lg border">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-medium text-foreground">
+              <span>Traces, feedback, and evaluations</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                diagnostic records
+              </span>
+            </summary>
+            <div className="grid gap-4 border-t p-3 lg:grid-cols-2">
+              <div>
+                <div className="mb-2 text-xs font-medium text-foreground">
+                  Debug runs
+                </div>
+                <RawBlock
+                  value={
+                    detail.debugRuns.length > 0
+                      ? detail.debugRuns
+                      : (detail.debug ?? {})
+                  }
+                />
               </div>
-              <RawBlock
-                value={
-                  detail.debugRuns.length > 0
-                    ? detail.debugRuns
-                    : (detail.debug ?? {})
-                }
-              />
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">
-                Trace Summaries
+              <div>
+                <div className="mb-2 text-xs font-medium text-foreground">
+                  Trace summaries
+                </div>
+                <RawBlock value={detail.traces.summaries} />
               </div>
-              <RawBlock value={detail.traces.summaries} />
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">
-                Trace Spans
+              <div>
+                <div className="mb-2 text-xs font-medium text-foreground">
+                  Trace spans
+                </div>
+                <RawBlock value={detail.traces.spans} />
               </div>
-              <RawBlock value={detail.traces.spans} />
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-medium text-foreground">
-                Feedback And Evals
+              <div>
+                <div className="mb-2 text-xs font-medium text-foreground">
+                  Feedback and evals
+                </div>
+                <RawBlock
+                  value={{
+                    feedback: detail.feedback,
+                    satisfaction: detail.satisfaction,
+                    evals: detail.evals,
+                    checkpoints: detail.checkpoints,
+                  }}
+                />
               </div>
-              <RawBlock
-                value={{
-                  feedback: detail.feedback,
-                  satisfaction: detail.satisfaction,
-                  evals: detail.evals,
-                  checkpoints: detail.checkpoints,
-                }}
-              />
             </div>
-          </div>
-        </TabsContent>
+          </details>
 
-        <TabsContent value="raw" className="mt-4 space-y-4">
-          <RawBlock value={rawBundle} />
-          <RawBlock value={detail.rawThreadData} />
+          <details className="rounded-lg border">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-medium text-foreground">
+              <span>Raw thread bundle</span>
+              <span className="text-xs font-normal text-muted-foreground">
+                JSON
+              </span>
+            </summary>
+            <div className="space-y-3 border-t p-3">
+              <RawBlock value={rawBundle} />
+              <RawBlock value={detail.rawThreadData} />
+            </div>
+          </details>
         </TabsContent>
       </Tabs>
     </div>
@@ -713,11 +1240,13 @@ export default function ThreadDebugRoute() {
   const ownerEmail = routeSearchParams.get("owner") || "";
   const query = routeSearchParams.get("query") || "";
   const status = parseFailureStatus(routeSearchParams.get("status"));
+  const regime = parseFailureRegime(routeSearchParams.get("regime"));
   const range = parseFailureRange(routeSearchParams.get("range"));
   const runId = routeSearchParams.get("runId") || "";
   const threadId = routeSearchParams.get("threadId") || "";
   const inspectSourceId = routeSearchParams.get("inspectSource") || "";
   const [lookupId, setLookupId] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
 
   function updateRouteState(
     updates: Record<string, string | null | undefined>,
@@ -741,7 +1270,7 @@ export default function ThreadDebugRoute() {
     };
     sources: ThreadDebugSource[];
   }>("list-agent-thread-sources", {});
-  const { data: sourcesData, isLoading: sourcesLoading } = sourcesQuery;
+  const { data: sourcesData } = sourcesQuery;
 
   const sources: ThreadDebugSource[] = sourcesData?.sources ?? [];
   const failureParams = useMemo(
@@ -749,10 +1278,11 @@ export default function ThreadDebugRoute() {
       sourceId,
       ownerEmail: ownerEmail.trim() || undefined,
       status,
+      regime,
       lookbackHours: FAILURE_RANGE_HOURS[range],
       limit: 25,
     }),
-    [ownerEmail, range, sourceId, status],
+    [ownerEmail, range, regime, sourceId, status],
   );
   const {
     data: failuresData,
@@ -764,7 +1294,19 @@ export default function ThreadDebugRoute() {
     failureParams,
     { enabled: mode === "failures" },
   );
-  const failures = failuresData?.failures ?? [];
+  const failures = failuresData?.failures ?? EMPTY_FAILURES;
+  const failurePatterns = useMemo(() => {
+    const patterns = new Map<string, { label: string; count: number }>();
+    for (const failure of failures) {
+      const diagnosis = runDiagnosis(failure);
+      const current = patterns.get(diagnosis.code);
+      patterns.set(diagnosis.code, {
+        label: diagnosis.title,
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+    return [...patterns.values()].sort((a, b) => b.count - a.count);
+  }, [failures]);
   const unavailableFailureSources = (failuresData?.sources ?? []).filter(
     (source) => source.status !== "ok",
   );
@@ -788,10 +1330,9 @@ export default function ThreadDebugRoute() {
     () => ({
       sourceId: threadSourceId,
       query: query.trim() || undefined,
-      ownerEmail: ownerEmail.trim() || undefined,
       limit: 25,
     }),
-    [ownerEmail, query, threadSourceId],
+    [query, threadSourceId],
   );
   const {
     data: searchData,
@@ -805,6 +1346,16 @@ export default function ThreadDebugRoute() {
     source: { id: string; label: string };
   }>("search-agent-threads", searchParams, { enabled: mode === "threads" });
   const searchThreads: ThreadSearchResult[] = searchData?.threads ?? [];
+  const ownerEmailSuggestions = useMemo(() => {
+    const emailQuery = query.trim().includes("@")
+      ? query.trim().toLowerCase()
+      : "";
+    return [...new Set(searchThreads.map((thread) => thread.ownerEmail))]
+      .filter(
+        (email) => !emailQuery || email.toLowerCase().includes(emailQuery),
+      )
+      .slice(0, 8);
+  }, [query, searchThreads]);
 
   const detailParams = useMemo(
     () => ({
@@ -830,7 +1381,6 @@ export default function ThreadDebugRoute() {
     },
   );
 
-  const selectedSource = sources.find((source) => source.id === threadSourceId);
   const detailPane = (
     <section className="min-w-0">
       {detailError ? (
@@ -840,7 +1390,7 @@ export default function ThreadDebugRoute() {
         />
       ) : null}
       {detailLoading ? (
-        <div className="rounded-lg bg-card p-4">
+        <div className="p-5">
           <Skeleton className="h-6 w-72" />
           <Skeleton className="mt-3 h-4 w-96" />
           <Skeleton className="mt-6 h-[520px] w-full" />
@@ -848,11 +1398,15 @@ export default function ThreadDebugRoute() {
       ) : detail ? (
         <ThreadDetail detail={detail} />
       ) : (
-        <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-dashed bg-card px-4 text-center text-sm text-muted-foreground">
+        <div className="flex min-h-[520px] flex-col items-center justify-center px-5 text-center text-sm text-muted-foreground">
           <IconFileSearch className="mb-2 size-5" />
-          {t("dispatch.pages.threadDebugSelectPrompt", {
-            defaultValue: "Select a failed run or thread to inspect.",
-          })}
+          <div className="font-medium text-foreground">
+            Choose a run to inspect
+          </div>
+          <div className="mt-1 max-w-xs leading-relaxed">
+            See the diagnosis first, then open the timeline or technical
+            evidence.
+          </div>
         </div>
       )}
     </section>
@@ -864,8 +1418,7 @@ export default function ThreadDebugRoute() {
         defaultValue: "Thread Debug",
       })}
       description={t("dispatch.pages.threadDebugDescription", {
-        defaultValue:
-          "Inspect failed agent runs, persisted threads, run events, and AI internals.",
+        defaultValue: "Find the failure pattern, then inspect the evidence.",
       })}
     >
       <div className="space-y-4">
@@ -905,8 +1458,29 @@ export default function ThreadDebugRoute() {
           </TabsList>
 
           <TabsContent value="failures" className="mt-4 space-y-4">
-            <section className="rounded-lg bg-card p-4">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[220px_1fr_180px_150px]">
+            <section className="border-b pb-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    Run health
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Start with the dominant failure pattern, then open one run.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void refetchFailures()}
+                  aria-label={t("dispatch.pages.threadDebugRefreshFailures", {
+                    defaultValue: "Refresh failed runs",
+                  })}
+                >
+                  <IconRefresh className="size-4" />
+                </Button>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-[200px_minmax(180px,1fr)_180px_160px_150px]">
                 <Select
                   value={sourceId}
                   onValueChange={(value) =>
@@ -943,6 +1517,9 @@ export default function ThreadDebugRoute() {
                   onChange={(event) =>
                     updateRouteState({ owner: event.target.value })
                   }
+                  aria-label={t("dispatch.pages.threadDebugOwner", {
+                    defaultValue: "Owner email",
+                  })}
                   placeholder={t("dispatch.pages.threadDebugOwner", {
                     defaultValue: "Owner email",
                   })}
@@ -988,6 +1565,27 @@ export default function ThreadDebugRoute() {
                   </SelectContent>
                 </Select>
                 <Select
+                  value={regime}
+                  onValueChange={(value) =>
+                    updateRouteState({
+                      regime: parseFailureRegime(value),
+                      runId: null,
+                      inspectSource: null,
+                    })
+                  }
+                >
+                  <SelectTrigger aria-label="Run type">
+                    <SelectValue placeholder="Run type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All run types</SelectItem>
+                    <SelectItem value="interactive">
+                      Interactive chats
+                    </SelectItem>
+                    <SelectItem value="scheduled">Scheduled jobs</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
                   value={range}
                   onValueChange={(value) =>
                     updateRouteState({
@@ -1024,11 +1622,9 @@ export default function ThreadDebugRoute() {
                 </Select>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>
-                  {failuresData?.count ?? failures.length}{" "}
-                  {t("dispatch.pages.threadDebugFailureResults", {
-                    defaultValue: "failed runs",
-                  })}
+                <span className="font-medium text-foreground">
+                  {failures.length} loaded{" "}
+                  {failures.length === 1 ? "run" : "runs"}
                 </span>
                 <span>·</span>
                 <span>
@@ -1037,6 +1633,11 @@ export default function ThreadDebugRoute() {
                       defaultValue: "current scope",
                     })}
                 </span>
+                {failurePatterns.slice(0, 3).map((pattern) => (
+                  <Badge key={pattern.label} variant="outline">
+                    {pattern.count} {pattern.label}
+                  </Badge>
+                ))}
                 {failuresData?.partial ? (
                   <Badge variant="outline">
                     {t("dispatch.pages.threadDebugPartialResults", {
@@ -1070,68 +1671,67 @@ export default function ThreadDebugRoute() {
               />
             ) : null}
 
-            <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-              <section className="min-h-[520px] rounded-lg bg-card">
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <div className="text-sm font-semibold text-foreground">
-                    {t("dispatch.pages.threadDebugFailedRuns", {
-                      defaultValue: "Failed runs",
-                    })}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => void refetchFailures()}
-                    aria-label={t("dispatch.pages.threadDebugRefreshFailures", {
-                      defaultValue: "Refresh failed runs",
-                    })}
-                  >
-                    <IconRefresh className="size-4" />
-                  </Button>
-                </div>
-                <div className="max-h-[760px] space-y-2 overflow-auto p-3">
-                  {failuresLoading ? (
-                    <>
-                      <Skeleton className="h-32 w-full rounded-lg" />
-                      <Skeleton className="h-32 w-full rounded-lg" />
-                      <Skeleton className="h-32 w-full rounded-lg" />
-                    </>
-                  ) : null}
-                  {!failuresLoading && failures.length === 0 ? (
-                    <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
-                      <IconDatabase className="mb-2 size-5" />
-                      {t("dispatch.pages.threadDebugNoFailures", {
-                        defaultValue: "No failed runs found.",
-                      })}
+            <div className="overflow-hidden rounded-xl border bg-card">
+              <div className="grid xl:grid-cols-[360px_minmax(0,1fr)]">
+                <section className="min-h-[560px] border-b xl:border-b-0 xl:border-r">
+                  <div className="flex items-center justify-between border-b px-4 py-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">
+                        Needs attention
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {failurePatterns[0]
+                          ? `${failurePatterns[0].count} ${failurePatterns[0].label.toLowerCase()}`
+                          : "No active failure pattern"}
+                      </div>
                     </div>
-                  ) : null}
-                  {failures.map((failure) => (
-                    <FailureCard
-                      key={`${failureSourceId(failure)}:${failure.id}`}
-                      failure={failure}
-                      selected={
-                        runId === failure.id &&
-                        detailSourceId === failureSourceId(failure)
-                      }
-                      onSelect={() =>
-                        updateRouteState({
-                          inspectSource: failureSourceId(failure),
-                          runId: failure.id,
-                          threadId: null,
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-              </section>
-              {detailPane}
+                    <span className="text-xs text-muted-foreground">
+                      {failures.length}
+                    </span>
+                  </div>
+                  <div className="max-h-[760px] overflow-auto">
+                    {failuresLoading ? (
+                      <>
+                        <Skeleton className="mx-4 mt-4 h-16 w-[calc(100%-2rem)]" />
+                        <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
+                        <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
+                      </>
+                    ) : null}
+                    {!failuresLoading && failures.length === 0 ? (
+                      <div className="flex min-h-64 flex-col items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                        <IconDatabase className="mb-2 size-5" />
+                        {t("dispatch.pages.threadDebugNoFailures", {
+                          defaultValue: "No failed runs found.",
+                        })}
+                      </div>
+                    ) : null}
+                    {failures.map((failure) => (
+                      <FailureCard
+                        key={`${failureSourceId(failure)}:${failure.id}`}
+                        failure={failure}
+                        selected={
+                          runId === failure.id &&
+                          detailSourceId === failureSourceId(failure)
+                        }
+                        onSelect={() =>
+                          updateRouteState({
+                            inspectSource: failureSourceId(failure),
+                            runId: failure.id,
+                            threadId: null,
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                </section>
+                <div className="min-w-0">{detailPane}</div>
+              </div>
             </div>
           </TabsContent>
 
           <TabsContent value="threads" className="mt-4 space-y-4">
-            <section className="rounded-lg bg-card p-4">
-              <div className="grid gap-3 lg:grid-cols-[220px_1fr_260px_auto]">
+            <section className="border-b pb-4">
+              <div className="grid gap-2 pt-3 lg:grid-cols-2 xl:grid-cols-[auto_180px_minmax(220px,1fr)_auto_auto]">
                 <Select
                   value={threadSourceId}
                   onValueChange={(value) =>
@@ -1165,97 +1765,126 @@ export default function ThreadDebugRoute() {
                     ) : null}
                   </SelectContent>
                 </Select>
-                <Input
-                  value={query}
-                  onChange={(event) =>
-                    updateRouteState({ query: event.target.value })
-                  }
-                  placeholder={t(
-                    "dispatch.pages.threadDebugSearchPlaceholder",
-                    {
-                      defaultValue: "Search title, preview, messages, tools",
-                    },
-                  )}
-                />
-                <Input
-                  value={ownerEmail}
-                  onChange={(event) =>
-                    updateRouteState({ owner: event.target.value })
-                  }
-                  placeholder={t("dispatch.pages.threadDebugOwner", {
-                    defaultValue: "Owner email",
-                  })}
-                />
-                <Button type="button" onClick={() => void refetchSearch()}>
-                  <IconSearch className="size-4" />
-                  {t("dispatch.pages.threadDebugSearch", {
-                    defaultValue: "Search",
-                  })}
-                </Button>
-              </div>
-
-              <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
-                <Input
-                  value={lookupId}
-                  onChange={(event) => setLookupId(event.target.value)}
-                  placeholder={t(
-                    "dispatch.pages.threadDebugLookupPlaceholder",
-                    {
-                      defaultValue: "Paste thread or request/run ID",
-                    },
-                  )}
-                  className="font-mono"
-                />
+                <Popover
+                  open={searchFocused && ownerEmailSuggestions.length > 0}
+                  onOpenChange={setSearchFocused}
+                >
+                  <PopoverAnchor asChild>
+                    <span className="block">
+                      <Input
+                        value={query}
+                        onChange={(event) =>
+                          updateRouteState({ query: event.target.value })
+                        }
+                        onFocus={() => setSearchFocused(true)}
+                        placeholder={t(
+                          "dispatch.pages.threadDebugSearchPlaceholder",
+                          {
+                            defaultValue: "Search threads or email",
+                          },
+                        )}
+                        aria-label="Search threads or email"
+                      />
+                    </span>
+                  </PopoverAnchor>
+                  <PopoverContent
+                    align="start"
+                    sideOffset={6}
+                    className="w-[var(--radix-popover-trigger-width)] p-1"
+                    onOpenAutoFocus={(event) => event.preventDefault()}
+                  >
+                    <div role="listbox" aria-label="Owner email suggestions">
+                      {ownerEmailSuggestions.map((email) => (
+                        <button
+                          key={email}
+                          type="button"
+                          role="option"
+                          aria-selected="false"
+                          className="flex w-full items-center rounded-sm px-2 py-1.5 text-left text-sm text-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            updateRouteState({ query: email });
+                            setSearchFocused(false);
+                          }}
+                        >
+                          {email}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <Button
                   type="button"
-                  variant="outline"
-                  onClick={() => {
-                    const trimmed = lookupId.trim();
-                    if (!trimmed) return;
-                    updateRouteState(
-                      trimmed.startsWith("run-")
-                        ? {
-                            runId: trimmed,
-                            threadId: null,
-                            inspectSource: null,
-                          }
-                        : {
-                            threadId: trimmed,
-                            runId: null,
-                            inspectSource: null,
-                          },
-                    );
-                  }}
+                  size="icon"
+                  onClick={() => void refetchSearch()}
+                  aria-label="Search threads or email"
+                  title="Search threads or email"
                 >
-                  <IconFileSearch className="size-4" />
-                  {t("dispatch.pages.threadDebugInspect", {
-                    defaultValue: "Inspect",
-                  })}
+                  <IconSearch className="size-4" />
                 </Button>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                {sourcesLoading ? <Skeleton className="h-5 w-32" /> : null}
-                {selectedSource ? (
-                  <SourceBadge source={selectedSource} />
-                ) : null}
-                {selectedSource?.databaseUrlEnv ? (
-                  <Badge variant="outline" className="font-mono">
-                    {selectedSource.databaseUrlEnv}
-                  </Badge>
-                ) : null}
-                {sourcesData?.access ? (
-                  <span>
-                    {sourcesData.access.viewerEmail} ·{" "}
-                    {sourcesData.access.canInspectAll
-                      ? t("dispatch.pages.threadDebugAdminScope", {
-                          defaultValue: "admin scope",
-                        })
-                      : t("dispatch.pages.threadDebugOwnScope", {
-                          defaultValue: "own scope",
-                        })}
-                  </span>
-                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void refetchSearch()}
+                  aria-label={t("dispatch.pages.threadDebugRefreshThreads", {
+                    defaultValue: "Refresh threads",
+                  })}
+                >
+                  <IconRefresh className="size-4" />
+                </Button>
+                <details className="order-first justify-self-start rounded-lg border">
+                  <summary
+                    aria-label="Advanced lookup"
+                    title="Advanced lookup"
+                    className="flex size-10 cursor-pointer list-none items-center justify-center text-foreground"
+                  >
+                    <IconAdjustmentsHorizontal
+                      aria-hidden="true"
+                      className="size-4"
+                    />
+                    <span className="sr-only">Advanced lookup</span>
+                  </summary>
+                  <div className="grid gap-3 border-t p-3 lg:w-80">
+                    <Input
+                      value={lookupId}
+                      onChange={(event) => setLookupId(event.target.value)}
+                      placeholder={t(
+                        "dispatch.pages.threadDebugLookupPlaceholder",
+                        {
+                          defaultValue: "Paste thread or request/run ID",
+                        },
+                      )}
+                      className="font-mono"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const trimmed = lookupId.trim();
+                        if (!trimmed) return;
+                        updateRouteState(
+                          trimmed.startsWith("run-")
+                            ? {
+                                runId: trimmed,
+                                threadId: null,
+                                inspectSource: null,
+                              }
+                            : {
+                                threadId: trimmed,
+                                runId: null,
+                                inspectSource: null,
+                              },
+                        );
+                      }}
+                    >
+                      <IconFileSearch className="size-4" />
+                      {t("dispatch.pages.threadDebugInspect", {
+                        defaultValue: "Inspect",
+                      })}
+                    </Button>
+                  </div>
+                </details>
               </div>
             </section>
 
@@ -1266,72 +1895,43 @@ export default function ThreadDebugRoute() {
               />
             ) : null}
 
-            <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-              <section className="min-h-[520px] rounded-lg bg-card">
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">
-                      {t("dispatch.pages.threadDebugThreads", {
-                        defaultValue: "Threads",
-                      })}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {searchData?.count ?? 0}{" "}
-                      {t("dispatch.pages.threadDebugResults", {
-                        defaultValue: "results",
-                      })}{" "}
-                      ·{" "}
-                      {searchData?.access?.scope ??
-                        t("dispatch.pages.threadDebugCurrentScope", {
-                          defaultValue: "current scope",
+            <div className="overflow-hidden rounded-xl border bg-card">
+              <div className="grid xl:grid-cols-[360px_minmax(0,1fr)]">
+                <section className="min-h-[560px] border-b xl:border-b-0 xl:border-r">
+                  <div className="max-h-[760px] overflow-auto">
+                    {searchLoading ? (
+                      <>
+                        <Skeleton className="mx-4 mt-4 h-16 w-[calc(100%-2rem)]" />
+                        <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
+                        <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
+                      </>
+                    ) : null}
+                    {!searchLoading && searchThreads.length === 0 ? (
+                      <div className="flex min-h-64 flex-col items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                        <IconDatabase className="mb-2 size-5" />
+                        {t("dispatch.pages.threadDebugNoThreads", {
+                          defaultValue: "No threads found.",
                         })}
-                    </div>
+                      </div>
+                    ) : null}
+                    {searchThreads.map((result) => (
+                      <ResultCard
+                        key={result.id}
+                        result={result}
+                        selected={threadId === result.id}
+                        onSelect={() =>
+                          updateRouteState({
+                            threadId: result.id,
+                            runId: null,
+                            inspectSource: null,
+                          })
+                        }
+                      />
+                    ))}
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => void refetchSearch()}
-                    aria-label={t("dispatch.pages.threadDebugRefreshThreads", {
-                      defaultValue: "Refresh threads",
-                    })}
-                  >
-                    <IconRefresh className="size-4" />
-                  </Button>
-                </div>
-                <div className="max-h-[760px] space-y-2 overflow-auto p-3">
-                  {searchLoading ? (
-                    <>
-                      <Skeleton className="h-28 w-full rounded-lg" />
-                      <Skeleton className="h-28 w-full rounded-lg" />
-                      <Skeleton className="h-28 w-full rounded-lg" />
-                    </>
-                  ) : null}
-                  {!searchLoading && searchThreads.length === 0 ? (
-                    <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
-                      <IconDatabase className="mb-2 size-5" />
-                      {t("dispatch.pages.threadDebugNoThreads", {
-                        defaultValue: "No threads found.",
-                      })}
-                    </div>
-                  ) : null}
-                  {searchThreads.map((result) => (
-                    <ResultCard
-                      key={result.id}
-                      result={result}
-                      selected={threadId === result.id}
-                      onSelect={() =>
-                        updateRouteState({
-                          threadId: result.id,
-                          runId: null,
-                          inspectSource: null,
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-              </section>
-              {detailPane}
+                </section>
+                <div className="min-w-0">{detailPane}</div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>

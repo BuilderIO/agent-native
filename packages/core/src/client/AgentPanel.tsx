@@ -36,7 +36,6 @@ import {
   IconHistory,
   IconArrowsHorizontal,
   IconArrowsMaximize,
-  IconArrowsMinimize,
   IconExternalLink,
 } from "@tabler/icons-react";
 import React, {
@@ -49,6 +48,7 @@ import React, {
   Suspense,
   startTransition,
 } from "react";
+import { flushSync } from "react-dom";
 
 import type { AgentRun } from "../progress/types.js";
 import {
@@ -460,11 +460,22 @@ export function shouldShowAgentPanelFullViewAction(
   agentPageHref: string | undefined,
   mode: PanelMode,
   isSidebar = false,
+  currentPath?: string,
 ) {
   return (
     Boolean(agentPageHref) &&
+    currentPath !== agentPageHref &&
     (isSidebar || mode === "resources" || mode === "settings")
   );
+}
+
+export function getAgentPanelShortcutHints(isMac: boolean) {
+  return {
+    closeTab: isMac ? "⌃W" : "⌥W",
+    closeAllTabs: isMac ? "⌃⌥W" : "^⌥W",
+    toggleSidebar: isMac ? "⌘\\" : "^\\",
+    widenChat: isMac ? "⌘⇧\\" : "^⇧\\",
+  };
 }
 
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
@@ -599,7 +610,7 @@ export interface AgentPanelProps extends Omit<
   onCollapse?: () => void;
   /** Whether the panel is currently in fullscreen (Claude-style centered) mode. */
   isFullscreen?: boolean;
-  /** Called when the user clicks the maximize/minimize button. If provided, the button appears next to the collapse button. */
+  /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
   /** Called when the user asks the sidebar to use the wide chat width preset. */
   onSnapTo75Percent?: () => void;
@@ -797,6 +808,7 @@ function AgentPanelInner({
 }: AgentPanelProps) {
   const t = useT();
   const navigate = useNavigate();
+  const location = useLocation();
   const mounted = useClientOnly();
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const showFirstRunOnboarding =
@@ -815,11 +827,12 @@ function AgentPanelInner({
       /Mac|iPhone|iPad/.test(navigator.userAgent),
     [],
   );
-  const closeTabHint = isMac ? "\u2303W" : "Alt+W";
-  const closeAllTabsHint = isMac ? "\u2303\u2325W" : "Ctrl+Alt+W";
-  const toggleSidebarHint = isMac ? "\u2318\\" : "Ctrl+\\";
-  const widenChatHint = isMac ? "\u2318\u21e7\\" : "Ctrl+Shift+\\";
-  const fullscreenHint = isMac ? "\u2318\u21e7F" : "Ctrl+Shift+F";
+  const {
+    closeTab: closeTabHint,
+    closeAllTabs: closeAllTabsHint,
+    toggleSidebar: toggleSidebarHint,
+    widenChat: widenChatHint,
+  } = getAgentPanelShortcutHints(isMac);
 
   const [execMode, setExecMode] = useState<ExecMode>(() => {
     try {
@@ -1217,7 +1230,12 @@ function AgentPanelInner({
   );
   const showFullViewAction = Boolean(
     agentPageHref &&
-    shouldShowAgentPanelFullViewAction(agentPageHref, mode, chatOnly),
+    shouldShowAgentPanelFullViewAction(
+      agentPageHref,
+      mode,
+      chatOnly,
+      location.pathname,
+    ),
   );
 
   useEffect(() => {
@@ -1240,16 +1258,11 @@ function AgentPanelInner({
         wideDrawerAction();
         return;
       }
-
-      if (event.code === "KeyF" && onToggleFullscreen) {
-        event.preventDefault();
-        onToggleFullscreen();
-      }
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [mode, onCollapse, onToggleFullscreen, wideDrawerAction]);
+  }, [mode, onCollapse, wideDrawerAction]);
 
   const renderHeaderActions = useCallback(
     ({
@@ -1394,22 +1407,8 @@ function AgentPanelInner({
                 </Link>
               </DropdownMenuItem>
             ) : null}
-            {onToggleFullscreen && (
-              <DropdownMenuItem onSelect={onToggleFullscreen}>
-                {isFullscreen ? (
-                  <IconArrowsMinimize size={14} className="shrink-0" />
-                ) : (
-                  <IconArrowsMaximize size={14} className="shrink-0" />
-                )}
-                {isFullscreen
-                  ? t("agentPanel.exitFullscreen")
-                  : t("agentPanel.fullscreen")}
-                <DropdownMenuShortcut>{fullscreenHint}</DropdownMenuShortcut>
-              </DropdownMenuItem>
-            )}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||
-            showFullViewAction ||
-            onToggleFullscreen ? (
+            showFullViewAction ? (
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse && mode === "chat" && (
@@ -1419,7 +1418,13 @@ function AgentPanelInner({
               </DropdownMenuItem>
             )}
             {mode === "chat" && toggleHistory && (
-              <DropdownMenuItem onSelect={toggleHistory}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Let the menu finish restoring focus before mounting the
+                  // history popover; otherwise Radix dismisses the new overlay.
+                  setTimeout(() => toggleHistory(), 0);
+                }}
+              >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
                   ? t("agentPanel.hideChats")
@@ -1571,14 +1576,12 @@ function AgentPanelInner({
       feedbackEnabled,
       getChatThreadShareUrl,
       headerMenuOpen,
-      isFullscreen,
       isWideDrawer,
       mode,
       agentPageHref,
       onCollapse,
       onExitWideDrawer,
       onSnapTo75Percent,
-      onToggleFullscreen,
       openRunThread,
       selectCli,
       selectedCli,
@@ -1588,7 +1591,6 @@ function AgentPanelInner({
       wideDrawerAction,
       wideDrawerLabel,
       widenChatHint,
-      fullscreenHint,
       showFullViewAction,
     ],
   );
@@ -2248,17 +2250,15 @@ function AgentPanelInner({
 // ─── Resize handle ──────────────────────────────────────────────────────────
 
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
-const SIDEBAR_FULLSCREEN_KEY = "agent-native-sidebar-fullscreen";
 const SIDEBAR_DRAWER_KEY = "agent-native-sidebar-wide-drawer";
 const SIDEBAR_DRAWER_PLACEHOLDER_KEY =
   "agent-native-sidebar-drawer-placeholder-width";
 const SIDEBAR_ANIMATION_MS = 260;
 const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_DRAWER_Z_INDEX = 80;
-const SIDEBAR_FULLSCREEN_Z_INDEX = 90;
 const SIDEBAR_DRAWER_VIEW_TRANSITION_NAME = "agent-native-sidebar-drawer";
 /** Shared max width of the centered fullscreen chat column and composer. */
-const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
+const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;
 
 export function getActiveTabScrollDelta(
   containerRect: Pick<DOMRect, "left" | "right">,
@@ -2917,7 +2917,7 @@ export interface AgentSidebarProps {
   storageKey?: string;
   /** Open the sidebar when a chat run is active or reconnects. */
   openOnChatRunning?: boolean;
-  /** Override the fullscreen menu action, for templates with a chat-first page. */
+  /** @deprecated Fullscreen sidebar actions are no longer rendered. */
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
@@ -2957,7 +2957,6 @@ export function AgentSidebar({
   chatViewTransitionHandoff = false,
   storageKey,
   openOnChatRunning = false,
-  onFullscreenRequest,
   scope,
   showScopeBadge,
   browserTabId,
@@ -2998,21 +2997,6 @@ export function AgentSidebar({
   });
   const drawerExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isResizing, setIsResizing] = useState(false);
-  const [fullscreen, setFullscreen] = useState(() => {
-    // Force-disable on mobile: a Claude-style centered column makes no sense
-    // when the sidebar already covers most of the viewport.
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 767px)").matches
-    ) {
-      return false;
-    }
-    try {
-      return localStorage.getItem(SIDEBAR_FULLSCREEN_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
 
   // Track mobile viewport so we can switch to overlay mode.
   const [isMobile, setIsMobile] = useState(
@@ -3069,16 +3053,6 @@ export function AgentSidebar({
   useEffect(() => {
     if (openOnChatRunning) setOpen(true);
   }, [openOnChatRunning]);
-
-  const toggleFullscreen = useCallback(() => {
-    setFullscreen((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(SIDEBAR_FULLSCREEN_KEY, String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
 
   // Track whether the frame is controlling the sidebar (code mode = frame active).
   // Default to true when inside an iframe — assume the frame sidebar is active
@@ -3387,6 +3361,26 @@ export function AgentSidebar({
       return next;
     });
   }, []);
+  // `view-transition-name` is only legal to carry while a transition is
+  // actually capturing. Left on permanently it makes the panel its own
+  // stacking context and the containing block for every fixed/absolute
+  // descendant, and enlists it as a captured group in unrelated transitions
+  // (any React Router `viewTransition` navigation), which is how overlays end
+  // up painted at stale offsets. Apply it only around the drawer morph, and
+  // flush it into the DOM first: `startViewTransition` captures the old state
+  // before it invokes the callback, so a name applied in a normal React commit
+  // would land too late to be captured.
+  const [drawerMorphing, setDrawerMorphing] = useState(false);
+  const runDrawerMorph = useCallback((apply: () => void) => {
+    flushSync(() => setDrawerMorphing(true));
+    const settle = () => setDrawerMorphing(false);
+    const transition = startAgentChatViewTransition(apply);
+    if (!transition) {
+      settle();
+      return;
+    }
+    transition.finished.then(settle, settle);
+  }, []);
   const snapTo75Percent = useCallback(() => {
     if (drawerExitTimerRef.current !== null) {
       clearTimeout(drawerExitTimerRef.current);
@@ -3408,8 +3402,8 @@ export function AgentSidebar({
         // coercion-ok: the drawer remains applied in memory when storage is unavailable.
       } catch {}
     };
-    startAgentChatViewTransition(apply);
-  }, [drawerPlaceholderWidth, isWideDrawer, width]);
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer, width]);
   const exitWideDrawer = useCallback(() => {
     if (!isWideDrawer || drawerExitTimerRef.current !== null) return;
     const next = drawerPlaceholderWidth;
@@ -3425,21 +3419,16 @@ export function AgentSidebar({
         setIsWideDrawer(false);
       }, SIDEBAR_ANIMATION_MS + 32);
     };
-    startAgentChatViewTransition(apply);
-  }, [drawerPlaceholderWidth, isWideDrawer]);
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer]);
   const handleResizeStart = useCallback(() => setIsResizing(true), []);
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
   const isLeft = position === "left";
-  // Fullscreen only applies on desktop — on mobile the existing overlay is
-  // already viewport-covering, so the maximize button is hidden and the
-  // mounted state ignores any persisted value.
-  const effectiveFullscreen = !onFullscreenRequest && fullscreen && !isMobile;
-  const wideDrawerEnabled = isWideDrawer && !isMobile && !effectiveFullscreen;
-  const mobileAnimationEnabled =
-    !presentationMode && !effectiveFullscreen && isMobile && animateMobile;
+  const wideDrawerEnabled = isWideDrawer && !isMobile;
+  const mobileAnimationEnabled = !presentationMode && isMobile && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !effectiveFullscreen && !isMobile && animateDesktop;
+    !presentationMode && !isMobile && animateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -3474,19 +3463,16 @@ export function AgentSidebar({
   const panelOpen = open && shouldMountPanel;
   const panelLayout = isMobile
     ? "mobile"
-    : effectiveFullscreen
-      ? "fullscreen"
-      : wideDrawerEnabled
-        ? "drawer"
-        : "desktop";
+    : wideDrawerEnabled
+      ? "drawer"
+      : "desktop";
   // On desktop the resize handle is also the visual divider. Avoid painting a
   // second panel border next to it.
-  const showResizeHandle =
-    !isMobile && !effectiveFullscreen && !wideDrawerEnabled && panelOpen;
+  const showResizeHandle = !isMobile && !wideDrawerEnabled && panelOpen;
 
   // On mobile the sidebar floats as a fixed overlay so the content below isn't
-  // squashed. On desktop it participates in the flex layout as before, except
-  // in fullscreen mode where it overlays the entire viewport (Claude-style).
+  // squashed. On desktop it participates in the flex layout or becomes a
+  // fixed-width drawer when the user asks for more room.
   let panelStyle: AgentPanelStyle;
   if (isMobile) {
     panelStyle = {
@@ -3508,17 +3494,6 @@ export function AgentSidebar({
       "--agent-sidebar-closed-transform": `translateX(${isLeft ? "-" : ""}calc(100% + 1px))`,
       pointerEvents: mobileAnimationEnabled && !panelOpen ? "none" : undefined,
     };
-  } else if (effectiveFullscreen) {
-    panelStyle = {
-      ...AGENT_PANEL_ROOT_STYLE,
-      position: "fixed",
-      inset: 0,
-      width: "100%",
-      maxHeight: "var(--agent-native-viewport-height, 100vh)",
-      zIndex: SIDEBAR_FULLSCREEN_Z_INDEX,
-      background: "hsl(var(--background))",
-      display: open ? "flex" : "none",
-    };
   } else if (wideDrawerEnabled) {
     panelStyle = {
       ...AGENT_PANEL_ROOT_STYLE,
@@ -3536,7 +3511,9 @@ export function AgentSidebar({
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
       display: "flex",
-      viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   } else {
     panelStyle = {
@@ -3559,7 +3536,9 @@ export function AgentSidebar({
       display: desktopAnimationEnabled || panelOpen ? "flex" : "none",
       minWidth: desktopAnimationEnabled ? 0 : undefined,
       pointerEvents: desktopAnimationEnabled && !panelOpen ? "none" : undefined,
-      viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   }
 
@@ -3579,7 +3558,6 @@ export function AgentSidebar({
         className={cn(
           "agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased",
           chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,
-          mobileAnimationEnabled && "shadow-2xl",
         )}
         data-agent-sidebar-animation={
           wideDrawerEnabled
@@ -3617,10 +3595,6 @@ export function AgentSidebar({
             threadFooterSlot={threadFooterSlot}
             missingApiKeySetupLayout="sidebar"
             onCollapse={() => setOpenPersisted(false)}
-            isFullscreen={effectiveFullscreen}
-            onToggleFullscreen={
-              isMobile ? undefined : (onFullscreenRequest ?? toggleFullscreen)
-            }
             onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
             isWideDrawer={isMobile ? false : isWideDrawer}
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
@@ -3647,7 +3621,7 @@ export function AgentSidebar({
   ) : null;
 
   const drawerPlaceholder =
-    wideDrawerEnabled && !presentationMode && shouldRenderPanel ? (
+    wideDrawerEnabled && !presentationMode && panelOpen ? (
       <div
         aria-hidden="true"
         className="agent-sidebar-drawer-placeholder shrink-0"
@@ -3696,12 +3670,7 @@ export function AgentSidebar({
             className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
             data-agent-sidebar-main-position={position}
             data-agent-sidebar-main-state={
-              !isMobile &&
-              !effectiveFullscreen &&
-              !presentationMode &&
-              panelOpen
-                ? "open"
-                : "closed"
+              !isMobile && !presentationMode && panelOpen ? "open" : "closed"
             }
             data-agent-sidebar-resizing={isResizing ? "true" : undefined}
           >

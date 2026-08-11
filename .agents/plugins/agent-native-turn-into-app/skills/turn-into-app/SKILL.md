@@ -3,8 +3,9 @@ name: turn-into-app
 description: >-
   Turn visible project context, a proven thread, skill, or workflow into a
   runnable Agent-Native app with simple buttons, visible agent steps, preview,
-  and deployment handoff. Use when a user invokes `/turn-into-app` or asks to
-  make a workflow into an app.
+  and deployment handoff. Use when a user invokes `/turn-into-app`,
+  `/make-into-app`, or asks to make a workflow into an app, including from
+  Claude or ChatGPT on the web.
 user-invocable: true
 scope: both
 metadata:
@@ -13,9 +14,45 @@ metadata:
 
 # Turn Into App
 
+## Host execution boundary
+
+The build location depends on the host. Treat this as a hard routing rule:
+
+- In Claude Web, ChatGPT Web, or a Claude/ChatGPT Project on the web, you are
+  the source analyst and handoff orchestrator. You must not build the app in
+  the host sandbox. Do not run `npm`, `pnpm`, `npx`, `agent-native create`, or
+  `add-app`; do not edit files, create artifacts, or start a local dev server.
+  After writing the bounded source brief, call the connected Dispatch action
+  `start-workspace-app-creation`. Pass the brief and repeatable workflow in
+  `prompt`, plus the inferred `appId`, `description`, `template`, and selected
+  `resourceIds` when available. This is the Builder handoff.
+- Do not substitute the generic `create_workspace_app` MCP tool in an online
+  host. That tool is a local workspace scaffolder, not the Builder handoff.
+- Connect the Agent-Native Dispatch MCP connector only. Dispatch uses the
+  authenticated Builder Projects API to reuse or provision the workspace
+  project before starting the Builder Cloud Agent; a separate Builder CMS MCP
+  connection is not required for this workflow.
+- If `start-workspace-app-creation` is not available or Dispatch is not
+  authenticated, stop with the connector setup needed. Do not fall back to a
+  local build or claim that the app exists.
+- In Claude Code, Codex Code, or another local code-agent runtime with a target
+  workspace, follow the local implementation steps below. The local agent may
+  scaffold, edit, run, and verify the app there.
+
+Once the source brief is sufficient to identify a repeatable workflow, the
+handoff is non-interactive. Do not ask the user for visual, product, copy,
+layout, template, integration, or implementation choices that can be resolved
+from the source. Select the source's recommended option; otherwise choose the
+most direct conventional default and record the assumption for later review.
+Only stop for a genuine hard blocker such as missing authorization, a
+destructive external action, an ambiguous target workspace, or no identifiable
+workflow at all.
+
 ## Default behavior
 
-This is an end-to-end build skill, not a request for an app proposal.
+For a local code-agent runtime this is an end-to-end build skill, not a request
+for an app proposal. For an online host, the end-to-end result is a verified
+Builder handoff and the resulting workspace app, not code written in the host.
 
 - With no argument, choose the source in this order: visible project context,
   then the current thread. A fresh Claude or ChatGPT Project is a valid source
@@ -47,9 +84,12 @@ private web access, invent an importer, add fake OAuth, or scrape a logged-in
 page. If the needed context is not visible, ask for an export, transcript, or
 attachment and treat that artifact as imported source material.
 
-Deliver a fresh app in a new directory, implement the repeatable workflow with
-buttons and agent handoffs, start its dev server, verify the main path, and
-continue through build/deployment handoff. Do not stop at a plan.
+For local code-agent runtimes, deliver a fresh app in a new directory,
+implement the repeatable workflow with buttons and agent handoffs, start its dev
+server, verify the main path, and continue through build/deployment handoff. Do
+not stop at a plan. For online hosts, call Dispatch first after the source brief,
+then report the returned Builder branch/path and verify the workspace app through
+Dispatch when it becomes available.
 
 ## Fresh project context mode
 
@@ -74,14 +114,16 @@ before creating the app. Read the host-provided context in this order:
 Record the brief with these headings before handoff: source and provenance,
 project goal, configuration and constraints, knowledge sources, repeatable
 workflow, inputs and outputs, judgment and review points, representative runs,
-integrations and permissions, and unknowns. This is the compact contract for
+integrations and permissions, and unknowns and assumptions. This is the compact contract for
 the app. It keeps the new app useful without pretending that hidden Project
 history was imported. See [the fresh Project reference](references/fresh-project.md)
 for the host setup and brief template.
 
-If the visible Project context has no concrete repeatable job, ask for one
-focused clarification or a representative artifact. Do not fall back to a
-generic “what app do you want to make?” builder.
+If the visible Project context has no concrete repeatable job and no primary
+goal can be inferred, ask for one focused clarification or a representative
+artifact. Otherwise use the project's primary goal and source conventions; do
+not ask a questionnaire and do not fall back to a generic “what app do you
+want to make?” builder.
 
 ## Source selection guard
 
@@ -109,43 +151,30 @@ Generated apps must follow the shared Agent-Native surface model:
 - Use the right `AgentSidebar` for contextual AI. Every button-triggered
   `sendToAgentChat` handoff should open or focus that sidebar and keep the user
   on the current domain page.
-- Use a sans-first SaaS hierarchy for the app shell. Choose a named visual
-  direction in `DESIGN.md` before styling: product mode, audience, palette
-  family, type treatment, composition, shape language, and anti-references.
-  One restrained editorial cue is welcome, but warm beige plus terracotta is
-  not the default and serif type belongs in content previews or a deliberate
-  brand moment rather than the whole tool.
-- Preserve existing brand tokens. For a new unbranded app, choose a
-  product-fitting palette family and compare sibling apps before reusing their
-  accent. Keep shared semantic tokens and Agent-Native behavior consistent
-  while varying the visual world, density, composition, and shape language.
-- Give the AgentSidebar a subtle surface or divider boundary so it is visually
-  distinct from the domain page without becoming a heavy panel wall.
 - Every AI-labeled button must actually call `sendToAgentChat` with bounded
-  context and `openSidebar: true`. Keep `submit: true` for direct execution and
-  `submit: false` only when the user should edit the staged prompt first. Label
-  deterministic local actions as local, preview, or analyze instead of AI.
-- Standalone apps that render `AgentSidebar` must keep one assistant-ui runtime
-  context. Pin the versions compatible with the installed core/toolkit peer
-  graph, and add Vite dedupe/aliases when linked or transitive packages resolve
-  duplicate assistant-ui modules. Verify a fresh AI handoff has no
-  `AssistantUiStaleIndexErrorBoundary` or stale-index console error.
+  context and `openSidebar: true`. Label deterministic local actions as local,
+  preview, or analyze instead of AI.
+- Never use sparkle, wand, magic, robot, or similar decorative AI icons. Use a
+  message or neutral action icon, or no icon when the button label is enough.
 - Make the left navigation describe domain destinations. Chat is a separate
   destination, not the label for every app page.
 - Start with one primary action and one compact state. Put setup choices,
   advanced inputs, diagnostics, and long explanations behind progressive
   disclosure or later workflow steps.
-- Never use sparkle, wand, magic, robot, or similar decorative AI icons. Use a
-  message or neutral action icon, or no icon when the button label is enough.
-- Before handoff, inspect the first viewport for text density, repeated cards,
-  unrelated forms, and generic helper copy. Remove what the user does not need
-  until the next decision.
-- Run a `distill`, `typeset`, `colorize`, `layout`, `polish`, and `audit` pass
-  as useful named reviews. Make one intervention at a time and commit the
-  chosen direction rather than averaging several options into generic SaaS.
-- For before/after or original/generated review, stack the source first and the
-  result second by default. Reserve side-by-side layouts for short content that
-  remains comfortable to scan at the target width.
+- Choose a named visual direction in `DESIGN.md` before styling and build to it.
+  Preserve existing brand tokens; a new unbranded app picks its own
+  product-fitting palette rather than inheriting a sibling app's accent.
+- Standalone apps that render `AgentSidebar` must keep one assistant-ui runtime
+  context. Pin the versions compatible with the installed core/toolkit peer
+  graph, and add Vite dedupe/aliases when linked or transitive packages resolve
+  duplicate assistant-ui modules. Verify a fresh AI handoff has no
+  `AssistantUiStaleIndexErrorBoundary` or stale-index console error.
+- Before handoff, inspect the first viewport and remove the text density,
+  repeated cards, unrelated forms, and generic helper copy the user does not
+  need until the next decision.
+
+In a local code-agent runtime, read `frontend-design` for the visual direction
+contract, aesthetic guidelines, and named review passes behind these rules.
 
 ## 1. Extract the workflow
 
@@ -190,12 +219,12 @@ Do not use `create` for an existing workspace; it scaffolds a new standalone
 workspace rather than adding an app to the current one.
 
 When the source came from a fresh external Project and the target is a Builder
-workspace, prefer the available Dispatch MCP workspace handoff after writing
-the source brief. Call `start-workspace-app-creation` with a concise prompt,
-the inferred app id, and the brief's repeatable workflow. Pass selected
-workspace resource IDs when they are available, rather than pasting entire
-knowledge files. Continue from the returned workspace path or Builder handoff
-and report the actual verification result.
+workspace, the online host path is mandatory: after writing the source brief,
+call `start-workspace-app-creation` with a concise prompt, the inferred app id,
+and the brief's repeatable workflow. Pass selected workspace resource IDs when
+they are available, rather than pasting entire knowledge files. Continue from
+the returned workspace path or Builder branch handoff and report the actual
+verification result. Do not run the local scaffold commands in this host mode.
 
 Use a first-party template only when it materially fits the workflow. Keep the
 new app independent from the source thread's working tree unless the user

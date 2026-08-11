@@ -294,6 +294,7 @@ describe("VideoPlayer playback", () => {
     expect(container.querySelector('[title^="Cut:"]')).toBeNull();
     expect(container.textContent).toContain("0:00/0:08");
     expect(container.textContent).not.toContain("0:00/0:10");
+    expect(container.textContent).not.toContain("10 sec");
   });
 
   it("stops a hung play attempt and leaves playback retryable", () => {
@@ -488,6 +489,29 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses WebKit video fullscreen when the player container cannot enter fullscreen", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Fullscreen (F)"]')
+        ?.click();
+    });
+
+    expect(enterFullscreen).toHaveBeenCalledTimes(1);
   });
 });
 

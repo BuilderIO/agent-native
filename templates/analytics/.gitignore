@@ -49,6 +49,7 @@ build
 
 # Migration scratchpad (not for commit)
 .migration/
+.analytics-first-party-bigquery-backfill*.json
 
 # Stray SQLite files at the template root (real DB lives under data/)
 /app.db

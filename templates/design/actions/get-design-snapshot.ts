@@ -5,6 +5,10 @@ import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
+import {
+  parseDesignTemplateData,
+  readDesignTemplateSource,
+} from "../server/lib/design-template-data.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
@@ -66,6 +70,9 @@ export default defineAction({
     const design = access.resource as typeof schema.designs.$inferSelect;
 
     const snapshot = await buildDesignSnapshot(designId, design.data);
+    const templateSource = readDesignTemplateSource(
+      parseDesignTemplateData(design.data),
+    );
     const requestedFileId = fileId?.trim();
     const requestedFilename = filename?.trim();
     const files = requestedFileId
@@ -97,6 +104,17 @@ export default defineAction({
       projectType: design.projectType,
       designSystemId: design.designSystemId ?? null,
       updatedAt: design.updatedAt,
+      ...(templateSource
+        ? {
+            createdFromTemplate: {
+              templateId: templateSource.templateId,
+              title: templateSource.title,
+              note:
+                "These files are edited copies of the template, not the template itself. " +
+                `Call \`get-design-template --designId="${designId}"\` for the original canvas dimensions, typography, and locked layers, and preserve them in this edit.`,
+            },
+          }
+        : {}),
       files: files.map((f) => ({
         id: f.id,
         filename: f.filename,

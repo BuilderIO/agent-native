@@ -97,6 +97,7 @@ export function WorkspaceAppsRail({
           id={app.id}
           name={label}
           size="sm"
+          monochrome
           className={cn("size-5 rounded-md", active && "ring-1 ring-ring/30")}
         />
         {!collapsed ? <span className="truncate">{label}</span> : null}

@@ -1,3 +1,17 @@
+import { ConnectionsTab } from "@agent-native/core/client/agent-chat";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import {
+  McpServersApiProvider,
+  type McpServersApi,
+} from "@agent-native/core/client/resources";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSurfaceProvider,
+  SettingsTabsPage,
+  type SettingsTabItem,
+} from "@agent-native/core/client/settings";
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import {
   generateAppId,
@@ -15,24 +29,27 @@ import {
 } from "@shared/desktop-shortcuts";
 import type { UpdateStatus } from "@shared/ipc-channels";
 import {
-  IconX,
-  IconPlus,
-  IconTrash,
-  IconEdit,
-  IconRotate,
+  IconAlertCircle,
+  IconArrowLeft,
   IconCheck,
-  IconChevronRight,
   IconChevronDown,
+  IconChevronRight,
   IconDownload,
-  IconLoader2,
-  IconRefresh,
-  IconWorld,
-  IconTerminal2,
+  IconEdit,
   IconFolder,
   IconFolderPlus,
-  IconAlertCircle,
   IconKeyboard,
+  IconLoader2,
+  IconPlugConnected,
+  IconPlus,
+  IconRefresh,
+  IconRotate,
+  IconTerminal2,
+  IconTrash,
+  IconWorld,
+  IconX,
 } from "@tabler/icons-react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import {
   useState,
   useCallback,
@@ -44,6 +61,8 @@ import {
 
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
+
+const desktopSettingsQueryClient = createAgentNativeQueryClient();
 
 interface AppSettingsProps {
   apps: AppConfig[];
@@ -422,67 +441,60 @@ function SoftwareUpdateCard() {
   }, [canInstall, updater]);
 
   return (
-    <div className={`settings-update-card settings-update-card--${copy.tone}`}>
-      <div className="settings-update-row">
-        <div className="settings-update-title">
-          <span
-            className={`settings-update-dot settings-update-dot--${copy.tone}`}
-          />
-          <div>
-            <span className="settings-mode-card-title">Software Updates</span>
-            <span className="settings-mode-card-status">
-              {copy.label} · {copy.description}
-            </span>
-          </div>
-        </div>
-        <div className="settings-update-actions">
-          {canInstall ? (
-            <button
-              type="button"
-              className="settings-btn settings-btn--primary settings-update-btn"
-              onClick={handleInstall}
-            >
+    <SettingsRow
+      label="Software updates"
+      description={copy.description}
+      status={
+        <span className="text-xs text-muted-foreground">{copy.label}</span>
+      }
+      control={
+        canInstall ? (
+          <button
+            type="button"
+            className="settings-btn settings-btn--primary settings-update-btn"
+            onClick={handleInstall}
+          >
+            <IconRefresh size={14} />
+            Restart to update
+          </button>
+        ) : canDownload ? (
+          <button
+            type="button"
+            className="settings-btn settings-btn--primary settings-update-btn"
+            onClick={handleDownload}
+            disabled={working === "download"}
+          >
+            {working === "download" ? (
+              <IconLoader2 size={14} className="settings-update-spin" />
+            ) : (
+              <IconDownload size={14} />
+            )}
+            Download
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="settings-btn settings-btn--ghost settings-update-btn"
+            onClick={handleCheck}
+            disabled={!canCheck}
+          >
+            {working === "check" || status?.state === "checking" ? (
+              <IconLoader2 size={14} className="settings-update-spin" />
+            ) : (
               <IconRefresh size={14} />
-              Relaunch
-            </button>
-          ) : canDownload ? (
-            <button
-              type="button"
-              className="settings-btn settings-btn--primary settings-update-btn"
-              onClick={handleDownload}
-              disabled={working === "download"}
-            >
-              {working === "download" ? (
-                <IconLoader2 size={14} className="settings-update-spin" />
-              ) : (
-                <IconDownload size={14} />
-              )}
-              Download
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="settings-btn settings-btn--ghost settings-update-btn"
-              onClick={handleCheck}
-              disabled={!canCheck}
-            >
-              {working === "check" || status?.state === "checking" ? (
-                <IconLoader2 size={14} className="settings-update-spin" />
-              ) : (
-                <IconRefresh size={14} />
-              )}
-              Check
-            </button>
-          )}
-        </div>
-      </div>
+            )}
+            Check
+          </button>
+        )
+      }
+    >
       {status?.state === "downloading" && (
         <div className="settings-update-progress" aria-hidden="true">
           <span style={{ width: `${Math.min(100, status.percent)}%` }} />
         </div>
       )}
       {message && <div className="settings-update-message">{message}</div>}
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -495,7 +507,6 @@ export default function AppSettings({
   onCodeAgentProvidersChanged,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
@@ -510,7 +521,10 @@ export default function AppSettings({
   const [providerLoadMessage, setProviderLoadMessage] = useState<string | null>(
     null,
   );
-  const [showShortcutSettings, setShowShortcutSettings] = useState(false);
+  const [pluginImportMessage, setPluginImportMessage] = useState<string | null>(
+    null,
+  );
+  const [pluginImporting, setPluginImporting] = useState(false);
   const [shortcutSettings, setShortcutSettings] =
     useState<DesktopShortcutSettings | null>(null);
   const [shortcutDraft, setShortcutDraft] = useState<ShortcutDraft>(() =>
@@ -588,9 +602,8 @@ export default function AppSettings({
   }, []);
 
   useEffect(() => {
-    if (!showShortcutSettings) return;
     void refreshShortcutSettings();
-  }, [refreshShortcutSettings, showShortcutSettings]);
+  }, [refreshShortcutSettings]);
 
   useEffect(() => {
     setShortcutDraft((current) => {
@@ -633,28 +646,6 @@ export default function AppSettings({
     return () => window.clearInterval(timer);
   }, [refreshRemoteStatus]);
 
-  const handleFrameToggle = useCallback(
-    async (enabled: boolean) => {
-      if (window.electronAPI?.frame) {
-        const updated = await window.electronAPI.frame.update({ enabled });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
-    },
-    [onFrameSettingsChanged],
-  );
-
-  const handleFrameModeToggle = useCallback(
-    async (mode: "dev" | "prod") => {
-      if (window.electronAPI?.frame) {
-        const updated = await window.electronAPI.frame.update({ mode });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
-    },
-    [onFrameSettingsChanged],
-  );
-
   const handleCodeTabToggle = useCallback(
     async (showCodeTab: boolean) => {
       if (window.electronAPI?.frame) {
@@ -665,6 +656,56 @@ export default function AppSettings({
     },
     [onFrameSettingsChanged],
   );
+
+  const handleChatFirstToggle = useCallback(
+    async (chatFirstMode: boolean) => {
+      if (!window.electronAPI?.frame) return;
+      const updated = await window.electronAPI.frame.update({
+        chatFirstMode,
+      });
+      setFrameSettings(updated);
+      onFrameSettingsChanged?.(updated);
+    },
+    [onFrameSettingsChanged],
+  );
+
+  const desktopMcpApi = useMemo<McpServersApi | null>(() => {
+    const api = window.electronAPI?.mcpServers;
+    if (!api) return null;
+    return {
+      list: api.list,
+      create: api.create,
+      delete: api.delete,
+      reconnect: api.reconnect,
+      test: api.test,
+      testExisting: api.testExisting,
+    };
+  }, []);
+
+  const handlePluginImport = useCallback(async () => {
+    const api = window.electronAPI?.mcpServers;
+    if (!api?.importPlugin || pluginImporting) return;
+    setPluginImporting(true);
+    setPluginImportMessage(null);
+    try {
+      const result = await api.importPlugin();
+      if (!result.ok) {
+        if (result.error !== "Import cancelled.") {
+          setPluginImportMessage(result.error ?? "Plugin import failed.");
+        }
+        return;
+      }
+      setPluginImportMessage(
+        `Imported ${result.plugin?.name ?? "plugin"}: ${result.skills ?? 0} skill${result.skills === 1 ? "" : "s"}, ${result.mcpServers ?? 0} MCP server${result.mcpServers === 1 ? "" : "s"}.`,
+      );
+    } catch (error) {
+      setPluginImportMessage(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setPluginImporting(false);
+    }
+  }, [pluginImporting]);
 
   const handleRemoteToggle = useCallback(async (enabled: boolean) => {
     const api = window.electronAPI?.codeAgents;
@@ -776,25 +817,14 @@ export default function AppSettings({
         }
       }
       onAppsChanged(latest);
-      if (
-        window.electronAPI?.frame &&
-        frameSettings &&
-        frameSettings.mode !== mode
-      ) {
-        const updated = await window.electronAPI.frame.update({ mode });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
     },
-    [apps, frameSettings, onAppsChanged, onFrameSettingsChanged],
+    [apps, onAppsChanged],
   );
 
   const allMode: "dev" | "prod" | null = (() => {
-    if (!frameSettings) return null;
-    const modes = new Set<"dev" | "prod">([
-      frameSettings.mode,
-      ...apps.map((a) => (a.mode ?? "prod") as "dev" | "prod"),
-    ]);
+    const modes = new Set<"dev" | "prod">(
+      apps.map((a) => (a.mode ?? "prod") as "dev" | "prod"),
+    );
     return modes.size === 1 ? (modes.values().next().value ?? null) : null;
   })();
 
@@ -835,516 +865,578 @@ export default function AppSettings({
     Boolean(normalizedShortcut.accelerator) &&
     shortcutTargetApps.some((app) => app.id === shortcutDraft.app);
 
-  return (
-    <div
-      className={`settings-overlay${isClosing ? " settings-overlay--closing" : ""}`}
-      onClick={() => requestClose()}
-    >
-      <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-header">
-          <h2>App Settings</h2>
-          <button className="settings-close" onClick={() => requestClose()}>
-            <IconX size={18} />
-          </button>
+  const settingsTabs: SettingsTabItem[] = [
+    {
+      id: "connections",
+      label: "Connections",
+      icon: IconPlugConnected,
+      group: "integrations",
+      keywords: "mcp servers plugins agent integrations",
+      content: desktopMcpApi ? (
+        <div className="w-full max-w-3xl space-y-6">
+          <McpServersApiProvider api={desktopMcpApi}>
+            <ConnectionsTab />
+          </McpServersApiProvider>
+          <SettingsGroup
+            title="Plugins"
+            description="Import an Agent Plugin to add its skills and MCP servers to local coding chats."
+          >
+            <SettingsRow
+              label="Agent Plugin"
+              description="Uses the standard agent-plugins.org plugin format."
+              control={
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--ghost"
+                  onClick={() => void handlePluginImport()}
+                  disabled={pluginImporting}
+                >
+                  {pluginImporting ? "Importing…" : "Import plugin"}
+                </button>
+              }
+            >
+              {pluginImportMessage ? (
+                <p className="text-xs text-muted-foreground" role="status">
+                  {pluginImportMessage}
+                </p>
+              ) : null}
+            </SettingsRow>
+          </SettingsGroup>
         </div>
-
-        <div className="settings-body">
-          {/* Hero: global mode toggle */}
-          {frameSettings && (
-            <div className="settings-mode-card">
-              <div className="settings-mode-card-text">
-                <span className="settings-mode-card-title">Mode</span>
-                <span className="settings-mode-card-status">
-                  {allMode === "dev"
-                    ? "All apps run in dev mode"
-                    : allMode === "prod"
-                      ? "All apps run on production"
-                      : "Mixed — some apps overridden"}
-                </span>
-              </div>
-              <div className="settings-mode-toggle settings-mode-toggle--lg">
-                <button
-                  className={`settings-mode-btn${allMode === "prod" ? " settings-mode-btn--active" : ""}`}
-                  onClick={() => handleAllToMode("prod")}
-                >
-                  Prod
-                </button>
-                <button
-                  className={`settings-mode-btn${allMode === "dev" ? " settings-mode-btn--active" : ""}`}
-                  onClick={() => handleAllToMode("dev")}
-                >
-                  Dev
-                </button>
-              </div>
-            </div>
-          )}
-
-          <SoftwareUpdateCard />
-
-          {providerSettings && (
+      ) : (
+        <div className="w-full max-w-3xl">
+          <SettingsGroup
+            title="Connections"
+            description="Open the desktop app with a signed-in workspace app to manage MCP servers."
+          >
+            <p className="px-4 py-4 text-sm text-muted-foreground">
+              MCP connections are unavailable in this window.
+            </p>
+          </SettingsGroup>
+        </div>
+      ),
+    },
+    {
+      id: "providers",
+      label: "AI providers",
+      icon: IconTerminal2,
+      group: "agent",
+      content: (
+        <div className="w-full max-w-3xl space-y-8">
+          {providerSettings ? (
             <CodeProviderSettings
               settings={providerSettings}
               onSettingsChanged={setProviderSettings}
               onProvidersChanged={onCodeAgentProvidersChanged}
             />
+          ) : (
+            <SettingsGroup
+              title="AI providers"
+              description={providerLoadMessage ?? "Loading provider settings…"}
+            >
+              <SettingsRow
+                label="Provider status"
+                description="Reading the providers available to this desktop app."
+              />
+            </SettingsGroup>
           )}
-          {!providerSettings && providerLoadMessage && (
-            <div className="settings-provider-message">
-              {providerLoadMessage}
-            </div>
-          )}
-
-          {frameSettings && (
-            <div className="settings-code-tab-card">
-              <div className="settings-code-tab-copy">
-                <span className="settings-mode-card-title">Agent</span>
-                <span className="settings-mode-card-status">
-                  Show Agent in the sidebar footer.
-                </span>
-              </div>
-              <label
-                className="settings-toggle"
-                title={frameSettings.showCodeTab ? "Hide Agent" : "Show Agent"}
-              >
-                <input
-                  type="checkbox"
-                  checked={frameSettings.showCodeTab}
-                  onChange={(event) =>
-                    handleCodeTabToggle(event.target.checked)
+        </div>
+      ),
+    },
+    {
+      id: "workspace",
+      label: "Workspace",
+      icon: IconFolder,
+      group: "workspace",
+      content: (
+        <div className="w-full max-w-3xl space-y-8">
+          <SettingsGroup
+            title="Workspace"
+            description="Choose the shell, apps, and remote access for this workspace."
+          >
+            {frameSettings ? (
+              <SettingsRow
+                label="Agent in the sidebar"
+                description="Keep the Agent workspace available in the desktop navigation."
+                control={
+                  <Switch
+                    checked={frameSettings.showCodeTab}
+                    onCheckedChange={handleCodeTabToggle}
+                    aria-label="Show Agent in the sidebar"
+                  />
+                }
+              />
+            ) : null}
+            {frameSettings ? (
+              <SettingsRow
+                label="Chat-first workbench"
+                description="Keep chats at the center and open workspace apps beside them."
+                control={
+                  <Switch
+                    checked={frameSettings.chatFirstMode}
+                    onCheckedChange={(checked) =>
+                      void handleChatFirstToggle(checked)
+                    }
+                    aria-label="Use the chat-first desktop shell"
+                  />
+                }
+              />
+            ) : null}
+            <SettingsRow
+              label="Remote control"
+              description={remoteCopy.label + " · " + remoteCopy.description}
+              control={
+                <Switch
+                  checked={Boolean(remoteStatus?.enabled)}
+                  onCheckedChange={handleRemoteToggle}
+                  aria-label={
+                    remoteStatus?.enabled
+                      ? "Turn remote control off"
+                      : "Turn remote control on"
                   }
                 />
-                <span className="settings-toggle-track" />
-              </label>
-            </div>
-          )}
-
-          <div
-            className={`settings-remote-card settings-remote-card--${remoteCopy.tone}`}
-          >
-            <div className="settings-remote-row">
-              <div className="settings-remote-title">
-                <span
-                  className={`settings-remote-dot settings-remote-dot--${remoteCopy.tone}`}
-                />
-                <div>
-                  <span className="settings-mode-card-title">
-                    Remote Control
-                  </span>
-                  <span className="settings-mode-card-status">
-                    {remoteCopy.label} · {remoteCopy.description}
-                  </span>
-                </div>
-              </div>
-              <label
-                className="settings-toggle"
-                title={
-                  remoteStatus?.enabled
-                    ? "Turn remote control off"
-                    : "Turn remote control on"
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={Boolean(remoteStatus?.enabled)}
-                  onChange={(e) => handleRemoteToggle(e.target.checked)}
-                />
-                <span className="settings-toggle-track" />
-              </label>
-            </div>
-
-            {remoteStatus?.relayUrl && (
-              <div className="settings-remote-meta">
-                <span>{hostForDisplay(remoteStatus.relayUrl)}</span>
-                {remoteStatus.pid && <span>PID {remoteStatus.pid}</span>}
-                {remoteStatus.restartCount > 0 && (
-                  <span>{remoteStatus.restartCount} retries</span>
-                )}
-              </div>
-            )}
-
-            {remoteMessage && (
-              <div className="settings-remote-message">{remoteMessage}</div>
-            )}
-
-            <button
-              type="button"
-              className="settings-remote-link"
-              onClick={() => setShowRemotePairing((value) => !value)}
+              }
             >
-              {showRemotePairing ? "Hide pairing" : "Pair or repair"}
-            </button>
-
-            {showRemotePairing && (
-              <div className="settings-remote-pairing">
-                <input
-                  type="url"
-                  value={remotePairUrl}
-                  onChange={(e) => setRemotePairUrl(e.target.value)}
-                  placeholder="https://dispatch.agent-native.com"
-                />
+              <div className="space-y-3">
+                {remoteStatus?.relayUrl ? (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>{hostForDisplay(remoteStatus.relayUrl)}</span>
+                    {remoteStatus.pid ? (
+                      <span>PID {remoteStatus.pid}</span>
+                    ) : null}
+                    {remoteStatus.restartCount > 0 ? (
+                      <span>{remoteStatus.restartCount} retries</span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {remoteMessage ? (
+                  <div className="text-xs text-muted-foreground" role="status">
+                    {remoteMessage}
+                  </div>
+                ) : null}
                 <button
                   type="button"
-                  className="settings-btn settings-btn--primary"
-                  onClick={handleRemotePair}
-                  disabled={remotePairing || !remotePairUrl.trim()}
+                  className="text-xs font-medium text-foreground underline underline-offset-4 hover:text-muted-foreground"
+                  onClick={() => setShowRemotePairing((value) => !value)}
                 >
-                  {remotePairing ? "Pairing..." : "Pair This Mac"}
+                  {showRemotePairing ? "Hide pairing" : "Pair or repair"}
                 </button>
-                <span className="settings-field-hint">
-                  Use an app you are signed into inside Desktop.
-                </span>
+                {showRemotePairing ? (
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <input
+                      type="url"
+                      value={remotePairUrl}
+                      onChange={(event) => setRemotePairUrl(event.target.value)}
+                      placeholder="https://dispatch.agent-native.com"
+                      className="h-9 min-w-0 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                    />
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--primary"
+                      onClick={handleRemotePair}
+                      disabled={remotePairing || !remotePairUrl.trim()}
+                    >
+                      {remotePairing ? "Pairing…" : "Pair this Mac"}
+                    </button>
+                    <span className="text-xs text-muted-foreground sm:col-span-2">
+                      Use an app you are signed into inside Desktop.
+                    </span>
+                  </div>
+                ) : null}
               </div>
-            )}
-          </div>
+            </SettingsRow>
+          </SettingsGroup>
 
-          {/* Disclosure */}
-          <button
-            type="button"
-            className="settings-disclosure"
-            onClick={() => setShowAdvanced((v) => !v)}
-          >
-            {showAdvanced ? (
-              <IconChevronDown size={14} />
-            ) : (
-              <IconChevronRight size={14} />
-            )}
-            <span>Customize per app</span>
-          </button>
-
-          {showAdvanced && (
-            <>
-              {/* App list */}
-              <div className="settings-section">
-                <h3>Installed Apps</h3>
-                {apps.map((app) => (
-                  <div key={app.id} className="settings-app-row">
-                    <div className="settings-app-info">
-                      <span className="settings-app-name">{app.name}</span>
-                      <span className="settings-app-url">
-                        {app.mode === "dev" && app.devUrl
-                          ? effectiveDevUrlForDisplay(app)
-                          : app.url || app.devUrl}
-                      </span>
-                    </div>
-                    <div className="settings-app-actions">
-                      <div className="settings-mode-toggle">
-                        <button
-                          className={`settings-mode-btn${(app.mode ?? "prod") === "prod" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleModeToggle(app.id, "prod")}
-                        >
-                          Prod
-                        </button>
-                        <button
-                          className={`settings-mode-btn${app.mode === "dev" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleModeToggle(app.id, "dev")}
-                        >
-                          Dev
-                        </button>
+          <div className="space-y-2">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-foreground">
+                  Installed apps
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Apps open in production by default. Change every installed app
+                  at once when you need local development.
+                </p>
+              </div>
+              <div
+                className="inline-flex shrink-0 overflow-hidden rounded-md border border-border bg-background"
+                role="group"
+                aria-label="Set all installed apps to"
+              >
+                {(["prod", "dev"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={
+                      allMode === mode
+                        ? "px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-foreground"
+                        : "px-3 py-1.5 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    }
+                    aria-pressed={allMode === mode}
+                    onClick={() => void handleAllToMode(mode)}
+                  >
+                    {mode === "prod" ? "Prod" : "Dev"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <SettingsGroup>
+              {apps.map((app) => (
+                <SettingsRow
+                  key={app.id}
+                  label={app.name}
+                  description={
+                    app.mode === "dev" && app.devUrl
+                      ? effectiveDevUrlForDisplay(app)
+                      : app.url || app.devUrl || "Local app"
+                  }
+                  control={
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
+                        {(["prod", "dev"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            className={
+                              (app.mode ?? "prod") === mode
+                                ? "px-2.5 py-1.5 text-xs font-medium transition-colors bg-accent text-foreground"
+                                : "px-2.5 py-1.5 text-xs font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                            }
+                            aria-pressed={(app.mode ?? "prod") === mode}
+                            onClick={() => void handleModeToggle(app.id, mode)}
+                          >
+                            {mode === "prod" ? "Prod" : "Dev"}
+                          </button>
+                        ))}
                       </div>
                       <button
+                        type="button"
                         className="settings-icon-btn"
                         onClick={() => setEditingId(app.id)}
-                        title="Edit"
+                        title="Edit app"
+                        aria-label={"Edit " + app.name}
                       >
                         <IconEdit size={14} />
                       </button>
-                      {!app.isBuiltIn && (
+                      {!app.isBuiltIn ? (
                         <button
+                          type="button"
                           className="settings-icon-btn settings-icon-btn--danger"
                           onClick={() => handleRemove(app.id)}
-                          title="Remove"
+                          title="Remove app"
+                          aria-label={"Remove " + app.name}
                         >
                           <IconTrash size={14} />
                         </button>
-                      )}
-                      <label className="settings-toggle">
-                        <input
-                          type="checkbox"
-                          checked={app.enabled}
-                          onChange={(e) =>
-                            handleToggle(app.id, e.target.checked)
-                          }
-                        />
-                        <span className="settings-toggle-track" />
-                      </label>
-                    </div>
-                  </div>
-                ))}
-                {frameSettings && (
-                  <div className="settings-app-row">
-                    <div className="settings-app-info">
-                      <span className="settings-app-name">
-                        Agent task frame
-                      </span>
-                      <span className="settings-app-url">
-                        Agent tasks with chat + CLI
-                      </span>
-                    </div>
-                    <div className="settings-app-actions">
-                      <div className="settings-mode-toggle">
-                        <button
-                          className={`settings-mode-btn${frameSettings.mode === "prod" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleFrameModeToggle("prod")}
-                        >
-                          Prod
-                        </button>
-                        <button
-                          className={`settings-mode-btn${frameSettings.mode === "dev" ? " settings-mode-btn--active" : ""}`}
-                          onClick={() => handleFrameModeToggle("dev")}
-                        >
-                          Dev
-                        </button>
-                      </div>
-                      <label className="settings-toggle">
-                        <input
-                          type="checkbox"
-                          checked={frameSettings.enabled}
-                          onChange={(e) => handleFrameToggle(e.target.checked)}
-                        />
-                        <span className="settings-toggle-track" />
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="button"
-                className="settings-disclosure settings-disclosure--nested"
-                onClick={() => setShowShortcutSettings((value) => !value)}
-              >
-                {showShortcutSettings ? (
-                  <IconChevronDown size={14} />
-                ) : (
-                  <IconChevronRight size={14} />
-                )}
-                <IconKeyboard size={14} />
-                <span>Keyboard launch shortcuts</span>
-              </button>
-
-              {showShortcutSettings && (
-                <div className="settings-section settings-shortcut-section">
-                  <div className="settings-shortcut-form">
-                    <ShortcutRecorder
-                      value={shortcutDraft.accelerator}
-                      onChange={(accelerator) =>
-                        setShortcutDraft((current) => ({
-                          ...current,
-                          accelerator,
-                        }))
-                      }
-                    />
-                    <select
-                      value={shortcutDraft.app}
-                      onChange={(event) =>
-                        setShortcutDraft((current) => ({
-                          ...current,
-                          app: event.target.value,
-                        }))
-                      }
-                      aria-label="Shortcut target app"
-                    >
-                      {shortcutTargetApps.length === 0 ? (
-                        <option value="" disabled>
-                          No enabled apps
-                        </option>
                       ) : null}
-                      {shortcutTargetApps.map((app) => (
-                        <option key={app.id} value={app.id}>
-                          {app.name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      value={shortcutDraft.view}
-                      onChange={(event) =>
+                      <Switch
+                        checked={app.enabled}
+                        onCheckedChange={(enabled) =>
+                          void handleToggle(app.id, enabled)
+                        }
+                        aria-label={
+                          (app.enabled ? "Disable " : "Enable ") + app.name
+                        }
+                      />
+                    </div>
+                  }
+                />
+              ))}
+              <SettingsRow
+                label="Add an app"
+                description="Create a local agent-native app in your workspace."
+                control={
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--primary"
+                    onClick={() => {
+                      if (onAddAppClick) requestClose(onAddAppClick);
+                    }}
+                  >
+                    <IconPlus size={15} />
+                    Add app
+                  </button>
+                }
+              />
+              <SettingsRow
+                label="Reset apps"
+                description="Restore the default app registry."
+                control={
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--danger"
+                    onClick={handleReset}
+                  >
+                    <IconRotate size={14} />
+                    Reset
+                  </button>
+                }
+              />
+            </SettingsGroup>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "shortcuts",
+      label: "Keyboard shortcuts",
+      icon: IconKeyboard,
+      group: "workspace",
+      content: (
+        <div className="w-full max-w-3xl space-y-8">
+          <SettingsGroup
+            title="Keyboard shortcuts"
+            description="Launch enabled workspace apps from anywhere."
+          >
+            <SettingsRow
+              label="Add launch shortcut"
+              description="Choose a key combination and the app it should open."
+            >
+              <div className="settings-shortcut-form">
+                <ShortcutRecorder
+                  value={shortcutDraft.accelerator}
+                  onChange={(accelerator) =>
+                    setShortcutDraft((current) => ({
+                      ...current,
+                      accelerator,
+                    }))
+                  }
+                />
+                <select
+                  value={shortcutDraft.app}
+                  onChange={(event) =>
+                    setShortcutDraft((current) => ({
+                      ...current,
+                      app: event.target.value,
+                    }))
+                  }
+                  aria-label="Shortcut target app"
+                >
+                  {shortcutTargetApps.length === 0 ? (
+                    <option value="" disabled>
+                      No enabled apps
+                    </option>
+                  ) : null}
+                  {shortcutTargetApps.map((app) => (
+                    <option key={app.id} value={app.id}>
+                      {app.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={shortcutDraft.view}
+                  onChange={(event) =>
+                    setShortcutDraft((current) => ({
+                      ...current,
+                      view: event.target.value,
+                    }))
+                  }
+                  placeholder="view, optional"
+                  aria-label="Shortcut target view"
+                  className="settings-shortcut-view-input"
+                />
+                <div className="settings-mode-toggle settings-shortcut-behavior">
+                  {(["toggle", "show"] as const).map((behavior) => (
+                    <button
+                      key={behavior}
+                      type="button"
+                      className={
+                        shortcutDraft.behavior === behavior
+                          ? "settings-mode-btn settings-mode-btn--active"
+                          : "settings-mode-btn"
+                      }
+                      onClick={() =>
                         setShortcutDraft((current) => ({
                           ...current,
-                          view: event.target.value,
+                          behavior,
                         }))
                       }
-                      placeholder="view, optional"
-                      aria-label="Shortcut target view"
-                      className="settings-shortcut-view-input"
-                    />
-                    <div className="settings-mode-toggle settings-shortcut-behavior">
-                      <button
-                        type="button"
-                        className={`settings-mode-btn${shortcutDraft.behavior === "toggle" ? " settings-mode-btn--active" : ""}`}
-                        onClick={() =>
-                          setShortcutDraft((current) => ({
-                            ...current,
-                            behavior: "toggle",
-                          }))
-                        }
-                      >
-                        Toggle
-                      </button>
-                      <button
-                        type="button"
-                        className={`settings-mode-btn${shortcutDraft.behavior === "show" ? " settings-mode-btn--active" : ""}`}
-                        onClick={() =>
-                          setShortcutDraft((current) => ({
-                            ...current,
-                            behavior: "show",
-                          }))
-                        }
-                      >
-                        Show
-                      </button>
-                    </div>
-                    <div className="settings-shortcut-form-actions">
-                      <button
-                        type="button"
-                        className="settings-btn settings-btn--primary settings-shortcut-save"
-                        onClick={handleShortcutSave}
-                        disabled={!shortcutDraftValid || shortcutSaving}
-                      >
-                        <IconCheck size={14} />
-                        {shortcutDraft.id ? "Save" : "Add"}
-                      </button>
-                      {shortcutDraft.id && (
-                        <button
-                          type="button"
-                          className="settings-btn settings-btn--ghost settings-shortcut-cancel"
-                          onClick={() =>
-                            setShortcutDraft(defaultShortcutDraft(apps))
-                          }
-                        >
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {shortcutMessage && (
-                    <div className="settings-shortcut-message">
-                      {shortcutMessage}
-                    </div>
-                  )}
-
-                  <div className="settings-shortcut-list">
-                    {(shortcutSettings?.bindings ?? []).length === 0 ? (
-                      <div className="settings-shortcut-empty">
-                        No desktop shortcuts configured.
-                      </div>
-                    ) : (
-                      shortcutSettings?.bindings.map((binding) => {
-                        const targetApp = apps.find(
-                          (app) => app.id === binding.app,
-                        );
-                        const registration = shortcutRegistrations.get(
-                          binding.id,
-                        );
-                        return (
-                          <div
-                            key={binding.id}
-                            className="settings-shortcut-row"
-                          >
-                            <div className="settings-shortcut-main">
-                              <span className="settings-shortcut-keys">
-                                {formatDesktopShortcutAccelerator(
-                                  binding.accelerator,
-                                  window.electronAPI?.platform,
-                                )}
-                              </span>
-                              <span className="settings-shortcut-target">
-                                {targetApp?.name ?? binding.app}
-                                {binding.view ? ` / ${binding.view}` : ""}
-                              </span>
-                              {registration?.error && binding.enabled && (
-                                <span className="settings-shortcut-warning">
-                                  <IconAlertCircle size={12} />
-                                  {registration.error}
-                                </span>
-                              )}
-                            </div>
-                            <div className="settings-shortcut-actions">
-                              <span
-                                className={`settings-shortcut-status${registration?.registered ? " settings-shortcut-status--ok" : ""}`}
-                              >
-                                {binding.enabled
-                                  ? registration?.registered
-                                    ? "Active"
-                                    : "Inactive"
-                                  : "Off"}
-                              </span>
-                              <button
-                                type="button"
-                                className="settings-icon-btn"
-                                onClick={() =>
-                                  setShortcutDraft(
-                                    shortcutDraftFromBinding(binding),
-                                  )
-                                }
-                                title="Edit shortcut"
-                              >
-                                <IconEdit size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="settings-icon-btn settings-icon-btn--danger"
-                                onClick={() => handleShortcutRemove(binding.id)}
-                                title="Remove shortcut"
-                              >
-                                <IconTrash size={14} />
-                              </button>
-                              <label className="settings-toggle">
-                                <input
-                                  type="checkbox"
-                                  checked={binding.enabled}
-                                  onChange={(event) =>
-                                    handleShortcutToggle(
-                                      binding,
-                                      event.target.checked,
-                                    )
-                                  }
-                                />
-                                <span className="settings-toggle-track" />
-                              </label>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
+                    >
+                      {behavior === "toggle" ? "Toggle" : "Show"}
+                    </button>
+                  ))}
                 </div>
-              )}
-
-              {/* Add / Reset */}
-              <div className="settings-section">
-                <button
-                  className="settings-btn settings-btn--primary"
-                  onClick={() => {
-                    if (onAddAppClick) requestClose(onAddAppClick);
-                  }}
-                >
-                  <IconPlus size={15} /> Add App
-                </button>
-                <button
-                  className="settings-btn settings-btn--danger"
-                  onClick={handleReset}
-                >
-                  <IconRotate size={14} /> Reset to Defaults
-                </button>
+                <div className="settings-shortcut-form-actions">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--primary settings-shortcut-save"
+                    onClick={handleShortcutSave}
+                    disabled={!shortcutDraftValid || shortcutSaving}
+                  >
+                    <IconCheck size={14} />
+                    {shortcutDraft.id ? "Save" : "Add"}
+                  </button>
+                  {shortcutDraft.id ? (
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--ghost settings-shortcut-cancel"
+                      onClick={() =>
+                        setShortcutDraft(defaultShortcutDraft(apps))
+                      }
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
               </div>
-            </>
-          )}
+              {shortcutMessage ? (
+                <div className="settings-shortcut-message">
+                  {shortcutMessage}
+                </div>
+              ) : null}
+            </SettingsRow>
+            <SettingsRow
+              label="Configured shortcuts"
+              description="Enable, edit, or remove shortcuts already registered on this Mac."
+            >
+              <div className="settings-shortcut-list">
+                {(shortcutSettings?.bindings ?? []).length === 0 ? (
+                  <div className="settings-shortcut-empty">
+                    No desktop shortcuts configured.
+                  </div>
+                ) : (
+                  shortcutSettings?.bindings.map((binding) => {
+                    const targetApp = apps.find(
+                      (app) => app.id === binding.app,
+                    );
+                    const registration = shortcutRegistrations.get(binding.id);
+                    return (
+                      <div key={binding.id} className="settings-shortcut-row">
+                        <div className="settings-shortcut-main">
+                          <span className="settings-shortcut-keys">
+                            {formatDesktopShortcutAccelerator(
+                              binding.accelerator,
+                              window.electronAPI?.platform,
+                            )}
+                          </span>
+                          <span className="settings-shortcut-target">
+                            {targetApp?.name ?? binding.app}
+                            {binding.view ? " / " + binding.view : ""}
+                          </span>
+                          {registration?.error && binding.enabled ? (
+                            <span className="settings-shortcut-warning">
+                              <IconAlertCircle size={12} />
+                              {registration.error}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="settings-shortcut-actions">
+                          <span
+                            className={
+                              registration?.registered
+                                ? "settings-shortcut-status settings-shortcut-status--ok"
+                                : "settings-shortcut-status"
+                            }
+                          >
+                            {binding.enabled
+                              ? registration?.registered
+                                ? "Active"
+                                : "Inactive"
+                              : "Off"}
+                          </span>
+                          <button
+                            type="button"
+                            className="settings-icon-btn"
+                            onClick={() =>
+                              setShortcutDraft(
+                                shortcutDraftFromBinding(binding),
+                              )
+                            }
+                            title="Edit shortcut"
+                            aria-label={
+                              "Edit shortcut for " +
+                              (targetApp?.name ?? binding.app)
+                            }
+                          >
+                            <IconEdit size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="settings-icon-btn settings-icon-btn--danger"
+                            onClick={() => handleShortcutRemove(binding.id)}
+                            title="Remove shortcut"
+                            aria-label={
+                              "Remove shortcut for " +
+                              (targetApp?.name ?? binding.app)
+                            }
+                          >
+                            <IconTrash size={14} />
+                          </button>
+                          <Switch
+                            checked={binding.enabled}
+                            onCheckedChange={(enabled) =>
+                              void handleShortcutToggle(binding, enabled)
+                            }
+                            aria-label={
+                              (binding.enabled ? "Disable " : "Enable ") +
+                              "shortcut for " +
+                              (targetApp?.name ?? binding.app)
+                            }
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </SettingsRow>
+          </SettingsGroup>
         </div>
+      ),
+    },
+  ];
 
-        {/* Inline edit form */}
-        {editingApp && (
-          <AppEditForm
-            app={editingApp}
-            onSave={handleSave}
-            onCancel={() => {
-              setEditingId(null);
-            }}
-          />
-        )}
+  return (
+    <QueryClientProvider client={desktopSettingsQueryClient}>
+      <div
+        className={
+          "settings-overlay" + (isClosing ? " settings-overlay--closing" : "")
+        }
+      >
+        <div className="settings-panel settings-panel--page">
+          <div className="settings-page-tabs">
+            <SettingsSurfaceProvider surface="page">
+              <SettingsTabsPage
+                general={
+                  <div className="w-full max-w-3xl space-y-8">
+                    <SettingsGroup
+                      title="Software updates"
+                      description="Keep Agent Native current."
+                    >
+                      <SoftwareUpdateCard />
+                    </SettingsGroup>
+                  </div>
+                }
+                extraTabs={settingsTabs}
+                enableSearch
+                searchPlaceholder="Search settings…"
+                className="h-full"
+                navClassName="settings-page-tabs-nav"
+                navHeader={
+                  <button
+                    type="button"
+                    className="settings-page-back settings-page-back--nav"
+                    onClick={() => requestClose()}
+                  >
+                    <IconArrowLeft size={15} aria-hidden="true" />
+                    Back to app
+                  </button>
+                }
+                contentClassName="settings-page-tabs-content"
+              />
+            </SettingsSurfaceProvider>
+          </div>
+          {editingApp ? (
+            <AppEditForm
+              app={editingApp}
+              onSave={handleSave}
+              onCancel={() => setEditingId(null)}
+            />
+          ) : null}
+        </div>
       </div>
-    </div>
+    </QueryClientProvider>
   );
 }
 

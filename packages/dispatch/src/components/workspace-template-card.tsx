@@ -214,17 +214,27 @@ export function WorkspaceTemplateCard({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {catalog ? (
-          <AppOpenActions
-            name={template.name}
-            href={liveUrl ?? null}
-            target="_blank"
-            rel="noreferrer"
-            labels={{
-              addApp: labels.remix,
-              openApp: labels.openApp,
-            }}
-            onAddApp={() => setOpen(true)}
-          />
+          <>
+            {liveUrl ? (
+              <AppOpenActions
+                name={template.name}
+                href={liveUrl}
+                target="_blank"
+                rel="noreferrer"
+                labels={{ openApp: labels.openApp }}
+                showNewTabOption
+              />
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setOpen(true)}
+            >
+              <IconPlus />
+              {labels.remix}
+            </Button>
+          </>
         ) : liveUrl ? (
           <Button variant="ghost" size="sm" className="shrink-0" asChild>
             <a href={liveUrl} target="_blank" rel="noreferrer">

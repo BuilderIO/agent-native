@@ -4,11 +4,32 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { useSmoothStreamingText } from "./markdown-renderer.js";
+import {
+  markdownComponents,
+  useSmoothStreamingText,
+} from "./markdown-renderer.js";
 
 function Probe({ text, resetKey }: { text: string; resetKey: string }) {
   const visibleText = useSmoothStreamingText(text, true, resetKey);
   return <span data-testid="visible-text">{visibleText}</span>;
+}
+
+function MarkdownTableProbe() {
+  const Table = markdownComponents.table;
+  return (
+    <Table>
+      <thead>
+        <tr>
+          <th>Column</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Value</td>
+        </tr>
+      </tbody>
+    </Table>
+  );
 }
 
 describe("useSmoothStreamingText", () => {
@@ -68,5 +89,16 @@ describe("useSmoothStreamingText", () => {
     expect(
       container.querySelector("[data-testid='visible-text']")?.textContent,
     ).toBe(firstVisibleText);
+  });
+
+  it("keeps wide markdown tables inside a scrollable wrapper", () => {
+    act(() => {
+      root.render(<MarkdownTableProbe />);
+    });
+
+    const wrapper = container.querySelector(".agent-markdown-table-wrap");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.querySelector("table")).not.toBeNull();
+    expect(wrapper?.querySelector("th")?.textContent).toBe("Column");
   });
 });

@@ -25,6 +25,8 @@ export interface CodeAgentModelOption {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface CodeAgentModelListResult {
@@ -232,6 +234,8 @@ export interface CodeAgentFollowUpRequest {
   model?: string;
   effort?: CodeAgentReasoningEffort;
   attachments?: CodeAgentPromptAttachment[];
+  /** Bounded provenance for host-side coordination such as session watch. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentFollowUpResult {
@@ -349,6 +353,7 @@ export interface CodeAgentRetryRunRequest {
   engine?: string;
   model?: string;
   effort?: CodeAgentReasoningEffort;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CodeAgentRetryRunResult {

@@ -5,11 +5,11 @@ description: "アクションを呼び出し、その結果を表示するReact�
 
 # ページを追加
 
-これは「はじめに」シリーズのパート3です。[アクションを追加](/docs/getting-started-actions)で`analyze-text`を作成しました。ここでは同じアクションをルートから呼び出します。まだデータベースは必要ありません。ドメインデータを永続化する必要になったときのために、ChatにはSQLランタイムがすでに含まれています。
+これは「はじめに」シリーズのパート3です。[アクションを追加](/docs/getting-started-actions)で`analyze-text`を作成しました。ここでは同じアクションをルートから呼び出します。この例では新しいデータベーステーブルは必要ありません。Chatはチャット履歴をすでにSQLに保存します。ドメインデータを永続化する必要がある場合だけ、独自のテーブルを追加してください。
 
 ## ルートを作成する {#add-a-page}
 
-`app/routes/`のルートファイルは自動的に認識されます。`app/routes/text-analyses.tsx`を作成すると、`http://localhost:8080/text-analyses`で利用できるようになります。
+開発サーバーは起動時にルートファイルを読み込みます。`app/routes/text-analyses.tsx`を作成し、すでに`pnpm dev`が実行中ならファイルを作成した後に再起動します。`http://localhost:8080/text-analyses`で利用できるようになります。
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -62,4 +62,4 @@ export default function TextAnalysesRoute() {
 
 ## 次へ
 
-同じ情報源を呼び出すアクションとページを備えたチャットアプリが完成しました。結果を永続化する必要がある場合は[SQLにデータを永続化する](/docs/getting-started-database)に進み、または[主要な概念](/docs/key-concepts)と[エージェントサーフェス](/docs/agent-surfaces)で詳しい構成を確認してください。
+同じ情報源を呼び出すアクションとページを備えたチャットアプリが完成しました。[主要な概念](/docs/key-concepts)と[エージェントサーフェス](/docs/agent-surfaces)で詳しい構成を確認してください。

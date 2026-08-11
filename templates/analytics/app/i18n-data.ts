@@ -673,6 +673,8 @@ const enUS = {
     refresh: "Refresh",
     refreshing: "Refreshing...",
     downloadCsv: "Download CSV",
+    copyTable: "Copy table",
+    multiColumnSortHelp: "Click to sort. Shift-click to add another sort.",
     exportToGoogleSheets: "Export to Google Sheets",
     exportingToGoogleSheets: "Exporting to Google Sheets...",
     googleSheetsExported: "Exported to Google Sheets",
@@ -688,6 +690,7 @@ const enUS = {
     copied: "Copied",
     copy: "Copy",
     couldNotCopySql: "Couldn't copy SQL",
+    couldNotCopyTable: "Couldn't copy table",
     failedToFormatSql: "Failed to format SQL",
     close: "Close",
     save: "Save",
@@ -1314,7 +1317,7 @@ const enUS = {
     storageSetupDescription:
       "Session replay recordings need storage before chunks can be saved. Connect Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
     storageConnected: "Storage connected",
-    connectBuilder: "Use Builder.io (free)",
+    connectBuilder: "Use Builder.io",
     configureS3: "Configure S3 storage",
     devtools: "Dev Tools",
     devtoolsResize: "Resize Dev Tools",
@@ -7142,6 +7145,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "复制解析 SQL",
       copySql: "复制 SQL",
       couldNotCopySql: "无法复制 SQL",
+      couldNotCopyTable: "无法复制表格",
       dashboardActions: "仪表板详细信息和操作",
       deletePanelTitle: "删除面板？",
       deletePermanentlyTitle: "永久删除？",
@@ -7154,6 +7158,8 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "放弃更改",
       dismissDemoIntro: "关闭演示介绍",
       downloadCsv: "下载CSV",
+      copyTable: "复制表格",
+      multiColumnSortHelp: "点击排序。按住 Shift 点击可添加另一个排序。",
       exportToGoogleSheets: "导出到 Google Sheets",
       exportingToGoogleSheets: "正在导出到 Google Sheets...",
       googleSheetsExported: "已导出到 Google Sheets",
@@ -7382,6 +7388,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "Copia resuelta SQL",
       copySql: "Copiar SQL",
       couldNotCopySql: "No se pudo copiar SQL",
+      couldNotCopyTable: "No se pudo copiar la tabla",
       dashboardActions: "Detalles y acciones del panel",
       deletePanelTitle: "¿Eliminar panel?",
       deletePermanentlyTitle: "¿Eliminar permanentemente?",
@@ -7394,6 +7401,9 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar cambios",
       dismissDemoIntro: "Descartar la introducción de la demostración",
       downloadCsv: "Descargar CSV",
+      copyTable: "Copiar tabla",
+      multiColumnSortHelp:
+        "Haz clic para ordenar. Mantén pulsada la tecla Mayús y haz clic para añadir otro orden.",
       exportToGoogleSheets: "Exportar a Google Sheets",
       exportingToGoogleSheets: "Exportando a Google Sheets...",
       googleSheetsExported: "Exportado a Google Sheets",
@@ -7628,6 +7638,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "Copie résolue SQL",
       copySql: "Copier SQL",
       couldNotCopySql: "Impossible de copier SQL",
+      couldNotCopyTable: "Impossible de copier le tableau",
       dashboardActions: "Détails et actions du tableau de bord",
       deletePanelTitle: "Supprimer le panneau ?",
       deletePermanentlyTitle: "Supprimer définitivement ?",
@@ -7640,6 +7651,9 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Ignorer les modifications",
       dismissDemoIntro: "Ignorer l'intro de la démo",
       downloadCsv: "Télécharger CSV",
+      copyTable: "Copier le tableau",
+      multiColumnSortHelp:
+        "Cliquez pour trier. Maj-cliquez pour ajouter un autre tri.",
       exportToGoogleSheets: "Exporter vers Google Sheets",
       exportingToGoogleSheets: "Exportation vers Google Sheets...",
       googleSheetsExported: "Exporté vers Google Sheets",
@@ -7876,6 +7890,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "Kopieren Sie SQL aufgelöst",
       copySql: "Kopieren Sie SQL",
       couldNotCopySql: "SQL konnte nicht kopiert werden",
+      couldNotCopyTable: "Tabelle konnte nicht kopiert werden",
       dashboardActions: "Dashboard-Details und Aktionen",
       deletePanelTitle: "Panel löschen?",
       deletePermanentlyTitle: "Endgültig löschen?",
@@ -7888,6 +7903,9 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Änderungen verwerfen",
       dismissDemoIntro: "Demo-Intro schließen",
       downloadCsv: "Laden Sie CSV herunter",
+      copyTable: "Tabelle kopieren",
+      multiColumnSortHelp:
+        "Zum Sortieren klicken. Mit Umschalt-Klick eine weitere Sortierung hinzufügen.",
       exportToGoogleSheets: "Nach Google Sheets exportieren",
       exportingToGoogleSheets: "Export nach Google Sheets...",
       googleSheetsExported: "Nach Google Sheets exportiert",
@@ -8117,6 +8135,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "解決された SQL をコピーします",
       copySql: "SQLをコピーする",
       couldNotCopySql: "SQLをコピーできませんでした",
+      couldNotCopyTable: "テーブルをコピーできませんでした",
       dashboardActions: "ダッシュボードの詳細とアクション",
       deletePanelTitle: "パネルを削除しますか?",
       deletePermanentlyTitle: "永久に削除しますか?",
@@ -8129,6 +8148,9 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "変更を破棄する",
       dismissDemoIntro: "デモのイントロを閉じる",
       downloadCsv: "CSVをダウンロード",
+      copyTable: "テーブルをコピー",
+      multiColumnSortHelp:
+        "クリックして並べ替え。Shiftキーを押しながらクリックすると別の並べ替えを追加できます。",
       exportToGoogleSheets: "Google スプレッドシートにエクスポート",
       exportingToGoogleSheets: "Google スプレッドシートにエクスポート中...",
       googleSheetsExported: "Google スプレッドシートにエクスポートしました",
@@ -8357,6 +8379,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "해결된 SQL 복사",
       copySql: "SQL 복사",
       couldNotCopySql: "SQL을 복사할 수 없습니다.",
+      couldNotCopyTable: "표를 복사할 수 없습니다.",
       dashboardActions: "대시보드 세부정보 및 작업",
       deletePanelTitle: "패널을 삭제하시겠습니까?",
       deletePermanentlyTitle: "영구적으로 삭제하시겠습니까?",
@@ -8369,6 +8392,9 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "변경사항 취소",
       dismissDemoIntro: "데모 소개 닫기",
       downloadCsv: "CSV 다운로드",
+      copyTable: "표 복사",
+      multiColumnSortHelp:
+        "클릭하여 정렬합니다. Shift 키를 누른 채 클릭하면 다른 정렬을 추가합니다.",
       exportToGoogleSheets: "Google Sheets로 내보내기",
       exportingToGoogleSheets: "Google Sheets로 내보내는 중...",
       googleSheetsExported: "Google Sheets로 내보냈습니다",
@@ -8601,6 +8627,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "Cópia resolvida SQL",
       copySql: "Copie SQL",
       couldNotCopySql: "Não foi possível copiar SQL",
+      couldNotCopyTable: "Não foi possível copiar a tabela",
       dashboardActions: "Detalhes e ações do painel",
       deletePanelTitle: "Excluir painel?",
       deletePermanentlyTitle: "Excluir permanentemente?",
@@ -8613,6 +8640,9 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar alterações",
       dismissDemoIntro: "Ignorar introdução da demonstração",
       downloadCsv: "Baixar CSV",
+      copyTable: "Copiar tabela",
+      multiColumnSortHelp:
+        "Clique para ordenar. Shift-clique para adicionar outra ordenação.",
       exportToGoogleSheets: "Exportar para o Google Sheets",
       exportingToGoogleSheets: "Exportando para o Google Sheets...",
       googleSheetsExported: "Exportado para o Google Sheets",
@@ -8842,6 +8872,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "प्रतिलिपि हल की गई SQL",
       copySql: "SQL कॉपी करें",
       couldNotCopySql: "SQL की प्रतिलिपि नहीं बनाई जा सकी",
+      couldNotCopyTable: "तालिका कॉपी नहीं की जा सकी",
       dashboardActions: "डैशबोर्ड विवरण और क्रियाएँ",
       deletePanelTitle: "पैनल हटाएं?",
       deletePermanentlyTitle: "स्थायी रूप से हटाएँ?",
@@ -8854,6 +8885,9 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "परिवर्तन त्यागें",
       dismissDemoIntro: "डेमो परिचय ख़ारिज करें",
       downloadCsv: "CSV डाउनलोड करें",
+      copyTable: "तालिका कॉपी करें",
+      multiColumnSortHelp:
+        "क्रमित करने के लिए क्लिक करें। एक और क्रम जोड़ने के लिए Shift-क्लिक करें।",
       exportToGoogleSheets: "Google Sheets में निर्यात करें",
       exportingToGoogleSheets: "Google Sheets में निर्यात किया जा रहा है...",
       googleSheetsExported: "Google Sheets में निर्यात किया गया",
@@ -9081,6 +9115,7 @@ const translatedAnalyticsDebtTranslations = {
       copyResolvedSql: "تم حل النسخة SQL",
       copySql: "انسخ SQL",
       couldNotCopySql: "لا يمكن نسخ SQL",
+      couldNotCopyTable: "تعذر نسخ الجدول",
       dashboardActions: "تفاصيل وإجراءات لوحة التحكم",
       deletePanelTitle: "هل تريد حذف اللوحة؟",
       deletePermanentlyTitle: "هل تريد الحذف نهائيًا؟",
@@ -9093,6 +9128,8 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "تجاهل التغييرات",
       dismissDemoIntro: "رفض المقدمة التجريبية",
       downloadCsv: "تحميل CSV",
+      copyTable: "نسخ الجدول",
+      multiColumnSortHelp: "انقر للفرز. انقر مع الضغط على Shift لإضافة فرز آخر.",
       exportToGoogleSheets: "تصدير إلى Google Sheets",
       exportingToGoogleSheets: "جارٍ التصدير إلى Google Sheets...",
       googleSheetsExported: "تم التصدير إلى Google Sheets",
@@ -10157,7 +10194,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "保存会话回放录制片段前需要先配置存储。可连接 Builder.io 使用免费层存储，或配置您自己的 S3 兼容存储桶。",
       storageConnected: "存储已连接",
-      connectBuilder: "使用 Builder.io（免费）",
+      connectBuilder: "使用 Builder.io",
       configureS3: "配置 S3 存储",
       title: "会话",
       description:
@@ -10279,7 +10316,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Conecta Builder.io para usar almacenamiento de nivel gratuito o configura tu propio bucket compatible con S3.",
       storageConnected: "Almacenamiento conectado",
-      connectBuilder: "Usar Builder.io (gratis)",
+      connectBuilder: "Usar Builder.io",
       configureS3: "Configurar almacenamiento S3",
       title: "Sesiones",
       description:
@@ -10405,7 +10442,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "Les enregistrements de relecture de session nécessitent un espace de stockage avant de pouvoir sauvegarder les fragments. Connectez Builder.io pour un stockage en formule gratuite, ou configurez votre propre bucket compatible S3.",
       storageConnected: "Stockage connecté",
-      connectBuilder: "Utiliser Builder.io (gratuit)",
+      connectBuilder: "Utiliser Builder.io",
       configureS3: "Configurer le stockage S3",
       title: "Sessions",
       description:
@@ -10534,7 +10571,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Verbinden Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
       storageConnected: "Speicher verbunden",
-      connectBuilder: "Builder.io verwenden (kostenlos)",
+      connectBuilder: "Builder.io verwenden",
       configureS3: "S3-Speicher konfigurieren",
       title: "Sitzungen",
       description:
@@ -10659,7 +10696,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを接続するか、独自の S3 互換バケットを設定してください。",
       storageConnected: "ストレージ接続済み",
-      connectBuilder: "Builder.io を使う（無料）",
+      connectBuilder: "Builder.io を使う",
       configureS3: "S3 ストレージを設定",
       title: "セッション",
       description:
@@ -10785,7 +10822,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "세션 재생 녹화를 저장하려면 먼저 저장소가 필요합니다. 무료 등급 저장소를 사용하려면 Builder.io를 연결하거나, 직접 S3 호환 버킷을 구성하세요.",
       storageConnected: "저장소 연결됨",
-      connectBuilder: "Builder.io 사용 (무료)",
+      connectBuilder: "Builder.io 사용",
       configureS3: "S3 저장소 구성",
       title: "세션",
       description:
@@ -10910,7 +10947,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Conecte o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
       storageConnected: "Armazenamento conectado",
-      connectBuilder: "Usar Builder.io (gratuito)",
+      connectBuilder: "Usar Builder.io",
       configureS3: "Configurar armazenamento S3",
       title: "Sessões",
       description:
@@ -11034,7 +11071,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "चंक्स सेव करने से पहले सेशन रीप्ले रिकॉर्डिंग के लिए स्टोरेज ज़रूरी है। फ्री-टियर स्टोरेज के लिए Builder.io कनेक्ट करें, या अपना खुद का S3-संगत बकेट कॉन्फ़िगर करें।",
       storageConnected: "स्टोरेज कनेक्ट हो गया",
-      connectBuilder: "Builder.io इस्तेमाल करें (मुफ़्त)",
+      connectBuilder: "Builder.io इस्तेमाल करें",
       configureS3: "S3 स्टोरेज कॉन्फ़िगर करें",
       title: "सत्र",
       description:
@@ -11155,7 +11192,7 @@ const translatedSessionReplayTranslations = {
       storageSetupDescription:
         "تحتاج تسجيلات إعادة عرض الجلسات إلى مساحة تخزين قبل أن يتسنى حفظ الأجزاء. اربط Builder.io للحصول على تخزين بالباقة المجانية، أو هيّئ حاوية متوافقة مع S3 خاصة بك.",
       storageConnected: "تم ربط مساحة التخزين",
-      connectBuilder: "استخدام Builder.io (مجاناً)",
+      connectBuilder: "استخدام Builder.io",
       configureS3: "تهيئة تخزين S3",
       title: "الجلسات",
       description:

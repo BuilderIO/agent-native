@@ -77,7 +77,12 @@ export default defineEventHandler(async (event) => {
   }
 
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBytes = Buffer.from(signature, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  if (
+    signatureBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(signatureBytes, expectedBytes)
+  ) {
     throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
   }
 
@@ -189,6 +194,6 @@ Cada respuesta SSR es un shell impersonal y público, cacheado en el CDN. Nunca 
 ## ¿Qué sigue? {#whats-next}
 
 - [**Actions**](/docs/actions): la superficie preferida para las operaciones de la aplicación; recurra a una ruta solo cuando no encaje
-- [**Plugins**](/docs/server-plugins): plugins de inicio que se ejecutan antes de servir las rutas
+- [**Plugins**](/docs/server-plugins): plugins de inicio y su comportamiento de inicialización
 - [**Middleware**](/docs/server-middleware): guardias de autenticación que protegen todas las rutas, incluida `/api/*`
 - [**Seguridad**](/docs/security#access-guards): `accessFilter`/`assertAccess` y el modelo completo de delimitación de datos

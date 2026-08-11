@@ -4259,6 +4259,7 @@ body[data-clips-route="recording-pill"] #root {
   object-fit: cover;
   border-radius: 50%;
   transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  /* compositing-ok: live <video> is composited regardless. */
   will-change: transform, opacity;
   backface-visibility: hidden;
   /* CRITICAL: clicks MUST pass through the canvas to the
@@ -4441,6 +4442,30 @@ body[data-clips-route="recording-pill"] #root {
   margin-bottom: 2px;
 }
 
+.signin-subtitle {
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.signin-success {
+  align-items: center;
+  text-align: center;
+}
+
+.signin-success-copy {
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.signin-success-copy strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
 .signin input {
   width: 100%;
   padding: 10px 12px;
@@ -4473,6 +4498,16 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 11px;
   text-align: center;
   cursor: pointer;
+}
+
+.signin-mode-link {
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.signin-mode-link:hover {
+  color: var(--fg);
 }
 
 .signin-divider {

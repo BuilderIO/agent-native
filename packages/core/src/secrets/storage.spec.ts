@@ -50,6 +50,7 @@ async function loadStorageWithSqlite() {
     getDialect: () => "sqlite",
     getDbExec: () => exec,
     isPostgres: () => false,
+    isProductionServerlessFunctionRuntime: () => false,
   }));
   const mod = await import("./storage.js");
   return { sqlite, mod };
@@ -74,6 +75,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -108,6 +110,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -138,6 +141,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -154,6 +158,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "postgres",
       getDbExec: () => ({ execute }),
       isPostgres: () => true,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { writeAppSecret } = await import("./storage.js");
@@ -198,6 +203,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "postgres",
       getDbExec: () => ({ execute }),
       isPostgres: () => true,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { writeAppSecret } = await import("./storage.js");
@@ -879,6 +885,7 @@ describe("per-request read memo", () => {
     vi.doMock("../db/client.js", () => ({
       getDialect: () => "sqlite",
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
       getDbExec: () => ({
         async execute(input: string | { sql: string; args?: any[] }) {
           const sql = typeof input === "string" ? input : input.sql;

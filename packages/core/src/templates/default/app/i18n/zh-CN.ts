@@ -219,7 +219,7 @@ const messages = {
     newTerminal: "新航站楼",
     panelOptions: "代理面板选项",
     collapseSidebar: "收起侧边栏",
-    widenChat: "将聊天窗口加宽到 75%",
+    widenChat: "加宽聊天窗口",
     returnChatToLayout: "将聊天窗口恢复到布局中",
     hideChats: "隐藏聊天记录",
     allChats: "所有聊天记录",

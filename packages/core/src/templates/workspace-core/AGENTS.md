@@ -31,22 +31,18 @@ agent should know.
 
 - All AI/LLM behavior goes through the app's agent chat. UI and server code must
   not call model providers or AI SDK `generateText()` / `streamText()` directly;
-  use `sendToAgentChat()`. Keep actions deterministic and focused. If a
-  workflow is framed as research, analysis, generation, recommendation, or
-  synthesis, use `sendToAgentChat({ openSidebar: true })` to open the
-  AgentSidebar and let the agent orchestrate its provider/data actions. Keep
-  follow-ups in the same thread, not a second freeform textbox. Read
-  `.agents/skills/delegate-to-agent/SKILL.md` before building agent-driven UI or
-  "AI" features.
+  use `sendToAgentChat()`. Keep actions deterministic and focused. Research,
+  analysis, generation, recommendation, and synthesis open the AgentSidebar with
+  `sendToAgentChat({ openSidebar: true })` and stay in the same thread — never a
+  second freeform textbox. Read `delegate-to-agent` first.
 - Keep domain workflows on named routes and preserve the scaffold's full-page
-  chat route. Use the right `AgentSidebar` for contextual AI and open it when a
-  domain button hands work to the agent.
+  chat route.
 - Keep the first viewport focused: one primary action, progressive disclosure,
   concise copy, and domain-specific navigation. Never use sparkle, wand,
   magic, or robot icons as AI affordances.
-- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
-  type for content previews. Give the AgentSidebar a subtle surface/divider
-  boundary, and stack original/generated review vertically by default.
+- Data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
 - Before visual work, read `frontend-design` and the workspace/app `DESIGN.md`.
   Keep shared chrome semantic and neutral, then choose an app-specific visual
   direction and palette family instead of copying a sibling app by default.
@@ -87,10 +83,8 @@ first-party template patterns ship with `@agent-native/core`. From an app
 directory, use `pnpm action docs-search --query "<topic>"` and
 `pnpm action source-search --query "<pattern>"`. Read `workspace-conventions`
 for slugs, the `--list` / `--slug` / `--path` options, and the `rg` fallback.
-
-Use package docs for framework APIs, the package corpus for reusable
-framework/template patterns, and this `AGENTS.md` plus `.agents/skills/` for
-workspace-specific conventions.
+Use package docs for framework APIs, the corpus for reusable patterns, and this
+file plus `.agents/skills/` for workspace-specific conventions.
 
 ## Actions
 

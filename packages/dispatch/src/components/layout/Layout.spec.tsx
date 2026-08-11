@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminShell } from "../admin-navigation";
 import { TooltipProvider } from "../ui/tooltip";
-import { formatThreadAge, NavContent } from "./Layout";
+import {
+  buildChatFirstEmbedSessionInput,
+  formatThreadAge,
+  NavContent,
+} from "./Layout";
 
 const clientState = vi.hoisted(() => ({
   createThread: vi.fn<() => Promise<string | null>>(),
@@ -36,6 +40,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
   appBasePath: () => "",
   appPath: (path: string) => path,
 }));
@@ -82,6 +87,14 @@ vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => <div>Organization</div>,
 }));
 
+function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
+  const location = useLocation();
+  React.useEffect(() => {
+    onChange(location.pathname);
+  }, [location.pathname, onChange]);
+  return null;
+}
+
 describe("formatThreadAge", () => {
   const now = 2_000_000_000_000;
 
@@ -93,6 +106,16 @@ describe("formatThreadAge", () => {
     [365 * 24 * 60 * 60_000, "1y"],
   ])("formats %i milliseconds as %s", (elapsed, expected) => {
     expect(formatThreadAge(now - elapsed, now)).toBe(expected);
+  });
+});
+
+describe("chat-first embed sessions", () => {
+  it("keeps the granted app id on app-relative embed requests", () => {
+    expect(buildChatFirstEmbedSessionInput("mail", "/mail/inbox")).toEqual({
+      app: "mail",
+      path: "/mail/inbox",
+      chrome: "minimal",
+    });
   });
 });
 
@@ -218,11 +241,26 @@ describe("Dispatch NavContent", () => {
     expect(shell?.querySelector('a[href="/admin/apps"]')).toBeNull();
   });
 
-  it("shows ready workspace apps as host links and highlights the active app", async () => {
+  it("keeps workspace app discovery in the Apps destination", async () => {
     clientState.workspaceApps = [
       { id: "calendar", name: "Calendar", path: "/calendar", status: "ready" },
       { id: "pending", name: "Pending", path: "/pending", status: "pending" },
     ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector("[data-dispatch-apps-rail]")).toBeNull();
+    expect(container.querySelector('a[href="/apps"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("Calendar");
+    expect(container.textContent).not.toContain("Pending");
 
     await act(async () => {
       root.render(
@@ -234,14 +272,9 @@ describe("Dispatch NavContent", () => {
       );
     });
 
-    const rail = container.querySelector("[data-dispatch-apps-rail]");
-    expect(rail).not.toBeNull();
-    expect(rail?.textContent).toContain("Calendar");
-    expect(rail?.textContent).not.toContain("Pending");
-
-    const calendarLink = rail?.querySelector('a[href="/apps/calendar"]');
-    expect(calendarLink).not.toBeNull();
-    expect(calendarLink?.getAttribute("aria-current")).toBe("page");
+    expect(container.querySelector('a[href="/apps"]')?.className).toContain(
+      "bg-sidebar-accent",
+    );
   });
 
   it("keeps Dispatch branding and anchors Settings above the organization picker", async () => {
@@ -283,6 +316,125 @@ describe("Dispatch NavContent", () => {
     expect(organization!.compareDocumentPosition(footerActions!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+
+  it("keeps Admin above Settings in the chat-first left sidebar", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent chatFirstMode />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const adminLink = container.querySelector('a[href="/admin"]');
+    const settingsLink = container.querySelector('a[href="/settings"]');
+    const organization = [...container.querySelectorAll("div")].find(
+      (element) => element.textContent?.trim() === "Organization",
+    );
+
+    expect(adminLink).not.toBeNull();
+    expect(settingsLink).not.toBeNull();
+    expect(organization).toBeDefined();
+    expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("keeps an All apps destination below the chat-first app list", async () => {
+    const paths: string[] = [];
+    const apps = Array.from({ length: 6 }, (_, index) => ({
+      id: `app-${index}`,
+      name: `App ${index}`,
+    }));
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent chatFirstMode chatFirstApps={apps} />
+            <LocationProbe onChange={(path) => paths.push(path)} />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(5);
+    const showMore = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Show more",
+    );
+    expect(showMore).toBeDefined();
+    await act(async () => {
+      showMore?.click();
+    });
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(6);
+
+    const allApps = container.querySelector<HTMLButtonElement>(
+      "[data-chat-first-all-apps]",
+    );
+    expect(allApps?.textContent?.trim()).toBe("All apps");
+    await act(async () => {
+      allApps?.click();
+    });
+    expect(paths.at(-1)).toBe("/apps");
+  });
+
+  it("omits the Chats section when chat-first has no chats", async () => {
+    clientState.threads = [];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              collapsible
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Chats");
+    expect(container.querySelector("[data-chat-first-app]")).not.toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-app] span[style]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-feedback]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-collapse]"),
+    ).not.toBeNull();
+  });
+
+  it("opens a workspace app in the main app route from the left rail", async () => {
+    const paths: string[] = [];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+              onChatFirstAppOpen={(app) => paths.push(`/apps/${app.id}`)}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-chat-first-app] button")
+        ?.click();
+    });
+    expect(paths).toEqual(["/apps/mail"]);
   });
 
   it("uses the shared chat history rail and retains thread actions", async () => {

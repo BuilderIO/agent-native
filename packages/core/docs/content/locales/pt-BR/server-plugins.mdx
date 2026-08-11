@@ -5,7 +5,7 @@ description: "Plugins de inicialização em server/plugins/ — o que são, os d
 
 # Plugins
 
-Plugins são ganchos de inicialização. Cada arquivo em `server/plugins/` exporta uma função que o Nitro chama uma única vez quando o servidor é inicializado, antes de qualquer rota ser atendida. Eles são o lugar certo para configurações únicas: configurar autenticação, montar o loop do agente, executar migrações de banco de dados, ou registrar qualquer outro código de inicialização que precise ser concluído antes de as requisições chegarem.
+Plugins são ganchos de inicialização. O Nitro carrega cada arquivo em `server/plugins/` uma vez ao inicializar o servidor. Eles são o lugar certo para configurações únicas: configurar autenticação, montar o loop do agente, executar migrações de banco de dados ou registrar outro código de inicialização. Os helpers do framework coordenam sua configuração assíncrona; o trabalho de plugins personalizados ainda pode estar em andamento quando chegar a primeira requisição.
 
 O Nitro descobre plugins automaticamente a partir do sistema de arquivos. Nenhum registro ou import é necessário. Os arquivos rodam em ordem alfabética, então a ordem de execução é controlada pelo prefixo do nome do arquivo.
 
@@ -21,7 +21,7 @@ Aplicativos que precisam de tabelas de banco de dados personalizadas adicionam u
 
 ```text
 server/plugins/
-  db.ts          -> executa migrações na inicialização
+  db.ts          -> registra migrações próprias do app para o início local
 ```
 
 ## Plugin de Auth {#auth-plugin}
@@ -131,11 +131,17 @@ Plugins podem usar qualquer um dos ganchos de ciclo de vida do Nitro: `request`,
 
 ## Ordem de Inicialização {#startup-order}
 
-O Nitro executa plugins em ordem alfabética de nome de arquivo. Dentro de um único arquivo de plugin, a exportação padrão é aguardada antes que o próximo plugin comece. Uma ordem típica:
+O Nitro inicia os plugins em ordem alfabética de nome de arquivo. A ordem dos arquivos controla quando cada plugin começa, não quando seu trabalho assíncrono termina; portanto, não dependa de um plugin terminar antes de o próximo começar. Uma ordem típica:
 
-1. `db.ts` — migrações são concluídas antes de qualquer rota ou plugin ler o banco de dados
+1. `db.ts` — migrações próprias do app no início local; em produção, como etapa de release
 2. `auth.ts` — a configuração de auth está pronta antes de as requisições chegarem
 3. `agent-chat.ts` — as rotas do agente são montadas depois que o auth está configurado
+
+<Callout tone="warning">
+  Em produção ou em deploys serverless, execute migrações em uma etapa de
+  release ou deploy, não na primeira requisição. O template Chat fornece `pnpm
+  migrate:production` para isso.
+</Callout>
 
 Se você adicionar plugins personalizados, prefixe seus nomes de arquivo para controlar onde eles ficam na sequência.
 
@@ -143,6 +149,6 @@ Se você adicionar plugins personalizados, prefixe seus nomes de arquivo para co
 
 - [**Banco de dados**](/docs/server-database): auxiliares de esquema e o padrão `getDb` usado dentro dos plugins
 - [**Middleware**](/docs/server-middleware): a guarda de autenticação que impõe o que o plugin de auth configura
-- [**Rotas**](/docs/server-routes): rotas de arquivo personalizadas servidas depois que os plugins terminam
+- [**Rotas**](/docs/server-routes): rotas de arquivo personalizadas e quando usá-las
 - [**Escrevendo instruções do agente**](/docs/writing-agent-instructions): como criar o `systemPrompt` no plugin de agent-chat
 - [**Docs de plugins do Nitro**](https://nitro.build/guide/plugins): a API completa de plugins e os ganchos de ciclo de vida

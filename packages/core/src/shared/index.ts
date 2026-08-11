@@ -21,6 +21,10 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export {
+  isHumanReadableDocumentTitle,
+  normalizeDocumentTitle,
+} from "./document-title.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
@@ -69,6 +73,13 @@ export {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
+export {
+  buildChatFirstAppCreationPrompt,
+  titleFromChatFirstAppPrompt,
+  type ChatFirstAppCreationPromptInput,
+  type ChatFirstAppCreationResource,
+  type ChatFirstAppCreationVaultAccessMode,
+} from "./chat-first-app-creation.js";
 export {
   createPollEngine,
   type PollEngineOptions,

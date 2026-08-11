@@ -6,14 +6,15 @@ description: "Build a React route that calls your action and displays its result
 # Add a Page
 
 This is part three of the Getting Started series. In [Add an Action](/docs/getting-started-actions)
-you created `analyze-text`. Here you'll call that same action from a route. No
-database is needed yet: Chat already includes the SQL runtime for when you need
-to persist domain data.
+you created `analyze-text`. Here you'll call that same action from a route. This
+example does not need a new database table. Chat already stores chat history in
+SQL; add your own tables when you need to persist domain data.
 
 ## Create the route {#add-a-page}
 
-Route files in `app/routes/` are picked up automatically. Create
-`app/routes/text-analyses.tsx`; it will be available at
+The dev server reads route files when it starts. Create
+`app/routes/text-analyses.tsx`, then restart `pnpm dev` if it is already
+running. The route will be available at
 `http://localhost:8080/text-analyses`.
 
 ```tsx filename="app/routes/text-analyses.tsx"
@@ -58,7 +59,7 @@ export default function TextAnalysesRoute() {
 ```
 
 `useActionQuery` calls the same read-only action the agent uses. The page does
-not need a custom API route, a second data layer, or SQL yet.
+not need a custom API route, a second data layer, or a new SQL table.
 
 Open `http://localhost:8080/text-analyses`, or ask the agent:
 
@@ -71,6 +72,5 @@ patterns, see [Context Awareness](/docs/context-awareness).
 ## Continue
 
 You've built a chat app with an action and a page that calls the same source of
-truth. Continue with [Persist Data in SQL](/docs/getting-started-database) when
-results need to persist, or explore [Key Concepts](/docs/key-concepts) and
+truth. Continue with [Key Concepts](/docs/key-concepts) or
 [Agent Surfaces](/docs/agent-surfaces).
