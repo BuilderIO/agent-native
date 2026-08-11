@@ -39,7 +39,7 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "clips")!;
 const AI_PROMPT =
-  "Watch https://clips.agent-native.com/share/B0AgxdvzuZ7H and tell me the most impactful way I could be using agent-native clips in my own work projects this week.";
+  "Watch https://clips.agent-native.com/share/B0AgxdvzuZ7H. Tell me the most impactful way I could be using agent-native clips in my own work projects this week.";
 
 const COMPARISON_ROWS = [
   {
