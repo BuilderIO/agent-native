@@ -311,6 +311,17 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(workspaceYaml).toContain("tesseract.js: true");
     expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
   });
+
+  it("pins the Tiptap family for fresh standalone installs", async () => {
+    await createApp("test-app", { template: "chat" });
+    const workspaceYaml = fs.readFileSync(
+      path.join(tmpDir, "test-app", "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(workspaceYaml).toContain('"@tiptap/core": "3.28.0"');
+    expect(workspaceYaml).toContain('"@tiptap/extension-list": "3.28.0"');
+  });
 });
 
 describe("installed package template discovery", () => {
@@ -1027,6 +1038,18 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 
     expect(wsYaml).toContain("allowBuilds:");
     expect(wsYaml).toContain("tesseract.js: true");
+  });
+
+  it("pins Tiptap transitive extensions to the tested workspace family", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "calendar"]);
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(wsYaml).toContain('"@tiptap/core": "3.28.0"');
+    expect(wsYaml).toContain('"@tiptap/extension-list": "3.28.0"');
+    expect(wsYaml).toContain('"@tiptap/extension-code-block": "3.28.0"');
   });
 
   it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {

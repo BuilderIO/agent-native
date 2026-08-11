@@ -12,6 +12,7 @@ type EventListener = (...args: unknown[]) => void;
 
 function createEventTarget() {
   const listeners = new Map<string, Set<EventListener>>();
+  const onceWrappers = new Map<EventListener, EventListener>();
 
   return {
     emit(event: string, ...args: unknown[]) {
@@ -25,8 +26,24 @@ function createEventTarget() {
       eventListeners.add(listener);
       listeners.set(event, eventListeners);
     }),
+    once: vi.fn((event: string, listener: EventListener) => {
+      const onceListener: EventListener = (...args) => {
+        listeners.get(event)?.delete(onceListener);
+        onceWrappers.delete(listener);
+        listener(...args);
+      };
+      onceWrappers.set(listener, onceListener);
+      const eventListeners = listeners.get(event) ?? new Set<EventListener>();
+      eventListeners.add(onceListener);
+      listeners.set(event, eventListeners);
+    }),
     removeListener: vi.fn((event: string, listener: EventListener) => {
       listeners.get(event)?.delete(listener);
+      const onceListener = onceWrappers.get(listener);
+      if (onceListener) {
+        listeners.get(event)?.delete(onceListener);
+        onceWrappers.delete(listener);
+      }
     }),
   };
 }
@@ -163,5 +180,50 @@ describe("window drag gesture", () => {
       "before-mouse-event",
       expect.any(Function),
     );
+  });
+
+  it("releases a destroyed guest webview listener", () => {
+    const host = createEventTarget();
+    const guest = createEventTarget();
+    const windowEvents = createEventTarget();
+    const window = {
+      getContentBounds: vi.fn(() => ({ y: 100 })),
+      getPosition: vi.fn(() => [40, 60] as [number, number]),
+      isDestroyed: vi.fn(() => false),
+      on: windowEvents.on,
+      removeListener: windowEvents.removeListener,
+      setPosition: vi.fn(),
+      webContents: host as unknown as WebContents,
+    } as unknown as BrowserWindow;
+    const cleanup = installWindowDragController(window, {
+      getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+    });
+
+    host.emit("did-attach-webview", {}, guest as unknown as WebContents);
+    const down = mouseEvent();
+    guest.emit("before-mouse-event", down, {
+      type: "mouseDown",
+      button: "left",
+      globalX: 120,
+      globalY: 128,
+    });
+    guest.isDestroyed.mockReturnValue(true);
+    guest.emit("destroyed");
+
+    const move = mouseEvent();
+    host.emit("before-mouse-event", move, {
+      type: "mouseMove",
+      globalX: 140,
+      globalY: 148,
+    });
+
+    expect(guest.removeListener).toHaveBeenCalledWith(
+      "before-mouse-event",
+      expect.any(Function),
+    );
+    expect(move.preventDefault).not.toHaveBeenCalled();
+    expect(window.setPosition).not.toHaveBeenCalled();
+
+    cleanup();
   });
 });
