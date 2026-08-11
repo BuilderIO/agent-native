@@ -68,11 +68,21 @@ export function assertDetailsSourceJoin(args: {
   }
 }
 
-export async function readBeforeLocalDetailsBootstrap<T>(args: {
+export async function readBeforeLocalDetailsBootstrap<
+  T extends {
+    readState: BuilderCmsReadResult["state"];
+    readMessage: string | null;
+  },
+>(args: {
   readCandidate: () => Promise<T>;
   bootstrapLocalSource: () => Promise<void>;
 }) {
   const candidate = await args.readCandidate();
+  if (candidate.readState !== "live") {
+    throw new Error(
+      candidate.readMessage ?? "Source read failed before connection.",
+    );
+  }
   await args.bootstrapLocalSource();
   return candidate;
 }
@@ -284,6 +294,8 @@ async function readDetailsSourceCandidate(args: {
       offset: args.offset,
     });
     return {
+      readState: read.state,
+      readMessage: read.message,
       entries: read.state === "live" ? read.entries : [],
       modelFields: read.fields,
       builderRead:
@@ -304,6 +316,8 @@ async function readDetailsSourceCandidate(args: {
   if (args.sourceType === "builder-cms") {
     const initial = await readInitialBuilderCmsAttachSource(args.sourceTable);
     return {
+      readState: initial.read.state,
+      readMessage: initial.read.message,
       entries: initial.read.state === "live" ? initial.read.entries : [],
       modelFields: initial.modelFields,
       builderRead: initial.read,
@@ -313,6 +327,8 @@ async function readDetailsSourceCandidate(args: {
     };
   }
   return {
+    readState: "live" as const,
+    readMessage: null,
     entries: [] as BuilderCmsSourceEntry[],
     modelFields: [] as BuilderCmsModelFieldSummary[],
     builderRead: null,

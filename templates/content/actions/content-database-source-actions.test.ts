@@ -253,6 +253,21 @@ describe("content database source actions", () => {
     expect(bootstrapLocalSource).not.toHaveBeenCalled();
   });
 
+  it("does not bootstrap a local primary when the details source read is not live", async () => {
+    const bootstrapLocalSource = vi.fn();
+
+    await expect(
+      readBeforeLocalDetailsBootstrap({
+        readCandidate: async () => ({
+          readState: "error" as const,
+          readMessage: "source read failed",
+        }),
+        bootstrapLocalSource,
+      }),
+    ).rejects.toThrow("source read failed");
+    expect(bootstrapLocalSource).not.toHaveBeenCalled();
+  });
+
   it("accepts a bounded read-only Notion database details source", () => {
     expect(
       attachSource.schema.parse({
