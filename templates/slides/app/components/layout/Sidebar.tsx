@@ -7,7 +7,7 @@ import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconStack2,
-  IconPalette,
+  IconComponents,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { icon: IconStack2, labelKey: "navigation.decks", href: "/" },
   {
-    icon: IconPalette,
+    icon: IconComponents,
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
