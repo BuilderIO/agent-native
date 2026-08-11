@@ -239,11 +239,16 @@ export default function PresentationView({
 
   const isShared = deckId.startsWith("__shared__/");
 
-  // Exit handlers read this instead of closing over `currentIndex` so the
-  // mount-only fullscreenchange listener still lands on the slide the user
-  // was viewing rather than wherever the deck opened.
+  // Exit handlers read these instead of closing over `currentIndex`/`deckId`/
+  // `isShared` so the mount-only fullscreenchange listener still lands on the
+  // right deck and slide even if this component is reused for a different
+  // deck without remounting (e.g. an agent-driven navigation).
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
+  const deckIdRef = useRef(deckId);
+  deckIdRef.current = deckId;
+  const isSharedRef = useRef(isShared);
+  isSharedRef.current = isShared;
 
   useEffect(() => {
     setCurrentIndex((prev) => clampIndex(prev));
@@ -471,11 +476,13 @@ export default function PresentationView({
       // fullscreen first — otherwise the gesture-fallback overlay handles it.
       if (enteredFullscreenRef.current && !document.fullscreenElement) {
         enteredFullscreenRef.current = false;
-        if (isShared) {
-          const token = deckId.replace("__shared__/", "");
+        if (isSharedRef.current) {
+          const token = deckIdRef.current.replace("__shared__/", "");
           navigate(`/share/${token}`);
         } else {
-          navigate(`/deck/${deckId}?slide=${currentIndexRef.current + 1}`);
+          navigate(
+            `/deck/${deckIdRef.current}?slide=${currentIndexRef.current + 1}`,
+          );
         }
       }
     };
