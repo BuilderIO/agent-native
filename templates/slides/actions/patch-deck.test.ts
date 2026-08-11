@@ -4,6 +4,8 @@ import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   applyOperation,
   assertSourceImportOperationsPreserved,
+  assertSourceImportSlidesCovered,
+  isAgentPatchCaller,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -253,6 +255,37 @@ describe("applyOperation — patch-deck-fields", () => {
     });
     expect(deck.designSystemId).toBeNull();
   });
+
+  it("recovers an opaque title from the first slide", () => {
+    const deck = {
+      title: "Untitled Deck",
+      slides: [
+        {
+          content:
+            '<div class="fmd-slide"><div style="font-size: 54px;">Agent-Native Strategy</div></div>',
+        },
+      ],
+    };
+
+    applyOperation(deck, {
+      op: "patch-deck-fields",
+      fields: { title: "H3sVsnns-TEVUOpz9w" },
+    });
+
+    expect(deck.title).toBe("Agent-Native Strategy");
+  });
+
+  it("rejects an opaque title when no slide title is available", () => {
+    expect(() =>
+      applyOperation(
+        { title: "Untitled Deck", slides: [] },
+        {
+          op: "patch-deck-fields",
+          fields: { title: "H3sVsnns-TEVUOpz9w" },
+        },
+      ),
+    ).toThrow(/human-readable title/);
+  });
 });
 
 describe("source-imported deck structure", () => {
@@ -275,6 +308,66 @@ describe("source-imported deck structure", () => {
         { op: "delete-slide", slideId: "s1" },
       ]),
     ).not.toThrow();
+  });
+
+  it("rejects a partial deck-wide source restyle before writing", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+        {
+          id: "s3",
+          text: "three",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [{ op: "patch-slide", slideId: "s1", fields: { content: "styled" } }],
+        true,
+      ),
+    ).toThrow("Missing 2 slide(s): s2, s3");
+  });
+
+  it("accepts complete content coverage for a deck-wide source restyle", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [
+          { op: "patch-slide", slideId: "s1", fields: { content: "one" } },
+          { op: "patch-slide", slideId: "s2", fields: { content: "two" } },
+        ],
+        true,
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe("isAgentPatchCaller", () => {
+  it("treats tool, mcp, and a2a callers as agent callers", () => {
+    expect(isAgentPatchCaller("tool")).toBe(true);
+    expect(isAgentPatchCaller("mcp")).toBe(true);
+    expect(isAgentPatchCaller("a2a")).toBe(true);
+  });
+
+  it("treats the browser editor and unset callers as non-agent", () => {
+    expect(isAgentPatchCaller("frontend")).toBe(false);
+    expect(isAgentPatchCaller("http")).toBe(false);
+    expect(isAgentPatchCaller(undefined)).toBe(false);
   });
 });
 
@@ -303,6 +396,9 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.slideId).toMatchObject({ type: "string" });
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
+    });
+    expect(parameters.properties.requireAllSourceSlides).toMatchObject({
+      type: "boolean",
     });
   });
 });
@@ -382,6 +478,18 @@ describe("resolveDeckColumnUpdates", () => {
     // deck list shows a truncated name once the JSON and column disagree.
     const burst = ["N", "Ne", "New", "New ", "New Name"].map(renameOp);
     expect(resolveDeckColumnUpdates(current, burst).title).toBe("New Name");
+  });
+
+  it("uses the title recovered while applying the operations", () => {
+    const operations: Operation[] = [
+      {
+        op: "patch-deck-fields",
+        fields: { title: "H3sVsnns-TEVUOpz9w" },
+      },
+    ];
+    expect(
+      resolveDeckColumnUpdates(current, operations, "Recovered").title,
+    ).toBe("Recovered");
   });
 
   it("takes the last designSystemId in a batch", () => {

@@ -1,5 +1,16 @@
 # @agent-native/dispatch
 
+## 0.23.1
+
+### Patch Changes
+
+- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
+- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/toolkit@0.13.9
+
 ## 0.23.0
 
 ### Minor Changes

@@ -679,6 +679,7 @@ const messages = {
       "삭제하지 않는 한 기본 디자인 시스템과 참조 덱을 유지합니다. 다른 덱을 검색하거나 파일을 가져온 후 준비되면 계속하세요.",
     chooseAnotherDeck: "다른 덱 선택",
     noMatchingDecks: "일치하는 덱이 없습니다.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google Slides 덱",
     googleSlidesReferenceConnect:
       "Slides 덱을 가져오려면 Google Drive를 연결하세요.",

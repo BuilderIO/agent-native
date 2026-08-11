@@ -431,6 +431,47 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("posts approval grants on the continuation turn", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-approval",
+      threadId: "thread-approval",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolName: "create-builder-branch",
+                toolCallId: "call-1",
+                args: {},
+                result: "Awaiting human approval.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Approved. Go ahead." }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { approvedToolCalls: ["create-builder-branch:{}"] },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.approvedToolCalls).toEqual(["create-builder-branch:{}"]);
+  });
+
   it("falls back to the live picker for queue entries without a model snapshot", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
@@ -5346,6 +5387,18 @@ describe("createAgentChatAdapter", () => {
     expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
+      }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "chat-completed-side-effect" },
+      }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:stream-progress",
+        detail: { tabId: "chat-completed-side-effect" },
       }),
     );
     const last = results.at(-1) as any;

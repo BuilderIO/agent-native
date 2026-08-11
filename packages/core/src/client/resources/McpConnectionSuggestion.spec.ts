@@ -27,6 +27,42 @@ describe("findMcpConnectionSuggestionIntegration", () => {
     ).toBe("notion");
   });
 
+  it("ignores provider names and URLs inside hidden composer context", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: [
+          "Create a deck from this.",
+          "<context>",
+          "https://drive.google.com/file/d/example",
+          "</context>",
+        ].join("\n"),
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores provider names and URLs inside hidden response context", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "The deck is updated.",
+        contextText: [
+          "Create a deck from this.",
+          "<context>",
+          "Connect Google Drive",
+          "</context>",
+        ].join("\n"),
+        variant: "response",
+      }),
+    ).toBeNull();
+  });
+
+  it("still selects a provider when the user types its URL directly", () => {
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Import https://docs.google.com/presentation/d/example",
+      })?.id,
+    ).toBe("google-workspace");
+  });
+
   it("respects integrations excluded by the host app", () => {
     const integrations = getDefaultMcpIntegrations({
       defaults: { exclude: ["hubspot"] },

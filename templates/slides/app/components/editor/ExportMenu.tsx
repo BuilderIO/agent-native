@@ -48,6 +48,8 @@ interface ExportMenuProps {
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
+  /** Render the export actions inside an existing dropdown menu. */
+  inline?: boolean;
 }
 
 export function ExportMenu({
@@ -59,6 +61,7 @@ export function ExportMenu({
   onExportGoogleSlides,
   onShareLink,
   onShareTeam,
+  inline = false,
 }: ExportMenuProps) {
   const t = useT();
   const [googleSlidesImportOpen, setGoogleSlidesImportOpen] = useState(false);
@@ -123,11 +126,13 @@ export function ExportMenu({
         });
         return;
       }
-      console.warn("Google Slides upload unavailable:", result.reason);
       if (target) target.location.href = GOOGLE_SLIDES_IMPORT_URL;
       setGoogleSlidesImportOpen(true);
-      toast.success(t("editorExport.googleSlidesDownloaded"), {
-        description: t("editorExport.googleSlidesImportHint"),
+      // The deck did not reach Drive. Saying "success" here is why users read
+      // the .pptx download as the intended result and never learn that their
+      // Google account is unconnected or that Drive rejected the upload.
+      toast.warning(t("editorExport.googleSlidesDownloaded"), {
+        description: `${result.reason} ${t("editorExport.googleSlidesImportHint")}`,
       });
     } catch (err) {
       googleSlidesImportTarget.current = null;
@@ -222,75 +227,81 @@ export function ExportMenu({
     }
   };
 
+  const menuContent = (
+    <>
+      <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+        {t("editorExport.exportAndDuplicate")}
+      </DropdownMenuLabel>
+      {onShareTeam && (
+        <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">
+          <IconShare2 className="w-4 h-4 mr-2" />
+          {t("editorExport.shareWithTeam")}
+        </DropdownMenuItem>
+      )}
+      {onShareLink && (
+        <DropdownMenuItem onClick={onShareLink} className="cursor-pointer">
+          <IconShare2 className="w-4 h-4 mr-2" />
+          {t("editorExport.publicShareLink")}
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={handleExportHtml} className="cursor-pointer">
+        <IconCode className="w-4 h-4 mr-2" />
+        {t("editorExport.downloadHtml")}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={onExportPdf} className="cursor-pointer">
+        <IconFileTypePdf className="w-4 h-4 mr-2" />
+        {t("editorExport.exportPdf")}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={handleExportPptx} className="cursor-pointer">
+        <IconDownload className="w-4 h-4 mr-2" />
+        {t("editorExport.exportPptx")}
+      </DropdownMenuItem>
+      {onExportGoogleSlides && (
+        <>
+          <DropdownMenuItem
+            onClick={handleConnectGoogle}
+            className="cursor-pointer"
+          >
+            <IconPlugConnected className="w-4 h-4 mr-2" />
+            {t("editorExport.connectGoogle")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={handleExportGoogleSlides}
+            className="cursor-pointer"
+          >
+            <IconBrandGoogle className="w-4 h-4 mr-2" />
+            {t("editorExport.openInGoogleSlides")}
+          </DropdownMenuItem>
+        </>
+      )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
+        <IconCopy className="w-4 h-4 mr-2" />
+        {t("editorExport.duplicateDeck")}
+      </DropdownMenuItem>
+    </>
+  );
+
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
-            <IconUpload className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t("editorExport.export")}</span>
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuLabel className="text-[11px] text-muted-foreground">
-            {t("editorExport.exportAndDuplicate")}
-          </DropdownMenuLabel>
-          {onShareTeam && (
-            <DropdownMenuItem onClick={onShareTeam} className="cursor-pointer">
-              <IconShare2 className="w-4 h-4 mr-2" />
-              {t("editorExport.shareWithTeam")}
-            </DropdownMenuItem>
-          )}
-          {onShareLink && (
-            <DropdownMenuItem onClick={onShareLink} className="cursor-pointer">
-              <IconShare2 className="w-4 h-4 mr-2" />
-              {t("editorExport.publicShareLink")}
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={handleExportHtml}
-            className="cursor-pointer"
-          >
-            <IconCode className="w-4 h-4 mr-2" />
-            {t("editorExport.downloadHtml")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onExportPdf} className="cursor-pointer">
-            <IconFileTypePdf className="w-4 h-4 mr-2" />
-            {t("editorExport.exportPdf")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleExportPptx}
-            className="cursor-pointer"
-          >
-            <IconDownload className="w-4 h-4 mr-2" />
-            {t("editorExport.exportPptx")}
-          </DropdownMenuItem>
-          {onExportGoogleSlides && (
-            <>
-              <DropdownMenuItem
-                onClick={handleConnectGoogle}
-                className="cursor-pointer"
-              >
-                <IconPlugConnected className="w-4 h-4 mr-2" />
-                {t("editorExport.connectGoogle")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleExportGoogleSlides}
-                className="cursor-pointer"
-              >
-                <IconBrandGoogle className="w-4 h-4 mr-2" />
-                {t("editorExport.openInGoogleSlides")}
-              </DropdownMenuItem>
-            </>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
-            <IconCopy className="w-4 h-4 mr-2" />
-            {t("editorExport.duplicateDeck")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {inline ? (
+        menuContent
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
+              <IconUpload className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">
+                {t("editorExport.export")}
+              </span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {menuContent}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       <Dialog
         open={googleSlidesImportOpen}
         onOpenChange={setGoogleSlidesImportOpen}

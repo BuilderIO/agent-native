@@ -1741,6 +1741,9 @@ export function processEvent(
         }),
       );
     }
+    // This event is terminal. There may be no visible text or tool_done after
+    // the last preparation activity, so do not leave its label mounted.
+    dispatchActivityClear(tabId);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
@@ -1844,6 +1847,9 @@ export function processEvent(
       ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
       ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
     };
+    // Non-recoverable errors end the turn. Recoverable errors return above as
+    // auto-continue signals and must keep their activity state alive.
+    dispatchActivityClear(tabId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
@@ -1867,6 +1873,10 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
+    // `done` is authoritative even when the final model chunk contains only
+    // a wrap-up marker. Clear any preparation label before inspecting pending
+    // tools so both success and interrupted-terminal paths settle the UI.
+    dispatchActivityClear(tabId);
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,

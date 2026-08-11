@@ -8,7 +8,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
 } from "../components/ui/dropdown-menu.js";
-import { RunsTrayMenuItem } from "./RunsTray.js";
+import { RunsTray, RunsTrayMenuItem } from "./RunsTray.js";
 
 vi.mock("../api-path.js", () => ({
   agentNativePath: (path: string) => path,
@@ -73,5 +73,78 @@ describe("RunsTrayMenuItem", () => {
     });
 
     expect(document.body.textContent).toContain("No recent runs");
+  });
+});
+
+describe("RunsTray polling", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  const runningRun = {
+    id: "run-1",
+    owner: "user@example.com",
+    title: "Build deck",
+    percent: null,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    completedAt: null,
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserver {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    document.body.innerHTML = "";
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("keeps refreshing an active run even when idle polling is disabled", async () => {
+    const fetchMock = vi.fn(async () => Response.json([runningRun]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={0} />);
+    });
+
+    const afterMount = fetchMock.mock.calls.length;
+    expect(afterMount).toBeGreaterThan(0);
+
+    await act(async () => {
+      await vi.waitFor(
+        () => expect(fetchMock.mock.calls.length).toBeGreaterThan(afterMount),
+        { timeout: 15_000, interval: 250 },
+      );
+    });
+  }, 20_000);
+
+  it("does not poll when nothing is running and idle polling is disabled", async () => {
+    const fetchMock = vi.fn(async () => Response.json([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={0} />);
+    });
+
+    const afterMount = fetchMock.mock.calls.length;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    expect(fetchMock.mock.calls.length).toBe(afterMount);
   });
 });

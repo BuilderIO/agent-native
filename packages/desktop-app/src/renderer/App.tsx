@@ -22,6 +22,7 @@ import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import Sidebar, { WindowControls } from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
+import { shouldRouteDesktopAppToChatFirst } from "./lib/desktop-shortcut-routing.js";
 import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
 import { getTabDisplayTitle } from "./lib/tab-title.js";
 
@@ -157,6 +158,11 @@ export default function App() {
     pendingDesktopShortcutActivation,
     setPendingDesktopShortcutActivation,
   ] = useState<DesktopShortcutActivationRequest | null>(null);
+  const [chatFirstAppOpenRequest, setChatFirstAppOpenRequest] = useState<{
+    appId: string;
+    path?: string;
+    nonce: number;
+  }>();
 
   // Load apps from persistent store
   useEffect(() => {
@@ -192,6 +198,7 @@ export default function App() {
   const appDefs = enabledApps.map(toAppDefinition);
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
+  const [activeChatFirstAppId, setActiveChatFirstAppId] = useState("");
   const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});
   const [mountedAppIds, setMountedAppIds] = useState<Set<string>>(
     () => new Set(),
@@ -263,6 +270,11 @@ export default function App() {
   const handleFrameSettingsChanged = useCallback((settings: FrameSettings) => {
     setShowCodeAgentsTab(settings.showCodeTab);
     setChatFirstMode(settings.chatFirstMode !== false);
+  }, []);
+
+  const handleChatFirstAppSelectionChange = useCallback((appId?: string) => {
+    setActiveChatFirstAppId(appId ?? "");
+    if (appId) window.electronAPI?.setActiveApp?.(appId);
   }, []);
 
   const activateApp = useCallback(
@@ -382,6 +394,7 @@ export default function App() {
 
   const handleSidebarTabChange = useCallback(
     (appId: string) => {
+      setActiveChatFirstAppId("");
       activateApp(appId);
       setShowSettings(false);
     },
@@ -427,12 +440,28 @@ export default function App() {
       const targetApp = enabledApps.find((app) => app.id === appId);
       if (!targetApp) return !loading;
 
+      const urlPath = safeDesktopOpenPath(request.path);
+      if (
+        shouldRouteDesktopAppToChatFirst({ chatFirstMode, showCodeAgentsTab })
+      ) {
+        setChatFirstAppOpenRequest({
+          appId,
+          nonce: Date.now(),
+          ...(urlPath ? { path: urlPath } : {}),
+        });
+        setHasMountedCodeAgents(true);
+        setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
+        setShowSettings(false);
+        setShowAddApp(false);
+        return true;
+      }
+
+      setActiveChatFirstAppId("");
       window.electronAPI?.setActiveApp?.(appId);
       activateApp(appId);
       setShowSettings(false);
       setShowAddApp(false);
 
-      const urlPath = safeDesktopOpenPath(request.path);
       if (!urlPath) return true;
       const urlOpenNonce = Date.now();
       const urlOpenSoft = request.softOpen === true;
@@ -463,12 +492,17 @@ export default function App() {
       });
       return true;
     },
-    [activateApp, enabledApps, loading, showCodeAgentsTab],
+    [activateApp, chatFirstMode, enabledApps, loading, showCodeAgentsTab],
   );
 
   useEffect(() => {
     const bridge = {
-      getActiveAppId: () => activeSidebarAppId,
+      getActiveAppId: () =>
+        activeSidebarAppId === CODE_AGENTS_SURFACE_ID &&
+        chatFirstMode &&
+        showCodeAgentsTab
+          ? activeChatFirstAppId || activeSidebarAppId
+          : activeSidebarAppId,
       activate: (
         request: DesktopShortcutActivationRequest,
       ): DesktopShortcutActivationResult => {
@@ -490,7 +524,13 @@ export default function App() {
         delete window.__agentNativeDesktopShortcutBridge;
       }
     };
-  }, [activeSidebarAppId, handleDesktopOpenRequest]);
+  }, [
+    activeChatFirstAppId,
+    activeSidebarAppId,
+    chatFirstMode,
+    handleDesktopOpenRequest,
+    showCodeAgentsTab,
+  ]);
 
   useEffect(() => {
     if (showCodeAgentsTab || activeSidebarAppId !== CODE_AGENTS_SURFACE_ID) {
@@ -1063,6 +1103,7 @@ export default function App() {
                 apps={apps}
                 isActive={isCodeAgentsActive}
                 openRequest={codeAgentsOpenRequest}
+                chatFirstAppOpenRequest={chatFirstAppOpenRequest}
                 chatFirstPreviewRequest={chatFirstPreviewRequest}
                 chatFirstPreviewStatus={
                   chatFirstPreviewStatus?.appId ===
@@ -1080,6 +1121,9 @@ export default function App() {
                 onOpenSettings={() => setShowSettings(true)}
                 onCreateApp={() => setShowAddApp(true)}
                 onChatFirstAppCreated={handleChatFirstAppCreated}
+                onChatFirstAppSelectionChange={
+                  handleChatFirstAppSelectionChange
+                }
                 chatFirstMode={chatFirstMode}
               />
             </div>

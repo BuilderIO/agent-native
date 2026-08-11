@@ -3821,6 +3821,31 @@ describe("SSE event processor activity-label clearing", () => {
       }),
     );
   });
+
+  it("clears the running activity label when a terminal done follows preparation", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing patch deck...",
+            tool: "patch-deck",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-terminal",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-terminal" },
+      }),
+    );
+  });
 });
 
 describe("SSE event processor stream-progress signaling", () => {
