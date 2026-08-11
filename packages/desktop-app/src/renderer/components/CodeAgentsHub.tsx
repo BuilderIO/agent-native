@@ -46,6 +46,7 @@ import {
   defaultChatFirstCopy,
   type ChatFirstAppItem,
   type ChatFirstEmbedTarget,
+  type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
@@ -319,10 +320,40 @@ export default function CodeAgentsHub({
       ) ?? null,
     [chatFirstSurfaceTabs],
   );
+  const chatFirstDefaultInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!chatFirstMode || chatFirstDefaultInitializedRef.current) return;
+    chatFirstDefaultInitializedRef.current = true;
+    closeChatFirstSessionWatch();
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [chatFirstMode, chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
   const chatFirstAppTakesMain =
     chatFirstMode &&
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
+  const activeChatFirstPrimaryTab = useMemo<ChatFirstPrimaryTab>(() => {
+    if (
+      !chatFirstAppTakesMain ||
+      activeChatFirstSurfaceTab?.kind !== "app" ||
+      activeChatFirstSurfaceTab.appId !== "dispatch"
+    ) {
+      return "new-chat";
+    }
+    if (
+      activeChatFirstSurfaceTab.path === "/admin/integrations" ||
+      activeChatFirstSurfaceTab.path === "/integrations"
+    ) {
+      return "integrations";
+    }
+    if (
+      activeChatFirstSurfaceTab.path === "/admin/automations" ||
+      activeChatFirstSurfaceTab.path === "/automations"
+    ) {
+      return "scheduled";
+    }
+    return "new-chat";
+  }, [activeChatFirstSurfaceTab, chatFirstAppTakesMain]);
   const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -452,13 +483,25 @@ export default function CodeAgentsHub({
     () =>
       chatFirstMode
         ? {
+            activeTab: activeChatFirstPrimaryTab,
+            onNewChat: () => {
+              closeChatFirstSessionWatch();
+              chatFirstSurfaceTabsStore.closeAll();
+              setChatFirstSurfacePanelOpen(false);
+            },
             onOpenIntegrations: () =>
               openChatFirstApp("dispatch", "/admin/integrations"),
             onOpenScheduled: () =>
               openChatFirstApp("dispatch", "/admin/automations"),
           }
         : undefined,
-    [chatFirstMode, openChatFirstApp],
+    [
+      activeChatFirstPrimaryTab,
+      chatFirstMode,
+      chatFirstSurfaceTabsStore,
+      openChatFirstApp,
+      setChatFirstSurfacePanelOpen,
+    ],
   );
   const openChatFirstAppFromRail = useCallback(
     (app: ChatFirstAppItem) => openChatFirstApp(app.id),

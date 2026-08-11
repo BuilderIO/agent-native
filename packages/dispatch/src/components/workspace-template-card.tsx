@@ -222,18 +222,8 @@ export function WorkspaceTemplateCard({
                 target="_blank"
                 rel="noreferrer"
                 labels={{ openApp: labels.openApp }}
-                showNewTabOption
               />
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setOpen(true)}
-            >
-              <IconPlus />
-              {labels.remix}
-            </Button>
           </>
         ) : liveUrl ? (
           <Button variant="ghost" size="sm" className="shrink-0" asChild>

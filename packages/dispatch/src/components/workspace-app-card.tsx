@@ -25,7 +25,6 @@ import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
 import {
-  isPendingBuilderHref,
   workspaceAppHref,
   workspaceAppRoute,
   type WorkspaceAppSummary,
@@ -276,7 +275,6 @@ function WorkspaceAppOpenActions({
   href: string | null;
 }) {
   const navigate = useNavigate();
-  const openInNewTab = isPendingBuilderHref(app);
   const appRoute = workspaceAppRoute(app.id);
 
   if (!href) {
@@ -290,14 +288,13 @@ function WorkspaceAppOpenActions({
   return (
     <AppOpenActions
       name={app.name}
-      href={openInNewTab ? href : appRoute}
-      target={openInNewTab ? "_blank" : undefined}
-      rel={openInNewTab ? "noreferrer" : undefined}
-      showInlineOption={openInNewTab}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      showInlineOption
       onOpenInline={() => {
         navigate(appRoute);
       }}
-      showNewTabOption={openInNewTab}
     />
   );
 }

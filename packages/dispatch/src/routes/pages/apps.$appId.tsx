@@ -5,7 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { IconArrowLeft, IconClockHour4 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -52,6 +52,7 @@ export default function WorkspaceAppRoute() {
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [embedAttempt, setEmbedAttempt] = useState(0);
+  const embedFrameRef = useRef<HTMLIFrameElement>(null);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
@@ -95,6 +96,21 @@ export default function WorkspaceAppRoute() {
     embedAttempt,
     embedInput,
   ]);
+
+  useEffect(() => {
+    const handleEmbedSessionExpired = (event: MessageEvent) => {
+      if (
+        event.data?.type !== "agentNative.embedSessionExpired" ||
+        event.source !== embedFrameRef.current?.contentWindow
+      ) {
+        return;
+      }
+      setEmbedAttempt((attempt) => attempt + 1);
+    };
+
+    window.addEventListener("message", handleEmbedSessionExpired);
+    return () => window.removeEventListener("message", handleEmbedSessionExpired);
+  }, []);
 
   if (appsQuery.isError) {
     return (
@@ -208,6 +224,7 @@ export default function WorkspaceAppRoute() {
             data-dispatch-workspace-app-frame
             src={embedUrl}
             title={app.name}
+            ref={embedFrameRef}
             referrerPolicy="no-referrer"
             className="h-full w-full border-0 bg-background"
           />
