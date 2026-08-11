@@ -6,7 +6,7 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  IconStack2,
+  IconLayoutGrid,
   IconComponents,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
@@ -23,7 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconStack2, labelKey: "navigation.decks", href: "/" },
+  { icon: IconLayoutGrid, labelKey: "navigation.decks", href: "/" },
   {
     icon: IconComponents,
     labelKey: "navigation.designSystems",

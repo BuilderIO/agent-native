@@ -91,7 +91,7 @@ async function loadReferenceDeckGenerationContext(
   ].join("\n");
 }
 
-function isSourceImprovementRequest(
+export function isSourceImprovementRequest(
   prompt: string,
   files: UploadedFile[],
 ): boolean {
